@@ -22,13 +22,14 @@ claude
 ## How it works
 
 ```
-JUVANT_OS.md           ← The Skill. The orchestrator. The only entry point.
-agents/company/        ← 10 company agents (CoS, CFO, CLO, CMO...)
-agents/projects/       ← 9 project agents (CTO, CPO, CDO, Eng/*...)
-hooks/                 ← 5 lifecycle bash scripts
-scripts/schema.sql     ← Turso database schema
-plugins/m365-mail/     ← Inbound email channel plugin (Claude Code native)
-plugins/portal-bridge/ ← MCP server — bridge between Azure Portal and agent sessions
+JUVANT_OS.md            ← The Skill. The orchestrator. The only entry point.
+agents/company/         ← 10 company agents (CoS, CFO, CLO, CMO...)
+agents/projects/        ← 9 project agents (CTO, CPO, CDO, Eng/*...)
+hooks/                  ← 5 lifecycle bash scripts
+scripts/schema.sql      ← Turso database schema
+plugins/m365-mail/      ← Inbound email channel plugin (Claude Code native)
+plugins/portal-bridge/  ← MCP server — bridge between Azure Portal and agent sessions
+plugins/teams-meeting/  ← Teams meeting bot — CoS as silent co-pilot during calls
 ```
 
 State lives in [Turso](https://turso.tech) — a cloud SQLite database shared across all agent sessions.
@@ -51,10 +52,24 @@ Reads `agents.status` from Turso to serve live 🟢/🔴 availability to the por
 Applies `disclosure_policies` filter before passing any data to portal agent variants.
 Manages one dedicated session per external counterparty.
 Powers two separate portals:
-- **Service Portal** — ongoing relationships (commercialista, avvocata, partners)
+- **Service Portal** — ongoing relationships (accountant, lawyer, partners)
 - **Demo Portal** — live sales demos (CCO-led, prospect-facing)
 
-> Both plugins are v1.1 features — not required for Alpha/Beta/v1.0.
+### `plugins/teams-meeting/`
+Native Claude Code Channel plugin. Registers CoS as a silent bot participant in Teams meetings.
+Reads live transcript via Graph API every ~15 seconds.
+CoS analyzes transcript and whispers suggestions privately to you.
+If you @mention CoS by name in the meeting chat, it responds publicly — visible to all participants.
+
+```
+Client: "How do you handle GDPR?"
+CoS → private to you: "Suggest: Azure West Europe, GDPR Art. 28, DPA available on request"
+
+You: "@Atlas can you summarize our data residency approach?"
+CoS → public in meeting chat: "All data processed in Azure West Europe..."
+```
+
+> All three plugins are **v1.1 features** — not required for Alpha/Beta/v1.0.
 
 ---
 
@@ -131,6 +146,17 @@ git push
 
 ---
 
+## Roadmap
+
+| Milestone | What |
+|---|---|
+| **Alpha** | JUVANT_OS.md Skill + hooks + 19 subagent templates |
+| **Beta** | M365 mail channel plugin + Scheduled Tasks + Theos operational |
+| **v1.0** | Testing green |
+| **v1.1** | Service Portal + Demo Portal + Teams Meeting Bot |
+
+---
+
 ## Multi-company usage
 
 Each company is a fork of this repo in its own folder:
@@ -164,7 +190,7 @@ logs/
 Juvant OS uses [Turso](https://turso.tech) (LibSQL) as its cloud state store.
 All agent sessions share the same Turso database — this is how agents maintain shared memory across restarts, devices, and parallel sessions.
 
-Turso is optional: you can run with a local SQLite file, but the External Portal will not be available.
+Turso is optional: you can run with a local SQLite file, but v1.1 portal and meeting features will not be available.
 
 ---
 
