@@ -157,7 +157,7 @@ at company init and immediately becomes editable through the governance flow abo
 | cos | turso, ms-graph | — | telegram (send) |
 | cfo | turso, ms-graph, bank | pdf, docx | m365-mail (receive) |
 | clo | turso, ms-graph | pdf, docx | m365-mail (receive) |
-| cmo | turso, ms-graph, buffer | docx | — |
+| cmo | turso, ms-graph, buffer | docx | m365-mail (receive, press scope) |
 | cco | turso, ms-graph | docx, pdf | m365-mail (receive) |
 | chro | turso | — | — |
 | cso | turso, github | — | — |
@@ -176,6 +176,12 @@ at company init and immediately becomes editable through the governance flow abo
 
 Note: `bank` is an abstract role bound to a concrete provider (Finom, Mercury, Revolut, Wise, …)
 at company init. The matrix references the abstraction; the binding lives in `.claude/settings.json`.
+
+The `m365-mail (receive, press scope)` cell for `cmo` denotes a scope-restricted receive channel:
+the channel plugin routes messages from the configured press mailbox (e.g. `press@{{COMPANY_DOMAIN}}`)
+to CMO's inbound queue exclusively. Other inbound classes (legal, finance, sales) are routed to
+their respective owners. Scope is enforced in `.claude/settings.json` channel configuration, not
+in the agent definition itself.
 
 Portal variants (cfo-portal, clo-portal, cco-portal, cco-demo) are v1.1 and inherit their parent's
 matrix with restrictions to be defined at portal release.
