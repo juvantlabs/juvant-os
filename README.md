@@ -22,16 +22,39 @@ claude
 ## How it works
 
 ```
-JUVANT_OS.md          ← The Skill. The orchestrator. The only entry point.
+JUVANT_OS.md           ← The Skill. The orchestrator. The only entry point.
 agents/company/        ← 10 company agents (CoS, CFO, CLO, CMO...)
 agents/projects/       ← 9 project agents (CTO, CPO, CDO, Eng/*...)
 hooks/                 ← 5 lifecycle bash scripts
 scripts/schema.sql     ← Turso database schema
-plugins/m365-mail/     ← Inbound email channel plugin
+plugins/m365-mail/     ← Inbound email channel plugin (Claude Code native)
+plugins/portal-bridge/ ← MCP server — bridge between Azure Portal and agent sessions
 ```
 
 State lives in [Turso](https://turso.tech) — a cloud SQLite database shared across all agent sessions.
 Agents communicate through Turso, not through each other directly.
+
+---
+
+## Plugins
+
+### `plugins/m365-mail/`
+Native Claude Code Channel plugin (`defineChannel` API).
+Polls Microsoft 365 via Graph API every 5 minutes.
+Pushes inbound emails directly into the relevant agent session (CFO, CLO, CCO).
+Sender confidence scoring enforced via Turso `disclosure_policies`.
+Claude Code manages the lifecycle entirely — no separate process, no daemon.
+
+### `plugins/portal-bridge/`
+MCP server. Bridge between the External Portal (Azure Static Web App) and Claude Code agent sessions.
+Reads `agents.status` from Turso to serve live 🟢/🔴 availability to the portal.
+Applies `disclosure_policies` filter before passing any data to portal agent variants.
+Manages one dedicated session per external counterparty.
+Powers two separate portals:
+- **Service Portal** — ongoing relationships (commercialista, avvocata, partners)
+- **Demo Portal** — live sales demos (CCO-led, prospect-facing)
+
+> Both plugins are v1.1 features — not required for Alpha/Beta/v1.0.
 
 ---
 
@@ -42,7 +65,6 @@ Agents communicate through Turso, not through each other directly.
 Fork `juvantlabs/juvant-os` into a private repo for your company.
 
 ```bash
-# Example: your company fork
 git clone git@github.com:your-org/your-company-os.git
 cd your-company-os
 ```
