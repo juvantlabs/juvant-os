@@ -151,7 +151,7 @@ git push
 | Milestone | What |
 |---|---|
 | **Alpha** | JUVANT_OS.md Skill + hooks + 19 subagent templates |
-| **Beta** | M365 mail channel plugin + Scheduled Tasks + Theos operational |
+| **Beta** | M365 mail channel plugin + Scheduled Tasks + all company agents operational |
 | **v1.0** | Testing green |
 | **v1.1** | Service Portal + Demo Portal + Teams Meeting Bot |
 
