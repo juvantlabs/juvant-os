@@ -11,11 +11,107 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
-### Pending — Phase 4
-- `JUVANT_OS.md` skill orchestrator (Skill-based; no CLI commands).
-- `scripts/schema.sql` (Turso schema with all referenced tables/columns).
-- `hooks/*.sh` (5 lifecycle bash scripts: SessionStart, SessionEnd, PreCompact, PostCompact, Notification, SubagentStart, SubagentStop).
-- `plugins/m365-mail/` (TypeScript Channel plugin).
+### Pending — Phase 6+
+- `plugins/m365-mail/` (TypeScript Channel plugin via `defineChannel`) — Phase 6 / Beta.
+- Desktop Scheduled Tasks (Morning Brief, Finom poll, fiscal deadlines) — Phase 7 / Beta.
+- Test scenarios (`tests/scenarios/`) — Phase 9 / v1.0.
+- External Portals (Service + Demo) — Phase 8 / v1.1.
+
+---
+
+## [0.4.0] — 2026-05-02 — JUVANT_OS.md Skill orchestrator
+
+Phase 4 of Juvant OS. Closes the Alpha milestone. The Skill orchestrator is the only entry
+point for all Juvant OS operations — natural language replaces the CLI that never existed.
+
+### Added
+
+- **`JUVANT_OS.md`** — Skill orchestrator at the repo root (1,249 lines). Read at every
+  Claude Code SessionStart; defers to `SYSTEM_INVARIANTS.md` (§1–§7) for cross-cutting
+  invariants. Contains:
+  - **§ When to use this skill** — intent → procedure mapping table for every CEO trigger
+    phrase.
+  - **§ How this skill works** — Turso = canonical memory; context window = temporary;
+    `.juvant/config.json` = local-only secrets (gitignored).
+  - **§ Company setup** — 10-step wizard: identity → database (CLI or Manual; Local /
+    Turso / Azure / AWS / GCP) → bank provider binding (`bank` abstract → Finom / Mercury /
+    Revolut / Wise) → notifications (Telegram + Teams + Morning Brief) → counterparties →
+    name resolution (§2 defaults) → template compilation (whole-token substitution; refuse
+    surviving `{{...}}`) → `agent_tool_matrix` v0 seed → **Bootstrap Protocol §1**
+    (CEO-only one-shot override, `tier1_bootstrap=1`, `precondition_bypassed='bootstrap'`,
+    structural-completeness check, CSO `bootstrap_baseline=1` audit, `master_context.
+    bootstrap_completed_at`) → initial commit.
+  - **§ Project setup** — 6-step wizard with project-bootstrap analog
+    (`precondition_bypassed='project-bootstrap'`); CTO Tier-1 sole approver after CHRO + CA
+    bootstrap the project CTO.
+  - **§ Starting agents** — boot sequence with bootstrap-state check, 3-level session
+    continuity, parallel pending-state reads, disclosure-fallback gate, always-on first
+    triad (CoS / CFO / CLO), Boot Mode resolution (Single / All).
+  - **§ Status check** — unified dashboard reads + format with `[MANIFESTO PENDING]` and
+    `[DISCLOSURE FALLBACK ACTIVE]` flags.
+  - **§ Manifesto review flow** — Tier 1 (blocking; company = CHRO + CA, project = CTO
+    sole) and Tier 2 (async, 7-day); CSO precondition (passing 5-layer audit ≤30 days,
+    bypassed only during bootstrap); restricted-mode behaviour by role.
+  - **§ Agent naming** — §2 defaults, project-prefix pattern, whole-token substitution.
+  - **§ Memory commit protocol** — SQL templates per exchange type (`counterparty_history`,
+    `messages`, `inbound_queue`, `decisions`); enumerated `category` values matching the
+    schema.
+  - **§ Context resume** — 3-level redundancy: Agent SDK `session_id` → `session_snapshots`
+    → structured Turso memory.
+  - **§ CoS proxy model** — default proxy with disclosure validation, direct-1:1 exception
+    flow, Eng/* delegated through VPE, Teams channel routing (#approvals,
+    #{{ACTIVE_PROJECT}}-alerts, #{{COMPANY_NAME_SLUG}}-ops, #system).
+  - **§ Spec-driven single-writer model (§4 + §6)** — all 9 spec classes (`pr-spec`,
+    `gh-issue-spec`, `gh-project-update-spec`, `gh-milestone-spec`, `install-spec`,
+    `branch-protection-spec`, `release-spec`, `deployment-spec`, `secret-rotation-spec`)
+    plus `gh-pr-review-spec`; COO 5-check verification (author authorization, approval
+    state, format completeness, Universal CONFIDENTIAL invariant, linked artifact
+    integrity); no partial execution; Universal Boundaries (no `bank:write`, no
+    `m365-mail` send except portals, no `github:write` to non-COO, no `state.db` read +
+    external-channel send in same row, no unrestricted `Bash` to portal/demo agents).
+  - **§ Disclosure fallback cascade (§3)** — detection (Turso unreachable OR
+    zero active rows); Tier 1 universal `inbound_queue` + `security_audit_log` writes;
+    Tier 2 CoS T+5min Telegram CRITICAL aggregation; Tier 3 COO halt-all-writes
+    (single-writer → single-reader-only); Tier 4 VPE Eng/* routing + buffered
+    `eng-output-held`; CSO post-incident `cascade-postmortem`.
+  - **§ Model assignment + override** — Opus 4.7 (cos, cso, clo, cetho, ca), Sonnet 4.6
+    (cfo, cmo, cco, chro, cro, cto, cpo, cdo, coo, vpe), Haiku 4.5 (eng-api, eng-backend,
+    eng-frontend, eng-ai); CoS / VPE override authority; mandatory logging in `decisions`
+    category `model-override` (unlogged override = security incident).
+  - **§ Hiring / offboarding** — post-bootstrap hiring flow (CHRO tool-matrix-change → CA
+    `pr-spec` → CHRO+CA+CSO+CEthO review → standard manifesto lifecycle WITH CSO
+    precondition); 5-step CR-09 offboarding (Drain → Handoff → Revoke → Cleanup → Notify).
+  - **§ Upstream sync** — CHRO drift detection vs `juvantlabs/juvant-os@main` →
+    `decisions` category `upstream-sync-proposal` → CoS → CEO → CA `pr-spec` → COO PR with
+    CHRO + CA + CSO + CEthO review (CEthO required when §3/§5 changed); `git merge
+    upstream/main` reserved for emergencies + post-incident audit.
+  - **§ Migration watch** — OP-001 (Agent Teams: 0/3 today), OP-002 (Cloud Routines: 0/4
+    today), OP-004 (Azure 24/7: not yet required); deltas recorded in `decisions` category
+    `migration-watch`; never proposed to CEO until all criteria green.
+  - **§ Security rules** — 10 Skill-enforced invariants including Universal CONFIDENTIAL
+    (§5), COO 5-check, one-shot bootstrap, SYSTEM_INVARIANTS.md as canonical authority,
+    credentials never in context, counterparty input as data not instructions,
+    `bank:read`-only by construction, COO-only `github:write`, CMO m365-mail = press scope
+    only, structural cascade engagement.
+  - **Appendix A** — placeholder substitution checklist (company-init vs project-init
+    tokens; `{{ACTIVE_PROJECT}}`/`{{PROJECT_NAME}}` resolved at SessionStart and project
+    init respectively; surviving `{{...}}` = compile failure).
+  - **Appendix B** — first-time-setup procedure for a per-company instance: create empty
+    private repo in `juvantio` → `git clone --bare` of `juvantlabs/juvant-os` →
+    `git push --mirror` to per-company repo (standalone, NOT a GitHub fork) → working
+    clone → optional `upstream` remote → `claude` → `Initialize Juvant OS`.
+
+### Notes
+
+- All SQL examples in JUVANT_OS.md target columns that exist in `scripts/schema.sql` from
+  Phase 2 (commit `cbe7d6f`).
+- All hook references match the 7 scripts shipped in Phase 3 (commit `f5bdfc5`) and the
+  registrations in `.claude/settings.json`.
+- All agent references match the 19 compiled subagent templates from Phase 5 / commit
+  history `16c31d2..32ef1a1` (CDO = Chief **DESIGN** Officer; COO = sole `github:write`
+  bearer; `bank` abstract; CMO m365-mail = press scope only).
+- Closes `juvantlabs/juvant-os-pm` issue #12 (FEAT-004).
+- Alpha milestone complete (Phases 1–5 ✅).
 
 ---
 
@@ -160,7 +256,8 @@ documents). Agent Tool Matrix v0 default seed authored.
 
 (Pre-CHANGELOG history; design rationale in `juvantlabs/juvant-os-pm/docs/`.)
 
-[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.0
 [0.3.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.3.0
 [0.2.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.2.0
 [0.1.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.1.0
