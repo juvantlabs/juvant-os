@@ -14,7 +14,7 @@ No CLI. No daemon. No installation. No commands to remember.
 ```
 cd ~/my-company
 claude
-"Set up Juvant OS for Acme Corp"
+"Initialize Juvant OS for Acme Corp"
 ```
 
 ---
@@ -25,7 +25,7 @@ claude
 JUVANT_OS.md            ← The Skill. The orchestrator. The only entry point.
 agents/company/         ← 10 company agents (CoS, CFO, CLO, CMO...)
 agents/projects/        ← 9 project agents (CTO, CPO, CDO, Eng/*...)
-hooks/                  ← 5 lifecycle bash scripts
+hooks/                  ← 7 lifecycle bash scripts
 scripts/schema.sql      ← Turso database schema
 plugins/m365-mail/      ← Inbound email channel plugin (Claude Code native)
 plugins/portal-bridge/  ← MCP server — bridge between Azure Portal and agent sessions
@@ -75,41 +75,62 @@ CoS → public in meeting chat: "All data processed in Azure West Europe..."
 
 ## Quick start
 
-### 1. Fork this repo
+### 1. Create a private repo for your company
 
-Fork `juvantlabs/juvant-os` into a private repo for your company.
+The OSS template at `juvantlabs/juvant-os` is meant to be **mirror-pushed** to your
+own private repo, not GitHub-forked. This decouples your company's repo visibility
+from the OSS template's visibility (the template will eventually go fully public;
+your per-company instance stays private regardless).
 
 ```bash
-git clone git@github.com:your-org/your-company-os.git
-cd your-company-os
+# Create the empty private repo in your GitHub org
+gh repo create <your-org>/<company-slug> \
+  --private \
+  --description "<Company Name> — Juvant OS instance"
+
+# Bare clone of the OSS template
+git clone --bare git@github.com:juvantlabs/juvant-os.git
+
+# Mirror push to your new repo (standalone, NOT a GitHub fork)
+cd juvant-os.git
+git push --mirror git@github.com:<your-org>/<company-slug>.git
+
+# Cleanup
+cd .. && rm -rf juvant-os.git
+
+# Working clone
+git clone git@github.com:<your-org>/<company-slug>.git
+cd <company-slug>
+
+# Optional: track upstream for future syncs
+git remote add upstream git@github.com:juvantlabs/juvant-os.git
 ```
 
-### 2. Open Claude Code
+### 2. Open Claude Code and initialize
 
 ```bash
 claude
+> Initialize Juvant OS for <Company Name>
 ```
 
-### 3. Speak to the Skill
-
-```
-"Set up Juvant OS for [Your Company Name]"
-```
-
-The Skill will guide you through:
-- Choosing your database (local / Turso Cloud / Azure / AWS / GCP)
-- Configuring notifications (Telegram, Teams)
+The Skill (`JUVANT_OS.md`) will guide you through:
+- Choosing your database (local / Turso Cloud / Azure / AWS / GCP) — CLI or Manual setup
+- Binding your bank provider (Finom / Mercury / Revolut / Wise / other)
+- Configuring notifications (Telegram bot, Teams webhook, Morning Brief time)
 - Setting up counterparties (accountant, lawyer, partners)
 - Generating agent names and compiling templates
-- Running the manifesto approval flow
+- Running the **Bootstrap Protocol** (`SYSTEM_INVARIANTS.md` §1) — CEO-only one-shot
+  approval of the founding manifestos, followed by the CSO `bootstrap_baseline` audit
 
-### 4. Commit your compiled setup
+### 3. Commit your compiled setup
 
 ```bash
-git add agents/ hooks/ .claude/settings.json
-git commit -m "init: [Company Name] setup"
+git add agents/ scripts/ hooks/ .claude/settings.json
+git commit -m "init(<company-slug>): bootstrap company-scope agents"
 git push
 ```
+
+See [`JUVANT_OS.md`](JUVANT_OS.md) Appendix B for the canonical first-time setup procedure.
 
 ---
 
@@ -148,12 +169,14 @@ git push
 
 ## Roadmap
 
-| Milestone | What |
-|---|---|
-| **Alpha** | JUVANT_OS.md Skill + hooks + 19 subagent templates |
-| **Beta** | M365 mail channel plugin + Scheduled Tasks + all company agents operational |
-| **v1.0** | Testing green |
-| **v1.1** | Service Portal + Demo Portal + Teams Meeting Bot |
+| Milestone | What | Status |
+|---|---|---|
+| **Alpha** | `JUVANT_OS.md` Skill + 7 lifecycle hooks + 19 subagent templates + Bootstrap Protocol §1 | ✅ [v0.4.0](https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.0) (2026-05-02) |
+| **Beta** | M365 mail channel plugin + Desktop Scheduled Tasks (Morning Brief, bank polls, fiscal deadlines) | Planned |
+| **v1.0** | Test scenarios green (subagent evals + hook tests + integration) | Planned |
+| **v1.1** | External Service Portal + Demo Portal + Teams Meeting Bot | Planned |
+
+Tracked work: [`juvantlabs/juvant-os-pm`](https://github.com/juvantlabs/juvant-os-pm/issues).
 
 ---
 
@@ -194,9 +217,21 @@ Turso is optional: you can run with a local SQLite file, but v1.1 portal and mee
 
 ---
 
-## Project management
+## Documentation
 
-Documentation and project board: [juvantlabs/juvant-os-pm](https://github.com/juvantlabs/juvant-os-pm)
+- [`SYSTEM_INVARIANTS.md`](SYSTEM_INVARIANTS.md) — canonical cross-cutting invariants
+  (Bootstrap Protocol §1, naming convention §2, disclosure fallback cascade §3,
+  single-writer invariant §4, universal CONFIDENTIAL list §5, spec authorization
+  matrix §6, architectural principles §7).
+- [`JUVANT_OS.md`](JUVANT_OS.md) — the Skill orchestrator (read at every SessionStart).
+- [`docs/adr/`](docs/adr/) — Architecture Decision Records (Nygard form, with index
+  and modification governance).
+- [`CHANGELOG.md`](CHANGELOG.md) — release history.
+- [Releases](https://github.com/juvantlabs/juvant-os/releases) — tagged releases with
+  detailed notes.
+- [`juvantlabs/juvant-os-pm`](https://github.com/juvantlabs/juvant-os-pm) — planning
+  docs (`build-plan.md`, `critical-review.md`, design rationale) and FEAT/OP issue
+  tracker.
 
 ---
 
