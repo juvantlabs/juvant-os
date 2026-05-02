@@ -1,0 +1,23 @@
+# Secrets — never commit
+.juvant/config.json
+.juvant/sessions/
+.env
+*.env.*
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+dist/
+*.js.map
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Claude Code local state
+.claude/local/
