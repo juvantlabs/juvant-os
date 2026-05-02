@@ -162,8 +162,8 @@ git push
 Each company is a fork of this repo in its own folder:
 
 ```
-cd ~/acme   → claude   (manages Acme Corp)
-cd ~/juvant → claude   (manages Juvant Srls)
+cd ~/acme    → claude   (manages Acme Corp)
+cd ~/contoso → claude   (manages Contoso Ltd)
 ```
 
 Each fork has its own Turso database, its own compiled agents, its own `.juvant/config.json`.

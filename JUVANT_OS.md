@@ -45,12 +45,12 @@ Juvant OS = `SYSTEM_INVARIANTS.md` + `JUVANT_OS.md` (this file) +
 `scripts/schema.sql` (Turso schema) + `plugins/m365-mail/` (Channel plugin) +
 `.claude/settings.json` (hook + channel registration).
 
-Antonio opens Claude Code in the company directory. Claude Code loads this Skill.
+The CEO opens Claude Code in the company directory. Claude Code loads this Skill.
 The CEO speaks. The Skill maps intent to procedure. Procedures read and write Turso
 (persistent memory) and call subagents through the standard `Task` tool.
 
 There is no daemon, no background process, no npm package. The system is operational
-when Antonio is operational. This is by design.
+when the CEO is operational. This is by design.
 
 **Turso is the canonical memory.** The Claude Code context window is temporary; it is
 emptied at SessionEnd. Anything the system needs to remember across sessions must be
@@ -86,11 +86,11 @@ Before starting the wizard, check:
 
 Collect from the CEO, one question at a time:
 
-- **Company name** (e.g. "Juvant Srls"). Used as `{{COMPANY_NAME}}`.
+- **Company name** (e.g. "Acme Corp"). Used as `{{COMPANY_NAME}}`.
 - **Company description** (one sentence). Used as the `{{AGENT_DESCRIPTION}}` seed.
-- **Company domain** (e.g. `juvant.io`). Used as `{{COMPANY_DOMAIN}}` for press/legal/
+- **Company domain** (e.g. `acme.io`). Used as `{{COMPANY_DOMAIN}}` for press/legal/
   sales mailbox routing in CMO/CCO/CFO/CLO templates.
-- **CEO name** (e.g. "Antonio Gatti"). Used as `{{CEO_NAME}}`.
+- **CEO name** (e.g. "Jane Doe"). Used as `{{CEO_NAME}}`.
 - **CEO email** (used by Morning Brief digest).
 - **CEO Telegram handle** (used by Notification hook for Critical alerts).
 - **Document storage**: OneDrive or Google Drive (binds the `ms-graph` MCP server in
@@ -1089,7 +1089,7 @@ The per-company repo's `upstream` remote points at `juvantlabs/juvant-os`; a dir
 `git fetch upstream && git merge upstream/main` is for emergencies only and must be
 followed by a full CSO post-incident audit.
 
-Per-company instances are mirror-pushed standalone repos (e.g. `juvantio/juvant`),
+Per-company instances are mirror-pushed standalone repos (e.g. `<your-org>/<company-slug>`),
 NOT GitHub forks. The "Sync fork" UI is not used.
 
 ---
@@ -1214,32 +1214,32 @@ Refuse to write any compiled file with a surviving `{{...}}` token.
 Run once, from a clean local environment:
 
 ```bash
-# 1. Create the empty private repo in juvantio
-gh repo create juvantio/juvant \
+# 1. Create the empty private repo in your GitHub org
+gh repo create <your-org>/<company-slug> \
   --private \
-  --description "Juvant Srls — Juvant OS instance"
+  --description "<Company Name> — Juvant OS instance"
 
 # 2. Bare clone of the OSS template
 git clone --bare git@github.com:juvantlabs/juvant-os.git
 
 # 3. Mirror push to the new repo (standalone, NOT a GitHub fork)
 cd juvant-os.git
-git push --mirror git@github.com:juvantio/juvant.git
+git push --mirror git@github.com:<your-org>/<company-slug>.git
 
 # 4. Cleanup
 cd ..
 rm -rf juvant-os.git
 
 # 5. Working clone
-git clone git@github.com:juvantio/juvant.git
-cd juvant
+git clone git@github.com:<your-org>/<company-slug>.git
+cd <company-slug>
 
 # 6. Add upstream remote for future sync (optional but recommended)
 git remote add upstream git@github.com:juvantlabs/juvant-os.git
 
 # 7. Open Claude Code and initialize
 claude
-> Initialize Juvant OS for Juvant Srls
+> Initialize Juvant OS for <Company Name>
 ```
 
 The Skill takes over from there.
