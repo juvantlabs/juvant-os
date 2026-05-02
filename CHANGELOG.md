@@ -11,37 +11,110 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
-### Fixed — pre-dogfood corrections (post-v0.4.0)
-
-- **Teams channel naming**: Teams uses bare channel names (no `#` prefix; that is
-  Slack convention). All references to `#approvals`, `#{{ACTIVE_PROJECT}}-alerts`,
-  `#{{COMPANY_NAME_SLUG}}-ops`, `#system` updated to `Approvals`,
-  `{{ACTIVE_PROJECT}}-alerts`, `{{COMPANY_NAME_SLUG}}-ops`, `System`. Affects
-  `JUVANT_OS.md` (Step 4 Notifications + CoS Communication Map) and
-  `agents/company/cos.md` (Message Priority Rules + Channel use). Surfaced
-  during dogfood pre-flight on 2026-05-02.
-- **Wizard Step 4 schema**: company-setup wizard now collects **four** Teams
-  Adaptive Cards webhook URLs (one per canonical channel) instead of a single
-  webhook. New `.juvant/config.json` schema:
-  `teams_webhooks: { approvals, ops, system, alerts }`. The wizard description
-  table now spells out each channel's purpose.
-- **`{{COMPANY_NAME}}-ops` → `{{COMPANY_NAME_SLUG}}-ops`** in `cos.md` Channel
-  use — `COMPANY_NAME` may contain spaces (e.g. "Acme Corp"); only `_SLUG` form
-  is a valid Teams channel name.
-- **Telegram `chat_id` collection**: Step 4 now also collects the CEO's numeric
-  Telegram `chat_id` (the bot needs it to send Critical alerts; the bot token
-  alone is insufficient). Surfaced when the CEO asked how to obtain a bot token
-  during dogfood pre-flight.
-- **`hooks/notification.sh`**: rewritten to read `teams_webhooks.<channel-key>`
-  using `jq --arg`. Channel selection is driven by the `JUVANT_NOTIFY_CHANNEL`
-  env var (default `approvals`). Empty / unset URLs gracefully skip Teams and
-  fall through to Telegram.
-
 ### Pending — Phase 6+
 - `plugins/m365-mail/` (TypeScript Channel plugin via `defineChannel`) — Phase 6 / Beta.
 - Desktop Scheduled Tasks (Morning Brief, Finom poll, fiscal deadlines) — Phase 7 / Beta.
 - Test scenarios (`tests/scenarios/`) — Phase 9 / v1.0.
 - External Portals (Service + Demo) — Phase 8 / v1.1.
+- `juvantlabs/finom-mcp-server` — FEAT-011 (Beta).
+- `juvantlabs/aruba-fattura-mcp-server` — FEAT-012 (Beta).
+- OSS template shipping defaults — FEAT-013 (CODEOWNERS, CI, branch-protection,
+  MCP inventory, plugin reference, `.gitignore` extensions; addresses the 6
+  CSO baseline-audit Tier-2 follow-ups that surface in every fresh per-company
+  instance).
+
+---
+
+## [0.4.1] — 2026-05-02 — Dogfood patch
+
+First post-Alpha patch. All bugs surfaced during the **first real dogfood run**
+of `Initialize Juvant OS for Juvant Srls` on 2026-05-02 (17 minutes 50 seconds,
+end-to-end Bootstrap Protocol §1 completed successfully).
+
+### Fixed — pre-dogfood corrections (Teams setup)
+
+- **Teams channel naming**: Teams uses bare channel names (no `#` prefix; that is
+  Slack convention). All references to `#approvals`,
+  `#{{ACTIVE_PROJECT}}-alerts`, `#{{COMPANY_NAME_SLUG}}-ops`, `#system` updated
+  to `Approvals`, `{{ACTIVE_PROJECT}}-alerts`, `{{COMPANY_NAME_SLUG}}-ops`,
+  `System`. Affects `JUVANT_OS.md` (Step 4 Notifications + CoS Communication Map)
+  and `agents/company/cos.md` (Message Priority Rules + Channel use).
+- **Wizard Step 4 schema**: company-setup wizard now collects **four** Teams
+  Adaptive Cards webhook URLs (one per canonical channel) instead of a single
+  webhook. New `.juvant/config.json` schema:
+  `teams_webhooks: { approvals, ops, system, alerts }`. The wizard description
+  table spells out each channel's purpose; alerts is optional at company-init.
+- **`{{COMPANY_NAME}}-ops` → `{{COMPANY_NAME_SLUG}}-ops`** in `cos.md` Channel
+  use — `COMPANY_NAME` may contain spaces (e.g. "Acme Corp"); only `_SLUG` form
+  is a valid Teams channel name.
+- **Telegram `chat_id` collection**: Step 4 now also collects the CEO's numeric
+  Telegram `chat_id` (the bot needs it to send Critical alerts; the bot token
+  alone is insufficient).
+- **`hooks/notification.sh`**: rewritten to read `teams_webhooks.<channel-key>`
+  using `jq --arg`. Channel selection is driven by the `JUVANT_NOTIFY_CHANNEL`
+  env var (default `approvals`). Empty / unset URLs gracefully skip Teams and
+  fall through to Telegram.
+
+### Fixed — dogfood (Step 2 — Database setup)
+
+- **`scripts/schema.sql` PRAGMA WAL rejected by Turso.** Removed the
+  `PRAGMA journal_mode=WAL;` statement; Turso (LibSQL) uses WAL by default and
+  rejects the PRAGMA when applied via `turso db shell`. Added a comment
+  documenting that the local SQLite path (provider=local) sets WAL via the
+  wizard at runtime instead of via the schema.
+- **`scripts/migrate.sh` flat keys vs. spec schema.** Migration script now
+  reads `db.url` and `db.auth_token` from `.juvant/config.json` (matching
+  the JUVANT_OS.md Step 2 nested schema), instead of the legacy flat
+  `turso_url` / `turso_token` keys.
+
+### Fixed — dogfood (Step 6 — Agent names)
+
+- **`JUVANT_OS.md` Agent naming table incorrectly listed COO under company-scope.**
+  Per `SYSTEM_INVARIANTS.md` §2, COO is project-scope (default
+  `<project_id>-coo`); the file lives in `agents/projects/coo.md`. The
+  Agent naming reference table is split into a Company-scope table (10 agents)
+  and a Project-scope table (5 leadership + 4 Eng/*) to match the canonical §2
+  definition. Each project gets its own COO; there is no company-wide COO.
+
+### Fixed — dogfood (Step 7 — Compile templates)
+
+- **`agents/company/cso.md` self-reference.** Layer 5 audit check #9 contained
+  the literal token `{{PLACEHOLDER}}` inside backticks while describing its
+  own substitution-failure rule, which would fail its own audit on first run.
+  Reworded to prose: "any surviving `{{NAME}}`-style placeholder is a
+  substitution failure (`FAIL`)" with explicit reference to the §2 allowlist.
+- **Project-scope name placeholders inside company-scope templates.** Eight
+  company-scope files (`cos.md`, `cco.md`, `cmo.md`, `clo.md`, `chro.md`,
+  `cso.md`, `ca.md`) referenced `{{CTO_NAME}}` / `{{CPO_NAME}}` /
+  `{{CDO_NAME}}` / `{{COO_NAME}}` / `{{VPE_NAME}}` in role-routing tables and
+  cross-references. At company-init no project exists yet, so these tokens
+  could not be substituted with real names. Replaced all occurrences with
+  generic phrasing (`the project's CTO`, `the project's COO`, etc.) since
+  company-scope agents address project-scope agents abstractly across all
+  active projects, not as a single named person.
+- **Substitution-failure rule conflicted with `{{ACTIVE_PROJECT}}`
+  runtime-bound exception.** `SYSTEM_INVARIANTS.md` §2 stated both that any
+  surviving `{{...}}` triggers a CSO Layer 5 finding AND that
+  `{{ACTIVE_PROJECT}}` binds at SessionStart and survives compilation —
+  contradiction. Resolution: §2 now defines an explicit **runtime-bound
+  allowlist** (today: `{{ACTIVE_PROJECT}}` only); CSO Layer 5 audits skip
+  allowlisted placeholders. All four "refuse to write any surviving
+  `{{...}}`" assertions in `JUVANT_OS.md` (Wizard Step 7, project-init Step 4,
+  Agent naming section, Appendix A) updated to reference the §2 allowlist.
+
+### Build process — dogfood validation
+
+- First end-to-end `Initialize Juvant OS` on `juvantio/juvant` succeeded:
+  - 10/10 founding company-scope manifestos `operational` after Bootstrap
+    Protocol §1 with `tier1_bootstrap=1` + `precondition_bypassed='bootstrap'`.
+  - CSO `bootstrap_baseline=1` audit returned `WARN-WITH-CONDITIONS`
+    (treated as PASS per §1.8); promoted manifestos to `operational`.
+  - `master_context.bootstrap_completed_at` set at `2026-05-02T21:26:01Z`.
+  - 6 Tier-2 follow-ups authored as `decisions` rows (CODEOWNERS, CI,
+    branch protection, MCP inventory, plugin reference, `.gitignore`
+    extensions); these are tracked as **FEAT-013 OSS template shipping
+    defaults** to address the underlying gaps in the OSS template, so future
+    fresh instances start cleaner.
 
 ---
 
@@ -282,7 +355,8 @@ documents). Agent Tool Matrix v0 default seed authored.
 
 (Pre-CHANGELOG history; design rationale in `juvantlabs/juvant-os-pm/docs/`.)
 
-[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.1
 [0.4.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.0
 [0.3.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.3.0
 [0.2.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.2.0

@@ -419,7 +419,7 @@ You talk to:
 |---|---|
 | {{COS_NAME}} (CoS) | Always — proxy to CEO, drafts, escalations, approvals |
 | {{CSO_NAME}} (CSO) | Every additive security-surface request, drift findings tagged unauthorized |
-| {{COO_NAME}} (COO) | Installation handoff after architectural+CEO approval; PR execution from PR specs |
+| the project's COO | Installation handoff after architectural+CEO approval; PR execution from PR specs |
 | {{CHRO_NAME}} (CHRO) | Subagent versioning awareness when matrix changes affect frontmatter |
 | {{CLO_NAME}} (CLO) | Tool requests touching legal scope (e.g. e-signature MCP, court filing API) |
 | VPE | Project-level tech standard exceptions, project tooling proposals |

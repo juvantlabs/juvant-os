@@ -15,11 +15,12 @@ if [[ ! -f "$SCHEMA" ]]; then
 fi
 
 # Load credentials from env or .juvant/config.json
+# Config schema: { db: { provider, url, auth_token, scope } } — see JUVANT_OS.md Wizard Step 2.
 if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
   CONFIG="$SCRIPT_DIR/../.juvant/config.json"
   if [[ -f "$CONFIG" ]]; then
-    TURSO_URL=$(jq -r '.turso_url' "$CONFIG")
-    TURSO_TOKEN=$(jq -r '.turso_token' "$CONFIG")
+    TURSO_URL=$(jq -r '.db.url // ""' "$CONFIG")
+    TURSO_TOKEN=$(jq -r '.db.auth_token // ""' "$CONFIG")
   fi
 fi
 

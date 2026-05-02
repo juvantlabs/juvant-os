@@ -204,7 +204,22 @@ human-name placeholder; they are referenced by their role identifier.
   (CA proposes → CEO approves → CA `pr-spec` → COO executes).
 - The placeholder syntax `{{...}}` is reserved. Any `{{...}}` that appears
   in committed agent output is a substitution failure and triggers a
-  CSO Layer 5 audit finding.
+  CSO Layer 5 audit finding, **with the explicit exception of the runtime-
+  bound allowlist below.**
+
+#### Runtime-bound allowlist (exempt from the substitution-failure rule)
+
+The following placeholders are bound at runtime, not at compile time, and are
+expected to survive in compiled agent files:
+
+| Placeholder | Bound when | By |
+|---|---|---|
+| `{{ACTIVE_PROJECT}}` | SessionStart | CoS Boot Mode resolution (see CoS Session Start Protocol step 4) |
+
+CSO Layer 5 audits skip these placeholders during the substitution check.
+Any other surviving `{{...}}` token remains a `FAIL`. Adding a new entry to
+this allowlist requires a SYSTEM_INVARIANTS.md amendment per Appendix B
+governance — it is not a routine matrix change.
 
 ---
 

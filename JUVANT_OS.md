@@ -277,8 +277,11 @@ For each `agents/**/*.md` file:
      `{{SPRINT_LENGTH}}`, voice modes, ranking weights, tech stack).
    - `{{ACTIVE_PROJECT}}` and `{{PROJECT_NAME}}` are NOT compiled at company init
      (they bind at SessionStart per Boot Mode and at project init respectively).
-3. Refuse to write if any `{{...}}` token survives substitution. That is a CSO
-   Layer 5 finding; abort and surface the offending file.
+3. Refuse to write if any `{{...}}` token survives substitution, **except for
+   placeholders on the SYSTEM_INVARIANTS.md §2 runtime-bound allowlist**
+   (today: `{{ACTIVE_PROJECT}}`, bound at SessionStart). A surviving
+   non-allowlisted token is a CSO Layer 5 finding; abort and surface the
+   offending file.
 4. Write the compiled file in place (overwriting the template).
 
 Project-scope agents (`agents/projects/*.md`) are NOT compiled here — they are
@@ -452,7 +455,8 @@ Allow CEO override per role.
 
 For each `agents/projects/*.md`, substitute placeholders (incl. `{{PROJECT_NAME}}`,
 `{{ACTIVE_PROJECT}}`, `{{*_NAME}}` for project-scope roles, peer references back to
-company-scope agents). Refuse to write if any `{{...}}` token survives.
+company-scope agents). Refuse to write if any non-allowlisted `{{...}}` token
+survives (allowlist per `SYSTEM_INVARIANTS.md` §2 — today: `{{ACTIVE_PROJECT}}`).
 
 ### Wizard — Step 5: Project-bootstrap analog (§1)
 
@@ -645,6 +649,8 @@ Specifically:
 
 SYSTEM_INVARIANTS.md §2 is canonical. Defaults:
 
+**Company-scope (10 agents — compiled at company init):**
+
 | Role | Default name |
 |---|---|
 | CoS | Atlas |
@@ -657,11 +663,20 @@ SYSTEM_INVARIANTS.md §2 is canonical. Defaults:
 | CEthO | Vera |
 | CA | Arch |
 | CRO | Lumen (optional) |
-| COO | Coo |
 
-Project-scope agents follow `<project_id>-<role>` (e.g. `hardys-cto`).
-Eng/* agents are referenced by role identifier only (`eng-api`, `eng-backend`,
-`eng-frontend`, `eng-ai`).
+**Project-scope (5 leadership + 4 Eng/* — compiled at project init):**
+
+| Role | Default name |
+|---|---|
+| CTO | `<project_id>-cto` |
+| CPO | `<project_id>-cpo` |
+| CDO | `<project_id>-cdo` (Chief **Design** Officer — not Data) |
+| COO | `<project_id>-coo` (sole `github:write` bearer per §4) |
+| VPE | `<project_id>-vpe` |
+| eng-api / eng-backend / eng-frontend / eng-ai | role identifier only |
+
+Each project gets its own COO; there is no company-wide COO. The COO single-writer
+invariant (§4) applies per project repo.
 
 Substitution rules (§2):
 
@@ -670,7 +685,8 @@ Substitution rules (§2):
   for project-scope agents.
 - Re-substitution post-init requires the standard tool-matrix change flow
   (CA proposes → CEO approves → CA `pr-spec` → COO executes).
-- Any surviving `{{...}}` in a committed agent file is a CSO Layer 5 finding.
+- Any surviving `{{...}}` in a committed agent file is a CSO Layer 5 finding,
+  except for the runtime-bound allowlist in §2 (today: `{{ACTIVE_PROJECT}}`).
 
 ---
 
@@ -1245,7 +1261,9 @@ At project init, the Skill substitutes in `agents/projects/*.md`:
 `{{CDO_NAME}}`, `{{COO_NAME}}`, `{{VPE_NAME}}`, plus the company-scope name
 references already resolved at company init.
 
-Refuse to write any compiled file with a surviving `{{...}}` token.
+Refuse to write any compiled file with a surviving `{{...}}` token, except for
+runtime-bound placeholders on the `SYSTEM_INVARIANTS.md` §2 allowlist
+(today: `{{ACTIVE_PROJECT}}`).
 
 ---
 

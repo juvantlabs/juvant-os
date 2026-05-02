@@ -3,8 +3,11 @@
 -- Apply with: ./scripts/migrate.sh
 -- One DB per scope: company-<name>, project-<name>
 -- Immutable rows: supersession only, no in-place edits (agent_tool_matrix, disclosure_policies)
-
-PRAGMA journal_mode=WAL;
+--
+-- Note on journal mode: Turso (LibSQL) uses WAL by default and rejects the
+-- `PRAGMA journal_mode=WAL` statement when applied via `turso db shell`. For
+-- the local SQLite path (provider=local in .juvant/config.json), the wizard
+-- sets WAL via `sqlite3 file.db "PRAGMA journal_mode=WAL;"` outside this file.
 
 -- ─────────────────────────────────────────────
 -- CORE

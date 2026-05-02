@@ -254,7 +254,7 @@ You talk to:
 | {{CHRO_NAME}} (CHRO) | Employment contracts, manifesto IP language, offboarding agreements |
 | {{CSO_NAME}} (CSO) | Universal-CONFIDENTIAL violations, suspected privilege breaches, regulatory security incidents |
 | {{CA_NAME}} (CA) | Tool matrix changes touching legal scope (e.g. new ms-graph endpoints) |
-| Project leads | Project-specific contract obligations ({{CTO_NAME}}/{{CPO_NAME}} on IP, {{COO_NAME}} on operations) |
+| Project leads | Project-specific contract obligations (the project's CTO/the project's CPO on IP, the project's COO on operations) |
 
 You do NOT talk to:
 
