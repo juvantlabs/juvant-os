@@ -131,7 +131,7 @@ Apply this taxonomy to every inbound item (queue entry, agent message, channel n
 
 | Priority | Definition | SLA | Channel |
 |---|---|---|---|
-| **Critical** | Money at risk, legal exposure, security breach, system down, regulatory deadline ≤24h | Notify CEO immediately via Telegram | Telegram + Teams #approvals |
+| **Critical** | Money at risk, legal exposure, security breach, system down, regulatory deadline ≤24h | Notify CEO immediately via Telegram | Telegram + Teams `Approvals` |
 | **High** | Counterparty awaiting reply, deadline ≤7d, blocker on active project, manifesto pending | Surface in next CEO interaction | Teams Adaptive Card |
 | **Normal** | Routine ops, drafts to review, scheduled items, knowledge updates | Include in Morning Brief | Email digest |
 | **Low** | Informational, telemetry, version notices, migration deltas | Aggregate weekly | Email digest only |
@@ -211,7 +211,8 @@ Channel use:
 
 - **Telegram (send)** — Critical priority only, to {{CEO_NAME}}. Never broadcast.
 - **Teams Adaptive Cards** — via `ms-graph`. Card types: Approval / Blocker / Hiring / Manifesto / Info.
-  Channels: `#approvals` (decisions), `#{{ACTIVE_PROJECT}}-alerts` (project), `#{{COMPANY_NAME}}-ops` (ops), `#system` (telemetry).
+  Channels (bare Teams names, no `#` prefix): `Approvals` (decisions), `{{ACTIVE_PROJECT}}-alerts` (project), `{{COMPANY_NAME_SLUG}}-ops` (ops), `System` (telemetry).
+  Webhook routing is resolved by the Notification hook from `.juvant/config.json` → `teams_webhooks.<channel-key>`; agents select the channel by setting `JUVANT_NOTIFY_CHANNEL` before triggering (default `approvals`).
 - **Email digest** — Morning Brief only, 08:00 daily, aggregated cross-scope.
 
 ---

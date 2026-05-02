@@ -11,6 +11,32 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — pre-dogfood corrections (post-v0.4.0)
+
+- **Teams channel naming**: Teams uses bare channel names (no `#` prefix; that is
+  Slack convention). All references to `#approvals`, `#{{ACTIVE_PROJECT}}-alerts`,
+  `#{{COMPANY_NAME_SLUG}}-ops`, `#system` updated to `Approvals`,
+  `{{ACTIVE_PROJECT}}-alerts`, `{{COMPANY_NAME_SLUG}}-ops`, `System`. Affects
+  `JUVANT_OS.md` (Step 4 Notifications + CoS Communication Map) and
+  `agents/company/cos.md` (Message Priority Rules + Channel use). Surfaced
+  during dogfood pre-flight on 2026-05-02.
+- **Wizard Step 4 schema**: company-setup wizard now collects **four** Teams
+  Adaptive Cards webhook URLs (one per canonical channel) instead of a single
+  webhook. New `.juvant/config.json` schema:
+  `teams_webhooks: { approvals, ops, system, alerts }`. The wizard description
+  table now spells out each channel's purpose.
+- **`{{COMPANY_NAME}}-ops` → `{{COMPANY_NAME_SLUG}}-ops`** in `cos.md` Channel
+  use — `COMPANY_NAME` may contain spaces (e.g. "Acme Corp"); only `_SLUG` form
+  is a valid Teams channel name.
+- **Telegram `chat_id` collection**: Step 4 now also collects the CEO's numeric
+  Telegram `chat_id` (the bot needs it to send Critical alerts; the bot token
+  alone is insufficient). Surfaced when the CEO asked how to obtain a bot token
+  during dogfood pre-flight.
+- **`hooks/notification.sh`**: rewritten to read `teams_webhooks.<channel-key>`
+  using `jq --arg`. Channel selection is driven by the `JUVANT_NOTIFY_CHANNEL`
+  env var (default `approvals`). Empty / unset URLs gracefully skip Teams and
+  fall through to Telegram.
+
 ### Pending — Phase 6+
 - `plugins/m365-mail/` (TypeScript Channel plugin via `defineChannel`) — Phase 6 / Beta.
 - Desktop Scheduled Tasks (Morning Brief, Finom poll, fiscal deadlines) — Phase 7 / Beta.

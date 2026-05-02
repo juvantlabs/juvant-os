@@ -191,11 +191,46 @@ Collect:
 
 - **Telegram bot token** (created by the CEO at `@BotFather`; stored in
   `.juvant/config.json`).
-- **Teams Adaptive Cards webhook URL** (one workspace; channels referenced are
-  `#approvals`, `#hardys-alerts` (or `#{{ACTIVE_PROJECT}}-alerts`), `#juvant-ops`,
-  `#system`).
+- **Telegram chat_id** of the CEO — required by the bot to know where to send
+  Critical alerts. Easiest way: open a chat with the new bot, send `/start`, then
+  message `@userinfobot` to retrieve the numeric chat_id.
+- **Teams Adaptive Cards webhook URLs — one per channel.** Teams uses bare channel
+  names (no `#` prefix; that is Slack convention). The four canonical channels and
+  their purpose:
+
+  | Channel | Purpose | Required |
+  |---|---|---|
+  | `Approvals` | Decisions awaiting CEO sign-off; Critical Notification routes here by default | Yes |
+  | `{{COMPANY_NAME_SLUG}}-ops` | Company ops, Morning Brief digest, routine notices | Yes |
+  | `System` | Telemetry, migration-watch deltas, audit findings | Yes |
+  | `{{ACTIVE_PROJECT}}-alerts` | Project-scoped alerts; resolved per project at project-init | Optional at company-init (added when the first project is set up) |
+
+  Each channel is created in Teams as an Incoming Webhook (or modern Power Automate
+  Workflow webhook), and the resulting URL is stored under `.juvant/config.json` →
+  `teams_webhooks.<channel-key>`. Empty / unset URLs cause the Notification hook to
+  skip Teams for that channel and fall back to Telegram only.
 - **Morning Brief time** (default `08:00 Europe/Rome`). Used to configure the
   Desktop Scheduled Task in Phase 7 (separate setup).
+
+Resulting `.juvant/config.json` notifications block:
+
+```json
+{
+  "telegram_bot_token": "<bot-token>",
+  "telegram_chat_id": "<numeric-chat-id>",
+  "teams_webhooks": {
+    "approvals": "https://<tenant>.webhook.office.com/...",
+    "ops": "https://<tenant>.webhook.office.com/...",
+    "system": "https://<tenant>.webhook.office.com/...",
+    "alerts": "https://<tenant>.webhook.office.com/..."
+  },
+  "morning_brief_time": "08:00",
+  "morning_brief_tz": "Europe/Rome"
+}
+```
+
+The `alerts` key is shared across projects in v1.0; per-project alert webhooks are a
+v1.1 refinement.
 
 ### Wizard — Step 5: Counterparties intake
 
@@ -768,12 +803,17 @@ VPE is the broker. Cascading delegations from CoS → VPE → Eng/*.
 ### Teams channel routing (CoS-managed)
 
 Teams Adaptive Cards via `ms-graph`. Card types: Approval / Blocker / Hiring /
-Manifesto / Info. Channels:
+Manifesto / Info. Channels (Teams uses bare names — no `#` prefix):
 
-- `#approvals` — decisions awaiting CEO sign-off.
-- `#{{ACTIVE_PROJECT}}-alerts` — project-scoped alerts (e.g. `#hardys-alerts`).
-- `#juvant-ops` (or `#{{COMPANY_NAME_SLUG}}-ops`) — company ops.
-- `#system` — telemetry, migration deltas.
+- `Approvals` — decisions awaiting CEO sign-off; Notification hook default.
+- `{{ACTIVE_PROJECT}}-alerts` — project-scoped alerts (e.g. `<project-slug>-alerts`).
+- `{{COMPANY_NAME_SLUG}}-ops` — company ops (e.g. `acme-ops`).
+- `System` — telemetry, migration deltas.
+
+Each channel maps to a webhook URL under `.juvant/config.json` →
+`teams_webhooks.{approvals,ops,system,alerts}` (set at company-setup Step 4). Agents
+select the destination channel by setting the `JUVANT_NOTIFY_CHANNEL` env var before
+triggering a Notification (default `approvals`).
 
 ---
 
