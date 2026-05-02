@@ -1,0 +1,18 @@
+{
+  "company": "IT",
+  "year": 2026,
+  "deadlines": [
+    { "id": "iva-q1", "name": "Dichiarazione IVA trimestrale Q1", "date": "2026-05-16", "owner": "cfo", "days_notice": 30 },
+    { "id": "f24-maggio", "name": "Versamento F24 — IVA + contributi", "date": "2026-05-16", "owner": "cfo", "days_notice": 14 },
+    { "id": "inps-q1", "name": "Contributi INPS artigiani/commercianti Q1", "date": "2026-05-16", "owner": "cfo", "days_notice": 14 },
+    { "id": "iva-q2", "name": "Dichiarazione IVA trimestrale Q2", "date": "2026-08-16", "owner": "cfo", "days_notice": 30 },
+    { "id": "f24-agosto", "name": "Versamento F24 — agosto", "date": "2026-08-20", "owner": "cfo", "days_notice": 14 },
+    { "id": "iva-q3", "name": "Dichiarazione IVA trimestrale Q3", "date": "2026-11-16", "owner": "cfo", "days_notice": 30 },
+    { "id": "f24-novembre", "name": "Versamento F24 — novembre", "date": "2026-11-16", "owner": "cfo", "days_notice": 14 },
+    { "id": "inps-q3", "name": "Contributi INPS Q3", "date": "2026-11-16", "owner": "cfo", "days_notice": 14 },
+    { "id": "dichiarazione-redditi", "name": "Dichiarazione dei redditi (modello Redditi SC)", "date": "2026-11-30", "owner": "cfo", "days_notice": 60 },
+    { "id": "iva-annuale", "name": "Dichiarazione IVA annuale", "date": "2027-02-28", "owner": "cfo", "days_notice": 30 },
+    { "id": "bilancio", "name": "Deposito bilancio al Registro Imprese", "date": "2027-06-30", "owner": "cfo", "days_notice": 60 },
+    { "id": "startup-innovativa", "name": "Rinnovo iscrizione startup innovativa", "date": "2027-04-17", "owner": "clo", "days_notice": 90 }
+  ]
+}
