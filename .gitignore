@@ -6,18 +6,51 @@
 .env.local
 .env.*.local
 
+# Key material — defense-in-depth (CSO Layer 2 secrets-scan reference)
+*.pem
+*.key
+id_rsa*
+*.p12
+*.pfx
+
 # Node
 node_modules/
 dist/
 *.js.map
 
+# Yarn / pnpm logs (consistent with node_modules/)
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local SQLite artifacts (provider=local doc_storage / dev databases)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db-shm
+*.db-wal
+
+# Turso CLI cache
+.turso/
+
 # OS
 .DS_Store
 Thumbs.db
 
+# Editor noise
+.idea/
+.vscode/local-settings/
+*.swp
+*~
+
 # Logs
 *.log
 logs/
+
+# Test artifacts (relevant once FEAT-008 lands — Phase 9 testing)
+coverage/
+.nyc_output/
 
 # Claude Code local state
 .claude/local/

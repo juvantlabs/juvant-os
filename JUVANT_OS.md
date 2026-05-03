@@ -262,6 +262,40 @@ Agent templates treat empty `folders` as "all roles unbound; surface at
 first relevant call". The CEO completes the mapping later via *"Configure
 document storage folders"* (re-runs Step 1.5 standalone).
 
+### Wizard — Step 1.6: GitHub user mapping
+
+Collects the GitHub username for the CEO and (optionally) per-role mappings
+when human team members own specific roles. The result is recorded in
+`.juvant/config.json` → `github_user_map` and used by the wizard at Step 7.5
+to render `.github/CODEOWNERS` for the per-company repo.
+
+**Default mapping**: every role resolves to the CEO's GitHub username unless
+the CEO specifies otherwise. For solo-founder companies, all entries
+collapse to the CEO. For larger teams where multiple humans own roles
+(e.g. a real human CTO), the wizard accepts per-role overrides.
+
+```json
+{
+  "github_user_map": {
+    "CEO_GITHUB": "<ceo-handle>",
+    "COS_GITHUB": "<ceo-handle>",
+    "CFO_GITHUB": "<ceo-handle>",
+    "CLO_GITHUB": "<ceo-handle>",
+    "CMO_GITHUB": "<ceo-handle>",
+    "CCO_GITHUB": "<ceo-handle>",
+    "CHRO_GITHUB": "<ceo-handle>",
+    "CSO_GITHUB": "<ceo-handle>",
+    "CETHO_GITHUB": "<ceo-handle>",
+    "CA_GITHUB": "<ceo-handle>",
+    "CRO_GITHUB": "<ceo-handle>"
+  }
+}
+```
+
+The wizard prompt is light: ask once for the CEO's GitHub handle, then for
+each role surface "(default: `<ceo-handle>`)" and accept Enter for default
+or a different handle for override.
+
 ### Wizard — Step 2: Database setup
 
 Ask:
@@ -453,12 +487,53 @@ For each `agents/**/*.md` file:
 Project-scope agents (`agents/projects/*.md`) are NOT compiled here — they are
 compiled at project init (see "Project setup" below).
 
+### Wizard — Step 7.5: Render infrastructure files
+
+After agent template compilation, the wizard renders the infrastructure
+files that ship with the OSS template and require placeholder substitution:
+
+- **`.github/CODEOWNERS`** — substitutes `{{*_GITHUB}}` placeholders from
+  `github_user_map` (Step 1.6). Solo-founder instances collapse all
+  placeholders to the CEO's handle; multi-human teams get per-role overrides.
+
+Other infrastructure files ship as-is — they reference role abstractions or
+are environment-agnostic:
+
+- `.github/workflows/lint.yml` (CI workflow)
+- `docs/branch-protection-spec.md` (normative spec doc)
+- `docs/MCP_INVENTORY.md` (normative MCP server manifest)
+- `plugins/README.md` (Channel-plugin pattern doc)
+- `.gitignore` (already in template, ships as-is)
+
+Refuse to write CODEOWNERS if any non-allowlisted `{{...}}` token survives
+substitution — same rule as Step 7 for agent templates.
+
 ### Wizard — Step 8: Seed agent_tool_matrix
 
 Insert the v0 default matrix rows into `agent_tool_matrix` (one row per role) using
 the matrix in `session-commit-p1.md` / `coo.md`. Set `version='v0'` and
 `approved_by='ceo'` (the CEO's act of running this wizard is the v0 approval, logged
 in `decisions` category `bootstrap-action`).
+
+### Wizard — Step 8.5: MCP inventory cross-check
+
+After seeding `agent_tool_matrix` v0 (Step 8), the wizard validates each
+matrix row against `docs/MCP_INVENTORY.md` (the normative MCP server
+manifest). Failure modes:
+
+- **Server not in inventory** → build-fail. Hint: "Add a new row to
+  `docs/MCP_INVENTORY.md` and open a `tool-matrix-change` decision per
+  `SYSTEM_INVARIANTS.md` §6 before re-running the wizard."
+- **Universal Boundary violation** (per `SYSTEM_INVARIANTS.md` §4) →
+  build-fail. Hint: "This grant is forbidden by §4. The wizard cannot
+  proceed."
+- **Server status `pending FEAT-XXX`** → warn, allow pass. The agent
+  operates in restricted mode for the affected capability until the
+  named FEAT lands.
+
+This check enforces that the inventory is the canonical source of truth
+for agent capability declarations and surfaces design drift early
+(before bootstrap rather than at first agent call).
 
 ### Wizard — Step 9: Bootstrap Protocol (§1)
 
@@ -560,6 +635,40 @@ git push
 
 Confirm with the CEO before pushing — the per-company repo is private but every push
 is a visible action (§ "Executing actions with care").
+
+### Wizard — Step 10.5: Branch-protection spec
+
+After the initial commit + push (Step 10), the wizard authors a
+`branch-protection-spec` decision queued for COO execution. The spec
+implements the rules documented in `docs/branch-protection-spec.md`:
+
+- Require PR before merging (≥ 1 reviewer, CODEOWNERS-required for
+  protected paths).
+- Require status checks (`Juvant OS lint` workflow).
+- Require linear history.
+- Block force pushes; block deletion.
+- Include administrators (where the GitHub plan supports it; on Free
+  org plans, ship the ruleset in `disabled` state per CSO Layer 4
+  convention — `WARN`, not `FAIL`).
+
+```sql
+INSERT INTO decisions (agent, title, category, rationale, status,
+                       approved_by, approved_at, created_at)
+VALUES ('cso', 'Initial branch protection on main',
+        'branch-protection-spec',
+        '{"branch":"main","require_pr":true,"min_reviewers":1,"codeowners_required":true,"status_checks":["Juvant OS lint"],"linear_history":true,"block_force_push":true,"block_deletion":true,"include_admins":"plan-dependent","plan":"<gh-plan>"}',
+        'approved', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+```
+
+Approval is implicit at company init via the bootstrap CEO-only override
+(`SYSTEM_INVARIANTS.md` §1); the post-bootstrap CSO baseline audit
+confirms.
+
+If COO is not yet operational at company init (project-scope COO requires
+project-init first), the spec sits in `decisions` with `status='approved'`
+until the first project COO is bootstrapped — OR the CEO applies the
+rules manually via the GitHub web UI. Either path is accepted; the audit
+checks resulting state, not the application path.
 
 ---
 

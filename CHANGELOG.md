@@ -18,15 +18,116 @@ All written artifacts in English. No exceptions.
 - External Portals (Service + Demo) — Phase 8 / v1.1.
 - `juvantlabs/finom-mcp-server` — FEAT-011 (Beta).
 - `juvantlabs/aruba-fattura-mcp-server` — FEAT-012 (Beta).
-- OSS template shipping defaults — FEAT-013 (CODEOWNERS, CI, branch-protection,
-  MCP inventory, plugin reference, `.gitignore` extensions; addresses the 6
-  CSO baseline-audit Tier-2 follow-ups that surface in every fresh per-company
-  instance).
 - `juvantlabs/m365-graph-mcp-server` — FEAT-014 (Beta), re-implement from scratch
   per audit FAIL on `ftaricano/mcp-onedrive-sharepoint`
   (gist: https://gist.github.com/juvantlabs/a9fe0a76a23b0c1260b1e0ad3194a6da).
 - Webhook Services cloud receiver — FEAT-015 (Beta), multi-cloud (Azure/AWS/GCP)
   per-company webhook → Turso pipeline.
+
+---
+
+## [0.5.0] — 2026-05-03 — OSS template shipping defaults (FEAT-013)
+
+First minor bump after Alpha. Closes FEAT-013 (`juvantlabs/juvant-os-pm#27`):
+the six CSO baseline-audit Tier-2 follow-ups that previously surfaced in
+every fresh `Initialize Juvant OS` run are now resolved at the OSS template
+level. New per-company instances boot with **zero** Tier-2 follow-ups
+(target — to be re-validated on the next dogfood run).
+
+### Added — `.github/CODEOWNERS` template
+
+Path-to-role ownership map with `{{*_GITHUB}}` placeholders rendered at
+company-init Step 7.5 from `github_user_map` (Step 1.6). Solo-founder
+instances collapse all placeholders to the CEO's GitHub handle; multi-human
+teams get per-role overrides. Covers: orchestrator + invariants (CEO + CA),
+ADRs (CA), agent templates (CHRO + CA), hooks + schema (CSO + CA),
+plugins (CA), infra (CSO + CA), CI (CSO + CA), default fallback (CEO).
+
+### Added — `.github/workflows/lint.yml`
+
+CI workflow runs on PR + push to `main`. Five checks:
+
+1. Markdownlint (relaxed, adopters tighten via `.markdownlint.yaml` in fork).
+2. YAML frontmatter parse on every `agents/**/*.md`.
+3. `scripts/schema.sql` syntax check via `sqlite3 :memory:` dry-run.
+4. `.claude/settings.json` JSON.parse validation.
+5. Tracked-secret detector (`BEGIN PRIVATE KEY`, `ghp_*`, `github_pat_*`,
+   `sk-*`, `xox[abrs]-*`) — CSO Layer 2 mirror; per-company instances are
+   expected to add tighter scanners (gitleaks / trufflehog) post-init.
+
+### Added — `docs/branch-protection-spec.md`
+
+Normative spec for branch protection on `main`. Six rules (PR required, ≥1
+reviewer, status checks required, linear history, no force-push, no
+deletion, include admins where plan supports). Documents the
+Free-org-plan caveat: rules ship in `disabled` state per CSO Layer 4
+convention — audit returns `WARN` not `FAIL` when plan limits enforcement.
+
+### Added — `docs/MCP_INVENTORY.md`
+
+Normative manifest of every MCP server the template references. Eight rows
+covering `turso`, `ms-graph`, `m365-graph` (FEAT-014), `github:read/write`,
+`bank` (FEAT-011), `fattura_elettronica` (FEAT-012), `buffer`. Includes the
+abstract-role-vs-concrete-server pattern (`bank`, `fattura_elettronica`,
+`buffer` are abstract qualifiers bound to provider-specific MCPs at company
+init), the Universal Boundaries from `SYSTEM_INVARIANTS.md` §4, and the
+process for adding new MCP servers (CA + CSO joint review).
+
+### Added — `plugins/README.md` proper Channel-plugin pattern doc
+
+Replaces the previous minimal placeholder. Documents the convention for
+new Channel plugins (TypeScript, polling cadence, sender-confidence,
+dead-letter, auth env vars, registration, **stdout discipline** —
+explicit reference to the 2026-05-03 ftaricano audit C6 finding for what
+happens when stdout is contaminated). Distinguishes Channel plugins (this
+directory) from MCP servers (separate repos under `juvantlabs/*-mcp-server`).
+
+### Added — JUVANT_OS.md wizard steps 1.6, 7.5, 8.5, 10.5
+
+- **Step 1.6 — GitHub user mapping**: collects `github_user_map`. Default
+  mapping = all roles → CEO. Per-role overrides for multi-human teams.
+- **Step 7.5 — Render infrastructure files**: substitutes `{{*_GITHUB}}` in
+  `.github/CODEOWNERS`. Other infra files ship as-is.
+- **Step 8.5 — MCP inventory cross-check**: validates each
+  `agent_tool_matrix` v0 row against `docs/MCP_INVENTORY.md`. Build-fails
+  on Universal Boundary violations or unlisted servers.
+- **Step 10.5 — Branch-protection spec**: authors a `branch-protection-spec`
+  decision queued for COO execution. Free-plan-aware (records `disabled`
+  state where enforcement is plan-limited).
+
+### Updated — `.gitignore` extensions
+
+Six new pattern groups (six-from-FEAT-013 anti-pattern checklist):
+
+- Key material — `*.pem`, `*.key`, `id_rsa*`, `*.p12`, `*.pfx`
+- Yarn / pnpm logs (consistent with existing Node patterns)
+- Local SQLite artifacts — `*.sqlite`, `*.sqlite-shm`, `*.sqlite-wal`,
+  `*.db-shm`, `*.db-wal` (relevant for `provider=local` doc_storage and
+  dev databases)
+- Turso CLI cache — `.turso/`
+- Editor noise — `.idea/`, `.vscode/local-settings/`, `*.swp`, `*~`
+- Test artifacts — `coverage/`, `.nyc_output/` (relevant once FEAT-008
+  lands at Phase 9)
+
+### Notes
+
+- Closes `juvantlabs/juvant-os-pm#27` (FEAT-013).
+- Six CSO baseline-audit Tier-2 follow-ups (CODEOWNERS, CI, branch
+  protection, MCP inventory, plugin reference, `.gitignore` extensions)
+  resolved at template level — fresh instances bootstrapping after this
+  release should hit zero Tier-2 follow-ups (target — re-validation on
+  next dogfood).
+- The scheduled cleanup agent on `juvantio/juvant` (firing 2026-05-16)
+  will still run for the existing instance (which was bootstrapped at
+  v0.4.0). After upstream-sync of v0.5.0 lands in the instance, the
+  cleanup PR may be redundant — confirmed at fire time.
+- No SYSTEM_INVARIANTS.md changes (avoided system-wide manifesto
+  re-validation per Appendix B). All policy lives in `JUVANT_OS.md` and
+  the new `docs/*.md` files.
+
+---
+
+## [0.4.2] — 2026-05-03 — Document storage folder mapping + null-binding policy
 
 ---
 
@@ -475,7 +576,8 @@ documents). Agent Tool Matrix v0 default seed authored.
 
 (Pre-CHANGELOG history; design rationale in `juvantlabs/juvant-os-pm/docs/`.)
 
-[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.5.0
 [0.4.2]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.2
 [0.4.1]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.1
 [0.4.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.0

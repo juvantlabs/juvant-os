@@ -1,0 +1,83 @@
+name: Juvant OS lint
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Markdown lint
+        run: npm install -g markdownlint-cli2
+
+      - name: Markdown lint
+        run: markdownlint-cli2 "**/*.md" "#node_modules" "#.git"
+        continue-on-error: true
+        # The OSS template ships intentionally relaxed Markdown rules;
+        # adopters can tighten via .markdownlint.yaml in their fork.
+
+      - name: Validate YAML frontmatter on agent templates
+        run: |
+          pip install pyyaml
+          python3 - <<'PY'
+          import sys, re, pathlib
+          import yaml
+
+          failed = []
+          for f in pathlib.Path("agents").rglob("*.md"):
+              content = f.read_text()
+              m = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+              if not m:
+                  failed.append((str(f), "no YAML frontmatter found"))
+                  continue
+              try:
+                  yaml.safe_load(m.group(1))
+              except yaml.YAMLError as e:
+                  failed.append((str(f), f"YAML parse error: {e}"))
+
+          if failed:
+              for path, err in failed:
+                  print(f"  {path}: {err}")
+              sys.exit(1)
+          print(f"OK — YAML frontmatter valid in all agent templates")
+          PY
+
+      - name: Validate scripts/schema.sql via sqlite3 dry-run
+        run: |
+          sudo apt-get install -y sqlite3
+          sqlite3 :memory: < scripts/schema.sql
+          echo "OK — schema.sql parses cleanly"
+
+      - name: Validate .claude/settings.json
+        run: |
+          python3 -c "import json; json.load(open('.claude/settings.json'))"
+          echo "OK — .claude/settings.json is valid JSON"
+
+      - name: Detect tracked secrets (defense in depth)
+        run: |
+          # Refuse to ship if any of the well-known secret patterns appear
+          # in tracked files. CSO Layer 2 mirror; per-company instances
+          # should add tighter scanners (gitleaks, trufflehog, etc.) post-init.
+          OFFENDERS=$(git grep -nE '(BEGIN (RSA |EC )?PRIVATE KEY|ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82,}|sk-[A-Za-z0-9]{40,}|xox[abrs]-[A-Za-z0-9-]+)' -- ':!*.md' ':!CHANGELOG.md' || true)
+          if [ -n "$OFFENDERS" ]; then
+            echo "Tracked secrets detected:"
+            echo "$OFFENDERS"
+            exit 1
+          fi
+          echo "OK — no tracked secrets detected"

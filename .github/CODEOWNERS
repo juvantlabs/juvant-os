@@ -1,0 +1,48 @@
+# CODEOWNERS — Juvant OS template
+#
+# Generated at company init by the JUVANT_OS.md Skill from
+# .juvant/config.json -> github_user_map. Roles map to GitHub users (or fall
+# back to the CEO if a role has no human counterpart).
+#
+# Format: <pattern> <space> @<github-user> [@<github-user> ...]
+# Placeholders ({{*_GITHUB}}) are substituted at compile time per
+# JUVANT_OS.md Step 7.5.
+#
+# For solo-founder instances, all placeholders resolve to the CEO's GitHub
+# handle. For larger teams, per-role overrides at company init bind real
+# humans to specific roles.
+
+# Skill orchestrator + cross-cutting invariants — CEO + CA shared
+/JUVANT_OS.md            @{{CEO_GITHUB}} @{{CA_GITHUB}}
+/SYSTEM_INVARIANTS.md    @{{CEO_GITHUB}} @{{CA_GITHUB}}
+/CHANGELOG.md            @{{CEO_GITHUB}}
+/README.md               @{{CEO_GITHUB}} @{{CA_GITHUB}}
+/LICENSE                 @{{CEO_GITHUB}}
+
+# Architecture decision records — CA owns
+/docs/adr/               @{{CA_GITHUB}}
+/docs/MCP_INVENTORY.md   @{{CA_GITHUB}} @{{CSO_GITHUB}}
+/docs/branch-protection-spec.md  @{{CSO_GITHUB}} @{{CA_GITHUB}}
+
+# Subagent templates — CHRO (lifecycle) + CA (architecture)
+/agents/company/         @{{CHRO_GITHUB}} @{{CA_GITHUB}}
+/agents/projects/        @{{CHRO_GITHUB}} @{{CA_GITHUB}}
+
+# Lifecycle hooks + schema — CSO (security) + CA (architecture)
+/hooks/                  @{{CSO_GITHUB}} @{{CA_GITHUB}}
+/scripts/schema.sql      @{{CA_GITHUB}}
+/scripts/migrate.sh      @{{CA_GITHUB}}
+/scripts/                @{{CA_GITHUB}}
+
+# Plugins — CA reviews
+/plugins/                @{{CA_GITHUB}}
+
+# Infrastructure (Terraform / Bicep — FEAT-015 webhook services) — CSO + CA
+/infra/                  @{{CSO_GITHUB}} @{{CA_GITHUB}}
+
+# CI workflows + GitHub config — CSO reviews
+/.github/                @{{CSO_GITHUB}} @{{CA_GITHUB}}
+/.github/workflows/      @{{CSO_GITHUB}} @{{CA_GITHUB}}
+
+# Default — CEO catches everything else
+*                        @{{CEO_GITHUB}}
