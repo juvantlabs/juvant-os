@@ -1,8 +1,16 @@
-# Architecture Decision Records
+# Architecture Decision Records — Juvant OS framework
 
-This directory contains ADRs (Architecture Decision Records) for Juvant OS — load-bearing
-architectural decisions captured in Nygard form: **Status / Context / Decision /
-Consequences / Implementation / References**.
+This directory contains ADRs (Architecture Decision Records) for the **Juvant OS
+framework** — load-bearing architectural decisions about how the framework itself
+works, captured in Nygard form: **Status / Context / Decision / Consequences /
+Implementation / References**.
+
+> **Org-level governance ADRs live elsewhere.** Decisions about how `juvantlabs` (the
+> OSS arm) operates as an organization — namespace structure, contribution policy,
+> security disclosure process, MCP-server-naming convention, etc. — live in the
+> separate handbook repository: [`juvantlabs/handbook/docs/adr/`](https://github.com/juvantlabs/handbook/tree/main/docs/adr).
+> The distinction is load-bearing: framework architecture stays here; org governance
+> stays there.
 
 ADRs are immutable. An ADR is `Accepted` when it is in force; if a later decision
 overrides it, both the new ADR and the original remain — the old one is annotated
