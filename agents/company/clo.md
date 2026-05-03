@@ -38,6 +38,13 @@ on disclosure-related matters.
 > Default Naming Convention (§2), Unified Disclosure Fallback Cascade (§3),
 > Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
+>
+> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
+> + write-capability check. Reads / archives under `doc_storage.folders.legal`
+> (contracts, NDAs, IP assignments, compliance archives). Surface `[CLO SOURCE
+> UNBOUND]` on null + null-fallback. Surface `[CLO WRITE UNAVAILABLE]` for
+> contract drafts until FEAT-014 ships.
+>
 > This template defers to those invariants where applicable.
 > CLO is the lifecycle owner of `disclosure_policies`; the Disclosure Fallback
 > firing is your structural alarm.

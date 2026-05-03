@@ -94,7 +94,173 @@ Collect from the CEO, one question at a time:
 - **CEO email** (used by Morning Brief digest).
 - **CEO Telegram handle** (used by Notification hook for Critical alerts).
 - **Document storage**: OneDrive or Google Drive (binds the `ms-graph` MCP server in
-  `.claude/settings.json`).
+  `.claude/settings.json`). Folder mapping happens at Step 1.5.
+
+### Wizard — Step 1.5: Document storage folder mapping
+
+Step 1 captured the abstract provider and bound the MCP server. Step 1.5 maps
+**roles to actual folders** inside that provider, captures provider-specific
+**resource IDs** (drive_id, site_id, tenant_id) for direct API resolution,
+and configures **fallback chains** for roles that intentionally lack a
+dedicated folder.
+
+This separation matters: Step 1's MCP binding makes the surface available;
+Step 1.5 makes it operationally usable. Without Step 1.5, every agent that
+wants to read or write a document hits "source unbound" and has to ask the
+CEO at runtime — friction the wizard exists to prevent.
+
+#### Discover-via-tool path (preferred)
+
+When the active Claude Code session has a Microsoft 365 or Google Drive
+connector loaded (e.g. `mcp__claude_ai_Microsoft_365__sharepoint_folder_search`,
+`mcp__claude_ai_Microsoft_365__read_resource`), the wizard:
+
+1. Calls the connector's search / list tools to enumerate candidate folders
+   inside the user's tenant.
+2. Walks the discovered structure with the CEO; for each logical role,
+   surfaces real path matches and asks for confirmation or override.
+3. Captures provider-specific resource IDs from the connector responses
+   (Microsoft Graph returns `drive_id`, `site_id`; Google returns root
+   `file_id`). These IDs allow direct API resolution and skip the
+   path-to-ID lookup roundtrip on every subsequent call.
+
+**Anti-pattern**: do NOT ask the CEO to type folder paths when a connector
+is loaded. Discovering via tool is faster, less error-prone, and avoids
+"guess what your folder structure looks like" friction. Surfaced during the
+v0.4.0 dogfood as Bug #7b.
+
+#### Type-it path (fallback)
+
+When no connector is available, the wizard falls back to typed inputs. The
+CEO provides each folder path; the wizard records them with non-empty
+validation only. Resource IDs are not captured (resolved at first call by
+the MCP server).
+
+#### Three folder-organization models — all supported
+
+| Model | Pattern | Typical company |
+|---|---|---|
+| **Function-centric** | Dedicated folder per function at company root (`/Research`, `/Press`, `/Sales`, `/Legal`, `/Finance`, `/HR`) | Single-product or service company |
+| **Product-centric** | Products folder with per-product subfolders (`/Products/<product>/Research`); shared functions at root | Multi-product company |
+| **Hybrid** | Mix — some functions at root, some per-product, some null with fallbacks (e.g. CMO + CCO share `/GTM`) | Most real companies |
+
+The schema is identical across all three; what varies is which
+`folders.<role>` keys are bound to a real path vs. set to `null` with a
+fallback chain.
+
+#### Resulting schema in `.juvant/config.json`
+
+```json
+{
+  "doc_storage": {
+    "provider": "onedrive",
+    "mcp_server": "ms-graph",
+    "resource_ids": {
+      "tenant_id": "<uuid>",
+      "site_id": "<host>,<siteCollectionId>,<webId>",
+      "drive_id": "b!<base64-id>"
+    },
+    "folders": {
+      "root": "/<Company>",
+      "legal": "/<Company>/01 - Legal",
+      "finance": "/<Company>/02 - Finance",
+      "operations": "/<Company>/03 - Operations",
+      "branding": "/<Company>/05 - Branding",
+      "gtm": "/<Company>/06 - GTM",
+      "products": "/<Company>/04 - Products",
+      "research": null,
+      "press": null,
+      "sales": null,
+      "hr": null
+    },
+    "fallback_chain": {
+      "press": ["gtm", "root"],
+      "sales": ["gtm", "root"],
+      "research": [],
+      "hr": ["root"]
+    }
+  }
+}
+```
+
+**Semantics**:
+- `folders.<role>: "<path>"` — bound, agent uses this path.
+- `folders.<role>: null` — intentionally unbound; agent consults
+  `fallback_chain.<role>`.
+- `fallback_chain.<role>: ["X", "Y"]` — try `folders.X` first; if also null,
+  try `folders.Y`; if all null, surface `[<ROLE> SOURCE UNBOUND]`.
+- `fallback_chain.<role>: []` (empty array) — no fallback; agent handles
+  per its own logic (e.g. CRO in a product-centric company reads per-project
+  research from `folders.products + /<project>/Research`, not a flat
+  `folders.research`).
+
+#### Folder resolution algorithm (used by every agent that reads or writes documents)
+
+```python
+def resolve_folder(role: str) -> str | None:
+    folder = doc_storage["folders"].get(role)
+    if folder is not None:
+        return folder
+    for fb in doc_storage["fallback_chain"].get(role, []):
+        folder = doc_storage["folders"].get(fb)
+        if folder is not None:
+            return folder
+    return None
+```
+
+If the result is `None`, the agent surfaces `[<ROLE> SOURCE UNBOUND]` in
+its response and offers the CEO three options:
+
+1. **Bind now** — provide a path; wizard updates `doc_storage.folders.<role>`
+   (or `fallback_chain.<role>`).
+2. **Confirm intentional** — record a row in `decisions` category
+   `binding-confirmation` with `intentional_null=true`; the agent never
+   re-prompts for this role unless explicitly asked.
+3. **Use this path one-time** — CEO provides a path used for THIS call only,
+   not persisted to config.
+
+This pattern is the agent-template-side counterpart to the wizard's
+configuration; together they avoid silent failures and avoid forcing the
+CEO to type folder paths every session.
+
+#### Write capability check (separate from folder resolution)
+
+Folder resolution tells the agent WHERE to write. Write CAPABILITY (the
+ability to perform the write) requires a write-capable MCP bound — today
+`juvantlabs/m365-graph-mcp-server` (FEAT-014, shipping in beta).
+
+Until FEAT-014 ships, the only write paths are:
+
+- **Local filesystem** — agent writes to a path the CEO provides; OneDrive
+  sync client (if running locally) propagates to cloud.
+- **Wait** — agent surfaces `[<ROLE> WRITE UNAVAILABLE]` and waits for the
+  CEO to either provide an explicit local path or defer the write.
+
+Agents that need write access check capability BEFORE attempting:
+
+```python
+def can_write(role: str) -> bool:
+    if resolve_folder(role) is None: return False
+    if has_write_capable_mcp("m365-graph"): return True  # FEAT-014 path
+    return ceo_provided_local_path_this_turn()
+```
+
+Failed capability triggers `[<ROLE> WRITE UNAVAILABLE]` with remediation
+hint pointing at FEAT-014.
+
+#### Optional: skip / defer
+
+If the CEO doesn't want to map folders at company-init (early-stage company,
+no documents yet), Step 1.5 can be skipped. The wizard records:
+
+```json
+{ "doc_storage": { "provider": "onedrive", "mcp_server": "ms-graph",
+                   "folders": {}, "fallback_chain": {} } }
+```
+
+Agent templates treat empty `folders` as "all roles unbound; surface at
+first relevant call". The CEO completes the mapping later via *"Configure
+document storage folders"* (re-runs Step 1.5 standalone).
 
 ### Wizard — Step 2: Database setup
 
@@ -413,26 +579,58 @@ already-bootstrapped company repo.
 - Project slug (`<project_id>`, lowercase, hyphenated; e.g. `hardys`).
 - Project name (display).
 - Project description.
-- GitHub repo for project PM artifacts (e.g. `juvantio/hardys-pm`). Must already
-  exist; create it via COO `pr-spec`/`install-spec` before this wizard if not.
+- GitHub repo for project PM artifacts (e.g. `<your-org>/<project-slug>-pm`).
+  Must already exist; create it via COO `pr-spec` / `install-spec` before
+  this wizard if not.
+
+**Auto-discovery from `doc_storage`** (when M365 / Google Drive connector
+loaded and `doc_storage.folders.products` is bound at company-level): before
+asking for typed inputs, the wizard scans the products folder for
+subfolders not yet mapped to a Juvant OS project. For each candidate, it
+proposes:
+
+> "Found folder `<name>` in `<products-path>` — bind as project
+> `<slug-suggested>`?"
+
+Suggested slug = sanitized `<name>` (lowercase, hyphens replace spaces).
+The CEO can:
+
+- **Accept** (binds the folder to the new project).
+- **Override the slug** (e.g. `Hardys` → `hardys-edu` instead of `hardys`).
+- **Skip** (no project created from this folder; wizard moves on).
+
+Per-project document folder is recorded as `projects.<slug>.doc_folder`
+in `.juvant/config.json` (see Step 2 schema below). Project-scope agents
+of that project (CTO, CPO, CDO, COO, VPE, Eng/*) read project-context
+content (research, design assets, project documentation) from this folder
+when resolving roles like `research` or `branding`. Cross-cutting functions
+(legal, finance, ops) continue to resolve at company-level via the same
+`resolve_folder` algorithm as Step 1.5.
 
 ### Wizard — Step 2: Project database
 
 Same wizard as company setup, Step 2, but for `project-<slug>` DB. Save to
-`.juvant/config.json` under `projects.<slug>`:
+`.juvant/config.json` under `projects.<slug>`, alongside any `doc_folder`
+captured at Step 1 auto-discovery:
 
 ```json
 {
   "projects": {
-    "hardys": {
+    "<project-slug>": {
       "provider": "turso",
-      "url": "libsql://project-hardys-juvantlabs.turso.io",
+      "url": "libsql://project-<project-slug>-<your-org>.turso.io",
       "auth_token": "<token>",
-      "scope": "project"
+      "scope": "project",
+      "doc_folder": "/<Company>/04 - Products/<Product Folder>"
     }
   }
 }
 ```
+
+The `doc_folder` field is optional — present when Step 1 auto-discovery
+matched an existing folder, absent when no folder mapping is configured
+(project-scope agents fall back to company-level `doc_storage.folders`
+plus their own `fallback_chain` resolution).
 
 Run `bash scripts/migrate.sh` against the new DB.
 

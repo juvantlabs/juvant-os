@@ -22,6 +22,126 @@ All written artifacts in English. No exceptions.
   MCP inventory, plugin reference, `.gitignore` extensions; addresses the 6
   CSO baseline-audit Tier-2 follow-ups that surface in every fresh per-company
   instance).
+- `juvantlabs/m365-graph-mcp-server` — FEAT-014 (Beta), re-implement from scratch
+  per audit FAIL on `ftaricano/mcp-onedrive-sharepoint`
+  (gist: https://gist.github.com/juvantlabs/a9fe0a76a23b0c1260b1e0ad3194a6da).
+- Webhook Services cloud receiver — FEAT-015 (Beta), multi-cloud (Azure/AWS/GCP)
+  per-company webhook → Turso pipeline.
+
+---
+
+## [0.4.2] — 2026-05-03 — Document storage folder mapping + null-binding policy
+
+Second post-Alpha patch. Closes the five spec/template gaps surfaced during the
+2026-05-03 dogfood OneDrive folder-mapping discussion (`juvantio/juvant`
+instance) — all wizard / template gaps, no functional regression.
+
+### Added — `JUVANT_OS.md` Step 1.5: Document storage folder mapping
+
+New wizard step inserted between Step 1 (Identity) and Step 2 (Database setup).
+Captures the agent-actionable doc-storage state that Step 1's abstract provider
+choice (OneDrive / Google Drive) does not:
+
+- **Discover-via-tool path** (preferred when M365 / Google Drive connector is
+  loaded in the Claude Code session): wizard calls connector list / search
+  tools, walks the discovered structure with the CEO, captures resource IDs
+  (`drive_id`, `site_id`, `tenant_id`) for direct API resolution. Anti-pattern:
+  the wizard MUST NOT ask the CEO to type folder paths when a connector is
+  loaded (Bug #7b — first surfaced in the dogfood; CEO directly questioned
+  "where are you looking?" when the wizard tried to type-it-blind).
+- **Type-it path** (fallback when no connector available).
+- **Three folder-organization models** documented as supported: function-centric,
+  product-centric, hybrid. The schema is identical across all three; what varies
+  is which `folders.<role>` keys are bound vs. set to `null` with a fallback
+  chain.
+
+New `.juvant/config.json` shape:
+
+```json
+{
+  "doc_storage": {
+    "provider": "onedrive",
+    "mcp_server": "ms-graph",
+    "resource_ids": { "tenant_id": "...", "site_id": "...", "drive_id": "b!..." },
+    "folders": { "root": "/Co", "legal": "/Co/Legal", "research": null, ... },
+    "fallback_chain": { "press": ["gtm", "root"], "research": [], ... }
+  }
+}
+```
+
+### Added — folder resolution algorithm + null-binding semantics
+
+Documented in `JUVANT_OS.md` Step 1.5 and referenced from each affected agent
+template's identity reference box. `resolve_folder(role)` consults
+`folders.<role>` first; on `null` walks `fallback_chain.<role>` in order; on
+exhaustion returns `None` and the agent surfaces `[<ROLE> SOURCE UNBOUND]` in
+its response, offering the CEO three choices: bind now, confirm intentional
+(logged as `decisions` cat `binding-confirmation`, `intentional_null=true`),
+or use a one-time path.
+
+### Added — write capability check
+
+Distinct from folder resolution: write capability requires a write-capable MCP
+bound (today: `juvantlabs/m365-graph-mcp-server`, FEAT-014, shipping in beta).
+Until FEAT-014 ships, write paths are limited to (a) explicit local path
+provided by the CEO turn-by-turn, or (b) waiting. Agents surface
+`[<ROLE> WRITE UNAVAILABLE]` when capability is missing.
+
+### Added — Project setup Step 1 auto-discovery
+
+When the M365 / Google Drive connector is loaded and `doc_storage.folders.products`
+is bound at company-level, the project-init wizard scans for existing subfolders
+not yet mapped to a Juvant OS project and proposes them as project candidates.
+Avoids forcing the CEO to type project folder paths when the structure already
+exists. Per-project `doc_folder` recorded under `projects.<slug>.doc_folder` in
+`.juvant/config.json`.
+
+### Updated — agent templates
+
+The six agent templates that read or write documents (`agents/company/cro.md`,
+`cmo.md`, `cco.md`, `cfo.md`, `clo.md` and `agents/projects/cdo.md`) now
+reference the `JUVANT_OS.md` Step 1.5 policy in their identity box and
+document role-specific surface flags (`[CRO SOURCE UNBOUND]`, `[CMO WRITE
+UNAVAILABLE]`, `[CFO BANK SOURCE UNAVAILABLE]`, etc.). The CFO template also
+documents the bank-source-unbinding case for the FEAT-011 deferred-shipping
+period.
+
+### Fixed — bugs from the 2026-05-03 dogfood
+
+- **Bug #7** — Wizard at company-init never asked for OneDrive folder mapping
+  even after capturing the abstract provider, leaving every doc-handling agent
+  to surface "source unbound" on first call. Resolved by Step 1.5.
+- **Bug #8** — Templates assumed function-centric folder organization
+  (dedicated `Research`, `Press`, `Sales` at company root). Real companies are
+  often product-centric or hybrid. Resolved by `null` + fallback-chain schema
+  flexibility.
+- **Bug #10** — Wizard captured paths but not provider-specific resource IDs
+  (`drive_id`, `site_id`, `tenant_id`), forcing every MCP call to do a path-
+  resolution roundtrip. Resolved by `resource_ids` block populated during
+  discover-via-tool.
+- **Bug #11** — Project-init wizard asked for typed folder paths instead of
+  exploring `doc_storage.folders.products` for existing candidates. Resolved
+  by Project setup Step 1 auto-discovery.
+- **Bug #12** — Agent templates' fail-mode for null / missing bindings was
+  unspecified, risking silent failures or hard errors. Resolved by the
+  `[<ROLE> SOURCE UNBOUND]` / `[<ROLE> WRITE UNAVAILABLE]` surfacing pattern
+  + `decisions` cat `binding-confirmation` audit trail.
+
+### Notes
+
+- All five bugs fixed at the OSS-template level (`juvantlabs/juvant-os`).
+  Per-company instances at `v0.4.0` / `v0.4.1` (e.g. `juvantio/juvant`)
+  receive the fixes via the next CHRO upstream-sync proposal (CHRO drift
+  detection → CA `pr-spec` → COO PR).
+- No SYSTEM_INVARIANTS.md changes (would have triggered system-wide
+  manifesto re-validation per Appendix B). The doc-storage policy is
+  expressed in `JUVANT_OS.md` and referenced from individual templates;
+  promotion to SYSTEM_INVARIANTS.md §8 is deferred until / if multiple
+  Juvant OS adopters need provider-agnostic policy enforcement.
+
+---
+
+## [0.4.1] — 2026-05-02 — Dogfood patch
 
 ---
 
@@ -355,7 +475,8 @@ documents). Agent Tool Matrix v0 default seed authored.
 
 (Pre-CHANGELOG history; design rationale in `juvantlabs/juvant-os-pm/docs/`.)
 
-[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/juvantlabs/juvant-os/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.2
 [0.4.1]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.1
 [0.4.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.0
 [0.3.0]: https://github.com/juvantlabs/juvant-os/releases/tag/v0.3.0

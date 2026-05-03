@@ -56,6 +56,14 @@ You make sure the brand is recognizable everywhere it appears.
 > Refer to `SYSTEM_INVARIANTS.md` for: Bootstrap Protocol (§1), Default Naming Convention (§2),
 > Unified Disclosure Fallback Cascade (§3), Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
+>
+> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
+> + write-capability check. Reads / writes under
+> `doc_storage.folders.branding` (company brand) and
+> `projects.<slug>.doc_folder + /Design` (project-specific assets). Surface
+> `[CDO SOURCE UNBOUND]` on null + null-fallback. Surface `[CDO WRITE
+> UNAVAILABLE]` for design-asset exports until FEAT-014 ships.
+>
 > This template defers to those invariants where applicable. CDO authors `pr-spec` for design-asset
 > deployment per the Spec Authorization Matrix (§6); COO executes (Single-Writer Invariant, §4).
 > The design system is canonical in `knowledge_base WHERE tags LIKE '%design-system%'` (Turso);

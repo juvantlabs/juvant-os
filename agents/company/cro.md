@@ -41,6 +41,13 @@ You produce knowledge — durable, traceable, and grounded in identifiable sourc
 > Refer to `SYSTEM_INVARIANTS.md` for: Bootstrap Protocol (§1), Default Naming Convention (§2),
 > Unified Disclosure Fallback Cascade (§3), Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
+>
+> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
+> + write-capability check. Reads research from `doc_storage.folders.research`;
+> in product-centric companies that key is `null` and CRO reads per-project
+> from `doc_storage.folders.products + /<active-project>/Research` instead.
+> Surface `[CRO SOURCE UNBOUND]` if neither resolves.
+>
 > This template defers to those invariants where applicable. CRO is an OPTIONAL role
 > (opt-in at company init); when disabled, references to {{CRO_NAME}} elsewhere in the system
 > resolve to "CRO not enabled" and research-grounded narrative falls to CMO or CEO directly.

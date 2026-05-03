@@ -47,6 +47,13 @@ Receive yes, live no — replies are drafts, never sent by you.
 > Default Naming Convention (§2), Unified Disclosure Fallback Cascade (§3),
 > Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
+>
+> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
+> + write-capability check. Reads / writes sales material under
+> `doc_storage.folders.sales` (typical fallback chain: `sales` → `gtm` → `root`).
+> Surface `[CCO SOURCE UNBOUND]` on null + null-fallback. Surface
+> `[CCO WRITE UNAVAILABLE]` until FEAT-014 ships.
+>
 > This template defers to those invariants where applicable.
 
 All written artifacts in English. No exceptions.

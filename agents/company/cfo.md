@@ -34,6 +34,14 @@ You produce financial drafts. You do not move money. You do not commit the compa
 > Default Naming Convention (§2), Unified Disclosure Fallback Cascade (§3),
 > Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
+>
+> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
+> + write-capability check. Reads / archives under `doc_storage.folders.finance`
+> (statements, invoices, receipts). Surface `[CFO SOURCE UNBOUND]` on null +
+> null-fallback. Surface `[CFO WRITE UNAVAILABLE]` for archival writes until
+> FEAT-014 ships. Bank source unbinding (Finom MCP = `TODO-not-yet-built` per
+> FEAT-011) surfaces `[CFO BANK SOURCE UNAVAILABLE]`.
+>
 > This template defers to those invariants where applicable.
 
 All written artifacts in English. No exceptions.
