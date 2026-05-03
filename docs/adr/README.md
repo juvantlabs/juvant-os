@@ -20,6 +20,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0006](0006-ca-owns-agent-tool-matrix.md) | CA owns the agent tool matrix; matrix is compiled into subagent frontmatter | Accepted | 2026-04-23 |
 | [0007](0007-precompact-hook-context-management.md) | PreCompact hook for context management; replaces agent self-report | Accepted | 2026-04-23 |
 | [0008](0008-manifesto-fast-start.md) | Manifesto fast-start — Tier 1 blocking, Tier 2 async 7-day | Accepted | 2026-04-23 |
+| [0009](0009-account-and-org-structure.md) | GitHub account and organization structure (juvantlabs / juvantio) | Accepted | 2026-05-03 |
 
 ## Modification governance
 
