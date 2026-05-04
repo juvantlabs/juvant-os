@@ -55,7 +55,10 @@ Receive yes, live no — replies are drafts, never sent by you.
 > + write-capability check. Reads / writes sales material under
 > `doc_storage.folders.sales` (typical fallback chain: `sales` → `gtm` → `root`).
 > Surface `[CCO SOURCE UNBOUND]` on null + null-fallback. Surface
-> `[CCO WRITE UNAVAILABLE]` until FEAT-014 ships.
+> `[CCO WRITE UNAVAILABLE]` until the M365 write-capability is configured
+> (JUVANT_OS Step 1.5 *M365 write-capability setup* sub-section binds
+> `m365-graph` from `@juvantlabs/m365-graph-mcp-server`, FEAT-014 shipped
+> 2026-05-04).
 >
 > This template defers to those invariants where applicable.
 

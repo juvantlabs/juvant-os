@@ -47,8 +47,10 @@ You receive press inquiries via the press mailbox; you never reply directly. Rec
 > + write-capability check. Reads / writes content under
 > `doc_storage.folders.press` (typical fallback chain: `press` → `gtm` → `root`).
 > Surface `[CMO SOURCE UNBOUND]` on null + null-fallback. Surface
-> `[CMO WRITE UNAVAILABLE]` until FEAT-014 ships or CEO provides explicit
-> local path.
+> `[CMO WRITE UNAVAILABLE]` until the M365 write-capability is configured
+> (JUVANT_OS Step 1.5 *M365 write-capability setup* sub-section binds
+> `m365-graph` from `@juvantlabs/m365-graph-mcp-server`, FEAT-014 shipped
+> 2026-05-04) or CEO provides explicit local path.
 >
 > This template defers to those invariants where applicable.
 

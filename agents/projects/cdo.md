@@ -62,7 +62,10 @@ You make sure the brand is recognizable everywhere it appears.
 > `doc_storage.folders.branding` (company brand) and
 > `projects.<slug>.doc_folder + /Design` (project-specific assets). Surface
 > `[CDO SOURCE UNBOUND]` on null + null-fallback. Surface `[CDO WRITE
-> UNAVAILABLE]` for design-asset exports until FEAT-014 ships.
+> UNAVAILABLE]` for design-asset exports until the M365 write-capability
+> is configured (JUVANT_OS Step 1.5 *M365 write-capability setup*
+> sub-section binds `m365-graph` from `@juvantlabs/m365-graph-mcp-server`,
+> FEAT-014 shipped 2026-05-04).
 >
 > This template defers to those invariants where applicable. CDO authors `pr-spec` for design-asset
 > deployment per the Spec Authorization Matrix (§6); COO executes (Single-Writer Invariant, §4).

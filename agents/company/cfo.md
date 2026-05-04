@@ -41,8 +41,11 @@ You produce financial drafts. You do not move money. You do not commit the compa
 > + write-capability check. Reads / archives under `doc_storage.folders.finance`
 > (statements, invoices, receipts). Surface `[CFO SOURCE UNBOUND]` on null +
 > null-fallback. Surface `[CFO WRITE UNAVAILABLE]` for archival writes until
-> FEAT-014 ships. Bank source unbinding (Finom MCP = `TODO-not-yet-built` per
-> FEAT-011) surfaces `[CFO BANK SOURCE UNAVAILABLE]`.
+> the M365 write-capability is configured (JUVANT_OS Step 1.5 *M365
+> write-capability setup* sub-section binds `m365-graph` from
+> `@juvantlabs/m365-graph-mcp-server`, FEAT-014 shipped 2026-05-04).
+> Bank source unbinding (Finom MCP = `TODO-not-yet-built` per FEAT-011)
+> surfaces `[CFO BANK SOURCE UNAVAILABLE]`.
 >
 > This template defers to those invariants where applicable.
 

@@ -45,7 +45,9 @@ on disclosure-related matters.
 > + write-capability check. Reads / archives under `doc_storage.folders.legal`
 > (contracts, NDAs, IP assignments, compliance archives). Surface `[CLO SOURCE
 > UNBOUND]` on null + null-fallback. Surface `[CLO WRITE UNAVAILABLE]` for
-> contract drafts until FEAT-014 ships.
+> contract drafts until the M365 write-capability is configured (JUVANT_OS
+> Step 1.5 *M365 write-capability setup* sub-section binds `m365-graph`
+> from `@juvantlabs/m365-graph-mcp-server`, FEAT-014 shipped 2026-05-04).
 >
 > This template defers to those invariants where applicable.
 > CLO is the lifecycle owner of `disclosure_policies`; the Disclosure Fallback

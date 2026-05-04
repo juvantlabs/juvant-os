@@ -11,7 +11,7 @@ description: |
 model: claude-opus-4-7
 tools: Read, Write, Edit, Bash, Task, turso, ms-graph
 skills: []
-channels: telegram
+channels: [telegram]
 
 # MODEL OVERRIDE: CoS may override model at runtime (per-task, not persistent).
 # VPE may override Eng/* models.
