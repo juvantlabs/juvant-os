@@ -1144,10 +1144,55 @@ off-host CEO control (when the CEO isn't at the Mac).
 - **High failure rate**: > 30% of last-hour calls failed. Suggests
   vendor outage, bad credentials, or buggy tool.
 
-Thresholds live in `helpers/anomaly-check.sh` as starting points
-per ADR 0004. Calibrate against observed baselines over time;
-record threshold adjustments as `decisions` rows so the rationale
-is auditable.
+Thresholds load from `.juvant/config.json`
+`guardrails.anomaly_thresholds` with documented defaults
+(`rate_burst_factor: 5`, `denied_pct: 10`, `failure_pct: 30`) as
+fallback. Calibrate against observed baselines over time; record
+threshold adjustments as `decisions` rows so the rationale is
+auditable.
+
+#### Calibration procedure
+
+After ~30 days of operation, run the calibration helper:
+
+```bash
+./helpers/anomaly-baseline-report.sh --days 30
+```
+
+The helper reads `agent_actions_log` for the window and reports:
+
+- Per-agent mean / max calls/hour, denied %, failure %.
+- Recommended thresholds, computed as `max(default, observed + headroom)`.
+
+The recommendation honors the structural floor (default values).
+The helper will NOT recommend tightening below default —
+stricter limits require an explicit `tool-matrix-change`
+decision (CA proposes, CSO reviews, CEO approves).
+
+To apply recommendations:
+
+```bash
+./helpers/anomaly-baseline-report.sh --days 30 --apply
+```
+
+Prompts before writing; backs up `.juvant/config.json` to
+`.juvant/config.json.bak`. After applying, record the change as
+a `decisions` row:
+
+```sql
+INSERT INTO decisions (agent, title, category, rationale,
+                       status, approved_by, approved_at,
+                       created_at)
+VALUES ('cso', 'Anomaly threshold recalibration',
+        'tool-matrix-change',
+        '{"old":{"rate_burst_factor":5,"denied_pct":10,"failure_pct":30},
+          "new":{"rate_burst_factor":<r>,"denied_pct":<d>,"failure_pct":<f>},
+          "window_days":30,"baseline_source":"helpers/anomaly-baseline-report.sh"}',
+        'approved', 'ceo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+```
+
+Re-run quarterly or after any material change in agent activity
+patterns (new MCP server shipped, new agent role added, etc.).
 
 v1.0 is alert-only. To enable auto-kill on anomaly, layer a small
 script on top that pipes anomaly-check output into agent-killswitch

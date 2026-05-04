@@ -34,9 +34,22 @@ fi
 
 # Thresholds. ADR 0004 calls these "starting points"; calibrate
 # against observed baselines and record adjustments in decisions.
-RATE_BURST_FACTOR=5      # 5x baseline = alert
-DENIED_PCT_THRESHOLD=10  # 10% of calls denied = alert
-FAILURE_PCT_THRESHOLD=30 # 30% of calls failed = alert
+# Loaded from .juvant/config.json `guardrails.anomaly_thresholds`
+# with the documented defaults below as fallback. Adopters override
+# via:
+#   {
+#     "guardrails": {
+#       "anomaly_thresholds": {
+#         "rate_burst_factor": 5,
+#         "denied_pct": 10,
+#         "failure_pct": 30
+#       }
+#     }
+#   }
+# See helpers/anomaly-baseline-report.sh for the calibration helper.
+RATE_BURST_FACTOR=$(jq -r '.guardrails.anomaly_thresholds.rate_burst_factor // 5' "$CONFIG" 2>/dev/null || echo 5)
+DENIED_PCT_THRESHOLD=$(jq -r '.guardrails.anomaly_thresholds.denied_pct // 10' "$CONFIG" 2>/dev/null || echo 10)
+FAILURE_PCT_THRESHOLD=$(jq -r '.guardrails.anomaly_thresholds.failure_pct // 30' "$CONFIG" 2>/dev/null || echo 30)
 
 ANOMALIES=()
 
