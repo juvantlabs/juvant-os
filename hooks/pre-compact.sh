@@ -41,8 +41,8 @@ if [[ -z "$SNAPSHOT_CONTENT" ]]; then
   exit 0
 fi
 
-# Escape single quotes for SQL
-SNAPSHOT_ESCAPED=$(echo "$SNAPSHOT_CONTENT" | sed "s/'/''/g")
+# Escape single quotes for SQL (bash parameter expansion — safer + faster than sed)
+SNAPSHOT_ESCAPED="${SNAPSHOT_CONTENT//\'/\'\'}"
 
 # Get current session_id
 SESSION_ID=$(turso db shell "$TURSO_URL" \
