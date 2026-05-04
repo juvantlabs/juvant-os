@@ -15,7 +15,7 @@ inventory triggers a build-fail with a remediation hint.
 |---|---|---|---|---|---|
 | `turso` | rw | all agents | `turso` CLI / `@libsql/client` | `TURSO_URL`, `TURSO_AUTH_TOKEN` | shipped |
 | `ms-graph` | r | CFO, CLO, CMO, CCO, CDO, CoS, CRO | claude.ai connector (read tools) | OAuth delegated (claude.ai-managed) | shipped (read-only) |
-| `m365-graph` | rw | CFO, CLO, CMO, CCO, CDO, CoS, CRO | `juvantlabs/m365-graph-mcp-server` (FEAT-014) | `M365_CLIENT_ID`, `M365_CLIENT_SECRET`, `M365_TENANT_ID` | pending FEAT-014 |
+| `m365-graph` | rw | CFO, CLO, CMO, CCO, CDO, CoS, CRO | [`@juvantlabs/m365-graph-mcp-server@0.1.3`](https://www.npmjs.com/package/@juvantlabs/m365-graph-mcp-server) (FEAT-014) | `M365_CLIENT_ID`, `M365_CLIENT_SECRET`, `M365_TENANT_ID` | shipped |
 | `github:read` | r | CA, CSO, CTO, CPO, CDO, VPE, eng-* | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
 | `github:write` | w | **COO only** (§4) | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
 | `bank` | r | **CFO only** | provider-specific MCP, abstract-bound at company init (Finom: `juvantlabs/finom-mcp-server`, FEAT-011) | provider-specific (Finom: `FINOM_API_KEY`) | pending FEAT-011 (Finom) |
@@ -86,7 +86,10 @@ deliverable):
    CSO checks the security posture of the new server (license, audit
    status if community-built, dependency tree). CA checks architectural
    fit (lean canonical, scope qualifier appropriate, no Universal
-   Boundary violation).
+   Boundary violation, scope boundaries per
+   [handbook ADR 0003](https://github.com/juvantlabs/handbook/blob/main/docs/adr/0003-mcp-server-scope-boundaries.md)
+   — one MCP per threat-model boundary; outbound-only notifications go
+   through webhooks not MCP).
 4. CEO approves.
 5. COO executes the matrix change via `install-spec` per
    `SYSTEM_INVARIANTS.md` §6.
