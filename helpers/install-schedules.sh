@@ -206,8 +206,40 @@ CRON
     esac
     ;;
 
+  MINGW*|MSYS*|CYGWIN*)
+    cat >&2 <<'WINMSG'
+[install-schedules] Windows-native (Git Bash / MSYS / Cygwin) is not
+supported for scheduling in v1.0.
+
+The hooks themselves (hooks/*.sh) work fine here — they only need
+bash on PATH, which Git Bash provides. What doesn't work in this
+shell is launchd (Mac-only) and Unix crontab (Unix-only). Native
+Windows Task Scheduler integration is tracked as a v1.1+ open point
+(see juvant-os-pm OP for "Native Windows Task Scheduler integration").
+
+Recommended path for Windows users:
+
+  1. Install WSL2 + Ubuntu:
+       wsl --install -d Ubuntu
+  2. Open the WSL shell, clone the per-company repo there.
+  3. Run `./helpers/install-schedules.sh` from WSL — it'll install
+     Linux cron entries that fire even when you're working in Windows
+     (WSL2 background services run on the lightweight VM).
+
+If you must stay on Git Bash (no WSL), you can manually create
+Windows Task Scheduler entries pointing at:
+  - C:\\path\\to\\Git\\bin\\bash.exe
+  - $REPO_ROOT/helpers/<helper>.sh
+For each of the 5 helpers (turso-backup daily 03:00,
+audit-reconcile weekly Sat 03:00, anomaly-check every 15 min,
+morning-brief daily 08:00, fiscal-deadlines daily 07:45). The hooks
+themselves run independently of these schedules.
+WINMSG
+    exit 1
+    ;;
+
   *)
-    echo "[install-schedules] FATAL: unsupported OS '$OS'. v1.0 supports Darwin (launchd) + Linux (cron)." >&2
+    echo "[install-schedules] FATAL: unsupported OS '$OS'. v1.0 supports Darwin (launchd) + Linux (cron) + Windows via WSL2 (cron)." >&2
     exit 1
     ;;
 esac

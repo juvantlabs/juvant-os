@@ -76,6 +76,35 @@ CoS → public in meeting chat: "All data processed in Azure West Europe..."
 
 ---
 
+## Supported platforms (v1.0)
+
+Juvant OS runs anywhere [Claude Code](https://code.claude.com) does, **plus a
+bash interpreter** for the hooks + helpers in `hooks/*.sh` and `helpers/*.sh`.
+
+| Platform | Hooks | Schedule install (`install-schedules.sh`) | Notes |
+|---|---|---|---|
+| **macOS 13+** (Ventura or later) | ✅ | ✅ launchd plists | Default development target |
+| **Linux** (Ubuntu 22.04+, Debian 12+, …) | ✅ | ✅ cron via crontab | Recommended for cloud / always-on hosts |
+| **Windows + WSL2** (Ubuntu) | ✅ | ✅ cron in WSL | **Recommended Windows path** — WSL2 background services run cron even when you're in Windows |
+| **Windows + Git Bash** (no WSL) | ✅ hooks work | ⚠️ scheduling NOT supported in v1.0 | Hooks run inside Claude Code; for scheduling, install Task Scheduler entries manually pointing at `C:\Path\to\Git\bin\bash.exe <helper>.sh`. Native Windows Task Scheduler integration tracked as v1.1 OP. |
+| **Windows native** (no bash) | ❌ | ❌ | Not supported in v1.0. Use WSL2. |
+
+The MCP servers shipped under `juvantlabs/*-mcp-server` (currently
+`m365-graph-mcp-server`, future `finom-mcp-server`, `aruba-fattura-mcp-server`,
+`m365-mail-mcp-server`) are **fully cross-platform** — they run via `npx` on Node ≥
+20 and need no shell. Only the `juvant-os` template's hooks + helpers depend on
+bash.
+
+### Why bash?
+
+The hooks + helpers are bash because (a) Claude Code's hook contract registers
+`{"command": "bash hooks/*.sh"}` directly, no language abstraction required, and
+(b) the helpers do simple shell work (curl, jq, turso, gpg) where bash is the
+shortest path. v1.1+ may add a portability layer if non-WSL Windows demand
+materializes.
+
+---
+
 ## Quick start
 
 ### 1. Create a private repo for your company
