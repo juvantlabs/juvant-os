@@ -105,3 +105,17 @@ jobs:
           # manifests land (FEAT-007 helpers, future plugins/), swap to
           # npm audit / pip-audit / cargo audit gated by file existence.
           echo "no dependency manifest in repo; skipping dep-vuln scan"
+
+      - name: PreToolUse hook — Bash policy tests
+        run: |
+          # Verify hooks/pre-tool-use.sh enforces handbook ADR 0004 Track 2
+          # correctly: universal deny-list catches dangerous patterns (rm -rf,
+          # sudo, gh repo delete, DROP DATABASE, etc.); per-agent allow-list
+          # gates by role (CFO has no Bash; CoS has git/gh/jq; eng-* has
+          # npm/node/python). Tests are bash-based, no external dependencies
+          # beyond jq (already a hook dependency).
+          if [ -x tests/hooks/test-pre-tool-use.sh ]; then
+            bash tests/hooks/test-pre-tool-use.sh
+          else
+            echo "::warning::tests/hooks/test-pre-tool-use.sh not present or not executable"
+          fi

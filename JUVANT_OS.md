@@ -713,6 +713,63 @@ Resulting `.juvant/config.json` notifications block:
 The `alerts` key is shared across projects in v1.0; per-project alert webhooks are a
 v1.1 refinement.
 
+### Wizard — Step 4.5: Agent action guardrails (handbook ADR 0004)
+
+Captures the runtime configuration for the four-track guardrail
+framework defined in
+[handbook ADR 0004](https://github.com/juvantlabs/handbook/blob/main/docs/adr/0004-agent-action-guardrails.md).
+The schema (`agent_actions_log`, `agent_kill_switch`) and the
+hooks (`pre-tool-use.sh`, `post-tool-use.sh`,
+`post-tool-use-failure.sh`) ship with the template; this step
+captures the per-adopter secrets the helpers need.
+
+Collect:
+
+- **Backup destination** — where daily encrypted Turso dumps go.
+  MUST be outside the agent's credential reach (a destination the
+  agent never holds creds for). Examples:
+  - `/Volumes/Backup/juvant` — local NAS / external drive
+  - `b2:juvant-backups/<company-slug>` — Backblaze B2 (rclone)
+  - `s3:juvant-backups/<company-slug>` — AWS S3 (rclone)
+  
+  Stored as `.juvant/config.json` `backup.destination`.
+
+- **GPG recipient** for backup encryption. Either a key ID (e.g.
+  `0xABCD1234`) or an email associated with a public key in the
+  local keyring. **The matching private key MUST NOT live on this
+  host** — restore should require an offline key. Stored as
+  `.juvant/config.json` `backup.gpg_recipient`.
+
+- **Schedule install confirmation** — `Y/n` prompt to install
+  launchd plists (Mac) or cron entries (Linux) for the three
+  helpers:
+  - `helpers/turso-backup.sh` — daily 03:00
+  - `helpers/audit-reconcile.sh` — weekly Saturday 03:00
+  - `helpers/anomaly-check.sh` — every 15 min
+  
+  Defaults to `Y`. Skipping is fine for testing but means anomaly
+  detection + reconciliation + backup don't run automatically.
+
+Resulting `.juvant/config.json` block:
+
+```json
+{
+  "backup": {
+    "destination": "b2:juvant-backups/<company-slug>",
+    "gpg_recipient": "antonio@juvant.io"
+  }
+}
+```
+
+#### Skip / defer
+
+If the CEO doesn't yet have a backup destination configured (no NAS
+connected, no rclone remote set up), the step records empty values
+and the helpers fail loud at first run. Re-run the step standalone
+via *"Configure agent action guardrails"* once the destination is
+ready. The hooks themselves work without backup config — only the
+backup helper depends on it.
+
 ### Wizard — Step 5: Counterparties intake
 
 Collect a starter set of counterparties. For each:
@@ -950,6 +1007,187 @@ project-init first), the spec sits in `decisions` with `status='approved'`
 until the first project COO is bootstrapped — OR the CEO applies the
 rules manually via the GitHub web UI. Either path is accepted; the audit
 checks resulting state, not the application path.
+
+---
+
+## Agent action guardrails — operating procedures
+
+Reference for day-to-day operation of the four-track guardrail
+framework defined in
+[handbook ADR 0004](https://github.com/juvantlabs/handbook/blob/main/docs/adr/0004-agent-action-guardrails.md).
+The schema (Step 4.5 above for backup config; the
+`agent_actions_log` and `agent_kill_switch` tables landed via
+schema.sql) and runtime hooks ship with the template; this section
+documents how the CEO operates the system.
+
+### Track 1 — Confirmation tokens (CI-enforced in MCP servers)
+
+Nothing for the CEO to operate at runtime. The pattern is enforced
+at *build time* in every `juvantlabs/*-mcp-server` repo's CI:
+
+- Every tool annotated `category: "write_irreversible"` MUST
+  declare `confirmation_token` in its input schema and import
+  `consumeConfirmation` in its handler. CI fails the build
+  otherwise.
+- When an agent calls a `write_irreversible` tool, the first call
+  returns a preview + token; the second call (with the matching
+  token) executes. CoS / CEO see both phases in the conversation
+  and approve the second.
+- Reference implementation:
+  [`@juvantlabs/m365-graph-mcp-server`](https://github.com/juvantlabs/m365-graph-mcp-server)
+  v0.1.4+ (`delete_file`, `cancel_event`, `decline_event`).
+
+### Track 2 — Bash policy (PreToolUse hook)
+
+The hook `hooks/pre-tool-use.sh` reads `hooks/bash-policy.json` on
+every Bash tool call:
+
+- **Universal deny-list**: applies to every agent. Cannot be
+  bypassed via prompt. Patterns include `rm -rf /`, `sudo`,
+  `git push --force` to main, `gh repo delete`, `DROP DATABASE`,
+  writes to credential paths, fork-bombs, etc.
+- **Per-agent allow-list**: positive scope. CFO/CLO/CCO/CMO/CHRO/
+  CRO/CEthO have NO Bash by default. CoS/COO/CSO/CA/VPE/eng-* have
+  scoped allow-lists.
+
+Adding a binary to an agent's allow-list goes through the standard
+`tool-matrix-change` decision per `SYSTEM_INVARIANTS.md` §6 — CA
+proposes via `decisions` row, CSO reviews, CEO approves, COO
+installs by editing `hooks/bash-policy.json` + commit. Agents
+cannot edit the policy at runtime; the file is in the committed
+template tree.
+
+When the hook denies a call, the agent sees the rejection and
+typically escalates to CoS — CoS surfaces to CEO, who runs the
+command in their own terminal (out-of-band, not via the agent).
+
+### Track 3 — Audit log + off-host backup
+
+#### Reading the audit log
+
+Every tool call produces a row in `agent_actions_log`. Useful
+queries:
+
+```sql
+-- What did CFO do in the last 24 hours?
+SELECT started_at, tool_name, status, deny_reason
+FROM agent_actions_log
+WHERE agent='cfo'
+  AND julianday(CURRENT_TIMESTAMP) - julianday(started_at) <= 1.0
+ORDER BY started_at DESC;
+
+-- Anything denied this week?
+SELECT agent, tool_name, deny_reason, started_at
+FROM agent_actions_log
+WHERE status='denied'
+  AND julianday(CURRENT_TIMESTAMP) - julianday(started_at) <= 7.0
+ORDER BY started_at DESC;
+```
+
+The CEO has read access. **No agent should write to
+`agent_actions_log`** — by convention, it's hook-written only.
+Reconciliation (helpers/audit-reconcile.sh, weekly) detects
+fabricated `decisions` rows that have no preceding action log
+entry.
+
+#### Backup operation
+
+Daily at 03:00, `helpers/turso-backup.sh`:
+
+1. `turso db shell <url> .dump` produces full SQL dump.
+2. Gzip + GPG-encrypt to `backup.gpg_recipient` (public-key
+   encryption; private key NOT on this host).
+3. Ship to `backup.destination` (local NAS path or rclone remote).
+4. Spec-class `decisions` rows in the dump → filename prefixed
+   `ARCHIVAL-` for permanent retention via destination's
+   lifecycle policy.
+
+To restore: copy a dump to a recovery host that holds the GPG
+private key, decrypt, replay against a fresh Turso DB. **Never
+bring the private key onto a primary host** — that defeats the
+off-host pattern.
+
+### Track 4 — Kill switch + anomaly detection
+
+#### Kill switch — CEO controls
+
+Use `helpers/agent-killswitch.sh`:
+
+```bash
+# Activate kill switch — block all agent sessions
+./helpers/agent-killswitch.sh on "investigating CFO anomaly"
+
+# Activate scoped — block only specific agents
+./helpers/agent-killswitch.sh on "draft review pending" cfo cmo
+
+# Check current state
+./helpers/agent-killswitch.sh status
+
+# Clear
+./helpers/agent-killswitch.sh off
+```
+
+When active, `hooks/session-start.sh` refuses session start for
+affected agents and emits a Critical Telegram + Teams alert. v1.1+
+adds inbound Telegram bot `/stop` and `/resume` commands for
+off-host CEO control (when the CEO isn't at the Mac).
+
+#### Anomaly detection
+
+`helpers/anomaly-check.sh` runs every 15 min via launchd / cron
+(Step 4.5 wizard installs the schedule). Three classes of alert:
+
+- **Rate burst**: agent's last-hour calls ≥ 5× its 7-day rolling
+  baseline.
+- **High denied rate**: > 10% of last-hour calls denied (PreToolUse
+  veto). Suggests agent probing the deny-list or misconfigured.
+- **High failure rate**: > 30% of last-hour calls failed. Suggests
+  vendor outage, bad credentials, or buggy tool.
+
+Thresholds live in `helpers/anomaly-check.sh` as starting points
+per ADR 0004. Calibrate against observed baselines over time;
+record threshold adjustments as `decisions` rows so the rationale
+is auditable.
+
+v1.0 is alert-only. To enable auto-kill on anomaly, layer a small
+script on top that pipes anomaly-check output into agent-killswitch
+on. Out of v1 default scope.
+
+#### Daily activity digest
+
+`helpers/activity-digest.sh` produces a per-agent summary of the
+last 24 hours:
+
+```
+Yesterday's agent activity:
+  cfo     14 calls (12 read, 2 write_idempotent),  0 denied,  0 failed
+  cos      9 calls (8 read, 1 write_irreversible),  0 denied,  0 failed
+  ...
+  Anomalies: none
+  Kill switch events: none
+```
+
+Designed to be called by the FEAT-007 Helper 1 (Morning Brief)
+and embedded in the daily brief sent to Telegram + Teams ops
+channel. Standalone for now — Morning Brief's full assembly logic
+ships with FEAT-007.
+
+### Re-evaluation and incident response
+
+If a guardrail-relevant incident occurs (a denied call that
+shouldn't have been; a missed alert; a bypass via novel pattern),
+the workflow is:
+
+1. **Immediately**: kill switch on, scoped or global. Stops
+   bleeding.
+2. **Within 24h**: investigate via `agent_actions_log` and the
+   relevant agent's `messages` rows. Identify which track failed.
+3. **Within 7d**: propose a fix as a `decisions` row, category
+   `tool-matrix-change` (for policy changes) or `bootstrap-spec`
+   (for infrastructure changes). Per ADR 0004, structural changes
+   require a successor handbook ADR.
+4. **Once fixed**: kill switch off; record incident outcome in
+   `decisions`.
 
 ---
 

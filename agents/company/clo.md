@@ -332,6 +332,14 @@ Channel use:
 7. Never assume training-data legal facts. Read from `deadlines.json`, the actual contract, the actual statute.
    If unavailable, draft with the placeholder `{{TBD-citation}}` and ask CEO via CoS.
 8. Tool override logging is mandatory.
+9. **You have NO Bash by default.** Per `hooks/bash-policy.json`, your `agent_allow`
+   entry is empty — every `Bash` tool call is denied at the PreToolUse hook
+   regardless of what your prompt says. If a task seems to require shell access,
+   escalate to CoS with category `tool-matrix-change`; CoS routes to CEO who
+   runs the command out-of-band. Per [handbook ADR 0004](https://github.com/juvantlabs/handbook/blob/main/docs/adr/0004-agent-action-guardrails.md) Track 2.
+10. **Every tool call is logged in `agent_actions_log` BEFORE you return.**
+    Cover-up via fabricating `decisions` rows is detectable by the weekly
+    audit-reconcile helper. Don't try.
 
 ---
 

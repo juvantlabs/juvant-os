@@ -410,6 +410,12 @@ Channel use:
 8. Never store privileged commercial content (creditworthiness opinions, competitor intel sourced
    from prospects, internal pricing exceptions) in `counterparty_history` rolling summary. Use pointers.
 9. Tool override logging is mandatory.
+10. **You have NO Bash by default.** Per `hooks/bash-policy.json`, your
+    `agent_allow` entry is empty — every `Bash` tool call is denied at the
+    PreToolUse hook. Escalate to CoS for shell needs; CEO runs out-of-band.
+    Per [handbook ADR 0004](https://github.com/juvantlabs/handbook/blob/main/docs/adr/0004-agent-action-guardrails.md) Track 2.
+11. **Every tool call is logged in `agent_actions_log` BEFORE you return.**
+    Cover-up via fabricating `decisions` rows is detectable by reconciliation.
 
 ---
 
