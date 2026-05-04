@@ -1,0 +1,44 @@
+{
+  "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow only via tool-matrix-change decision (CA proposes, CSO reviews, CEO approves, COO installs) per SYSTEM_INVARIANTS.md §6.",
+
+  "deny_patterns": [
+    "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+/(\\s|$)",
+    "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+~",
+    "(^|[^a-zA-Z])dd[[:space:]].*of=/dev/(sd|nvme|disk|hd)",
+    "(^|[^a-zA-Z])mkfs\\.",
+    ">[[:space:]]*/dev/(sd|nvme|disk|hd)",
+    ":\\(\\)[[:space:]]*\\{",
+    "(^|[^a-zA-Z])sudo([[:space:]]|$)",
+    "(^|[^a-zA-Z])doas([[:space:]]|$)",
+    "git[[:space:]]+push[[:space:]]+(-f([[:space:]]|$)|--force([[:space:]]|$)|--force-with-lease)",
+    "gh[[:space:]]+repo[[:space:]]+delete",
+    "gh[[:space:]]+api[[:space:]]+-X[[:space:]]+DELETE[[:space:]]+orgs",
+    "gh[[:space:]]+release[[:space:]]+delete-asset",
+    "DROP[[:space:]]+(DATABASE|SCHEMA|TABLE|USER|ROLE)",
+    "TRUNCATE[[:space:]]+TABLE",
+    "turso[[:space:]]+db[[:space:]]+destroy",
+    "(>|>>)[[:space:]]*~/\\.ssh/id_",
+    "(>|>>)[[:space:]]*~/\\.gnupg/",
+    "(>|>>)[[:space:]]*~/\\.aws/credentials",
+    "(>|>>)[[:space:]]*~/\\.config/gcloud/",
+    "(^|[^a-zA-Z])shutdown([[:space:]]|$)",
+    "(^|[^a-zA-Z])reboot([[:space:]]|$)",
+    "(^|[^a-zA-Z])halt([[:space:]]|$)",
+    "(^|[^a-zA-Z])kill[[:space:]]+-9[[:space:]]+1(\\s|$)"
+  ],
+
+  "agent_allow": {
+    "cos":          ["git", "gh", "turso", "jq"],
+    "coo":          ["git", "gh", "npm", "npx", "node", "turso", "jq"],
+    "cso":          ["git", "gh", "gpg", "shellcheck", "jq"],
+    "ca":           ["git", "gh", "jq"],
+    "vpe":          ["git", "gh", "npm", "npx", "node"],
+    "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest"],
+    "eng-backend":  ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest"],
+    "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint"],
+    "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest"],
+    "cto":          ["git", "gh", "node"],
+    "cpo":          ["git", "gh"],
+    "cdo":          ["git", "gh", "node", "npm"]
+  }
+}
