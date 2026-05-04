@@ -74,9 +74,6 @@
   "channels": [
     {
       "plugin": "telegram"
-    },
-    {
-      "plugin": "./plugins/m365-mail/index.ts"
     }
   ]
 }

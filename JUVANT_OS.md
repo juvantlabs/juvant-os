@@ -42,8 +42,9 @@ to clarify, and surface the gap as a candidate addition to this Skill in
 
 Juvant OS = `SYSTEM_INVARIANTS.md` + `JUVANT_OS.md` (this file) +
 `agents/**/*.md` (19 compiled subagent templates) + `hooks/*.sh` (7 lifecycle scripts) +
-`scripts/schema.sql` (Turso schema) + `plugins/m365-mail/` (Channel plugin) +
-`.claude/settings.json` (hook + channel registration).
+`scripts/schema.sql` (Turso schema) + `helpers/*.{sh,ts}` (scheduled
+scripts populating Turso queues — FEAT-007, see `helpers/README.md`) +
+`.claude/settings.json` (hook registration).
 
 The CEO opens Claude Code in the company directory. Claude Code loads this Skill.
 The CEO speaks. The Skill maps intent to procedure. Procedures read and write Turso

@@ -12,18 +12,38 @@ see `docs/MCP_INVENTORY.md` for the canonical list.
 
 ### Channel plugins (this directory)
 
-Implement the Claude Code `defineChannel` API. Used for inbound message
-routing into agent sessions:
+Channels in Claude Code are MCP servers that declare the
+`claude/channel` capability and emit `notifications/claude/channel`
+events (per
+[Claude Code channels reference](https://code.claude.com/docs/en/channels-reference.md)).
+They handle reactive inbound message routing.
 
-- `m365-mail/` — M365 email → CFO / CLO / CCO / CMO press routing.
-- `portal-bridge/` — v1.1 External Portal ↔ agent sessions with disclosure
-  filtering.
-- `teams-meeting/` — v1.1 Teams meeting bot, CoS as silent co-pilot during
-  client calls.
+Currently shipped: `telegram` (the built-in Claude Code plugin,
+referenced in `.claude/settings.json` `channels`).
 
-Lifecycle (start, poll, stop) is managed entirely by Claude Code — no
-daemon, no separate process, no infrastructure overhead. Same pattern as
-the built-in Telegram plugin.
+Planned (v1.1):
+
+- `portal-bridge/` — External Portal ↔ agent sessions with
+  disclosure filtering. Awaits FEAT-009.
+- `teams-meeting/` — Teams meeting bot, CoS as silent co-pilot during
+  client calls. Awaits FEAT-010.
+
+**Inbound mail is NOT a Channel plugin.** Per the FEAT-006 closure
+(2026-05-04): in v1.0 inbound mail is on-demand read by mail-enabled
+agents (CFO/CLO/CCO/CMO) via the existing `ms-graph` claude.ai
+connector, dispatched by CoS — no polling, no auto-emit. v1.1+
+reactive mail uses the FEAT-016 `m365-mail-mcp-server` consumed by
+cloud-running agents (OP-004) reacting to FEAT-015 webhook receiver
+events. See `project_mail_enabled_agents` auto-memory for the
+pattern, or
+[juvant-os-pm#14](https://github.com/juvantlabs/juvant-os-pm/issues/14)
+for the closure rationale.
+
+### Helpers (separate directory: `helpers/`)
+
+Scheduled scripts (NOT agent sessions) that fetch data, classify by
+rules, populate Turso queues, and notify on threshold. Agents drain
+queues only during interactive sessions. See FEAT-007 + `helpers/README.md`.
 
 ### MCP servers (separate repos)
 
