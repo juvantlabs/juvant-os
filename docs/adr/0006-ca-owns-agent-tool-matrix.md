@@ -26,7 +26,10 @@ categories per agent:
 - **MCP servers** — `turso`, `ms-graph`, `github:read` / `github:write`,
   `bank:read` (abstract, bound to a concrete provider at company init), `buffer`.
 - **Claude Code Skills** — `pdf`, `docx`, `frontend-design`, `data-analysis`.
-- **Channels** — `m365-mail`, `telegram`.
+- **Channels** — `telegram`. (Inbound mail is NOT a channel — it's
+  on-demand read via the `ms-graph` connector dispatched by CoS to
+  mail-enabled agents per [ADR 0009](0009-mail-via-ms-graph-on-demand.md);
+  v1.1+ portal-bridge and teams-meeting are planned channels.)
 
 The matrix is **compiled into each subagent's frontmatter at company init** and
 mirrored into the `agent_tool_matrix` Turso table. Rows in `agent_tool_matrix`
@@ -42,7 +45,8 @@ requestor agent → CoS → CA review → COO install → CEO approval → matri
 Universal Boundaries — CA cannot grant under any rationale:
 
 - `bank:write` to any agent except a future ratified `treasury` role.
-- `m365-mail` send to any agent except v1.1 portal variants.
+- Mail-send capability (FEAT-016 `m365-mail-mcp-server`, v1.1+) to any
+  agent except v1.1 portal variants. Autonomous send is never granted.
 - `github:write` to any agent except COO (single-writer invariant; `SYSTEM_INVARIANTS.md` §4).
 - Both `state.db` read and external-channel send in the same matrix row.
 - `Bash` unrestricted to any external-facing agent (portals / demo).

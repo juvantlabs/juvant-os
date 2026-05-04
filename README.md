@@ -27,9 +27,9 @@ agents/company/         ← 10 company agents (CoS, CFO, CLO, CMO...)
 agents/projects/        ← 9 project agents (CTO, CPO, CDO, Eng/*...)
 hooks/                  ← 7 lifecycle bash scripts
 scripts/schema.sql      ← Turso database schema
-plugins/m365-mail/      ← Inbound email channel plugin (Claude Code native)
-plugins/portal-bridge/  ← MCP server — bridge between Azure Portal and agent sessions
-plugins/teams-meeting/  ← Teams meeting bot — CoS as silent co-pilot during calls
+helpers/                ← Scheduled scripts populating Turso queues (FEAT-007)
+plugins/portal-bridge/  ← Channel — bridge between Azure Portal and agent sessions (v1.1)
+plugins/teams-meeting/  ← Channel — Teams meeting bot, CoS silent co-pilot (v1.1)
 ```
 
 State lives in [Turso](https://turso.tech) — a cloud SQLite database shared across all agent sessions.
@@ -39,12 +39,15 @@ Agents communicate through Turso, not through each other directly.
 
 ## Plugins
 
-### `plugins/m365-mail/`
-Native Claude Code Channel plugin (`defineChannel` API).
-Polls Microsoft 365 via Graph API every 5 minutes.
-Pushes inbound emails directly into the relevant agent session (CFO, CLO, CCO).
-Sender confidence scoring enforced via Turso `disclosure_policies`.
-Claude Code manages the lifecycle entirely — no separate process, no daemon.
+### Inbound mail (NOT a plugin)
+
+Inbound M365 mail in v1.0 is **on-demand read** via the existing `ms-graph`
+claude.ai connector, dispatched by CoS to mail-enabled agents
+(CFO/CLO/CCO/CMO). No polling, no auto-emit, no plugin. Mailbox bindings
+captured at company init in `.juvant/config.json` `mail_enabled_agents.<role>`.
+See [ADR 0009](docs/adr/0009-mail-via-ms-graph-on-demand.md). Reactive push
+lands in v1.1+ via FEAT-016 (`m365-mail-mcp-server`) + FEAT-015 webhook
+receiver + OP-004 cloud agents.
 
 ### `plugins/portal-bridge/`
 MCP server. Bridge between the External Portal (Azure Static Web App) and Claude Code agent sessions.

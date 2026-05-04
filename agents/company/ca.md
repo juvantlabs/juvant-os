@@ -189,7 +189,7 @@ You may NOT skip steps. You may NOT install. You may NOT push. You may NOT appro
 These are tool combinations CA cannot grant under any rationale:
 
 - Granting `bank` write access to any agent except a future, scoped, ratified `treasury` role.
-- Granting `m365-mail` send access to any agent except portal variants in v1.1.
+- Granting mail-send capability (FEAT-016 `m365-mail-mcp-server`, v1.1+) to any agent except portal variants in v1.1; autonomous send is never granted.
 - Granting `github:write` to any agent except COO. Single-writer is a security invariant
   (SYSTEM_INVARIANTS.md §4), not a preference.
 - Granting any agent both `state.db` read and external-channel send in the same matrix row.
@@ -207,10 +207,10 @@ at company init and immediately becomes editable through the governance flow abo
 | Agent | MCP servers | Skills | Channels |
 |---|---|---|---|
 | cos | turso, ms-graph | — | telegram (send) |
-| cfo | turso, ms-graph, bank:read | pdf, docx | m365-mail (receive) |
-| clo | turso, ms-graph | pdf, docx | m365-mail (receive) |
-| cmo | turso, ms-graph, buffer | docx | m365-mail (receive, press scope) |
-| cco | turso, ms-graph | docx, pdf | m365-mail (receive) |
+| cfo | turso, ms-graph, bank:read | pdf, docx | — (mail-enabled, see footnote 2) |
+| clo | turso, ms-graph | pdf, docx | — (mail-enabled, see footnote 2) |
+| cmo | turso, ms-graph, buffer | docx | — (mail-enabled, press scope, see footnote 2) |
+| cco | turso, ms-graph | docx, pdf | — (mail-enabled, see footnote 2) |
 | chro | turso | — | — |
 | cso | turso, github:read | — | — |
 | cetho | turso | — | — |
@@ -231,11 +231,23 @@ at company init. The matrix references the abstraction; the binding lives in `.c
 The `:read` qualifier is enforced by the MCP server configuration — the read-only client cannot invoke
 write endpoints regardless of agent intent.
 
-The `m365-mail (receive, press scope)` cell for `cmo` denotes a scope-restricted receive channel:
-the channel plugin routes messages from the configured press mailbox (e.g. `press@{{COMPANY_DOMAIN}}`)
-to CMO's inbound queue exclusively. Other inbound classes (legal, finance, sales) are routed to
-their respective owners. Scope is enforced in `.claude/settings.json` channel configuration, not
-in the agent definition itself.
+**Footnote 2 — mail-enabled is not a Channel.** Per
+[ADR 0009](../../docs/adr/0009-mail-via-ms-graph-on-demand.md) (which
+supersedes ADR 0004), inbound mail in v1.0 is **on-demand read** via the
+existing `ms-graph` claude.ai connector dispatched by CoS — not a Channel
+plugin, not a polling helper. Mail-enabled status is captured at company
+init in `.juvant/config.json` `mail_enabled_agents.<role>` (Step 1.5b of
+the wizard). Each mail-enabled agent has an "Email Triage (on dispatch)"
+section in its template that calls
+`mcp__claude_ai_Microsoft_365__outlook_email_search` filtered for its
+assigned mailbox when CoS dispatches.
+
+The CMO press scope is enforced by the per-agent mailbox binding
+(`mail_enabled_agents.cmo` defaults to `press@{{COMPANY_DOMAIN}}`),
+plus the agent's prompt rules — not by a channel-plugin scope filter.
+Other inbound classes (legal, finance, sales) reach their owners via
+their own mailbox bindings. Reactive push (webhook → agent fires
+immediately) lands in v1.1+ via FEAT-016 + FEAT-015 + OP-004.
 
 The `cdo` row is for **Chief Design Officer** (project-scope, design system / brand UI / UX research /
 accessibility ownership) — NOT a data officer. The `frontend-design` skill is core to this role;

@@ -444,6 +444,105 @@ capability setup* sub-section. The CEO completes the folder mapping
 later via *"Configure document storage folders"* (re-runs Step 1.5
 standalone).
 
+### Wizard — Step 1.5b: Mail-enabled agents (optional)
+
+Some agents are responsible for monitoring a specific shared mailbox
+(CFO watches `finance@<domain>`, CLO watches `legal@<domain>`, etc.).
+This step captures which agents are mail-enabled and their assigned
+mailbox. **Mail-enabled is a per-agent characteristic** — it's not
+something the channel plugin or MCP server enforces; it's a Turso /
+config-time mapping the agent template reads at Email Triage time.
+
+**v1.0 is on-demand only.** No polling, no auto-emit. Mail-enabled
+agents call `mcp__claude_ai_Microsoft_365__outlook_email_search`
+filtered for their mailbox when CoS dispatches them (typically when
+the CEO asks for mail status, or as a Morning Brief follow-up).
+Reactive push lands in v1.1+ via FEAT-016 (`m365-mail-mcp-server`)
++ cloud agents (OP-004 / FEAT-009).
+
+#### Default mapping
+
+The wizard offers these defaults; the CEO can override per-agent or
+opt out (`Y/n` per agent):
+
+| Agent | Default mailbox | Scope |
+|---|---|---|
+| CFO  | `finance@{{COMPANY_DOMAIN}}` | Banking, invoicing, tax, supplier finance |
+| CLO  | `legal@{{COMPANY_DOMAIN}}`   | Contracts, IP, regulatory, opposing counsel |
+| CCO  | `hello@{{COMPANY_DOMAIN}}` (or `sales@…`) | Sales pipeline, prospects, partnerships |
+| CMO  | `press@{{COMPANY_DOMAIN}}`   | Press inquiries, analyst, comment-in-flight |
+
+Other agents (CSO, CA, COO, CoS, CDO, CHRO, CRO, CEthO, CTO, CPO, VPE,
+eng-\*) are NOT mail-enabled by default. The wizard does not offer them
+this binding. If a future role legitimately needs mail-enabled status,
+that's a `tool-matrix-change` decision per `SYSTEM_INVARIANTS.md` §6
+(CA proposes, CSO reviews, CEO approves) — not a wizard knob.
+
+#### Resulting schema in `.juvant/config.json`
+
+```json
+{
+  "mail_enabled_agents": {
+    "cfo": "finance@<domain>",
+    "clo": "legal@<domain>",
+    "cco": "hello@<domain>",
+    "cmo": "press@<domain>"
+  }
+}
+```
+
+Empty mailbox value (or absent agent key) means the agent is NOT
+mail-enabled in this company. Agent templates check
+`mail_enabled_agents.<role>` at Email Triage time and surface
+`[<ROLE> MAILBOX UNBOUND]` if they're invoked for mail work without
+a configured mailbox — same fallback-surfacing pattern as the
+`doc_storage` folder resolution in Step 1.5.
+
+#### Wizard prompt
+
+```
+Mail-enabled agents (each agent reads its own mailbox on-demand
+when dispatched by CoS).
+
+CFO mailbox? [Y/n/<custom>]   default: finance@<COMPANY_DOMAIN>
+CLO mailbox? [Y/n/<custom>]   default: legal@<COMPANY_DOMAIN>
+CCO mailbox? [Y/n/<custom>]   default: hello@<COMPANY_DOMAIN>
+CMO mailbox? [Y/n/<custom>]   default: press@<COMPANY_DOMAIN>
+```
+
+`Y` (or Enter) accepts the default. `n` opts out (agent stays not
+mail-enabled). A custom string sets a non-default mailbox (e.g.
+`legal-team@<domain>`).
+
+#### Skip / defer
+
+If the CEO doesn't want mail integration at company init (shared
+mailboxes not set up yet, or deferring), all four entries are absent
+or empty. Agent templates handle the unbound case gracefully: when
+CoS dispatches mail triage and the mailbox is unbound, the agent
+returns `[<ROLE> MAILBOX UNBOUND]` and CoS re-prompts the CEO.
+
+The CEO completes / updates the mapping later via *"Configure
+mail-enabled agents"* (re-runs Step 1.5b standalone).
+
+#### Why on-demand and not polling
+
+Original FEAT-006 proposed an `m365-mail` Channel plugin that would
+poll Graph every 5 minutes and auto-emit to mail-enabled agents.
+That spec was closed (juvantlabs/juvant-os-pm#14, 2026-05-04) for
+three structural reasons: `defineChannel` doesn't exist as a Claude
+Code API; spawning a fresh agent session on schedule introduces a
+concurrency bug with any concurrent interactive session for the
+same role; a standalone polling helper would need its own `Mail.Read`
+OAuth scope, violating handbook ADR 0003 threat-model separation if
+shared with the m365-graph Azure AD app.
+
+The on-demand pattern is **strictly simpler and structurally
+correct**: agents read their mailbox only when an active session is
+dispatching them, so there's only ever one consumer of the mailbox
++ classification at a time. Reactive push gets architected properly
+when cloud agents land (v1.1+, FEAT-016 + OP-004).
+
 ### Wizard — Step 1.6: GitHub user mapping
 
 Collects the GitHub username for the CEO and (optionally) per-role mappings
@@ -1406,7 +1505,7 @@ artifact URL back into the same `decisions` row (e.g. `rationale` JSON updated w
 ### Universal Boundaries (CA cannot grant under any rationale)
 
 - `bank:write` to any agent except a future ratified `treasury` role.
-- `m365-mail` send to any agent except portal variants in v1.1.
+- Mail-send capability (FEAT-016 `m365-mail-mcp-server`, v1.1+) to any agent except portal variants in v1.1; autonomous send is never granted.
 - **`github:write` to any agent except COO.** Single-writer is a security invariant
   (§4), not a preference.
 - Both `state.db` read and external-channel send in the same matrix row.
@@ -1720,9 +1819,12 @@ The Skill itself enforces these. They are non-negotiable.
 8. **GitHub writes flow only through COO** — every other agent carries
    `github:read` only. Any attempt to bypass this is a P0 security incident.
 
-9. **CMO m365-mail is press scope only** — the channel plugin routes to CMO only
-   from the configured press mailbox (e.g. `press@{{COMPANY_DOMAIN}}`). Other inbound
-   classes (legal, finance, sales) go to their respective owners.
+9. **CMO mail scope is press only** — `.juvant/config.json`
+   `mail_enabled_agents.cmo` defaults to `press@{{COMPANY_DOMAIN}}` and CMO
+   reads only from that mailbox via the `ms-graph` connector when CoS
+   dispatches. Other inbound classes (legal, finance, sales) reach their
+   owners via their own `mail_enabled_agents.<role>` bindings. See
+   [ADR 0009](docs/adr/0009-mail-via-ms-graph-on-demand.md).
 
 10. **Disclosure fallback engages structurally** — when `disclosure_policies` is
     unreachable, every agent applies §3 Tier 1; CoS, COO, VPE apply their tier

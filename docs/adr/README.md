@@ -23,11 +23,12 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0001](0001-skill-first-architecture.md) | Skill-first architecture — `JUVANT_OS.md` as the orchestrator | Accepted | 2026-04-23 |
 | [0002](0002-turso-cloud-state-store.md) | Turso as the cloud state store (LibSQL) | Accepted | 2026-04-23 |
 | [0003](0003-turso-shared-persistent-memory.md) | Turso as shared persistent memory; context window is temporary | Accepted | 2026-04-23 |
-| [0004](0004-m365-mail-channel-plugin.md) | M365 mail as a native Claude Code Channel plugin (not an MCP server) | Accepted | 2026-04-23 |
+| [0004](0004-m365-mail-channel-plugin.md) | M365 mail as a native Claude Code Channel plugin (not an MCP server) | **Superseded by 0009** | 2026-04-23 |
 | [0005](0005-portal-agent-variants.md) | Portal agent variants — internal vs. portal subagent segregation | Accepted | 2026-04-23 |
 | [0006](0006-ca-owns-agent-tool-matrix.md) | CA owns the agent tool matrix; matrix is compiled into subagent frontmatter | Accepted | 2026-04-23 |
 | [0007](0007-precompact-hook-context-management.md) | PreCompact hook for context management; replaces agent self-report | Accepted | 2026-04-23 |
 | [0008](0008-manifesto-fast-start.md) | Manifesto fast-start — Tier 1 blocking, Tier 2 async 7-day | Accepted | 2026-04-23 |
+| [0009](0009-mail-via-ms-graph-on-demand.md) | Mail integration via on-demand `ms-graph` connector dispatched by CoS (supersedes 0004) | Accepted | 2026-05-04 |
 
 ## Modification governance
 

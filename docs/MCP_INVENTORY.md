@@ -51,8 +51,11 @@ binding that violates these:
 
 - **`bank:write`** to any agent — would require ratifying a future
   `treasury` role with joint approval per §4. Not on the roadmap.
-- **`m365-mail` send** to any agent except v1.1 portal variants
-  (`cfo-portal`, `clo-portal`, `cco-portal`, `cmo-portal`).
+- **Mail-send capability** (FEAT-016 `m365-mail-mcp-server`, v1.1+) to any
+  agent except v1.1 portal variants
+  (`cfo-portal`, `clo-portal`, `cco-portal`, `cmo-portal`). Autonomous
+  send is never granted; portal variants use two-phase confirmation per
+  handbook ADR 0002.
 - **`github:write`** to any agent except COO (single-writer invariant §4).
 - **`state.db` read AND external-channel send in the same matrix row** —
   collapses the disclosure boundary.

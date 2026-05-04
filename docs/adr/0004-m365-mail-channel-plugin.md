@@ -2,8 +2,24 @@
 
 ## Status
 
-Accepted (2026-04-23). Promoted from `juvantlabs/juvant-os-pm#4` (ARCH-004) on
-2026-05-02.
+**Superseded by [ADR 0009 — Mail integration via on-demand `ms-graph` connector dispatched by CoS](0009-mail-via-ms-graph-on-demand.md)
+(2026-05-04).**
+
+Original status: Accepted (2026-04-23). Promoted from `juvantlabs/juvant-os-pm#4`
+(ARCH-004) on 2026-05-02.
+
+> **Why superseded.** This ADR specified a `defineChannel`-based Claude Code
+> Channel plugin that doesn't match the actual Claude Code channels API
+> (which uses `claude/channel` MCP capability + `notifications/claude/channel`,
+> not a `defineChannel` factory). It also specified schedule-spawned agent
+> sessions, which create a concurrency bug with any concurrent interactive
+> session for the same role. ADR 0009 documents the replacement v1.0
+> pattern (on-demand `outlook_email_search` via the existing `ms-graph`
+> claude.ai connector, dispatched by CoS as the single dispatcher), and
+> defers reactive push to v1.1+ via FEAT-016 + FEAT-015 + OP-004.
+>
+> The text below is the original 2026-04-23 decision and is preserved for
+> historical reference. **Do not implement.**
 
 ## Context
 
