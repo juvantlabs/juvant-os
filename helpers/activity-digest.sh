@@ -87,8 +87,6 @@ if [[ -z "$KILL_EVENTS" ]]; then
 else
   while IFS='|' read -r state when reason; do
     state=$(echo "$state" | tr -d ' ')
-    when=$(echo "$when")
-    reason=$(echo "$reason")
     [[ -z "$state" ]] && continue
     echo "- **$state** (set_at: $when, reason: $reason)"
   done <<< "$KILL_EVENTS"

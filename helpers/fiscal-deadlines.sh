@@ -60,7 +60,7 @@ fi
 
 # Assemble markdown bundle
 MSG="📅 *Fiscal deadlines imminent*"$'\n\n'
-while IFS=$'\t' read -r id name date owner days_until days_notice; do
+while IFS=$'\t' read -r id name date owner days_until _days_notice; do
   [[ -z "$id" ]] && continue
   if [[ "$days_until" -le 7 ]]; then
     URGENCY="🔴"
