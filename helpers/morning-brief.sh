@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# helpers/morning-brief.sh
+# Helper 1 of FEAT-007 (Agent Helpers pattern).
+#
+# Daily 08:00 brief assembled from Turso state + activity digest.
+# Sends to Telegram (Critical-style summary) + Teams ops channel
+# (full markdown).
+#
+# Per ADR 0004 + FEAT-007: this is a SCRIPT, not an agent session.
+# No Claude Code spawn. No spawn of fresh agent CFO / CoS that
+# would risk concurrency with an active interactive session.
+# Pure SQL aggregate + curl (via notification.sh).
+#
+# Sections:
+#   1. Yesterday's decisions  (from `decisions` table)
+#   2. Pending inbound queue  (from `inbound_queue` table — items
+#                              still 'pending' or 'escalated')
+#   3. Imminent fiscal deadlines (re-runs the same logic as
+#                                 helpers/fiscal-deadlines.sh —
+#                                 acceptable redundancy; the brief
+#                                 reader sees them inline)
+#   4. Agent activity (last 24h) — invokes
+#                     helpers/activity-digest.sh as subroutine
+#
+# The bank section (Helper 2 output) lands when FEAT-011 (Finom
+# MCP) ships. Until then, this helper omits the bank line.
+#
+# Schedule: daily 08:00 local time (configured via launchd /
+# cron with morning_brief_time + morning_brief_tz from
+# .juvant/config.json — wizard step 4).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG="$SCRIPT_DIR/../.juvant/config.json"
+DEADLINES="$SCRIPT_DIR/../scripts/deadlines.json"
+ACTIVITY_DIGEST="$SCRIPT_DIR/activity-digest.sh"
+NOTIFY="$SCRIPT_DIR/../hooks/notification.sh"
+
+TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
+if [[ -z "$TURSO_URL" ]]; then
+  echo "[morning-brief] FATAL: turso_url missing from $CONFIG" >&2
+  exit 1
+fi
+
+COMPANY=$(jq -r '.company_name // "Juvant OS"' "$CONFIG" 2>/dev/null || echo "Juvant OS")
+TODAY=$(date -u +%Y-%m-%d)
+SINCE=$(date -u -v-1d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
+        || date -u -d "1 day ago" +"%Y-%m-%d %H:%M:%S")
+
+# ─── Section 1: Yesterday's decisions
+DECISIONS=$(turso db shell "$TURSO_URL" "
+SELECT category, COUNT(*) FROM decisions
+WHERE created_at > '$SINCE'
+GROUP BY category
+ORDER BY COUNT(*) DESC;
+" 2>/dev/null || true)
+
+DECISIONS_MD=""
+if [[ -z "$DECISIONS" ]]; then
+  DECISIONS_MD="_No decisions logged in the last 24 hours._"
+else
+  DECISIONS_MD="| Category | Count |"$'\n'"|---|---:|"$'\n'
+  while IFS='|' read -r cat count; do
+    cat=$(echo "$cat" | xargs)
+    count=$(echo "$count" | xargs)
+    [[ -z "$cat" || "$cat" == "category" ]] && continue
+    DECISIONS_MD+="| $cat | $count |"$'\n'
+  done <<< "$DECISIONS"
+fi
+
+# ─── Section 2: Pending inbound queue
+QUEUE=$(turso db shell "$TURSO_URL" "
+SELECT agent_owner, COUNT(*) FROM inbound_queue
+WHERE status IN ('pending', 'escalated')
+GROUP BY agent_owner
+ORDER BY COUNT(*) DESC;
+" 2>/dev/null || true)
+
+QUEUE_MD=""
+if [[ -z "$QUEUE" ]]; then
+  QUEUE_MD="_No pending items in any agent's inbound queue._"
+else
+  QUEUE_MD="| Agent | Pending |"$'\n'"|---|---:|"$'\n'
+  while IFS='|' read -r agent count; do
+    agent=$(echo "$agent" | xargs)
+    count=$(echo "$count" | xargs)
+    [[ -z "$agent" || "$agent" == "agent_owner" ]] && continue
+    QUEUE_MD+="| $agent | $count |"$'\n'
+  done <<< "$QUEUE"
+fi
+
+# ─── Section 3: Imminent fiscal deadlines (re-uses logic from
+# fiscal-deadlines.sh; redundant but keeps the brief self-contained
+# even if fiscal-deadlines.sh hasn't run today)
+DEADLINES_MD=""
+if [[ -f "$DEADLINES" ]]; then
+  IMMINENT=$(jq -r --arg today "$TODAY" '
+    .deadlines[] |
+    . as $d |
+    (((($d.date | strptime("%Y-%m-%d") | mktime) - ($today | strptime("%Y-%m-%d") | mktime)) / 86400) | floor) as $days_until |
+    select($days_until >= 0 and $days_until <= $d.days_notice) |
+    [$d.id, $d.name, $d.date, $d.owner, $days_until] |
+    @tsv
+  ' "$DEADLINES" 2>/dev/null || true)
+  if [[ -z "$IMMINENT" ]]; then
+    DEADLINES_MD="_No imminent deadlines._"
+  else
+    DEADLINES_MD="| Date | Days | Owner | Deadline |"$'\n'"|---|---:|---|---|"$'\n'
+    while IFS=$'\t' read -r id name date owner days_until; do
+      [[ -z "$id" ]] && continue
+      if [[ "$days_until" -le 7 ]]; then EM="🔴"
+      elif [[ "$days_until" -le 30 ]]; then EM="🟡"
+      else EM="🟢"; fi
+      DEADLINES_MD+="| $EM $date | $days_until | $owner | $name |"$'\n'
+    done <<< "$IMMINENT"
+  fi
+else
+  DEADLINES_MD="_No deadlines.json — fiscal calendar not configured for this company._"
+fi
+
+# ─── Section 4: Agent activity (last 24h)
+ACTIVITY_MD=""
+if [[ -x "$ACTIVITY_DIGEST" ]]; then
+  ACTIVITY_MD=$(bash "$ACTIVITY_DIGEST" 2>/dev/null || echo "_activity-digest failed_")
+fi
+
+# ─── Assemble brief
+BRIEF=$(cat <<EOF
+# Morning Brief — $COMPANY — $TODAY
+
+## Yesterday's decisions
+
+$DECISIONS_MD
+
+## Inbound queue (pending)
+
+$QUEUE_MD
+
+## Imminent fiscal deadlines
+
+$DEADLINES_MD
+
+$ACTIVITY_MD
+
+---
+_Generated by helpers/morning-brief.sh — Juvant OS Agent Helpers (FEAT-007)._
+EOF
+)
+
+# ─── Dispatch
+JSON_MSG=$(echo -n "$BRIEF" | jq -R -s '.')
+JUVANT_NOTIFY_CHANNEL=ops \
+  bash "$NOTIFY" <<< "{\"message\":$JSON_MSG}" \
+  || echo "[morning-brief] WARN: notification dispatch failed" >&2
+
+echo "[morning-brief] OK — sent brief for $TODAY"
+exit 0

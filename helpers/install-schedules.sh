@@ -103,18 +103,64 @@ PLIST
 </plist>
 PLIST
 
+        # FEAT-007 Helper 1 — morning-brief — daily 08:00 local
+        cat > "$LAUNCHD_DIR/${PREFIX}.morning-brief.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.morning-brief</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${REPO_ROOT}/helpers/morning-brief.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>8</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/morning-brief.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/morning-brief.err</string>
+</dict>
+</plist>
+PLIST
+
+        # FEAT-007 Helper 3 — fiscal-deadlines — daily 07:45 local
+        cat > "$LAUNCHD_DIR/${PREFIX}.fiscal-deadlines.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.fiscal-deadlines</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${REPO_ROOT}/helpers/fiscal-deadlines.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>7</integer>
+    <key>Minute</key><integer>45</integer>
+  </dict>
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/fiscal-deadlines.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/fiscal-deadlines.err</string>
+</dict>
+</plist>
+PLIST
+
         mkdir -p "${REPO_ROOT}/.juvant/logs"
 
-        for label in turso-backup audit-reconcile anomaly-check; do
+        for label in turso-backup audit-reconcile anomaly-check morning-brief fiscal-deadlines; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed."
+        echo "[install-schedules] OK — Mac launchd schedules installed (5 jobs)."
         ;;
 
       uninstall|--uninstall)
-        for label in turso-backup audit-reconcile anomaly-check; do
+        for label in turso-backup audit-reconcile anomaly-check morning-brief fiscal-deadlines; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
@@ -138,9 +184,11 @@ PLIST
         TMP=$(mktemp)
         crontab -l 2>/dev/null | grep -v "$CRON_TAG" > "$TMP" || true
         cat >> "$TMP" <<CRON
-0 3 * * *   /bin/bash ${REPO_ROOT}/helpers/turso-backup.sh    >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1     $CRON_TAG
-0 3 * * 6   /bin/bash ${REPO_ROOT}/helpers/audit-reconcile.sh >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1  $CRON_TAG
-*/15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh   >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1   $CRON_TAG
+0 3 * * *    /bin/bash ${REPO_ROOT}/helpers/turso-backup.sh      >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1       $CRON_TAG
+0 3 * * 6    /bin/bash ${REPO_ROOT}/helpers/audit-reconcile.sh   >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1    $CRON_TAG
+*/15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh     >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1      $CRON_TAG
+0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh     >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1      $CRON_TAG
+45 7 * * *   /bin/bash ${REPO_ROOT}/helpers/fiscal-deadlines.sh  >> ${REPO_ROOT}/.juvant/logs/fiscal-deadlines.log 2>&1   $CRON_TAG
 CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"

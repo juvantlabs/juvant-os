@@ -47,10 +47,12 @@ if [[ -z "$MESSAGE" ]]; then
   MESSAGE="[Juvant OS] Agent $ROLE is waiting for your input."
 fi
 
-FULL_MESSAGE="[${ROLE^^}] $MESSAGE"
+# Portable uppercase — bash 3.2 (macOS default) doesn't support ${var^^}
+ROLE_UPPER=$(echo "$ROLE" | tr '[:lower:]' '[:upper:]')
+FULL_MESSAGE="[$ROLE_UPPER] $MESSAGE"
 
 # Push to Telegram
-if [[ -n "$TELEGRAM_BOT_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]]; then
+if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
   curl -s -X POST \
     "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     -d "chat_id=${TELEGRAM_CHAT_ID}" \
