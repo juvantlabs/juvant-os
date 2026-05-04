@@ -42,13 +42,15 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 1
 fi
 
-TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG")
+TURSO_DB_NAME=$(jq -r '.turso_db_name // ""' "$CONFIG")
 DEST=$(jq -r '.backup.destination // ""' "$CONFIG")
 GPG_RECIPIENT=$(jq -r '.backup.gpg_recipient // ""' "$CONFIG")
 
-if [[ -z "$TURSO_URL" || -z "$DEST" || -z "$GPG_RECIPIENT" ]]; then
-  echo "[turso-backup] FATAL: missing turso_url / backup.destination / backup.gpg_recipient in $CONFIG" >&2
+if [[ -z "$TURSO_DB_NAME" || -z "$DEST" || -z "$GPG_RECIPIENT" ]]; then
+  echo "[turso-backup] FATAL: missing turso_db_name / backup.destination / backup.gpg_recipient in $CONFIG" >&2
   echo "[turso-backup]        See JUVANT_OS.md § wizard for setup." >&2
+  echo "[turso-backup]        Note: turso_db_name (NOT turso_url) is required because Turso CLI's" >&2
+  echo "[turso-backup]        '.dump' command does not work via libsql:// URLs — only via DB name." >&2
   exit 1
 fi
 
@@ -59,8 +61,8 @@ trap 'rm -rf "$TMPDIR"' EXIT
 DUMP="$TMPDIR/juvant-${DATE}.sql"
 ENCRYPTED="$TMPDIR/juvant-${DATE}.sql.gz.gpg"
 
-echo "[turso-backup] dumping Turso to $DUMP" >&2
-turso db shell "$TURSO_URL" .dump > "$DUMP" 2>/dev/null
+echo "[turso-backup] dumping Turso ($TURSO_DB_NAME) to $DUMP" >&2
+turso db shell "$TURSO_DB_NAME" ".dump" > "$DUMP" 2>/dev/null
 
 # Tag spec-class dumps for permanent retention
 PREFIX=""

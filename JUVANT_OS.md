@@ -621,9 +621,20 @@ missing, fail gracefully with the install hint:
     "auth_token": "<token>",
     "scope": "company"
   },
+  "turso_url": "libsql://company-juvant-juvantlabs.turso.io",
+  "turso_token": "<token>",
+  "turso_db_name": "company-{{COMPANY_NAME_SLUG}}",
   "portal_available": true
 }
 ```
+
+**On `turso_db_name`**: Turso CLI's `.dump` command does NOT work via
+`libsql://` URLs — it tries to make an HTTP request to `<url>/dump`
+which fails with "unsupported protocol scheme". The CLI accepts the
+DB name directly: `turso db shell <db-name> .dump` works. Backup
+helper (`helpers/turso-backup.sh`) reads `turso_db_name` for this
+reason. Capture both the URL (for hooks + agents) AND the bare DB
+name (for the backup helper) at this step.
 
 **Manual path** — prompt for endpoint + token, run a `SELECT 1;` test via `turso db
 shell` (or equivalent), write the same config. The Skill never invents or stores
