@@ -93,8 +93,13 @@ Collect from the CEO, one question at a time:
 - **CEO name** (e.g. "Jane Doe"). Used as `{{CEO_NAME}}`.
 - **CEO email** (used by Morning Brief digest).
 - **CEO Telegram handle** (used by Notification hook for Critical alerts).
-- **Document storage**: OneDrive or Google Drive (binds the `ms-graph` MCP server in
-  `.claude/settings.json`). Folder mapping happens at Step 1.5.
+- **Document storage**: OneDrive or Google Drive. For OneDrive, the wizard records
+  the choice now and binds the relevant MCP servers later: `ms-graph` (the claude.ai
+  read-only Microsoft 365 connector, when running through claude.ai's product) and
+  `m365-graph` (`@juvantlabs/m365-graph-mcp-server@0.1.3`, the read+write
+  OSS server shipped as FEAT-014). Folder mapping happens at Step 1.5; OAuth
+  setup for the write-capable server happens in the same step (sub-section
+  *M365 write-capability setup*) and is optional.
 
 ### Wizard — Step 1.5: Document storage folder mapping
 
@@ -226,10 +231,13 @@ CEO to type folder paths every session.
 #### Write capability check (separate from folder resolution)
 
 Folder resolution tells the agent WHERE to write. Write CAPABILITY (the
-ability to perform the write) requires a write-capable MCP bound — today
-`juvantlabs/m365-graph-mcp-server` (FEAT-014, shipping in beta).
+ability to perform the write) requires a write-capable MCP bound. For
+OneDrive that's [`@juvantlabs/m365-graph-mcp-server`](https://www.npmjs.com/package/@juvantlabs/m365-graph-mcp-server)
+v0.1.3 (FEAT-014, shipped 2026-05-04). The wizard configures it via the
+*M365 write-capability setup* sub-section below.
 
-Until FEAT-014 ships, the only write paths are:
+Adopters who skip that sub-section (no Azure AD app registration yet,
+or deferring write capability) keep two fallback write paths:
 
 - **Local filesystem** — agent writes to a path the CEO provides; OneDrive
   sync client (if running locally) propagates to cloud.
@@ -241,12 +249,181 @@ Agents that need write access check capability BEFORE attempting:
 ```python
 def can_write(role: str) -> bool:
     if resolve_folder(role) is None: return False
-    if has_write_capable_mcp("m365-graph"): return True  # FEAT-014 path
+    if has_write_capable_mcp("m365-graph"): return True
     return ceo_provided_local_path_this_turn()
 ```
 
-Failed capability triggers `[<ROLE> WRITE UNAVAILABLE]` with remediation
-hint pointing at FEAT-014.
+Failed capability triggers `[<ROLE> WRITE UNAVAILABLE]` with a
+remediation hint pointing at the *M365 write-capability setup*
+sub-section (re-runnable standalone via *"Configure M365 write
+capability"*) or instructing the CEO to provide an explicit local path
+for the current turn.
+
+#### M365 write-capability setup (OneDrive only)
+
+This sub-section runs only when `doc_storage.provider == "onedrive"`
+and only if the CEO opts in to write capability. Skipping it is
+fine — folder mapping (above) still works for read flows; writes
+fall back to the local-filesystem / wait paths described in the
+previous sub-section. The CEO can re-enter this sub-section at any
+time via *"Configure M365 write capability"*.
+
+**What this sub-section does**: provisions the credentials and
+process glue needed to spawn `@juvantlabs/m365-graph-mcp-server`
+under `.claude/settings.json` and runs its one-time OAuth flow so
+tokens land in the OS keychain.
+
+##### Step 1 — Azure AD app registration check
+
+Ask:
+
+```
+Do you have an Azure AD app registration for this Juvant OS instance?
+  [Y] Yes — I have client_id, client_secret, tenant_id
+  [N] No  — guide me through creating one
+```
+
+**`Y` path**: skip to Step 2 below.
+
+**`N` path**: surface the registration checklist (the CEO does this in
+the Azure Portal — the wizard doesn't provision Azure AD on the CEO's
+behalf):
+
+1. Open <https://portal.azure.com/> → *Microsoft Entra ID* → *App registrations* → *New registration*.
+2. Name: `Juvant OS — {{COMPANY_NAME}}` (any name; this is for the CEO's records).
+3. Supported account types: *Accounts in this organizational directory only* (single tenant).
+4. Redirect URI: *Web* + `http://localhost:3000/auth/callback` (matches the MCP server's hardcoded redirect; do not change).
+5. After creation, copy *Application (client) ID* and *Directory (tenant) ID* from the Overview page.
+6. *Certificates & secrets* → *New client secret* → 24-month expiry → copy the *Value* (not the Secret ID; the value is shown only once).
+7. *API permissions* → *Add a permission* → *Microsoft Graph* → *Delegated permissions* → grant: `User.Read`, `Files.ReadWrite`, `Calendars.ReadWrite`, `offline_access`. (`Files.ReadWrite` subsumes `Files.Read`; `Calendars.ReadWrite` subsumes `Calendars.Read` — no need to add the narrower scopes separately.)
+8. Click *Grant admin consent for {{TENANT}}* (if the CEO is the tenant admin; otherwise the tenant admin must do this step).
+
+When the CEO returns with the three values, proceed to Step 2.
+
+##### Step 2 — Capture credentials
+
+Prompt for the three values one at a time. Validate each:
+
+- `client_id` — non-empty UUID-ish string.
+- `client_secret` — non-empty; never echo to terminal; store as opaque.
+- `tenant_id` — must match `^(common|organizations|consumers|<UUID>)$` (the same regex the MCP server enforces at startup). Reject and re-prompt on mismatch.
+
+Write to `.juvant/config.json` (gitignored, same file Turso credentials
+landed in at Step 2 of the company setup):
+
+```json
+{
+  "m365_oauth": {
+    "client_id": "<application-client-id>",
+    "client_secret": "<client-secret-value>",
+    "tenant_id": "<directory-tenant-id>"
+  }
+}
+```
+
+##### Step 3 — Generate the wrapper script
+
+The MCP server reads credentials from `process.env.M365_*`, but the
+wizard's job is to bridge those env vars from `.juvant/config.json`
+without putting secrets in the (committed) `.claude/settings.json`.
+Same pattern Juvant OS hooks already use to read Turso credentials.
+
+Write `scripts/run-m365-graph-mcp.sh` (mode `0755`):
+
+```bash
+#!/usr/bin/env bash
+# Spawns @juvantlabs/m365-graph-mcp-server with credentials sourced
+# from .juvant/config.json. Generated by the company-init wizard at
+# Step 1.5 (M365 write-capability setup).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG="$SCRIPT_DIR/../.juvant/config.json"
+
+if [[ ! -f "$CONFIG" ]]; then
+  echo "[run-m365-graph-mcp] FATAL: $CONFIG missing." >&2
+  exit 1
+fi
+
+export M365_CLIENT_ID="$(jq -er '.m365_oauth.client_id' "$CONFIG")"
+export M365_CLIENT_SECRET="$(jq -er '.m365_oauth.client_secret' "$CONFIG")"
+export M365_TENANT_ID="$(jq -er '.m365_oauth.tenant_id' "$CONFIG")"
+
+exec npx --yes @juvantlabs/m365-graph-mcp-server@0.1.3 "$@"
+```
+
+##### Step 4 — Register in `.claude/settings.json`
+
+Append to the `mcpServers` block:
+
+```json
+{
+  "mcpServers": {
+    "m365-graph": {
+      "command": "scripts/run-m365-graph-mcp.sh",
+      "args": []
+    }
+  }
+}
+```
+
+The bare invocation (no `setup` arg) starts the stdio MCP server. The
+wrapper sources credentials each spawn, so rotating the secret means
+editing `.juvant/config.json` once — no `.claude/settings.json` change.
+
+##### Step 5 — Run the one-time OAuth flow
+
+```
+$ ./scripts/run-m365-graph-mcp.sh setup
+```
+
+The MCP server opens the CEO's default browser to Microsoft's
+authorization endpoint, runs a one-shot listener at
+`http://localhost:3000/auth/callback`, exchanges the authorization
+code for an access + refresh token via MSAL, and persists both in the
+OS keychain via `@napi-rs/keyring` (per-tenant scoped — the keychain
+account is `tenant:<tenant-id>`).
+
+After this, every subsequent spawn refreshes silently via MSAL's
+cached refresh-token grant. The CEO does not need to re-authenticate
+unless the Azure AD app's client secret rotates or the refresh token
+expires beyond Microsoft's 90-day inactivity limit.
+
+##### Step 6 — Update `doc_storage.mcp_server`
+
+Update `.juvant/config.json` `doc_storage.mcp_server` to record that
+the canonical write-capable backing is `m365-graph`:
+
+```json
+{
+  "doc_storage": {
+    "provider": "onedrive",
+    "mcp_server": "m365-graph",
+    "...": "..."
+  }
+}
+```
+
+(`mcp_server` is the inventory-row qualifier per
+[`docs/MCP_INVENTORY.md`](docs/MCP_INVENTORY.md), not the npm package
+path. The package + version pin lives in the wrapper script — Step 3 —
+so version bumps don't require touching `.juvant/config.json`.)
+
+##### Verification
+
+Quick smoke test the wizard runs after Step 5 succeeds:
+
+```
+$ ./scripts/run-m365-graph-mcp.sh
+[m365-graph-mcp-server] running on stdio (log level: info, tenant: <id>, tools: 17)
+^C
+```
+
+The server printing the startup banner on stderr (and not crashing
+with `missing required env var(s)` or `M365_TENANT_ID has invalid
+shape`) confirms the credentials are wired correctly. Ctrl+C exits;
+the agent runtime spawns the server on demand thereafter.
 
 #### Optional: skip / defer
 
@@ -259,8 +436,12 @@ no documents yet), Step 1.5 can be skipped. The wizard records:
 ```
 
 Agent templates treat empty `folders` as "all roles unbound; surface at
-first relevant call". The CEO completes the mapping later via *"Configure
-document storage folders"* (re-runs Step 1.5 standalone).
+first relevant call". `mcp_server: "ms-graph"` here is the read-only
+fallback (claude.ai connector when available); the CEO upgrades to
+`m365-graph` later by re-running Step 1.5 with the *M365 write-
+capability setup* sub-section. The CEO completes the folder mapping
+later via *"Configure document storage folders"* (re-runs Step 1.5
+standalone).
 
 ### Wizard — Step 1.6: GitHub user mapping
 
