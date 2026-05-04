@@ -331,3 +331,61 @@ CREATE TABLE IF NOT EXISTS portal_offline_messages (
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
   processed_at    DATETIME
 );
+
+-- ─────────────────────────────────────────────
+-- AGENT ACTION GUARDRAILS (handbook ADR 0004)
+-- ─────────────────────────────────────────────
+-- Append-only audit log of every tool call by every agent. Written
+-- by PreToolUse + PostToolUse hooks BEFORE the agent has a chance
+-- to write anywhere else. Agents have READ-ONLY convention on this
+-- table — never INSERT / UPDATE / DELETE from agent prompts.
+-- Reconciliation against decisions detects cover-up (failure mode #6
+-- of ADR 0004 — Replit-style fabrication of state).
+
+CREATE TABLE IF NOT EXISTS agent_actions_log (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id    TEXT,
+  agent         TEXT NOT NULL,
+  tool_name     TEXT NOT NULL,
+  args_hash     TEXT NOT NULL,
+  -- SHA-256 of canonical-JSON args; full args NOT stored
+  -- (privacy + size). args_hash + tool_name + agent is the
+  -- fingerprint used for reconciliation.
+  result_hash   TEXT,
+  -- SHA-256 of canonical-JSON result; NULL on failure or in-flight.
+  status        TEXT NOT NULL,
+  -- 'pending' | 'success' | 'failure' | 'denied'
+  deny_reason   TEXT,
+  -- non-NULL when status='denied' (Track 2 deny-list match,
+  -- per-agent allow-list miss, or other PreToolUse veto).
+  started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  ended_at      DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_actions_log_session
+  ON agent_actions_log(session_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_actions_log_agent
+  ON agent_actions_log(agent, started_at);
+
+-- Single-row global kill switch. session-start.sh checks at boot
+-- and exits if active=1 AND (affected_agents IS NULL OR ROLE in
+-- affected_agents JSON array). Set/cleared via
+-- helpers/agent-killswitch.sh. Per ADR 0004 Track 4.
+
+CREATE TABLE IF NOT EXISTS agent_kill_switch (
+  id                 INTEGER PRIMARY KEY DEFAULT 1
+                     CHECK (id = 1),
+  -- single-row enforced
+  active             INTEGER NOT NULL DEFAULT 0,
+  -- 0 = disabled (normal), 1 = active (block sessions)
+  set_by             TEXT,
+  -- 'ceo' | 'anomaly-detector' | <name>
+  set_at             DATETIME,
+  reason             TEXT,
+  affected_agents    TEXT
+  -- JSON array of role names; NULL = all agents.
+);
+
+INSERT OR IGNORE INTO agent_kill_switch
+  (id, active, set_by, set_at, reason, affected_agents)
+VALUES (1, 0, NULL, NULL, NULL, NULL);
