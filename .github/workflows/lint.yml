@@ -81,3 +81,27 @@ jobs:
             exit 1
           fi
           echo "OK — no tracked secrets detected"
+
+      - name: Shellcheck — hooks + scripts + helpers
+        run: |
+          # Lint shipped shell scripts. helpers/ is the FEAT-007 deliverable
+          # directory; pattern includes it for forward compatibility (nullglob
+          # makes the loop a no-op when helpers/ is absent).
+          sudo apt-get install -y shellcheck
+          shopt -s nullglob
+          fail=0
+          for f in hooks/*.sh scripts/*.sh helpers/*.sh; do
+            echo "::group::shellcheck $f"
+            shellcheck "$f" || fail=1
+            echo "::endgroup::"
+          done
+          [ "$fail" = 0 ]
+
+      - name: Dependency vulnerability scan (placeholder)
+        run: |
+          # No-op until a dependency manifest lands in this repo. The OSS
+          # template currently ships bash + markdown only — no package.json,
+          # no requirements.txt, no Cargo.toml. When per-helper or per-plugin
+          # manifests land (FEAT-007 helpers, future plugins/), swap to
+          # npm audit / pip-audit / cargo audit gated by file existence.
+          echo "no dependency manifest in repo; skipping dep-vuln scan"
