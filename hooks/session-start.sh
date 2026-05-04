@@ -34,14 +34,37 @@ if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
   exit 0
 fi
 
+# Resolve agent role first — we need it for both kill-switch check and status update
+ROLE="${AGENT_ROLE:-cos}"
+
+# Per handbook ADR 0004 Track 4 — refuse session start when kill switch is active
+KILL_ROW=$(turso db shell "$TURSO_URL" \
+  "SELECT active || '|' || COALESCE(reason, '') || '|' || COALESCE(affected_agents, '') FROM agent_kill_switch WHERE id=1;" \
+  2>/dev/null | tail -1 || echo "0||")
+KILL_ACTIVE=$(echo "$KILL_ROW" | cut -d'|' -f1 | tr -d ' ')
+KILL_REASON=$(echo "$KILL_ROW" | cut -d'|' -f2)
+KILL_AFFECTED=$(echo "$KILL_ROW" | cut -d'|' -f3)
+
+if [[ "$KILL_ACTIVE" == "1" ]]; then
+  if [[ -z "$KILL_AFFECTED" || "$KILL_AFFECTED" == "null" ]] || \
+     echo "$KILL_AFFECTED" | jq -r '.[]' 2>/dev/null | grep -qx "$ROLE"; then
+    echo "[session-start] KILL SWITCH ACTIVE: $KILL_REASON. Refusing session start for role=$ROLE." >&2
+    # Best-effort notify CEO via existing notification hook
+    SCRIPT_DIR_FOR_NOTIFY="$SCRIPT_DIR"
+    JUVANT_NOTIFY_PRIORITY=critical \
+      bash "$SCRIPT_DIR_FOR_NOTIFY/notification.sh" \
+      <<< "{\"message\":\"Kill switch denied $ROLE start: $KILL_REASON\"}" \
+      2>/dev/null || true
+    exit 1
+  fi
+fi
+
 # Extract session_id from stdin JSON if available
 SESSION_ID=""
 if [[ -n "$EVENT_JSON" ]] && command -v jq &>/dev/null; then
   SESSION_ID=$(echo "$EVENT_JSON" | jq -r '.session_id // ""' 2>/dev/null || echo "")
 fi
 
-# Resolve agent role (set by Skill at session boot via environment)
-ROLE="${AGENT_ROLE:-cos}"
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
 
 # Update agent status to active
