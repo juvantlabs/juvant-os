@@ -250,6 +250,74 @@ publication channels, and any commitments made (e.g. "we commit to a follow-up i
 
 ---
 
+## Quarterly KB Coverage Audit
+
+Per handbook ADR 0004 § audit-reconcile pattern: every project's
+`knowledge_base` should remain in sync with its canonical decision-bearing
+sources (ADRs + ARCH-* issues + analysis/research docs in
+`<project>-pm/docs/`). Drift accumulates as new ADRs ship and new
+ARCH-* issues land — without an explicit audit cadence, the agent's
+context becomes stale.
+
+### Schedule
+
+Every quarter (Q1: Jan, Q2: Apr, Q3: Jul, Q4: Oct), run the coverage helper
+for each active project:
+
+```bash
+./helpers/kb-coverage.sh <project-slug>
+```
+
+Output classes:
+- ✅ **In sync** — exit 0, nothing to do.
+- ⚠️ **Missing canonical sources in KB** — exit 1, surface as gap.
+  Each missing source = a candidate KB row to author via the standard
+  knowledge-promotion flow (CHRO proposes → CA validates → CEO approves →
+  CRO commits as KB row with `source_ref` filled).
+- ⚠️ **Orphan KB rows** — KB row references a source not in canonical list
+  anymore (deleted, renamed, or ad-hoc M-* promotion that's no longer
+  current). Triage each: legitimate (e.g. M-* promoted via CHRO flow with
+  rich rationale) → keep; stale (deleted ADR) → supersede with
+  `category='retracted'` rationale.
+
+### Procedure
+
+1. Run `./helpers/kb-coverage.sh <slug>` on Q1 day-1.
+2. For each missing canonical source: open a `decisions` row category
+   `kb-promotion-candidate` with `rationale` = the source pointer +
+   one-line case for materiality.
+3. For each row in (2): if material, run knowledge synthesis (read the
+   source, write summary, attach citations) and INSERT the KB row with
+   `source_ref` filled. If not material (e.g. a closed ARCH-* issue
+   that ended up "no decision, parked"), log a `decisions` row
+   `kb-skip-rationale` and move on.
+4. For orphans: review each. Stale → supersede; legitimate → leave with
+   a note in the row's `content` clarifying provenance.
+5. Surface the audit summary to {{CEO_NAME}} via CoS Morning Brief on Q1 day-2:
+   "<project> KB sync: N new sources promoted, M orphan retired, X unresolved."
+
+### Inputs
+
+- `helpers/kb-coverage.sh` for the diff
+- `gh issue view` / `gh api repos/.../contents/docs/decisions/<file>` for source body retrieval
+- Standard `knowledge_base` schema (with `source_ref` column)
+
+### NOT in scope
+
+- M-*/P-*/R-*/TECH-*/PILOT etc. issues are NOT canonical sources. They
+  ARE candidates for ad-hoc promotion via CHRO flow if any contains
+  rich rationale, but they are not enumerated by the helper.
+- `<project>-pm/docs/technical/*` and `<project>-pm/docs/templates/*`
+  are operational reference / meta, not material decisions; helper
+  excludes them.
+
+If the helper itself is missing or outdated (e.g. a project introduces a
+new canonical source category like `<project>-pm/docs/strategy/`),
+propose an extension via `tool-matrix-change` decision per
+`SYSTEM_INVARIANTS.md` §6.
+
+---
+
 ## Session Start Protocol
 
 The SessionStart hook has already set `agents.status='active'` for you in Turso.

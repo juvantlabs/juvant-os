@@ -297,15 +297,28 @@ CREATE TABLE IF NOT EXISTS adapter_dead_letters (
 CREATE TABLE IF NOT EXISTS knowledge_base (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   category        TEXT NOT NULL,
-  -- 'strategic' | 'technical' | 'skill'
+  -- 'strategic' | 'technical' | 'skill' | 'research'
   title           TEXT NOT NULL,
   content         TEXT NOT NULL,
   source_project  TEXT,
+  -- abstract project slug — 'hardys', etc.
+  source_ref      TEXT,
+  -- canonical pointer to the originating artifact:
+  --   issue:  '<org>/<repo>#<num>'  e.g. 'juvantio/hardys-pm#76'
+  --   file:   '<org>/<repo>/<path>' e.g. 'juvantio/hardys-pm/docs/decisions/ADR-007'
+  --   doc:    '<org>/<repo>/<path>' e.g. 'juvantio/hardys-pm/docs/analysis/llm-evaluation-2026-alpha'
+  -- helpers/kb-coverage.sh diffs canonical source list against
+  -- DISTINCT source_ref to surface gaps. Per OP-007 + handbook ADR
+  -- 0004 (audit-reconcile pattern).
   promoted_by     TEXT,
-  -- 'chro' | 'ca'
+  -- 'chro' | 'ca' | 'cro'
   approved_by     TEXT DEFAULT 'ceo',
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Idempotent migration (existing DBs migrating from pre-source_ref):
+-- SQLite ADD COLUMN is non-idempotent — wrap with || true if scripting.
+--   ALTER TABLE knowledge_base ADD COLUMN source_ref TEXT;
 
 CREATE TABLE IF NOT EXISTS projects (
   id          TEXT PRIMARY KEY,
