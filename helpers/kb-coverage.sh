@@ -84,14 +84,14 @@ KB_REFS=$(turso db shell "$TURSO_DB_NAME" \
   "SELECT DISTINCT source_ref FROM knowledge_base WHERE source_project='$PROJECT' AND source_ref IS NOT NULL;" \
   2>/dev/null | tail -n +1 | sort -u)
 
-KB_COUNT=$(echo "$KB_REFS" | grep -v '^$' | wc -l | tr -d ' ')
+KB_COUNT=$(echo "$KB_REFS" | grep -c '.' || true)
 echo "[kb-coverage] KB rows for $PROJECT (with source_ref): $KB_COUNT"
 
 # 3. Diff
 MISSING=$(comm -23 <(echo "$CANONICAL") <(echo "$KB_REFS"))
 ORPHAN=$(comm -13 <(echo "$CANONICAL") <(echo "$KB_REFS"))
-MISSING_COUNT=$(echo "$MISSING" | grep -v '^$' | wc -l | tr -d ' ')
-ORPHAN_COUNT=$(echo "$ORPHAN" | grep -v '^$' | wc -l | tr -d ' ')
+MISSING_COUNT=$(echo "$MISSING" | grep -c '.' || true)
+ORPHAN_COUNT=$(echo "$ORPHAN" | grep -c '.' || true)
 
 echo ""
 echo "=== Coverage report — $PROJECT ==="
