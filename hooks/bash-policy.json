@@ -32,13 +32,13 @@
     "coo":          ["git", "gh", "npm", "npx", "node", "turso", "jq"],
     "cso":          ["git", "gh", "gpg", "shellcheck", "jq"],
     "ca":           ["git", "gh", "jq"],
-    "vpe":          ["git", "gh", "npm", "npx", "node"],
-    "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest"],
-    "eng-backend":  ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest"],
-    "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint"],
-    "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest"],
-    "cto":          ["git", "gh", "node"],
-    "cpo":          ["git", "gh"],
-    "cdo":          ["git", "gh", "node", "npm"]
+    "vpe":          ["git", "gh", "npm", "npx", "node", "turso", "jq"],
+    "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
+    "eng-backend":  ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
+    "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "jq"],
+    "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "jq"],
+    "cto":          ["git", "gh", "node", "turso", "jq"],
+    "cpo":          ["git", "gh", "turso", "jq"],
+    "cdo":          ["git", "gh", "node", "npm", "jq"]
   }
 }

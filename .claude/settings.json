@@ -110,6 +110,29 @@
       }
     ]
   },
+  "permissions": {
+    "_comment": "Autonomous-by-default within the company instance. Structural safety lives in hooks/bash-policy.json (universal deny + per-role allow) + audit log + anomaly detection per handbook ADR 0004 — NOT in prompt friction. Read/Grep/Glob/WebFetch on the listed safe domains never prompt. Edit/Write inside the repo never prompt; .juvant/config.json and .env* are explicitly denied (token-bearing). Bash gating is delegated to hooks/pre-tool-use.sh. High-impact mutations (gh issue close, gh pr create, git push, turso DDL) still surface confirmation dialogs via deny_patterns + ADR 0004 Track 1.",
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(**)",
+      "Grep(**)",
+      "Glob(**)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:learn.microsoft.com)",
+      "WebFetch(domain:docs.anthropic.com)"
+    ],
+    "deny": [
+      "Edit(.juvant/config.json)",
+      "Write(.juvant/config.json)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Edit(**/credentials*)",
+      "Write(**/credentials*)"
+    ]
+  },
   "channels": [
     {
       "plugin": "telegram"
