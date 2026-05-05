@@ -132,6 +132,15 @@ substitutes placeholders at company init from the values below.
 | `{{CETHO_NAME}}` | Vera | Chief Ethics Officer | Company |
 | `{{CA_NAME}}` | Arch | Chief Architect | Company |
 | `{{CRO_NAME}}` | Lumen | Chief Research Officer (optional) | Company |
+| `{{ENG_PLATFORM_NAME}}` | Hephaestus | Platform Engineer (optional) | Company |
+
+Optional company-scope agents (CRO, eng-platform) are NOT bootstrapped by
+default. They are introduced via the standard Hire flow (CHRO opens
+`hiring_log` row, CA authors pr-spec, CEO approves, COO installs the
+templated `agents/company/<role>.md` file). The eng-platform template
+(`agents/company/eng-platform.md`) ships an opinionated Azure-first
+default starter set of 14 Hard Conventions; the hire pr-spec is where
+the CEO ratifies, amends, or removes them per adoption.
 
 ### Project-scope agent name placeholders
 
