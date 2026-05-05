@@ -49,9 +49,14 @@ echo "[kb-coverage] Project: $PROJECT (pm_repo: $PM_REPO)"
 # 1. Enumerate canonical sources
 
 # 1a. ADR files
+# Canonical source_ref form is short — ADR-NNN — not the full filename slug
+# ADR-NNN-title-words. Reason: ADR filenames may rename if titles are
+# refined; short form is stable across renames + matches the schema example
+# (scripts/schema.sql §knowledge_base source_ref docstring).
 ADRS=$(gh api "repos/$PM_REPO/contents/docs/decisions" 2>/dev/null \
   | jq -r '.[] | select(.name | startswith("ADR-")) | .name' 2>/dev/null \
   | sed -E 's|\.md$||' \
+  | sed -E 's|^(ADR-[0-9]+).*$|\1|' \
   | sed "s|^|$PM_REPO/docs/decisions/|" \
   | sort -u)
 
@@ -80,9 +85,12 @@ CANONICAL_COUNT=$(echo "$CANONICAL" | wc -l | tr -d ' ')
 echo "[kb-coverage] Canonical sources: $CANONICAL_COUNT (ADRs + ARCH issues + analysis + research)"
 
 # 2. Enumerate KB rows for this project
+# `turso db shell` prints a "SOURCE REF" header line and pads each
+# value with trailing spaces for column alignment. Skip header
+# (tail -n +2) and trim trailing whitespace before sort/comm-ing.
 KB_REFS=$(turso db shell "$TURSO_DB_NAME" \
   "SELECT DISTINCT source_ref FROM knowledge_base WHERE source_project='$PROJECT' AND source_ref IS NOT NULL;" \
-  2>/dev/null | tail -n +1 | sort -u)
+  2>/dev/null | tail -n +2 | sed 's/[[:space:]]*$//' | sort -u)
 
 KB_COUNT=$(echo "$KB_REFS" | grep -c '.' || true)
 echo "[kb-coverage] KB rows for $PROJECT (with source_ref): $KB_COUNT"
