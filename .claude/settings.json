@@ -123,8 +123,6 @@
       "WebFetch(domain:docs.anthropic.com)"
     ],
     "deny": [
-      "Edit(.juvant/config.json)",
-      "Write(.juvant/config.json)",
       "Edit(**/.env)",
       "Edit(**/.env.*)",
       "Write(**/.env)",

@@ -68,15 +68,23 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     fi
   done < <(jq -r '.deny_patterns[]?' "$POLICY" 2>/dev/null)
 
-  # Per-agent allow-list (only if not already denied universally)
+  # Per-agent allow-list (only if not already denied universally).
+  # Operator mode: when AGENT_ROLE is unset/unknown/ceo/operator, the
+  # human is driving Claude Code directly (not via the Skill agent
+  # dispatcher). Per-role allow-list does not apply — only the
+  # universal deny-list. Auditing still applies (Track 3).
   if [[ "$DECISION" == "allow" ]]; then
-    FIRST_TOKEN=$(echo "$COMMAND" | awk '{print $1}' | sed 's|.*/||')
-    ALLOW_OK=$(jq -r --arg role "$ROLE" --arg bin "$FIRST_TOKEN" \
-      '(.agent_allow[$role] // []) | index($bin) // empty' \
-      "$POLICY" 2>/dev/null || echo "")
-    if [[ -z "$ALLOW_OK" ]]; then
-      DECISION="deny"
-      DENY_REASON="binary '$FIRST_TOKEN' not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Escalate to CoS for tool-matrix-change."
+    if [[ -z "$ROLE" || "$ROLE" == "unknown" || "$ROLE" == "ceo" || "$ROLE" == "operator" ]]; then
+      : # operator mode — universal deny already enforced; allow continues
+    else
+      FIRST_TOKEN=$(echo "$COMMAND" | awk '{print $1}' | sed 's|.*/||')
+      ALLOW_OK=$(jq -r --arg role "$ROLE" --arg bin "$FIRST_TOKEN" \
+        '(.agent_allow[$role] // []) | index($bin) // empty' \
+        "$POLICY" 2>/dev/null || echo "")
+      if [[ -z "$ALLOW_OK" ]]; then
+        DECISION="deny"
+        DENY_REASON="binary '$FIRST_TOKEN' not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Escalate to CoS for tool-matrix-change."
+      fi
     fi
   fi
 fi
