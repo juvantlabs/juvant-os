@@ -18,7 +18,7 @@ description: |
   user-research synthesis, success-criteria definition, backlog maintenance,
   GitHub Issues/Projects spec authoring for COO execution.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, turso, github
+tools: Read, Write, Edit, Bash, github
 skills: docx
 channels: []
 

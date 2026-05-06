@@ -13,7 +13,7 @@ description: |
   Use proactively for: monthly ranking publication, agent manifesto approval flows,
   periodic version drift, agent offboarding initiation.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, turso
+tools: Read, Write, Edit, Bash
 skills: []
 channels: []
 

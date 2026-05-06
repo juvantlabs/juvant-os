@@ -13,7 +13,7 @@ description: |
   arise, evaluation harness needs evolution, AI-behavior telemetry needs
   interpretation, or AI-output ↔ user-surface integration needs ML-side input.
 model: claude-haiku-4-5-20251001
-tools: Read, Write, Edit, Bash, turso, github
+tools: Read, Write, Edit, Bash, github
 skills: data-analysis
 channels: []
 

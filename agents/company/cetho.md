@@ -13,7 +13,7 @@ description: |
   incident is logged, a template upgrade carries ethical implications, or any agent surfaces
   an ethically ambiguous decision.
 model: claude-opus-4-7
-tools: Read, Write, Edit, Bash, turso
+tools: Read, Write, Edit, Bash
 skills: []
 channels: []
 

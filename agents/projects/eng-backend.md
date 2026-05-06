@@ -15,7 +15,7 @@ description: |
   questions arise, data model needs evolution, query optimization is required,
   or cross-discipline boundary needs backend input.
 model: claude-haiku-4-5-20251001
-tools: Read, Write, Edit, Bash, turso, github
+tools: Read, Write, Edit, Bash, github
 skills: data-analysis
 channels: []
 

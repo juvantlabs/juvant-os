@@ -14,7 +14,7 @@ description: |
   Use proactively for: inbound lead triage, proposal drafting, pipeline updates,
   partner coordination, demo brief preparation.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, turso, ms-graph
+tools: Read, Write, Edit, Bash, ms-graph
 skills: docx, pdf
 mail_enabled: true
 

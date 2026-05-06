@@ -19,7 +19,7 @@ description: |
   detected, secrets pattern needs progression (3a → 3b), or a project's infra
   drifts from company-scope baselines.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, turso, github
+tools: Read, Write, Edit, Bash, github
 skills: []
 channels: []
 

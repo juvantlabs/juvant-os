@@ -13,7 +13,7 @@ description: |
   arise, OpenAPI spec drift is detected, or backend boundary integration needs
   API-side input.
 model: claude-haiku-4-5-20251001
-tools: Read, Write, Edit, Bash, turso, github
+tools: Read, Write, Edit, Bash, github
 skills: data-analysis
 channels: []
 

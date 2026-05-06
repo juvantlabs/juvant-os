@@ -14,7 +14,7 @@ description: |
   Use proactively for: content drafting, brand consistency review on any external artifact,
   press inquiries (received via the press mailbox), crisis-comms preparation, PR scheduling.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, turso, ms-graph, buffer
+tools: Read, Write, Edit, Bash, ms-graph, buffer
 skills: docx
 mail_enabled: true
 

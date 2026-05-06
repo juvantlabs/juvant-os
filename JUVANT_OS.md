@@ -354,9 +354,12 @@ export M365_TENANT_ID="$(jq -er '.m365_oauth.tenant_id' "$CONFIG")"
 exec npx --yes @juvantlabs/m365-graph-mcp-server@0.1.3 "$@"
 ```
 
-##### Step 4 — Register in `.claude/settings.json`
+##### Step 4 — Register in `.mcp.json`
 
-Append to the `mcpServers` block:
+Project-scope MCP servers in Claude Code 2.1+ live in `.mcp.json` at
+the repo root (NOT `.claude/settings.json` — that path is a no-op
+for `mcpServers` in current Claude Code, even though older
+documentation may still cite it). Append to the `mcpServers` block:
 
 ```json
 {
@@ -371,7 +374,12 @@ Append to the `mcpServers` block:
 
 The bare invocation (no `setup` arg) starts the stdio MCP server. The
 wrapper sources credentials each spawn, so rotating the secret means
-editing `.juvant/config.json` once — no `.claude/settings.json` change.
+editing `.juvant/config.json` once — no `.mcp.json` change.
+
+For first-time setup, also ensure `.claude/settings.local.json`
+contains `"enableAllProjectMcpServers": true` so Claude Code
+auto-trusts the project-scope servers without an interactive
+trust dialog on every fresh session.
 
 ##### Step 5 — Run the one-time OAuth flow
 

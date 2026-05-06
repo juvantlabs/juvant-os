@@ -18,7 +18,7 @@ description: |
   audits, UX research planning and synthesis, brand-UI coherence reviews on
   any external-facing artifact, visual spec authoring.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, turso, github, ms-graph
+tools: Read, Write, Edit, Bash, github, ms-graph
 skills: frontend-design, docx
 channels: []
 

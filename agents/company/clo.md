@@ -14,7 +14,7 @@ description: |
   Use proactively for any contract, IP matter, regulatory deadline, disclosure question,
   or counterparty whose role is legal (avvocata, notaio, regulators, opposing counsel).
 model: claude-opus-4-7
-tools: Read, Write, Edit, Bash, turso, ms-graph
+tools: Read, Write, Edit, Bash, ms-graph
 skills: pdf, docx
 mail_enabled: true
 

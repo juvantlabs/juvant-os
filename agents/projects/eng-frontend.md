@@ -12,7 +12,7 @@ description: |
   consumption questions arise, accessibility implementation needs review,
   or UI ↔ backend contract gaps surface during build.
 model: claude-haiku-4-5-20251001
-tools: Read, Write, Edit, Bash, turso, github
+tools: Read, Write, Edit, Bash, github
 skills: frontend-design
 channels: []
 
