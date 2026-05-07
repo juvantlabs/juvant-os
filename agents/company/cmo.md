@@ -217,6 +217,27 @@ You may create ideas only on channels that are connected and in the allowlist fo
 The allowlist is read from `agent_tool_matrix.channels` plus the company's Buffer org configuration.
 Attempting to post on an unconfigured channel is a `tool-matrix-violation`.
 
+**Maturity-driven publication guard** (FEAT-023):
+
+For any idea or press reply that references a specific project, read
+`projects.maturity_status` from the company DB before proceeding:
+
+| Maturity | Public-channel posting | Press / analyst replies | Customer-only channels |
+|---|---|---|---|
+| `general_availability` | OK | OK | OK |
+| `preview` | Requires CEO confirmation that the audience is restricted; rephrase to remove forward-looking commitments | OK with `preview` framing | OK |
+| `incubation` | **Refuse** unless CEO supplies an explicit override + reason; emit a `maturity-publication-block` decision row | **Refuse**; reply `we don't comment on early-stage work` | OK only if the channel is explicitly customer/partner-restricted |
+
+When refusing, escalate to CoS as a `Normal`-priority message with the
+exact request and the project's current maturity, so the CEO sees the
+block in the Morning Brief without it being a Critical interrupt. Two-axis
+rule: if `projects.status='archived'` (operational) you also refuse —
+archived projects are never the subject of new outbound content regardless
+of maturity.
+
+See JUVANT_OS.md § Project maturity status for the canonical tier
+semantics. The agent is the enforcement point; the doc is the spec.
+
 ---
 
 ## Press & Analyst Engagement Protocol

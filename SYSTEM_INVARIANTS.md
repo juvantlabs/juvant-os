@@ -132,6 +132,7 @@ substitutes placeholders at company init from the values below.
 | `{{CETHO_NAME}}` | Vera | Chief Ethics Officer | Company |
 | `{{CA_NAME}}` | Arch | Chief Architect | Company |
 | `{{CRO_NAME}}` | Lumen | Chief Research Officer (optional) | Company |
+| `{{ENG_PLATFORM_NAME}}` | Hephaestus | Platform Engineer (cross-project infra) | Company |
 
 ### Project-scope agent name placeholders
 
@@ -146,8 +147,12 @@ to a project-suffixed default unless the company init flow specifies otherwise.
 | `{{COO_NAME}}` | `<project_id>-coo` | COO for the project |
 | `{{VPE_NAME}}` | `<project_id>-vpe` | VP of Engineering for the project |
 
-Eng/* agents (eng-api, eng-backend, eng-frontend, eng-ai) do not have a
-human-name placeholder; they are referenced by their role identifier.
+Project-scope Eng/* agents (eng-api, eng-backend, eng-frontend, eng-ai) do not
+have a human-name placeholder; they are referenced by their role identifier.
+The company-scope **`eng-platform`** agent is the exception — it carries
+`{{ENG_PLATFORM_NAME}}` (default `Hephaestus`) because it is a single, named,
+cross-project authority (Terraform module catalog, OIDC federation, observability
+backbone) rather than a per-project Eng/* role.
 
 ### System placeholders
 
@@ -415,6 +420,46 @@ Summary (cited when CA APPROVE/REJECT/DEFER any change):
 
 ---
 
+## §8 — Sub-agent Bash Escalation Invariant
+
+Every agent that receives a `permissionDecision: "deny"` from the
+`PreToolUse` hook MUST inspect the prefix of `permissionDecisionReason`
+and act accordingly. The framework's escalation flow only works if
+sub-agents respect it.
+
+| Prefix | Meaning | Required behavior |
+|---|---|---|
+| `deny:universal:<pattern>` | Hard deny — irreversible/destructive command. No escalation possible. | Acknowledge the deny. Do NOT attempt a workaround. Do NOT ask the parent for help (the parent cannot grant a universal-deny override either — it's absolute). Pivot to a different approach or report inability. |
+| `deny:allow-list:<binary>` | Soft deny — the binary is not in this agent's allow-list. An authorization request has been opened with CoS. The deny reason includes the message id. | Surface the deny + message id to the parent (the agent that dispatched you, ultimately {{COS_NAME}} → {{CEO_NAME}}). PAUSE on this task. Do NOT retry the same command in a loop. Do NOT silently abandon. The expected resolution is a one-shot grant (within 10 min) or a permanent allow-list promotion (longer flow). |
+| `deny:no-role` | Operational misconfiguration — the agent's role is not registered in `hooks/bash-policy.json`. | Surface to {{CSO_NAME}} as a Layer 5 audit finding via the parent agent. Do NOT attempt the command via any other path. |
+| `deny:policy-load-failure` | The policy file is missing or unreadable. Same as above: operational fault, escalate to {{CSO_NAME}}. | Surface to parent; pause. |
+
+The invariant is violated by any of:
+
+- A sub-agent that receives `deny:allow-list:` and silently moves on
+  without surfacing it (the authorization request will rot in the
+  CoS queue; the task remains uncompleted; {{CEO_NAME}} loses
+  visibility).
+- A sub-agent that receives `deny:allow-list:` and retries the same
+  command in a loop hoping it will go through (it won't — the hook
+  is deterministic; the loop only fills `agent_actions_log` with
+  noise and may trigger anomaly detection).
+- A sub-agent that fabricates a result as if the command had
+  succeeded (this is the cover-up failure mode handbook ADR 0004
+  Track 3 is designed to detect; reconciling `decisions` rows
+  against `agent_actions_log` will catch it).
+
+{{CSO_NAME}} Layer 5 audits include a check that every
+`deny:allow-list:` row in `agent_actions_log` has either:
+- a corresponding `messages.tool_authorization_request` row with
+  matching `ref_id`, or
+- a `bash_oneshot_grants` row that consumed it within the TTL window.
+
+Missing reconciliation is a Layer 5 finding tied to the offending
+agent.
+
+---
+
 ## Appendix A — Cross-references in subagent files
 
 Subagent files reference this document at their identity section via a
@@ -424,7 +469,8 @@ standard pointer:
 > Refer to `SYSTEM_INVARIANTS.md` for: Bootstrap Protocol (§1),
 > Default Naming Convention (§2), Unified Disclosure Fallback Cascade (§3),
 > Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
-> Spec Authorization Matrix (§6), Architectural Principles (§7).
+> Spec Authorization Matrix (§6), Architectural Principles (§7),
+> Sub-agent Bash Escalation Invariant (§8).
 > This template defers to those invariants where applicable.
 ```
 

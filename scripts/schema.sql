@@ -16,13 +16,13 @@
 CREATE TABLE IF NOT EXISTS agents (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   role                TEXT UNIQUE NOT NULL,
-  -- e.g. 'cos' | 'cfo' | 'coo' | 'cto' | 'eng-api'
+  -- e.g. 'cos' | 'cfo' | 'coo' | 'cto' | 'eng-api' | 'eng-platform'
   name                TEXT,
-  -- compiled name e.g. 'Atlas', 'Theos', 'Coo' — from SYSTEM_INVARIANTS.md §2 defaults
+  -- compiled name e.g. 'Atlas', 'Theos', 'Hephaestus' — from SYSTEM_INVARIANTS.md §2 defaults
   scope               TEXT DEFAULT 'company',
   -- 'company' | 'project'
   project_id          TEXT,
-  -- NULL for company-scope; project slug for project-scope (e.g. 'hardys')
+  -- NULL for company-scope; project slug for project-scope
   status              TEXT DEFAULT 'inactive',
   -- 'active' | 'inactive' | 'context-warning' | 'context-critical'
   session_id          TEXT,
@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS agents (
   -- 1 = approved via CEO-only bootstrap override (SYSTEM_INVARIANTS.md §1)
   precondition_bypassed TEXT,
   -- NULL | 'bootstrap' | 'project-bootstrap'
+  bash_allow          TEXT DEFAULT '[]',
+  -- JSON array of allowed first-token Bash binaries for this agent
+  -- (handbook ADR 0004 Track 2 / FEAT-018). Populated at company init
+  -- from hooks/bash-policy.json baseline; mutated only via
+  -- tool-matrix-change decision (CA proposes, CSO reviews, CEO approves).
+  -- Empty default '[]' means: no Bash for this agent unless a row in
+  -- bash-policy.json grants it. Mirrors bash-policy.json for query speed.
   hired_by            TEXT,
   approved_by         TEXT,
   created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -308,14 +315,183 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
 );
 
 CREATE TABLE IF NOT EXISTS projects (
-  id          TEXT PRIMARY KEY,
+  id              TEXT PRIMARY KEY,
   -- project slug e.g. 'hardys'
-  name        TEXT NOT NULL,
-  db_url      TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  db_url          TEXT NOT NULL,
   -- Turso URL for this project's DB
-  status      TEXT DEFAULT 'active',
-  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  status          TEXT DEFAULT 'active',
+  -- OPERATIONAL lifecycle: 'active' | 'archived'
+  -- (separate from maturity_status below — see JUVANT_OS.md § Project maturity status)
+  maturity_status TEXT DEFAULT 'incubation'
+    CHECK (maturity_status IN ('incubation','preview','general_availability')),
+  -- MATURITY tier: 'incubation' | 'preview' | 'general_availability'
+  -- Drives agent calibration (CoS suggestion aggressiveness, CMO publication
+  -- guard, CFO revenue tagging, CSO audit thresholds). See JUVANT_OS.md.
+  maturity_changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Append-only history of maturity transitions (promotions and demotions).
+-- demotion=1 flagged when new tier is lower than previous tier.
+-- Source-of-truth for "Cost report" / Morning Brief change callouts.
+CREATE TABLE IF NOT EXISTS project_maturity_history (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id      TEXT NOT NULL,
+  from_status     TEXT,
+  -- NULL on initial assignment
+  to_status       TEXT NOT NULL
+    CHECK (to_status IN ('incubation','preview','general_availability')),
+  demotion        INTEGER DEFAULT 0,
+  -- 1 = transition went down the maturity ladder
+  reason          TEXT,
+  actor           TEXT,
+  -- principal handle (FEAT-022) or 'ceo' fallback
+  changed_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_pmh_project_time
+  ON project_maturity_history(project_id, changed_at DESC);
+
+-- ─────────────────────────────────────────────
+-- AGENT ACTION AUDIT LOG (FEAT-019 / handbook ADR 0004 Track 3)
+-- ─────────────────────────────────────────────
+
+-- Append-only log of every tool invocation by every agent. Written by
+-- hooks/pre-tool-use.sh BEFORE the tool runs (status='pending') and
+-- updated post-execution by post-tool-use hooks (out of scope of v1.0).
+-- Reconciliation against `decisions` detects state-fabrication
+-- (cover-up failure mode of handbook ADR 0004).
+CREATE TABLE IF NOT EXISTS agent_actions_log (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id    TEXT,
+  agent         TEXT NOT NULL,
+  tool_name     TEXT NOT NULL,
+  args_hash     TEXT NOT NULL,
+  -- SHA-256 of canonical (sorted-keys) JSON of tool_input.
+  -- Full args NOT stored (privacy + size).
+  -- (agent, tool_name, args_hash) is the fingerprint for reconciliation.
+  result_hash   TEXT,
+  -- SHA-256 of canonical-JSON result; NULL on failure or in-flight.
+  status        TEXT NOT NULL,
+  -- 'pending' | 'success' | 'failure' | 'denied'
+  deny_reason   TEXT,
+  -- non-NULL when status='denied'. Carries the diagnostic code per
+  -- FEAT-025: 'deny:universal:<pattern>' | 'deny:allow-list:<binary>'
+  -- | 'deny:no-role' | 'deny:policy-load-failure'.
+  escalation_msg_id INTEGER,
+  -- FK to messages.id when an allow-list deny opened a
+  -- tool_authorization_request (FEAT-025). NULL otherwise.
+  started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  ended_at      DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_actions_log_session
+  ON agent_actions_log(session_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_actions_log_agent
+  ON agent_actions_log(agent, started_at);
+CREATE INDEX IF NOT EXISTS idx_actions_log_status
+  ON agent_actions_log(status, started_at);
+
+-- ─────────────────────────────────────────────
+-- BASH ONE-SHOT GRANTS (FEAT-025)
+-- ─────────────────────────────────────────────
+
+-- Time-boxed CEO grant of a single Bash command for a single agent,
+-- identified by (agent_role, args_hash). Created when the CEO clicks
+-- "One-shot" on a tool_authorization_request Teams card. Consumed
+-- on first matching call by hooks/pre-tool-use.sh, then ignored.
+-- Default TTL 10 minutes — long enough for the agent to retry,
+-- short enough that an unused grant does not linger.
+CREATE TABLE IF NOT EXISTS bash_oneshot_grants (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_role        TEXT NOT NULL,
+  args_hash         TEXT NOT NULL,
+  granted_by        TEXT NOT NULL,
+  -- always 'ceo' (only authority allowed to grant)
+  granted_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at        DATETIME NOT NULL,
+  -- granted_at + 10 min by convention
+  consumed          INTEGER DEFAULT 0,
+  -- 1 = redeemed by a matching hook call
+  consumed_at       DATETIME,
+  decision_id       INTEGER
+  -- FK to decisions.id of category 'tool-oneshot-approval' that
+  -- recorded the CEO approval. CSO Layer 5 audit verifies every
+  -- grant has a backing decision row (no fabrication).
+);
+CREATE INDEX IF NOT EXISTS idx_bash_oneshot_lookup
+  ON bash_oneshot_grants(agent_role, args_hash, consumed, expires_at);
+
+-- ─────────────────────────────────────────────
+-- TOKEN USAGE & COST (FEAT-024)
+-- ─────────────────────────────────────────────
+
+-- Per-session and per-subagent-invocation token usage capture.
+-- Written by hooks (Stop, SessionEnd, SubagentStop) from the session
+-- transcript JSONL. computed_cost_usd is denormalized at write time so
+-- historical reports do not drift if model_pricing is updated later.
+CREATE TABLE IF NOT EXISTS agent_token_usage (
+  id                  TEXT PRIMARY KEY,
+  -- uuid
+  session_id          TEXT NOT NULL,
+  -- Claude Code session uuid
+  parent_session_id   TEXT,
+  -- subagent → main link; NULL for main session rows
+  agent_name          TEXT NOT NULL,
+  -- 'main' | 'cco' | 'cfo' | ... matches agents.role + 'main' for top-level
+  principal_id        TEXT,
+  -- FEAT-022 forward-compat (nullable until multi-principal active)
+  project_slug        TEXT,
+  -- FEAT-023 forward-compat; NULL for company-scope sessions
+  model               TEXT NOT NULL,
+  -- 'claude-opus-4-7' | 'claude-sonnet-4-6' | 'claude-haiku-4-5-20251001'
+  input_tokens        INTEGER NOT NULL DEFAULT 0,
+  output_tokens       INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+  started_at          DATETIME NOT NULL,
+  ended_at            DATETIME,
+  computed_cost_usd   REAL
+  -- denormalized snapshot using model_pricing row active at ended_at
+);
+CREATE INDEX IF NOT EXISTS idx_token_usage_time
+  ON agent_token_usage(ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_agent
+  ON agent_token_usage(agent_name, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_principal
+  ON agent_token_usage(principal_id, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_project
+  ON agent_token_usage(project_slug, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_session
+  ON agent_token_usage(session_id);
+
+-- Anthropic published pricing, versioned by effective_from.
+-- Adopters refresh this table when Anthropic publishes new prices.
+-- Historical agent_token_usage rows are unaffected (cost denormalized).
+CREATE TABLE IF NOT EXISTS model_pricing (
+  model                       TEXT NOT NULL,
+  effective_from              DATE NOT NULL,
+  effective_to                DATE,
+  -- NULL = currently active row
+  input_per_mtok_usd          REAL NOT NULL,
+  output_per_mtok_usd         REAL NOT NULL,
+  cache_write_per_mtok_usd    REAL NOT NULL,
+  cache_read_per_mtok_usd     REAL NOT NULL,
+  PRIMARY KEY (model, effective_from)
+);
+
+-- Initial seed — placeholder values. ADOPTERS MUST verify against
+-- https://www.anthropic.com/pricing at install time and UPDATE rows where
+-- the published price differs. The values below are best-effort drafts
+-- and will produce inaccurate cost figures if not refreshed.
+-- Refresh procedure: see JUVANT_OS.md § Cost report — pricing refresh.
+INSERT OR IGNORE INTO model_pricing
+  (model, effective_from, effective_to,
+   input_per_mtok_usd, output_per_mtok_usd,
+   cache_write_per_mtok_usd, cache_read_per_mtok_usd)
+VALUES
+  ('claude-opus-4-7',           '2026-01-01', NULL, 15.00, 75.00, 18.75, 1.50),
+  ('claude-sonnet-4-6',         '2026-01-01', NULL,  3.00, 15.00,  3.75, 0.30),
+  ('claude-haiku-4-5-20251001', '2026-01-01', NULL,  1.00,  5.00,  1.25, 0.10);
 
 -- ─────────────────────────────────────────────
 -- PORTAL

@@ -539,7 +539,7 @@ for agent capability declarations and surfaces design drift early
 
 This is the chicken-and-egg-resolving step. Follow SYSTEM_INVARIANTS.md §1 exactly:
 
-1. For each of the 19 founding agents (10 company + 9 project — the project agents
+1. For each of the 20 founding agents (11 company + 9 project — the project agents
    bootstrap when their first project is initialized; at company init only the 10
    company-scope agents enter bootstrap), insert one `manifests` row:
 
@@ -603,12 +603,12 @@ This is the chicken-and-egg-resolving step. Follow SYSTEM_INVARIANTS.md §1 exac
            ?, CURRENT_TIMESTAMP, 'juvant-os-skill', CURRENT_TIMESTAMP);
    ```
 
-6. After all 10 company-scope manifestos are accepted, the CEO is prompted:
+6. After all 11 company-scope manifestos are accepted, the CEO is prompted:
    *"Bootstrap of company-scope agents complete. Trigger CSO bootstrap audit now? [y/N]"*
 
 7. On `y`: invoke the CSO subagent via `Task` with the prompt
    *"Run bootstrap_baseline=1 audit per SYSTEM_INVARIANTS.md §1.7. Scope: company.
-   All 10 founding manifestos are in OPERATIONAL_RESTRICTED with
+   All 11 founding manifestos are in OPERATIONAL_RESTRICTED with
    precondition_bypassed='bootstrap'. Return PASS / WARN-WITH-CONDITIONS / FAIL plus a
    `security_audit_log` row."*
 
@@ -730,7 +730,9 @@ captured at Step 1 auto-discovery:
       "url": "libsql://project-<project-slug>-<your-org>.turso.io",
       "auth_token": "<token>",
       "scope": "project",
-      "doc_folder": "/<Company>/04 - Products/<Product Folder>"
+      "doc_folder": "/<Company>/04 - Products/<Product Folder>",
+      "status": "incubation",
+      "status_changed_at": "<YYYY-MM-DD>"
     }
   }
 }
@@ -741,13 +743,25 @@ matched an existing folder, absent when no folder mapping is configured
 (project-scope agents fall back to company-level `doc_storage.folders`
 plus their own `fallback_chain` resolution).
 
+The `status` field is the **maturity tier** —
+`incubation` | `preview` | `general_availability` — set to `incubation`
+by default at project creation. The wizard offers an override only if the
+CEO explicitly states the project ships at a higher tier (e.g. an existing
+GA product being onboarded). Maturity drives agent calibration; see
+§ Project maturity status below for semantics, transitions, and the
+two-axis distinction from the operational lifecycle (`projects.status`
+in the company DB, `'active' | 'archived'`).
+
 Run `bash scripts/migrate.sh` against the new DB.
 
 Insert the project into the company DB:
 
 ```sql
-INSERT INTO projects (id, name, db_url, status, created_at)
-VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP);
+INSERT INTO projects (id, name, db_url, status, maturity_status, created_at)
+VALUES (?, ?, ?, 'active', ?, CURRENT_TIMESTAMP);
+
+INSERT INTO project_maturity_history (project_id, from_status, to_status, actor)
+VALUES (?, NULL, ?, 'ceo');
 ```
 
 ### Wizard — Step 3: Generate project agent names
@@ -787,6 +801,325 @@ git add agents/projects/ .claude/settings.json
 git commit -m "init({{PROJECT_NAME_SLUG}}): bootstrap project agents"
 git push
 ```
+
+---
+
+## Project maturity status
+
+Each project carries a **maturity status** that calibrates how every agent
+treats it. The vocabulary borrows from canonical product-stage ladders
+(Kubernetes alpha/beta/stable; Google Cloud private/public preview/GA;
+Microsoft preview/GA) — adopters and counterparties read it without
+explanation.
+
+### Two-axis model — important
+
+The Turso `projects` table carries **two distinct status fields**. Do not
+confuse them:
+
+| Field | Axis | Values | Meaning |
+|---|---|---|---|
+| `status` | Operational lifecycle | `active`, `archived` | Is this project a live concern? |
+| `maturity_status` | Maturity tier | `incubation`, `preview`, `general_availability` | How committed and stable is this project? |
+
+A project can be `(active, incubation)` — currently being worked on,
+speculative — or `(active, general_availability)` — in production,
+supported — or `(archived, general_availability)` — was stable, now
+retired. The two axes are independent.
+
+In `.juvant/config.json` the maturity tier is exposed as
+`projects.<slug>.status` for adopter convenience (the lifecycle axis is
+only ever read at the company-DB level). When this document refers to a
+project's "status" without qualification, it means **maturity**.
+
+### The three tiers
+
+| Tier | Meaning | Agent calibration |
+|---|---|---|
+| `incubation` | Early R&D; speculative; may be killed; **no external commitment** | CoS may experiment freely; CMO **MUST NOT** publish externally without explicit override; CFO budgets as exploration cost (no revenue assumption); CSO accepts higher risk in audits |
+| `preview` | Real users / clients exist; **not guaranteed stable**; bug fixes prioritized over new features | CoS recommends conservative changes; CMO may communicate to existing customers but not broad public; CFO tracks revenue with explicit `preview` tag; CSO normal audit thresholds |
+| `general_availability` | Stable, supported, predictable; **SLA-grade** | CoS recommends only well-tested changes; CMO public marketing OK; CFO full revenue + churn metrics; CSO strict audit; backwards-compatibility expected on breaking changes |
+
+Default at project creation: **`incubation`** (most conservative).
+
+### Transitions
+
+Manual only. Triggered by *"Project status"* / *"Promote project <slug> to
+<tier>"* / *"Demote project <slug> to <tier>"* in any session.
+
+On every transition:
+
+1. UPDATE `projects.maturity_status`, `projects.maturity_changed_at`.
+2. INSERT `project_maturity_history` row with `from_status`, `to_status`,
+   `actor` (principal handle if FEAT-022 active, else `'ceo'`),
+   `reason` (CEO-supplied free text), and `demotion=1` when the new tier
+   is lower than the previous.
+3. Mirror to `.juvant/config.json` `projects.<slug>.status` and
+   `status_changed_at`; commit + push.
+4. Write to the action audit log (FEAT-019).
+5. CoS surfaces the transition in the next Morning Brief, flagged
+   prominently if `demotion=1`.
+
+**No automatic transitions in v1.0.** Graduation criteria are
+project-specific and require explicit CEO judgment. Auto-promotion based
+on metrics (revenue threshold, customer count, etc.) is deferred to a
+future FEAT.
+
+**Demotion is permitted** but never silent: every demotion fires the
+flagged Morning Brief callout above and is highlighted in the next
+weekly review.
+
+### Agent guards driven by maturity
+
+These are enforced at the agent level (see the relevant
+`agents/company/*.md`):
+
+- **CMO** — refuses any public-facing publication request tagged with an
+  `incubation` project; requires CEO override + reason. For `preview`
+  projects, requires explicit "audience: existing customers only"
+  confirmation. `general_availability` is unrestricted.
+- **CSO** — Layer 5 audit thresholds tighten as maturity rises (an
+  invariant violation that's `info` for `incubation` is `P2` for
+  `preview` and `P1` for `general_availability`).
+- **CFO** — revenue and cost reports always group by maturity tier;
+  preview/incubation revenue is reported separately from GA so trend
+  analysis isn't polluted by experimental cashflows.
+- **CoS** — Morning Brief groups projects by maturity (GA → preview →
+  incubation), each with a header indicating expected attention level.
+
+### Skill operation: *"Project status"*
+
+Recognized phrasings: *"Project status"*, *"Promote project <slug> to
+<tier>"*, *"Demote project <slug> to <tier>"*, *"What's the maturity of
+<slug>?"*.
+
+For a query (no transition requested), CoS returns the current tier and
+the latest history row. For a transition, CoS:
+
+1. Validates target tier is a recognized value.
+2. Asks for a reason (free text — captured in `project_maturity_history.reason`).
+3. Applies the 5-step transition above.
+4. Confirms back to the CEO with the new state and a one-line summary
+   that will appear in tomorrow's Morning Brief.
+
+---
+
+## Cost report
+
+Every Claude Code session and every subagent invocation captures token
+usage into `agent_token_usage` via the Stop / SessionEnd / SubagentStop
+hooks (FEAT-024). Cost is denormalized at write-time using the active
+row in `model_pricing`, so historical reports are stable across pricing
+updates.
+
+### Skill operation: *"Cost report"*
+
+Recognized phrasings: *"Cost report"*, *"How much did we spend last
+week?"*, *"Cost by agent"*, *"Token usage report"*.
+
+Default time window: **last 7 days**. Override via natural-language
+qualifiers: *"last 30 days"*, *"this month"*, *"since 2026-04-01"*.
+
+CoS executes the report by querying `agent_token_usage` joined to
+`model_pricing` (for the per-Mtok rates referenced in the breakdown).
+Output structure:
+
+```
+Total: $XX.XX USD
+Sessions: NN | Subagent invocations: MM | Window: <YYYY-MM-DD> → <YYYY-MM-DD>
+
+By agent:
+  cco             $X.XX  (NN sessions, avg $Y.YY)
+  cfo             $X.XX  (NN sessions, avg $Y.YY)
+  main            $X.XX  (NN sessions, avg $Y.YY)
+  ...
+
+By principal (only when FEAT-022 active and principal_id is non-NULL):
+  antonio         $X.XX
+  mario           $X.XX
+
+By project (joined to projects.maturity_status; grouped by tier):
+  general_availability:
+    juvant.io     $X.XX
+  preview:
+    hardys        $X.XX
+  incubation:
+    <none in window>
+
+By model:
+  claude-opus-4-7   $X.XX  (NN turns, KK input + LL output Mtok)
+  claude-sonnet-4-6 $X.XX  (NN turns)
+
+Top 5 most expensive sessions:
+  YYYY-MM-DD HH:MM  agent=cco     $X.XX  (in/out tokens)
+  ...
+
+Trend: week-over-week ±X% (vs prior 7d $YY.YY)
+```
+
+Filter qualifiers may be combined: *"Cost report last 30 days for
+hardys"* (project filter), *"Cost by model last week"* (group focus),
+*"Costs for cco this month"* (agent filter).
+
+### Pricing refresh
+
+The `model_pricing` table is seeded at install time (see
+`scripts/schema.sql`) with placeholder values that **must** be verified
+against [Anthropic's published pricing](https://www.anthropic.com/pricing)
+before relying on cost figures.
+
+When Anthropic publishes new pricing, do **not** UPDATE the existing
+row — that would silently shift historical totals (since Turso doesn't
+preserve the prior values). Instead, close the prior row and INSERT a
+new active row:
+
+```sql
+-- Close the prior row at yesterday.
+UPDATE model_pricing
+   SET effective_to = DATE('now', '-1 day')
+ WHERE model = ?
+   AND effective_to IS NULL;
+
+-- Insert the new row, effective today.
+INSERT INTO model_pricing
+  (model, effective_from, effective_to,
+   input_per_mtok_usd, output_per_mtok_usd,
+   cache_write_per_mtok_usd, cache_read_per_mtok_usd)
+VALUES
+  (?, DATE('now'), NULL, ?, ?, ?, ?);
+```
+
+Historical `agent_token_usage.computed_cost_usd` values are unaffected
+because the cost was denormalized at the original write time.
+
+### Forward integrations
+
+- **FEAT-020 (anomaly detection)** consumes `agent_token_usage` as an
+  input signal. The simple "yesterday > 3× trailing-30d-median" anomaly
+  flag in the Morning Brief is a stopgap; FEAT-020's logic supersedes
+  it once active.
+- **FEAT-022 (multi-principal)** populates `principal_id` from
+  `JUVANT_PRINCIPAL` env var set per principal's Claude Code instance,
+  enabling cost attribution across the CDA.
+- **FEAT-023 (project maturity status)** is read at report-time via
+  the `projects.maturity_status` JOIN, giving cost-by-tier insight
+  ("are we spending more on incubation than GA?").
+
+---
+
+## Bash escalation flow (FEAT-025 / handbook ADR 0004 Track 2)
+
+Every `Bash` tool call from any agent passes through `hooks/pre-tool-use.sh`
+before execution. The hook reads `hooks/bash-policy.json` and applies a
+two-axis check: a **universal deny-list** (irreversible / destructive
+patterns; HARD deny, no escalation) and a **per-agent allow-list**
+(positive scope; allow-list miss → escalation, **NOT** hard deny).
+
+### Hook outcomes
+
+```
+incoming Bash command
+       │
+       ├─ matches a universal deny pattern  → HARD DENY
+       │   permissionDecisionReason = deny:universal:<pattern>
+       │   (no escalation, no message; pivot or abort)
+       │
+       ├─ first-token in agent's bash_allow → ALLOW
+       │   (audit row written, status='pending')
+       │
+       ├─ first-token NOT in allow-list,
+       │     bash_oneshot_grants has matching unconsumed grant → ALLOW
+       │     (grant marked consumed)
+       │
+       └─ first-token NOT in allow-list, no grant → ESCALATE-DENY
+           1. INSERT messages (type=tool_authorization_request,
+              priority=high, notify_ceo=1, ref_id=args_hash)
+           2. INSERT agent_actions_log (status=denied,
+              deny_reason=deny:allow-list:<bin>,
+              escalation_msg_id=<id>)
+           3. Return:
+              permissionDecision = deny
+              permissionDecisionReason =
+                deny:allow-list:<bin>. Authorization request opened
+                with CoS — message #<id>. Surface this to your parent
+                instead of retrying. Expected outcomes: (a) one-shot
+                grant; (b) permanent allow-list promotion via
+                tool-matrix-change; (c) CEO denies with reason.
+```
+
+### Diagnostic codes
+
+`permissionDecisionReason` always starts with one of the structured
+prefixes below, so sub-agents and human readers can disambiguate the
+cause:
+
+| Prefix | Meaning |
+|---|---|
+| `deny:universal:<pattern>` | Hard deny on irreversible/destructive pattern. No escalation. |
+| `deny:allow-list:<binary>` | Soft deny + escalation already opened. |
+| `deny:no-role` | `AGENT_ROLE` unset/unknown and not operator mode → policy cannot resolve. {{CSO_NAME}} Layer 5 finding. |
+| `deny:policy-load-failure` | `bash-policy.json` missing or malformed. {{CSO_NAME}} Layer 5 finding. |
+
+Sub-agent expected behavior on each prefix is documented as
+SYSTEM_INVARIANTS.md §8 (Sub-agent Bash Escalation Invariant). Violating
+the invariant (silent abandon, loop retry, fabricated success) is a
+Layer 5 finding tied to the offending agent.
+
+### CEO decision flow
+
+When {{COS_NAME}} surfaces a `tool_authorization_request` to {{CEO_NAME}}
+via Teams Approval card, three resolutions are possible:
+
+| Resolution | What happens |
+|---|---|
+| **One-shot** | INSERT into `bash_oneshot_grants` for `(agent_role, args_hash)` with `expires_at = now + 10 min`. Backed by a `decisions` row of category `tool-oneshot-approval` (the FK enables {{CSO_NAME}} reconciliation). Agent retries once within TTL; the hook detects the matching grant and allows. |
+| **Permanent** | Open a standard `tool-matrix-change` decision proposing the patch to `bash-policy.json` `agent_allow.<role>`. Routes through the canonical {{CA_NAME}} → {{CSO_NAME}} → {{CEO_NAME}} → project COO flow (single-writer §4). On install, the agent's `bash_allow` column is also updated to mirror the policy file. |
+| **Deny** | {{COS_NAME}} writes the reason back to the requesting agent. The agent pivots; it does NOT retry. |
+
+### One-shot grant lifecycle
+
+```sql
+-- A one-shot grant that has not been consumed within its TTL is
+-- effectively expired. The hook's lookup query already filters on
+-- consumed=0 AND expires_at > CURRENT_TIMESTAMP, so expired rows
+-- are inert. A nightly sweeper (deferred to FEAT-020 anomaly cadence)
+-- archives or deletes rows older than 7 days.
+SELECT COUNT(*)
+  FROM bash_oneshot_grants
+ WHERE consumed=0
+   AND expires_at < CURRENT_TIMESTAMP;
+```
+
+### Mutating the allow-list
+
+The `agent_allow` map in `bash-policy.json` is governed:
+
+1. {{CA_NAME}} authors the patch as a `tool-matrix-change` decision.
+2. {{CSO_NAME}} reviews for security-surface impact (does adding the
+   binary widen the threat model? Is the binary dangerous in this
+   role?).
+3. {{CEO_NAME}} approves.
+4. The project COO commits the change (single-writer §4) via `pr-spec`.
+5. On merge, a SessionStart sweep updates `agents.bash_allow` for
+   matching rows so the column mirrors the JSON file.
+
+Direct edits to `bash-policy.json` outside this flow are a {{CSO_NAME}}
+Layer 5 finding (the file is in CODEOWNERS-protected territory).
+
+### Audit reconciliation
+
+`helpers/audit-reconcile.sh` (deferred to a follow-up; see FEAT-019
+deliverables) cross-checks:
+
+- Every `deny:allow-list:` row in `agent_actions_log` has either a
+  matching `messages.tool_authorization_request` row OR a
+  `bash_oneshot_grants` row that consumed it.
+- Every `bash_oneshot_grants` row has a backing `decisions` row of
+  category `tool-oneshot-approval` (forbids fabrication of grants).
+- Every `tool-matrix-change` decision that touched `bash_allow` has
+  a corresponding diff in `bash-policy.json` git history.
+
+Failures of any check are surfaced as {{CSO_NAME}} Layer 5 findings.
 
 ---
 
@@ -1554,7 +1887,7 @@ At company init, the Skill substitutes (whole-token) in `agents/company/*.md`:
 
 `{{COMPANY_NAME}}`, `{{COMPANY_DOMAIN}}`, `{{CEO_NAME}}`, `{{AGENT_DESCRIPTION}}`,
 `{{COS_NAME}}`, `{{CFO_NAME}}`, `{{CLO_NAME}}`, `{{CMO_NAME}}`, `{{CCO_NAME}}`,
-`{{CHRO_NAME}}`, `{{CSO_NAME}}`, `{{CETHO_NAME}}`, `{{CA_NAME}}`, `{{CRO_NAME}}`,
+`{{CHRO_NAME}}`, `{{CSO_NAME}}`, `{{CETHO_NAME}}`, `{{CA_NAME}}`, `{{CRO_NAME}}`, `{{ENG_PLATFORM_NAME}}`,
 plus tunables (`{{HIGH_VALUE_THRESHOLD}}`, `{{ACCESSIBILITY_FLOOR}}`,
 `{{RUNBOOK_DRILL_CADENCE}}`, voice modes, ranking weights, tech stack defaults
 per §2).

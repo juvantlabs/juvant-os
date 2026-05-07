@@ -1,0 +1,54 @@
+{
+  "_comment": "Bash scope policy per handbook ADR 0004 Track 2 (FEAT-018) and FEAT-025 escalation flow. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass; HARD deny, no escalation possible). agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. On allow-list miss, the hook does NOT hard-deny — it opens a tool_authorization_request to CoS and the CEO grants one-shot or promotes the binary to permanent allow-list via the standard tool-matrix-change decision flow (CA proposes, CSO reviews, CEO approves, COO installs). See JUVANT_OS.md § Bash escalation flow.",
+  "_version": "0.5.0",
+
+  "deny_patterns": [
+    "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+/(\\s|$)",
+    "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+~",
+    "(^|[^a-zA-Z])dd[[:space:]].*of=/dev/(sd|nvme|disk|hd)",
+    "(^|[^a-zA-Z])mkfs\\.",
+    ">[[:space:]]*/dev/(sd|nvme|disk|hd)",
+    ":\\(\\)[[:space:]]*\\{",
+    "(^|[^a-zA-Z])sudo([[:space:]]|$)",
+    "(^|[^a-zA-Z])doas([[:space:]]|$)",
+    "git[[:space:]]+push[[:space:]]+(-f([[:space:]]|$)|--force([[:space:]]|$)|--force-with-lease)",
+    "gh[[:space:]]+repo[[:space:]]+delete",
+    "gh[[:space:]]+api[[:space:]]+-X[[:space:]]+DELETE[[:space:]]+orgs",
+    "gh[[:space:]]+release[[:space:]]+delete-asset",
+    "DROP[[:space:]]+(DATABASE|SCHEMA|TABLE|USER|ROLE)",
+    "TRUNCATE[[:space:]]+TABLE",
+    "turso[[:space:]]+db[[:space:]]+destroy",
+    "(>|>>)[[:space:]]*~/\\.ssh/id_",
+    "(>|>>)[[:space:]]*~/\\.gnupg/",
+    "(>|>>)[[:space:]]*~/\\.aws/credentials",
+    "(>|>>)[[:space:]]*~/\\.config/gcloud/",
+    "(^|[^a-zA-Z])shutdown([[:space:]]|$)",
+    "(^|[^a-zA-Z])reboot([[:space:]]|$)",
+    "(^|[^a-zA-Z])halt([[:space:]]|$)",
+    "(^|[^a-zA-Z])kill[[:space:]]+-9[[:space:]]+1(\\s|$)"
+  ],
+
+  "agent_allow": {
+    "cos":           ["git", "gh", "turso", "jq", "curl"],
+    "cfo":           [],
+    "clo":           [],
+    "cmo":           [],
+    "cco":           [],
+    "chro":          [],
+    "cso":           ["git", "gh", "gpg", "shellcheck", "jq", "curl", "openssl"],
+    "cetho":         [],
+    "ca":            ["git", "gh", "jq"],
+    "cro":           ["git", "gh", "jq", "curl"],
+    "eng-platform":  ["git", "gh", "jq", "curl", "terraform", "tflint", "checkov", "az", "gcloud", "aws", "docker", "kubectl", "npm", "npx", "node"],
+
+    "cto":           ["git", "gh", "node", "turso", "jq", "curl"],
+    "cpo":           ["git", "gh", "turso", "jq", "curl"],
+    "cdo":           ["git", "gh", "node", "npm", "jq", "curl"],
+    "coo":           ["git", "gh", "npm", "npx", "node", "turso", "jq", "curl"],
+    "vpe":           ["git", "gh", "npm", "npx", "node", "turso", "jq", "curl"],
+    "eng-api":       ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "gh", "pytest", "tsc", "vitest", "turso", "jq", "curl"],
+    "eng-backend":   ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "gh", "pytest", "tsc", "vitest", "turso", "jq", "curl"],
+    "eng-frontend":  ["npm", "npx", "node", "git", "gh", "tsc", "vitest", "eslint", "jq", "curl", "vercel"],
+    "eng-ai":        ["python", "python3", "pip", "pip3", "git", "gh", "pytest", "turso", "jq", "curl"]
+  }
+}

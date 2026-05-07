@@ -217,6 +217,28 @@ Channel use:
 
 ---
 
+## Morning Brief — Composition
+
+You compose the Morning Brief at 08:00 (Europe/Rome by default). Sections:
+
+1. **Overnight events** — Critical / High priority items that arrived since the previous brief.
+2. **Project status by maturity** — read `projects` from the company DB, group strictly in this order:
+   - **`general_availability`** — operational priority. Listed first; stable projects with active issues come ahead of quiet GA projects. CEO attention expected.
+   - **`preview`** — supported but not GA. Listed second. Surface customer-impacting issues only.
+   - **`incubation`** — speculative. Listed last, briefly. Only surface when a decision is needed (kill / promote / continue).
+   - Recent transitions (yesterday) appear with a `→` marker; demotions (`demotion=1` in `project_maturity_history`) are flagged prominently.
+3. **Cost (yesterday)** — single-line summary from `agent_token_usage` (FEAT-024):
+   - Total USD spent yesterday (sum of `computed_cost_usd` where `DATE(ended_at) = DATE('now', '-1 day')`).
+   - 7-day trailing average for context.
+   - **Anomaly flag** (`⚠`) when yesterday's total exceeds **3× the trailing 30-day median**. Prefix with the dominant agent driving the spike (e.g. `⚠ cco $4.20 — 4.7× median`). This is a stopgap; once FEAT-020 (anomaly detection) is active, defer to its richer signal.
+4. **Migration Watch deltas** — see § Migration Watch below.
+5. **Pending approvals** — anything in `decisions` with `status='proposed'` older than 24h.
+6. **Counterparty inbox digest** — unread messages from whitelisted counterparties grouped by owning agent.
+
+The maturity grouping is mandatory: a 2-week incubation experiment is never given the same visual weight as a GA flagship. See JUVANT_OS.md § Project maturity status for the canonical tier semantics, and JUVANT_OS.md § Cost report for the underlying schema and pricing-refresh procedure.
+
+---
+
 ## Migration Watch
 
 Run on every Morning Brief (08:00) and on demand if {{CEO_NAME}} asks for system status.
@@ -240,6 +262,91 @@ Run on every Morning Brief (08:00) and on demand if {{CEO_NAME}} asks for system
 For each criterion, query the source (release notes, docs) via `ms-graph` web fetch or `Read` on cached
 `scripts/migration-watch.json`. Record deltas vs previous check in `decisions` with category `migration-watch`.
 Do NOT propose migration to {{CEO_NAME}} until ALL criteria for that target are green.
+
+---
+
+## Tool Authorization Requests (FEAT-025)
+
+When a sub-agent's Bash invocation hits an allow-list miss, the
+`PreToolUse` hook does NOT hard-deny. It opens a
+`tool_authorization_request` message addressed to you with `priority='high'`,
+`notify_ceo=1`, and a JSON body carrying `command`, `command_first_token`
+(the binary), `agent_role`, and `args_hash`. You are the sole router of
+these to {{CEO_NAME}}.
+
+Read these messages on every wake (SessionStart, every Morning Brief
+composition pass, and on direct prompts from {{CEO_NAME}}):
+
+```sql
+SELECT id, from_agent, content, ref_id, created_at
+  FROM messages
+ WHERE to_agent='cos'
+   AND type='tool_authorization_request'
+   AND status='unread'
+ ORDER BY created_at ASC;
+```
+
+For each unread row:
+
+1. Parse `content` JSON. Resolve recent context for the requesting agent
+   (last ≤5 min of `messages` from that agent) so {{CEO_NAME}} sees what
+   the agent was trying to accomplish.
+
+2. Present to {{CEO_NAME}} via Teams Approval card on the `Approvals`
+   channel:
+
+   ```
+   [Tool authorization — <from_agent>]
+   Command:  <command>
+   Binary:   <command_first_token>
+   Context:  <recent task or rationale_hint>
+   Decide:
+     [ One-shot ]    Approve this exact command for this agent now (10-min TTL).
+     [ Permanent ]   Add <command_first_token> to <from_agent>.bash_allow
+                     via tool-matrix-change (CA proposes, CSO reviews,
+                     {{CEO_NAME}} approves, COO installs).
+     [ Deny ]        Refuse with reason.
+   ```
+
+3. Record the decision and act:
+
+   - **One-shot** — INSERT into `bash_oneshot_grants`:
+     ```sql
+     INSERT INTO bash_oneshot_grants
+       (agent_role, args_hash, granted_by, expires_at, decision_id)
+     VALUES
+       (<from_agent>, <ref_id>, 'ceo',
+        DATETIME(CURRENT_TIMESTAMP, '+10 minutes'),
+        <decision_id>);
+     ```
+     Also INSERT a `decisions` row of category `tool-oneshot-approval`
+     with the rationale; the FK link prevents fabrication ({{CSO_NAME}}
+     Layer 5 audit reconciles `bash_oneshot_grants.decision_id` against
+     `decisions.id`).
+     Notify the requesting agent via `messages` (type `task`,
+     `priority='normal'`) that the grant is open and the command may
+     be retried within 10 minutes.
+
+   - **Permanent** — open a standard `tool-matrix-change` decision
+     proposing the patch to `bash-policy.json` `agent_allow.<role>` for
+     the requested binary. Route to {{CA_NAME}} for proposal,
+     {{CSO_NAME}} for security review, {{CEO_NAME}} for approval,
+     project COO for installation (single-writer §4). Notify the
+     requesting agent that promotion is in flight; do NOT also issue a
+     one-shot — the permanent path supersedes.
+
+   - **Deny** — UPDATE the original message `status='actioned'` and
+     write a reply `messages` row to the requesting agent (type `task`,
+     `priority='normal'`) carrying {{CEO_NAME}}'s reason. The agent
+     pivots, does not retry.
+
+4. UPDATE the original `messages.status='read'` (then `'actioned'` once
+   step 3 completes) to keep the queue accurate.
+
+A request that has been unread for > 4 hours during {{CEO_NAME}}'s
+working window is escalated in the next Morning Brief under
+**Pending approvals** with the agent and the binary surfaced. Don't let
+authorization requests rot — sub-agents are paused waiting on them.
 
 ---
 
