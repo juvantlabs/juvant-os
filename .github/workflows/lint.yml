@@ -81,3 +81,18 @@ jobs:
             exit 1
           fi
           echo "OK — no tracked secrets detected"
+
+      - name: Schema validators (FEAT-008 L4)
+        run: |
+          pip install --quiet pyyaml
+          python3 tests/schema/validate.py
+
+      - name: Eval scenario lint (FEAT-008 L1)
+        run: |
+          bash tests/scenarios/lint.sh
+
+      - name: Hook tests (FEAT-008 L2)
+        run: |
+          # jq is preinstalled on ubuntu-latest; sqlite3 was installed
+          # earlier in the schema dry-run step.
+          bash tests/hooks/run-tests.sh

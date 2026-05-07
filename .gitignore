@@ -52,5 +52,13 @@ logs/
 coverage/
 .nyc_output/
 
+# Python venv — used by tests/scenarios/lint.sh on dev machines that
+# enforce PEP 668 (e.g. macOS system Python).
+.venv/
+venv/
+__pycache__/
+*.pyc
+
 # Claude Code local state
 .claude/local/
+.claude/scheduled_tasks.lock
