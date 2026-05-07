@@ -11,6 +11,190 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added — Test suite (FEAT-008)
+
+Four-layer test scaffolding per the v1.0 acceptance criteria of
+FEAT-008 (`juvantlabs/juvant-os-pm#16`). Layers 2 (hooks) and 4
+(schema) are fully automated; Layer 1 ships a scaffold + scenario lint
++ 4 seeds; Layer 3 ships as documented manual procedures. Full
+LLM-judge automation and SDK-driven end-to-end runs are deferred to
+v1.1.
+
+- **Layer 2 — Hook tests**: `tests/hooks/run-tests.sh` runs 20 cases
+  against a local SQLite DB via `tests/hooks/fake-turso.sh` (a
+  `turso db shell` shim that redirects to `sqlite3`). Covers
+  `session-start`, `session-end`, `stop`, `subagent-stop`, and the
+  full `pre-tool-use` matrix (universal deny, allow-list hit,
+  allow-list miss → escalation, one-shot grant consumption, unknown
+  role, audit-log row + `escalation_msg_id` linkage).
+- **Layer 4 — Schema validators**: `tests/schema/validate.py` asserts
+  the 25 expected tables, 10 indexes, CHECK constraint rejection of
+  invalid `maturity_status`/`to_status`, baseline `model_pricing`
+  seed presence, default values, and that `scripts/upgrade-v0.5.sql`
+  applies cleanly to a v0.4-shape DB and backfills
+  `project_maturity_history`.
+- **Layer 1 — Eval scaffold**: `tests/scenarios/SCHEMA.md` defines the
+  v1.0 YAML format with an allowlist of `expected.*` keys.
+  `tests/scenarios/lint.sh` validates each scenario file against the
+  schema and confirms the role exists. Seed scenarios for
+  `cfo/inbound-mail`, `clo/contract-review`, `cos/boot-summary`,
+  `cso/system-audit` (LLM run is manual via the Skill).
+- **Layer 3 — Manual procedures**: `tests/integration/` contains three
+  end-to-end checklists (`mail-inbound-cfo-draft`,
+  `context-compaction`, `offline-restart`) the developer runs against
+  a freshly bootstrapped company; results go to `decisions` category
+  `integration-test`.
+- **CI**: `.github/workflows/lint.yml` adds three jobs running L2 hook
+  tests, L4 schema validators, and L1 scenario lint on every PR and
+  push to `main`.
+
+### Fixed — bash 3.2 SQL escape regression in hooks
+
+The `${V//\'/\'\'}` parameter expansion is mis-handled by bash 3.2
+(macOS default), producing `\'\'` instead of `''` and silently failing
+every `INSERT` containing the offending field. Replaced with a
+`sed`-based `sql_escape` helper across `hooks/pre-tool-use.sh` and
+`hooks/lib/track-tokens.sh`. Surfaced by Layer 2 tests.
+
+### Fixed — upgrade-v0.5.sql ALTER TABLE constant-default constraint
+
+SQLite's `ALTER TABLE ADD COLUMN` rejects non-constant defaults
+(`CURRENT_TIMESTAMP`). The `maturity_changed_at` column is now added
+without a default; an explicit `UPDATE ... SET ... = CURRENT_TIMESTAMP`
+backfills existing rows. Surfaced by Layer 4 schema validators.
+
+### Added — Company-scope `eng-platform` agent (Hephaestus)
+
+The Platform Engineer agent — owner of cloud platform substrate
+(Terraform module catalog, OIDC federation patterns, secret-store
+progression, observability backbone, branch-protection plan) — is now
+shipped as the 11th company-scope agent. Previously absent from the
+OSS template despite being instantiated in the live company-instance.
+
+- New `agents/company/eng-platform.md` (Sonnet 4.6, internal-only,
+  GitHub READ-ONLY, pr-spec author for platform/infra-class changes).
+- 14 Hard Conventions shipped as opinionated cloud-native baseline
+  (Terraform-only IaC, GitHub Actions + OIDC, managed serverless
+  containers, hub-and-spoke tenancy, secret-store progression, etc.).
+  Each is amendable via the standard `tech-standard` decision flow.
+- `SYSTEM_INVARIANTS.md` §2: new placeholder `{{ENG_PLATFORM_NAME}}`
+  with default `Hephaestus`; documented as the exception to the
+  "Eng/* agents have no human-name placeholder" rule (single named
+  cross-project authority, not a per-project Eng/* role).
+- `JUVANT_OS.md` company-init bootstrap counts updated from 10 → 11
+  company-scope agents (20 founding total).
+
+### Added — Tool authorization escalation + Bash policy + audit log (FEAT-025)
+
+Materializes FEAT-018 (Bash deny-list + per-agent allow-list) and
+FEAT-019 (action audit log) into the OSS template — both had been
+closed in the PM repo but were never downstreamed here, and were only
+present as a local superset in the live company-instance. **Replaces
+hard-deny on allow-list miss with an escalation flow** to CoS, fixing
+the structural blocker that collapsed the agentic build pattern into
+manual CEO execution (2026-05-06 bug report).
+
+- New `hooks/pre-tool-use.sh` — universal deny-list (HARD, irreversible)
+  + per-agent allow-list (SOFT, escalates) + diagnostic codes
+  (`deny:universal:<pattern>`, `deny:allow-list:<binary>`,
+  `deny:no-role`, `deny:policy-load-failure`).
+- New `hooks/bash-policy.json` — universal `deny_patterns` (23 regex)
+  + `agent_allow` for all 11 company-scope and 9 project-scope roles.
+  Baseline includes `gh, npx, curl` for every `eng-*` and the full
+  cloud toolkit (`terraform, az, gcloud, aws, vercel, docker, kubectl`)
+  for `eng-platform`. Roles with no Bash baseline (CFO, CLO, CMO, CCO,
+  CHRO, CEthO) carry `[]`.
+- Schema: new `agent_actions_log` (FEAT-019; append-only, written
+  before tool runs); new `bash_oneshot_grants` (FEAT-025; CEO time-boxed
+  one-shot approval with FK to backing `decisions` row); new
+  `agents.bash_allow` JSON column mirroring policy at company-init.
+- `.claude/settings.json` registers the `PreToolUse` hook.
+- CoS protocol: new "Tool Authorization Requests" section in
+  `agents/company/cos.md` with the 3-button Teams Approval card
+  (one-shot / permanent / deny) and the routing flow for each.
+- `SYSTEM_INVARIANTS.md` §8 — **Sub-agent Bash Escalation Invariant**
+  defines required behavior on each diagnostic-code prefix; violating
+  the invariant (silent abandon, loop retry, fabricated success) is a
+  CSO Layer 5 finding. The standard cross-reference pointer in agent
+  templates is updated to `§1…§8`.
+- `JUVANT_OS.md` § Bash escalation flow documents the full pipeline:
+  hook outcomes, diagnostic codes, CEO decision flow (one-shot vs
+  permanent vs deny), one-shot grant lifecycle (10-min TTL), allow-list
+  mutation governance (CA → CSO → CEO → COO single-writer), and audit
+  reconciliation rules.
+- `scripts/upgrade-v0.5.sql` carries the ALTER + CREATE statements
+  for adopters with pre-v0.5 DBs.
+
+### Added — Token usage tracking + Cost report (FEAT-024)
+
+Per-session and per-subagent-invocation token usage is now captured into
+Turso on every Stop / SessionEnd / SubagentStop hook firing. Cost is
+computed at write time using `model_pricing` and denormalized into
+`agent_token_usage.computed_cost_usd`, so historical reports remain stable
+when Anthropic publishes new pricing.
+
+- Schema: `agent_token_usage` table (with indexes on time / agent /
+  principal / project / session) + `model_pricing` table versioned by
+  `effective_from`. Initial seed for `claude-opus-4-7`,
+  `claude-sonnet-4-6`, `claude-haiku-4-5-20251001` — placeholder values,
+  adopters MUST verify against Anthropic's published pricing before
+  relying on cost figures.
+- Hooks: new `hooks/lib/track-tokens.sh` shared library aggregates
+  transcript usage by model, looks up pricing, computes cost, and
+  UPSERTs (main session, idempotent across Stop firings) or INSERTs
+  (subagent invocation). New `hooks/stop.sh` registered in
+  `.claude/settings.json` for per-turn capture. `session-end.sh`
+  finalizes the main row with `ended_at`. `subagent-stop.sh` writes a
+  fresh row per subagent invocation.
+- Skill operation: *"Cost report"* with default 7-day window and
+  natural-language qualifiers (*"last 30 days"*, *"this month"*,
+  *"since YYYY-MM-DD"*, agent / principal / project / model filters).
+  Output groups by agent, principal (FEAT-022 forward-compat), project
+  (joined to `projects.maturity_status` per FEAT-023), and model;
+  surfaces top-5 most-expensive sessions and a week-over-week trend.
+- Morning Brief: new "Cost (yesterday)" line — total + 7-day avg +
+  `⚠` anomaly flag when daily total exceeds 3× trailing-30-day median.
+  Stopgap; defers to FEAT-020's anomaly logic once active.
+- Forward-compat: `principal_id` (FEAT-022) and `project_slug`
+  (FEAT-023) columns are nullable until those features are active.
+- Documentation: `JUVANT_OS.md` § Cost report covers schema, the report
+  output format, pricing-refresh procedure (close prior row + insert
+  new effective row, never UPDATE in place), and forward integrations.
+
+### Added — Project maturity status (FEAT-023)
+
+Each project now carries a `maturity_status` tier — `incubation` |
+`preview` | `general_availability` — that calibrates how every agent
+treats it. Distinct from the existing operational `status` axis
+(`active` | `archived`); the two-axis model is documented in
+`JUVANT_OS.md` § Project maturity status.
+
+- Schema: `projects.maturity_status` + `projects.maturity_changed_at`
+  columns; new append-only `project_maturity_history` table for
+  promotion/demotion audit trail (`demotion=1` flagged when transition
+  goes down the ladder).
+- Config: `.juvant/config.json` `projects.<slug>.status` exposes the
+  maturity tier (default `incubation` at project creation).
+- Wizard: project setup Step 2 records the initial maturity tier
+  (default `incubation`, CEO override only when onboarding an existing
+  GA-grade product).
+- Skill operation: *"Project status"* / *"Promote project &lt;slug&gt;
+  to &lt;tier&gt;"* / *"Demote project &lt;slug&gt; to &lt;tier&gt;"*.
+  Every transition writes `project_maturity_history`, mirrors to
+  `.juvant/config.json`, fires the action audit log, and surfaces in
+  the next Morning Brief (demotions flagged prominently).
+- CMO: maturity-driven publication guard. Refuses public-channel
+  posting and press replies that reference an `incubation` project
+  unless CEO supplies an explicit override + reason. `preview`
+  requires audience-restricted confirmation. Archived projects are
+  refused regardless of maturity.
+- CoS: Morning Brief now groups projects by maturity (GA → preview →
+  incubation), with recent transitions marked and demotions flagged.
+
+Existing project entries (pre-v0.6 DBs) need a one-time backfill —
+`scripts/upgrade-v0.5.sql` (planned alongside FEAT-024) will carry
+the `ALTER TABLE` statements for adopters with live DBs.
+
 ### Pending — Phase 6+
 - `plugins/m365-mail/` (TypeScript Channel plugin via `defineChannel`) — Phase 6 / Beta.
 - Desktop Scheduled Tasks (Morning Brief, Finom poll, fiscal deadlines) — Phase 7 / Beta.
