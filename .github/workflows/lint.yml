@@ -4,7 +4,11 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'release/**'
+      - 'feat/**'
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -106,16 +110,19 @@ jobs:
           # npm audit / pip-audit / cargo audit gated by file existence.
           echo "no dependency manifest in repo; skipping dep-vuln scan"
 
-      - name: PreToolUse hook — Bash policy tests
+      - name: Schema validators (FEAT-008 L4)
         run: |
-          # Verify hooks/pre-tool-use.sh enforces handbook ADR 0004 Track 2
-          # correctly: universal deny-list catches dangerous patterns (rm -rf,
-          # sudo, gh repo delete, DROP DATABASE, etc.); per-agent allow-list
-          # gates by role (CFO has no Bash; CoS has git/gh/jq; eng-* has
-          # npm/node/python). Tests are bash-based, no external dependencies
-          # beyond jq (already a hook dependency).
-          if [ -x tests/hooks/test-pre-tool-use.sh ]; then
-            bash tests/hooks/test-pre-tool-use.sh
-          else
-            echo "::warning::tests/hooks/test-pre-tool-use.sh not present or not executable"
-          fi
+          pip install --quiet pyyaml
+          python3 tests/schema/validate.py
+
+      - name: Eval scenario lint (FEAT-008 L1)
+        run: |
+          bash tests/scenarios/lint.sh
+
+      - name: Hook tests (FEAT-008 L2)
+        run: |
+          # jq + sqlite3 already installed in earlier steps. Tests use
+          # tests/hooks/fake-turso.sh as a `turso db shell` shim
+          # redirecting to a local SQLite file (no Turso credentials
+          # required in CI).
+          bash tests/hooks/run-tests.sh
