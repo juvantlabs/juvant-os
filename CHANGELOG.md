@@ -11,6 +11,44 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — wizard rendering must be deterministic (one question at a time)
+
+Surfaced by the Delta Corp testco run on 2026-05-08 (post-v0.6.1
+re-validation). At Step 1 (Identity), the Skill rendered all six
+identity fields as a single batch prompt (*"reply with all six in
+one message"*) — a fourth distinct rendering across four runs of the
+same JUVANT_OS.md prose. Acme / Beta / Gamma had each rendered Step 1
+"one question at a time" but inconsistently styled the wording.
+
+This is wizard determinism finding #11 surfacing concretely. Prior to
+v0.6.2 the rule lived only as informal phrasing inside individual
+steps (e.g. Step 1's *"Collect from the CEO, one question at a time"*),
+which different Skill sessions interpret as a suggestion rather than
+a requirement. v0.6.2 promotes it to a load-bearing directive at the
+top of `## Company setup` and `## Project setup`:
+
+> **Wizard rendering rule (HARD-REQUIRED).** Every wizard step that
+> collects multiple fields MUST render as one question at a time,
+> sequentially, waiting for the CEO's reply before proceeding to the
+> next field. Batch-mode collection is forbidden — non-deterministic
+> across Skill sessions, breaks reasoning continuity, prevents
+> per-field validation. The Skill emits each prompt, waits for the
+> reply, records it, then emits the next. Steps with option menus
+> render the menu verbatim from the JUVANT_OS.md prose without
+> paraphrase or restructuring.
+
+Step 1 prose tightened: bullet list → numbered sequence with
+explicit "Skill emits each prompt, waits for the reply, records it,
+then emits the next" preamble. Project setup section gets a
+back-reference to the Company setup directive.
+
+Same architectural principle as v0.6.1 (Step 9 hard-required CSO
+audit): wizard procedure must be deterministic across Skill sessions.
+v0.6.1 closed the integrity-relevant case (CSO audit fabrication);
+v0.6.2 closes the UX-relevant cases (Step 1 batch, Step 1.5 missing
+type-it option, Step 5 pipe-delimited freeform — all under the same
+root cause).
+
 ### Fixed — CSO bootstrap_baseline audit can no longer be fabricated by the Skill (HIGH)
 
 Surfaced by the Gamma Corp testco run on 2026-05-08 against post-merge

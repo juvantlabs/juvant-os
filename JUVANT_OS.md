@@ -69,6 +69,41 @@ secrets.
 Triggered by the CEO saying *"Initialize Juvant OS"* (or any equivalent phrasing) in
 a freshly-cloned per-company repo.
 
+### Wizard rendering rule (HARD-REQUIRED — applies to every step below)
+
+Every wizard step that collects multiple fields **MUST** render as **one
+question at a time, sequentially**, waiting for the CEO's reply before
+proceeding to the next field. Batch-mode collection (*"reply with all
+six fields in one message"*, *"answer the following questions in
+order"*, etc.) is **forbidden** — it makes the onboarding
+non-deterministic across Skill sessions, breaks reasoning continuity
+for the CEO, and prevents per-field validation / re-prompting.
+
+The rule is global: it applies at Step 1, Step 1.5, Step 1.5b, Step 1.6,
+Step 2, Step 3, Step 4, Step 4.5, Step 5, Step 6, Step 8, Step 9 (per
+manifesto), Step 10, Step 10.5, and at every project-init wizard step
+(Project setup Step 1 through Step 6). Steps that present option menus
+(Step 2 DB choice, Step 3 bank choice, Step 5 counterparties path,
+Step 9 manifesto-approval mode) render the menu **verbatim from the
+JUVANT_OS.md prose** without paraphrase or restructuring — the Skill
+emits the exact text shown in this document.
+
+If a step lists N fields, render N consecutive prompts. If the CEO
+replies with a multi-field block proactively, the Skill accepts it but
+**MUST NOT** prompt for batched input itself. Recovery from a
+mid-step abort: state recorded incrementally, so re-running
+*"Initialize Juvant OS"* resumes from the last unanswered prompt
+(Pre-flight detects partial state via `.juvant/config.json`
+presence + completeness check).
+
+This rule was added in v0.6.2 after the Delta Corp testco run on
+2026-05-08 surfaced batch-mode rendering at Step 1 (cf. wizard
+determinism finding #11). It complements the Step 9 hard-required rule
+shipped in v0.6.1 (`Task(subagent_type='cso', ...)` mandatory for the
+bootstrap_baseline audit): both are facets of the same architectural
+principle — wizard procedure must be deterministic across Skill
+sessions, integrity-relevant choices cannot be auto-routed-around.
+
 ### Pre-flight
 
 Before starting the wizard, check:
@@ -85,15 +120,20 @@ Before starting the wizard, check:
 
 ### Wizard — Step 1: Identity
 
-Collect from the CEO, one question at a time:
+Collect from the CEO, **one question at a time** (per the Wizard
+rendering rule above — no batch collection, no "reply with all six in
+one message"). The Skill emits each prompt, waits for the reply,
+records it, then emits the next:
 
-- **Company name** (e.g. "Acme Corp"). Used as `{{COMPANY_NAME}}`.
-- **Company description** (one sentence). Used as the `{{AGENT_DESCRIPTION}}` seed.
-- **Company domain** (e.g. `acme.io`). Used as `{{COMPANY_DOMAIN}}` for press/legal/
-  sales mailbox routing in CMO/CCO/CFO/CLO templates.
-- **CEO name** (e.g. "Jane Doe"). Used as `{{CEO_NAME}}`.
-- **CEO email** (used by Morning Brief digest).
-- **CEO Telegram handle** (used by Notification hook for Critical alerts).
+1. **Company name** (e.g. "Acme Corp"). Used as `{{COMPANY_NAME}}`.
+2. **Company description** (one sentence). Used as the
+   `{{AGENT_DESCRIPTION}}` seed.
+3. **Company domain** (e.g. `acme.io`). Used as `{{COMPANY_DOMAIN}}`
+   for press/legal/sales mailbox routing in CMO/CCO/CFO/CLO templates.
+4. **CEO name** (e.g. "Jane Doe"). Used as `{{CEO_NAME}}`.
+5. **CEO email** (used by Morning Brief digest).
+6. **CEO Telegram handle** (used by Notification hook for Critical
+   alerts).
 - **Document storage**: OneDrive or Google Drive. For OneDrive, the wizard records
   the choice now and binds the relevant MCP servers later: `ms-graph` (the claude.ai
   read-only Microsoft 365 connector, when running through claude.ai's product) and
@@ -1328,6 +1368,10 @@ the workflow is:
 
 Triggered by *"Add project <name>"* or *"Initialize project hardys"* in an
 already-bootstrapped company repo.
+
+> **Wizard rendering rule applies here too.** Every step that collects
+> multiple fields renders one question at a time, sequentially. No
+> batch collection. See the full rule under `## Company setup` above.
 
 ### Pre-flight
 
