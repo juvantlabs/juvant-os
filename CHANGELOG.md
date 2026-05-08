@@ -11,6 +11,53 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added — ADR 0009: compiled agent registration via `.claude/agents/`
+
+Surfaced by the Acme Corp testco bootstrap (FEAT-008 layer 4, 2026-05-08).
+Compiled agent templates lived under `agents/<scope>/` but Claude Code's
+Task tool resolves `subagent_type` from `.claude/agents/`. The two locations
+were not bridged, so canonical `Task(subagent_type='<role>', ...)` failed
+to register on every adopter and the Skill had to fall back to
+`general-purpose` with inline briefing.
+
+- `docs/adr/0009-compiled-agent-registration.md` (Proposed) — decision to
+  ship `.claude/agents/<role>.md` as relative symlinks into
+  `agents/<scope>/<role>.md`. Documented home stays at `agents/`; runtime
+  registration becomes implicit via the symlink layer.
+- `.claude/agents/{ca,cco,cetho,cfo,chro,clo,cmo,cos,cro,cso}.md` — 10
+  founding company-scope symlinks committed as mode 120000.
+- `JUVANT_OS.md` Step 7 — item 5 documents the implicit registration;
+  project-init analog noted at "Project setup".
+- `README.md` — repo layout shows `.claude/agents/` + the symlink prose.
+- `tests/integration/results-2026-05-08-acme-testco.md` — full testco
+  run record (10 findings, severity, v1.0 block/defer matrix).
+
+### Fixed — Acme Corp testco findings batch (FEAT-008 layer 4, 2026-05-08)
+
+Trivial fixes surfaced during the dogfood bootstrap of a throwaway test
+company. Full context in `tests/integration/results-2026-05-08-acme-testco.md`.
+
+- `scripts/migrate.sh` (finding #1) — added a `db.provider == "local"`
+  branch that applies the schema with `sqlite3` against a filesystem
+  path. Previously hard-failed on missing `TURSO_URL`/`TURSO_TOKEN`,
+  blocking the wizard's "Recommended for test" Step 2 option.
+- `JUVANT_OS.md` Step 3 (finding #2) — inlined neutral one-line
+  descriptions per bank option and added an explicit no-Juvant-default
+  directive. Previous freeform synthesis at runtime produced "Common
+  Juvant default" text in option descriptions, leaking the OSS
+  template's maintainer into per-adopter prompts.
+- `agents/company/cso.md` §9 (finding #4) — rephrased the
+  placeholder-substitution audit rule without typing the literal token,
+  describing the canonical pattern (`\{\{[A-Z_]+\}\}` outside code
+  fences) instead. Previous prose self-tripped the rule it described
+  and aborted Wizard Step 7 on a clean run.
+- `.gitignore` (finding #7) — added `.juvant/state.db` so the local
+  SQLite file produced by Wizard Step 2 option [1] is never committed.
+- `JUVANT_OS.md` Step 10 (finding #8) — extended the canonical
+  `git add` list to include `.github/CODEOWNERS` (rendered at Step 7.5),
+  `.gitignore` (often patched at init), and `.claude/agents/`
+  (symlinks per ADR 0009). Working tree is now clean post-bootstrap.
+
 ### Added — Test suite (FEAT-008)
 
 Four-layer test scaffolding per the v1.0 acceptance criteria of
