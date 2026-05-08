@@ -60,6 +60,19 @@ A fork enters Bootstrap Mode when ALL of the following hold:
 7. CSO performs the first system audit immediately after all 19 agents
    reach `OPERATIONAL_RESTRICTED`. The audit output goes to `decisions`
    category `system-audit` with `bootstrap_baseline = 1`.
+
+   The audit is performed **by the CSO subagent**, invoked via
+   `Task(subagent_type='cso', ...)`. The Skill orchestrating the
+   bootstrap **MUST NOT** synthesize the audit verdict in-session and
+   **MUST NOT** write `security_audit_log` rows with `auditor='cso'`
+   directly. If `subagent_type='cso'` does not resolve (e.g.
+   `.claude/agents/cso.md` symlink missing per ADR 0010), the bootstrap
+   aborts with explicit error and `master_context.bootstrap_completed_at`
+   stays NULL — there is no fallback path that bypasses the subagent.
+   This rule closes the cover-up failure mode of handbook ADR 0004:
+   a Skill that fabricates a CSO audit verdict is structurally
+   indistinguishable from a malicious agent forging audit history. CSO
+   Layer 5 detects orphan rows (see `agents/company/cso.md` § Layer 5).
 8. When all 19 agents complete Tier 2 AND the first CSO audit returns
    PASS or WARN-WITH-CONDITIONS, the skill writes:
    - `master_context.bootstrap_completed_at = NOW()`,

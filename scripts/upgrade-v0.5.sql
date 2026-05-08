@@ -138,3 +138,14 @@ VALUES
   ('claude-opus-4-7',           '2026-01-01', NULL, 15.00, 75.00, 18.75, 1.50),
   ('claude-sonnet-4-6',         '2026-01-01', NULL,  3.00, 15.00,  3.75, 0.30),
   ('claude-haiku-4-5-20251001', '2026-01-01', NULL,  1.00,  5.00,  1.25, 0.10);
+
+-- ─────────────────────────────────────────────
+-- v0.6.1 — security_audit_log.session_id (CSO Layer 5 orphan-audit
+-- detection; closes the cover-up failure mode surfaced by the Gamma
+-- Corp testco run on 2026-05-08). Backfilling existing rows is not
+-- meaningful — the column is for forensic correlation of NEW CSO
+-- audit rows with their originating Task subagent invocation.
+-- ─────────────────────────────────────────────
+
+ALTER TABLE security_audit_log
+  ADD COLUMN session_id TEXT;

@@ -974,25 +974,65 @@ This is the chicken-and-egg-resolving step. Follow SYSTEM_INVARIANTS.md §1 exac
            ?, CURRENT_TIMESTAMP, 'juvant-os-skill', CURRENT_TIMESTAMP);
    ```
 
-6. After all 10 company-scope manifestos are accepted, the CEO is prompted:
-   *"Bootstrap of company-scope agents complete. Trigger CSO bootstrap audit now? [y/N]"*
+6. After all 10 company-scope manifestos are accepted, the CSO
+   `bootstrap_baseline=1` audit runs **automatically and unconditionally**.
+   There is no `[y/N]` prompt, no "skip audit" path, no "fast" path that
+   bypasses it. Bootstrap without a CSO audit is not a valid bootstrap
+   end-state; `master_context.bootstrap_completed_at` cannot be set
+   without one.
 
-7. On `y`: invoke the CSO subagent via `Task` with the prompt
-   *"Run bootstrap_baseline=1 audit per SYSTEM_INVARIANTS.md §1.7. Scope: company.
-   All 10 founding manifestos are in OPERATIONAL_RESTRICTED with
-   precondition_bypassed='bootstrap'. Return PASS / WARN-WITH-CONDITIONS / FAIL plus a
-   `security_audit_log` row."*
+7. **Hard-required.** The Skill **MUST** invoke the CSO subagent via:
 
-8. On audit return:
-   - **PASS or WARN-WITH-CONDITIONS** → set `master_context.bootstrap_completed_at = NOW()`,
-     promote eligible manifestos to `status='operational'`, clear `restricted=0` on
+   ```
+   Task(subagent_type='cso',
+        prompt='Run bootstrap_baseline=1 audit per
+                SYSTEM_INVARIANTS.md §1.7. Scope: company. All 10
+                founding manifestos are in OPERATIONAL_RESTRICTED
+                with precondition_bypassed=bootstrap. Return
+                PASS / WARN-WITH-CONDITIONS / FAIL plus the
+                `security_audit_log` rows.')
+   ```
+
+   **The Skill MUST NOT:**
+   - Synthesize the audit verdict in-session.
+   - Write `security_audit_log` rows with `auditor='cso'` directly.
+   - Use `subagent_type='general-purpose'` with the cso.md template
+     pasted as inline briefing — the canonical resolution via
+     `.claude/agents/cso.md` (ADR 0010) is the only sanctioned path.
+     If that symlink does not resolve, abort the wizard with explicit
+     error rather than substituting a fallback subagent.
+
+   If the Task tool fails to resolve `subagent_type='cso'`:
+   ```
+   ERROR: Bootstrap cannot complete — CSO subagent registration
+          missing. Verify .claude/agents/cso.md exists and points to
+          ../../agents/company/cso.md (per ADR 0010). After fixing,
+          re-run "Initialize Juvant OS"; the wizard is idempotent
+          on the manifesto rows already written.
+   ```
+   `master_context.bootstrap_completed_at` stays NULL. The CEO
+   addresses the registration gap (re-creates the symlink, syncs the
+   template, etc.) and re-runs the wizard — bootstrap is recoverable.
+
+   This rule closes handbook ADR 0004 cover-up failure mode #6:
+   a Skill that fabricates the CSO audit verdict produces forensically
+   suspect `security_audit_log` rows that CSO Layer 5 detects (see
+   `agents/company/cso.md` § Layer 5 — orphan-audit detection).
+
+8. On audit return (the verdict comes back from the subagent's response,
+   never from the Skill's own reasoning):
+   - **PASS or WARN-WITH-CONDITIONS** → set
+     `master_context.bootstrap_completed_at = NOW()`, promote eligible
+     manifestos to `status='operational'`, clear `restricted=0` on
      `manifests`, surface any conditions for Tier 2 follow-up.
-   - **FAIL** → leave bootstrap state intact, surface findings, and do NOT promote.
-     Bootstrap remains in progress; CEO can re-trigger after CSO findings are addressed.
+   - **FAIL** → leave bootstrap state intact, surface findings, and do
+     NOT promote. Bootstrap remains in progress; CEO can re-trigger
+     after CSO findings are addressed.
 
-9. Bootstrap is one-shot. `master_context.bootstrap_completed_at` is set exactly once
-   per company. Recovery from a corrupted bootstrap is via `rm -rf .juvant/` +
-   re-run "Initialize Juvant OS"; there is no partial-bootstrap recovery path.
+9. Bootstrap is one-shot. `master_context.bootstrap_completed_at` is
+   set exactly once per company. Recovery from a corrupted bootstrap
+   is via `rm -rf .juvant/` + re-run "Initialize Juvant OS"; there is
+   no partial-bootstrap recovery path.
 
 ### Wizard — Step 10: Initial commit
 
@@ -1387,6 +1427,11 @@ Sequencing per SYSTEM_INVARIANTS.md §1 / cto.md:
 2. Once the project CTO reaches `operational_restricted`, that CTO performs Tier 1
    on the remaining project-scope agents (CPO, CDO, COO, VPE, Eng/*).
 3. CSO performs `bootstrap_baseline=1` audit immediately after, scoped to the project.
+   **Same hard-required rule as company bootstrap (Step 9.7):** the audit is
+   invoked via `Task(subagent_type='cso', ...)` — the Skill **MUST NOT**
+   synthesize the verdict or write `security_audit_log` rows directly.
+   If `subagent_type='cso'` does not resolve, abort the project bootstrap
+   with explicit error.
 4. On PASS / WARN-WITH-CONDITIONS, promote project agents to `operational`.
 
 The company-level `master_context.bootstrap_completed_at` remains set; project-bootstrap

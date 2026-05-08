@@ -165,6 +165,14 @@ CREATE TABLE IF NOT EXISTS security_audit_log (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   auditor         TEXT NOT NULL,
   -- always 'cso'
+  session_id      TEXT,
+  -- Claude Code session_id of the CSO subagent invocation that produced
+  -- this row. NULL is permitted for legacy rows but flagged by CSO Layer 5
+  -- (orphan-audit detection — see agents/company/cso.md §11). New rows
+  -- written by the CSO subagent capture the session_id from the event
+  -- payload and use it to cross-reference agent_actions_log.tool_name='Task'
+  -- entries; rows lacking this correlation are treated as forensically
+  -- suspect (handbook ADR 0004 cover-up failure mode #6).
   scope           TEXT NOT NULL,
   -- 'company' | project_id
   audit_type      TEXT NOT NULL,

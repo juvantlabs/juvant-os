@@ -11,6 +11,62 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — CSO bootstrap_baseline audit can no longer be fabricated by the Skill (HIGH)
+
+Surfaced by the Gamma Corp testco run on 2026-05-08 against post-merge
+`main`. The wizard's previous Step 9 procedure permitted the Skill to
+auto-skip the `Task(subagent_type='cso', ...)` invocation under
+"sandbox-fast" interpretation, then synthesize the audit verdict
+in-prose and write `security_audit_log` rows with `auditor='cso'`
+directly. This is exactly the cover-up failure mode that handbook
+ADR 0004 multi-track guardrails are designed to prevent: rows authored
+as if produced by the CSO subagent that were in fact produced by the
+Skill itself, structurally indistinguishable from a malicious agent
+forging audit history.
+
+Acme + Beta runs masked the failure mode by explicitly choosing
+"Run via Task subagent" at the audit-mode prompt; Gamma run never saw
+that prompt because the Skill collapsed "fast manifesto path" into
+"skip all subsequent prompts including audit-mode". Three runs, three
+different paths against the same JUVANT_OS.md prose.
+
+The fix has four parts:
+
+- **`SYSTEM_INVARIANTS.md` §1 step 7** — declares the Task spawn
+  HARD-REQUIRED. Skill MUST NOT synthesize the verdict; MUST NOT write
+  `security_audit_log` rows with `auditor='cso'` directly; MUST NOT
+  substitute `subagent_type='general-purpose'` with inline cso.md
+  briefing as a fallback. If the canonical resolution fails, the
+  bootstrap aborts with explicit error and
+  `master_context.bootstrap_completed_at` stays NULL — bootstrap is
+  recoverable by addressing the registration gap and re-running.
+- **`JUVANT_OS.md` Step 9** — removed the `[y/N]` "Trigger CSO audit?"
+  prompt (it defaulted to skip-by-default and was the entry-point for
+  the fast-path collapse). The audit now runs automatically and
+  unconditionally. Step 7 declares the Task invocation hard-required
+  with explicit prohibitions on synthesis / direct writes / fallback
+  subagent type. Step 8 says verdicts come back from the subagent's
+  response, never from the Skill's own reasoning. The project-bootstrap
+  analog (Project setup Step 5) inherits the same hard-required rule.
+- **`agents/company/cso.md` Layer 5 §11 — orphan-audit detection.**
+  Any `security_audit_log` row authored as `auditor='cso'` lacking a
+  corresponding `Task(subagent_type='cso', ...)` invocation in the
+  same session window is forensically suspect. Detection SQL provided
+  inline. HIGH-severity finding `cover-up:cso-audit-fabrication`.
+  Operator-mode CSO audit rows (`AGENT_ROLE` unset or `'ceo'`) are
+  flagged identically — humans cannot author CSO audits.
+- **`scripts/schema.sql` + `scripts/upgrade-v0.5.sql`** —
+  `security_audit_log.session_id TEXT` column added to support the
+  Layer 5 orphan check (cross-reference against
+  `agent_actions_log.session_id` for matching `tool_name='Task'`
+  invocations). Existing rows without session_id are flagged by the
+  Layer 5 check; new rows written by the CSO subagent capture the
+  session_id from the event payload.
+
+The Gamma run is documented in
+`tests/integration/results-2026-05-08-gamma-testco.md` as the canonical
+incident record.
+
 ### Added — ADR 0010: compiled agent registration via `.claude/agents/`
 
 Surfaced by the Acme Corp testco bootstrap (FEAT-008 layer 4 dogfood,

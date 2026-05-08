@@ -204,7 +204,10 @@ conn.close()
 print("\n=== upgrade-v0.5.sql applies to a v0.4-shape DB ===")
 # ─────────────────────────────────────────────
 upgrade_conn = sqlite3.connect(":memory:")
-# Approximate v0.4 shape: just the projects + agents tables, pre-FEAT-023/024/025.
+# Approximate v0.4 shape: just the projects + agents + security_audit_log
+# tables, pre-FEAT-023/024/025. The security_audit_log table existed in
+# v0.4 (5-layer audit) — its session_id column is added by the v0.6.1
+# migration to support CSO Layer 5 orphan-audit detection.
 upgrade_conn.executescript(
     """
     CREATE TABLE projects (
@@ -220,6 +223,13 @@ upgrade_conn.executescript(
       role  TEXT UNIQUE NOT NULL
     );
     INSERT INTO agents (role) VALUES ('legacy-agent');
+    CREATE TABLE security_audit_log (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      auditor         TEXT NOT NULL,
+      scope           TEXT NOT NULL,
+      audit_type      TEXT NOT NULL,
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
     """
 )
 try:
