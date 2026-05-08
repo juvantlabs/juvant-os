@@ -11,6 +11,146 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added — ADR 0010: compiled agent registration via `.claude/agents/`
+
+Surfaced by the Acme Corp testco bootstrap (FEAT-008 layer 4 dogfood,
+2026-05-08, finding #6 — CRITICAL). Compiled agent templates lived
+under `agents/<scope>/` but Claude Code's Task tool resolves
+`subagent_type` from `.claude/agents/`. The two locations were not
+bridged, so canonical `Task(subagent_type='<role>', ...)` failed to
+register on every adopter and the Skill had to fall back to
+`general-purpose` with inline briefing.
+
+- `docs/adr/0010-compiled-agent-registration.md` (Accepted, validated
+  end-to-end by the Beta Corp testco re-run on the same date).
+- `.claude/agents/{ca,cco,cetho,cfo,chro,clo,cmo,cos,cro,cso}.md` —
+  10 founding company-scope symlinks committed as mode 120000.
+- `JUVANT_OS.md` Step 7 — item 5 documents the implicit registration.
+- `README.md` — repo layout shows `.claude/agents/`.
+
+### Added — FEAT-008 four-layer test suite
+
+Closes `juvantlabs/juvant-os-pm#16`. L1 (eval scaffold), L3 (manual
+integration scenarios), and L4 (schema validators) ship full;
+L2 (hook tests) ships covering the v0.6.0 hook surface (15/15 cases).
+LLM-judge automation and SDK-driven end-to-end runs are deferred
+to v1.1.
+
+- `tests/scenarios/` (L1) — eval scaffold + scenario lint + 4 seed
+  scenarios (cfo/inbound-mail, clo/contract-review, cos/boot-summary,
+  cso/system-audit).
+- `tests/integration/` (L3) — three manual end-to-end procedures
+  (mail-inbound-cfo-draft, context-compaction, offline-restart) +
+  the dogfood evidence reports from the 2026-05-08 testco runs:
+  `results-2026-05-08-acme-testco.md` (discovery, 10 findings) and
+  `results-2026-05-08-beta-testco.md` (re-validation: six v1.0-blocking
+  fixes confirmed PASS; CSO bootstrap_baseline audit returned PASS;
+  three new MEDIUM/HIGH findings deferred to v1.1).
+- `tests/hooks/run-tests.sh` (L2) — 15 cases against a local SQLite
+  via `tests/hooks/fake-turso.sh` shim. Covers session-start,
+  session-end + FEAT-024 token row, stop UPSERT idempotency,
+  subagent-stop + parent_session_id, pre-tool-use universal deny +
+  allow-list hit + allow-list miss + audit-log row + unknown role.
+- `tests/schema/validate.py` (L4) — asserts 24 expected tables,
+  9 indexes, CHECK constraint rejection of invalid maturity_status /
+  to_status, baseline `model_pricing` seed presence, default values,
+  and that `scripts/upgrade-v0.5.sql` applies cleanly to a v0.4-shape
+  DB and backfills `project_maturity_history`.
+- `.github/workflows/lint.yml` — three new CI jobs (L1, L2, L4) +
+  `workflow_dispatch` + `push: branches: [release/**, feat/**]`
+  triggers (the existing `pull_request` trigger has never fired on
+  this repo).
+
+### Added — FEAT-024: token usage tracking + cost report
+
+Closes `juvantlabs/juvant-os-pm#40`. Captures token usage per session
+and per subagent invocation, denormalizes cost using a versioned
+`model_pricing` table, and surfaces a "Cost report" Skill operation
+with by-agent / by-project / by-model breakdowns.
+
+- `scripts/schema.sql` — `agent_token_usage` table (uuid pk,
+  FEAT-022/023 forward-compat principal_id + project_slug,
+  denormalized computed_cost_usd) + 5 indexes; `model_pricing` table
+  (versioned by effective_from); seed rows for opus-4-7 / sonnet-4-6 /
+  haiku-4-5 with explicit "verify against published pricing"
+  disclaimer.
+- `hooks/lib/track-tokens.sh` — shared library: transcript JSONL
+  parse, pricing lookup, cost compute, UPSERT main / INSERT subagent.
+- `hooks/stop.sh` — Stop hook (per-turn UPSERT for main session).
+- `hooks/session-end.sh`, `hooks/subagent-stop.sh` — extended with
+  FEAT-024 finalize / subagent-row write while preserving prior
+  status-update behavior.
+- `.claude/settings.json` — Stop hook registration.
+- `JUVANT_OS.md` § Cost report — Skill operation phrasings, output
+  structure, filter qualifiers, pricing-refresh procedure.
+
+Token tracking is no-op on local-SQLite installations
+(`hooks/lib/track-tokens.sh` requires Turso credentials per the
+no-portal-on-local rule of ADR 0002). Adopters on Turso Cloud get
+cost reports out of the box.
+
+### Added — FEAT-023: project maturity status
+
+Closes `juvantlabs/juvant-os-pm#39`. Adds the maturity-tier axis to
+projects (`incubation` / `preview` / `general_availability`) that
+calibrates how every agent treats the project — CMO publication
+guard, CSO audit thresholds, CFO revenue tagging, CoS Morning Brief
+grouping.
+
+- `scripts/schema.sql` — `projects.maturity_status` column with
+  CHECK constraint; `projects.maturity_changed_at`;
+  `project_maturity_history` append-only table (demotion=1 flag);
+  `idx_pmh_project_time` index. Plus a small bundled hardening:
+  `agents.bash_allow` JSON-array column (mirrors
+  `hooks/bash-policy.json` agent_allow[<role>] for query speed) and
+  `idx_actions_log_status` index on `agent_actions_log`.
+- `scripts/upgrade-v0.5.sql` — one-time migration for company DBs
+  created before v0.6.0. Covers FEAT-018 bash_allow column,
+  FEAT-019 agent_actions_log + indexes, FEAT-023 maturity_status +
+  project_maturity_history (with backfill INSERT for existing
+  projects), FEAT-024 agent_token_usage + model_pricing + seed.
+  FEAT-025 (escalate-deny + bash_oneshot_grants) intentionally
+  omitted — deferred to v1.1.
+- `JUVANT_OS.md` § Project maturity status — two-axis model
+  (status vs maturity_status), three-tier semantics with per-agent
+  calibration table, transition procedure, agent guards, Skill
+  operation.
+
+### Fixed — bash 3.2 SQL escape regression in pre-tool-use.sh
+
+The audit-log INSERT in `hooks/pre-tool-use.sh` used the bash
+parameter expansion `${V//\'/\'\'}` which on macOS default bash 3.2
+produces `\'\'` instead of `''` — invalid SQL escaping that silently
+failed every `agent_actions_log` row carrying single quotes
+(every allow-list miss deny reason). Replaced with a sed-based
+`sql_escape` helper. Surfaced by FEAT-008 L2 tests on the first run.
+
+Same root cause + same fix shape as commit `5d8aa52` (which only
+patched `pre-compact.sh`). The same pattern still lives in
+`hooks/post-tool-use.sh`, `hooks/post-tool-use-failure.sh`, and
+`hooks/pre-compact.sh` — a follow-up sweep will harden those too.
+
+### Fixed — testco trivial findings batch
+
+Surfaced by the Acme Corp testco bootstrap on 2026-05-08. Full context
+in `tests/integration/results-2026-05-08-acme-testco.md`.
+
+- `scripts/migrate.sh` (finding #1) — handle `db.provider == "local"`
+  (apply schema via `sqlite3` against a filesystem path); cloud
+  providers retain the turso CLI path with TURSO_URL/TURSO_TOKEN env
+  override.
+- `JUVANT_OS.md` Step 3 (finding #2) — neutral inline descriptions
+  per bank option + explicit no-template-maintainer-default directive
+  (eliminates the synthesized "Common Juvant default" leak observed
+  at runtime).
+- `agents/company/cso.md` §9 (finding #4) — rephrased substitution
+  audit rule without typing the literal token (was self-tripping the
+  rule it described).
+- `.gitignore` (finding #7) — added `.juvant/state.db` (local SQLite
+  from Step 2 option [1]).
+- `JUVANT_OS.md` Step 10 (finding #8) — extended canonical git-add
+  list with `.github/CODEOWNERS`, `.gitignore`, `.claude/agents/`.
+
 ### Pending — Phase 6+
 - `plugins/m365-mail/` (TypeScript Channel plugin via `defineChannel`) — Phase 6 / Beta.
 - Desktop Scheduled Tasks (Morning Brief, Finom poll, fiscal deadlines) — Phase 7 / Beta.
