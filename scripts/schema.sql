@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS agents (
   -- NULL | 'bootstrap' | 'project-bootstrap'
   hired_by            TEXT,
   approved_by         TEXT,
+  bash_allow          TEXT DEFAULT '[]',
+  -- JSON array mirror of hooks/bash-policy.json agent_allow[<role>] for
+  -- query speed (handbook ADR 0004 Track 2). Populated at company init
+  -- from baseline policy; mutated only via tool-matrix-change decision.
+  -- Empty default '[]' means: no Bash for this agent unless granted.
   created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -321,14 +326,43 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
 --   ALTER TABLE knowledge_base ADD COLUMN source_ref TEXT;
 
 CREATE TABLE IF NOT EXISTS projects (
-  id          TEXT PRIMARY KEY,
+  id              TEXT PRIMARY KEY,
   -- project slug e.g. 'hardys'
-  name        TEXT NOT NULL,
-  db_url      TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  db_url          TEXT NOT NULL,
   -- Turso URL for this project's DB
-  status      TEXT DEFAULT 'active',
-  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  status          TEXT DEFAULT 'active',
+  -- OPERATIONAL lifecycle: 'active' | 'archived'
+  -- (separate from maturity_status below — see JUVANT_OS.md § Project maturity status)
+  maturity_status TEXT DEFAULT 'incubation'
+    CHECK (maturity_status IN ('incubation','preview','general_availability')),
+  -- MATURITY tier: 'incubation' | 'preview' | 'general_availability'
+  -- Drives agent calibration (CoS suggestion aggressiveness, CMO publication
+  -- guard, CFO revenue tagging, CSO audit thresholds). See JUVANT_OS.md
+  -- § Project maturity status (FEAT-023).
+  maturity_changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Append-only history of maturity transitions (promotions and demotions).
+-- demotion=1 flagged when new tier is lower than previous tier.
+-- Source-of-truth for "Cost report" / Morning Brief change callouts.
+CREATE TABLE IF NOT EXISTS project_maturity_history (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id      TEXT NOT NULL,
+  from_status     TEXT,
+  -- NULL on initial assignment
+  to_status       TEXT NOT NULL
+    CHECK (to_status IN ('incubation','preview','general_availability')),
+  demotion        INTEGER DEFAULT 0,
+  -- 1 = transition went down the maturity ladder
+  reason          TEXT,
+  actor           TEXT,
+  -- principal handle (FEAT-022) or 'ceo' fallback
+  changed_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_pmh_project_time
+  ON project_maturity_history(project_id, changed_at DESC);
 
 -- ─────────────────────────────────────────────
 -- PORTAL
@@ -379,6 +413,8 @@ CREATE INDEX IF NOT EXISTS idx_actions_log_session
   ON agent_actions_log(session_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_actions_log_agent
   ON agent_actions_log(agent, started_at);
+CREATE INDEX IF NOT EXISTS idx_actions_log_status
+  ON agent_actions_log(status, started_at);
 
 -- Single-row global kill switch. session-start.sh checks at boot
 -- and exits if active=1 AND (affected_agents IS NULL OR ROLE in

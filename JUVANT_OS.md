@@ -1402,6 +1402,104 @@ git push
 
 ---
 
+## Project maturity status
+
+Each project carries a **maturity status** that calibrates how every agent
+treats it. The vocabulary borrows from canonical product-stage ladders
+(Kubernetes alpha/beta/stable; Google Cloud private/public preview/GA;
+Microsoft preview/GA) — adopters and counterparties read it without
+explanation.
+
+### Two-axis model — important
+
+The Turso `projects` table carries **two distinct status fields**. Do not
+confuse them:
+
+| Field | Axis | Values | Meaning |
+|---|---|---|---|
+| `status` | Operational lifecycle | `active`, `archived` | Is this project a live concern? |
+| `maturity_status` | Maturity tier | `incubation`, `preview`, `general_availability` | How committed and stable is this project? |
+
+A project can be `(active, incubation)` — currently being worked on,
+speculative — or `(active, general_availability)` — in production,
+supported — or `(archived, general_availability)` — was stable, now
+retired. The two axes are independent.
+
+In `.juvant/config.json` the maturity tier is exposed as
+`projects.<slug>.status` for adopter convenience (the lifecycle axis is
+only ever read at the company-DB level). When this document refers to a
+project's "status" without qualification, it means **maturity**.
+
+### The three tiers
+
+| Tier | Meaning | Agent calibration |
+|---|---|---|
+| `incubation` | Early R&D; speculative; may be killed; **no external commitment** | CoS may experiment freely; CMO **MUST NOT** publish externally without explicit override; CFO budgets as exploration cost (no revenue assumption); CSO accepts higher risk in audits |
+| `preview` | Real users / clients exist; **not guaranteed stable**; bug fixes prioritized over new features | CoS recommends conservative changes; CMO may communicate to existing customers but not broad public; CFO tracks revenue with explicit `preview` tag; CSO normal audit thresholds |
+| `general_availability` | Stable, supported, predictable; **SLA-grade** | CoS recommends only well-tested changes; CMO public marketing OK; CFO full revenue + churn metrics; CSO strict audit; backwards-compatibility expected on breaking changes |
+
+Default at project creation: **`incubation`** (most conservative).
+
+### Transitions
+
+Manual only. Triggered by *"Project status"* / *"Promote project <slug> to
+<tier>"* / *"Demote project <slug> to <tier>"* in any session.
+
+On every transition:
+
+1. UPDATE `projects.maturity_status`, `projects.maturity_changed_at`.
+2. INSERT `project_maturity_history` row with `from_status`, `to_status`,
+   `actor` (principal handle if FEAT-022 active, else `'ceo'`),
+   `reason` (CEO-supplied free text), and `demotion=1` when the new tier
+   is lower than the previous.
+3. Mirror to `.juvant/config.json` `projects.<slug>.status` and
+   `status_changed_at`; commit + push.
+4. Write to the action audit log.
+5. CoS surfaces the transition in the next Morning Brief, flagged
+   prominently if `demotion=1`.
+
+**No automatic transitions in v1.0.** Graduation criteria are
+project-specific and require explicit CEO judgment.
+
+**Demotion is permitted** but never silent: every demotion fires the
+flagged Morning Brief callout above and is highlighted in the next
+weekly review.
+
+### Agent guards driven by maturity
+
+These are enforced at the agent level (see the relevant
+`agents/company/*.md`):
+
+- **CMO** — refuses any public-facing publication request tagged with an
+  `incubation` project; requires CEO override + reason. For `preview`
+  projects, requires explicit "audience: existing customers only"
+  confirmation. `general_availability` is unrestricted.
+- **CSO** — Layer 5 audit thresholds tighten as maturity rises (an
+  invariant violation that's `info` for `incubation` is `P2` for
+  `preview` and `P1` for `general_availability`).
+- **CFO** — revenue and cost reports always group by maturity tier;
+  preview/incubation revenue is reported separately from GA so trend
+  analysis isn't polluted by experimental cashflows.
+- **CoS** — Morning Brief groups projects by maturity (GA → preview →
+  incubation), each with a header indicating expected attention level.
+
+### Skill operation: *"Project status"*
+
+Recognized phrasings: *"Project status"*, *"Promote project <slug> to
+<tier>"*, *"Demote project <slug> to <tier>"*, *"What's the maturity of
+<slug>?"*.
+
+For a query (no transition requested), CoS returns the current tier and
+the latest history row. For a transition, CoS:
+
+1. Validates target tier is a recognized value.
+2. Asks for a reason (free text — captured in `project_maturity_history.reason`).
+3. Applies the 5-step transition above.
+4. Confirms back to the CEO with the new state and a one-line summary
+   that will appear in tomorrow's Morning Brief.
+
+---
+
 ## Starting agents (boot)
 
 Triggered automatically at the start of every Claude Code session (via the

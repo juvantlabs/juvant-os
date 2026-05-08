@@ -41,10 +41,10 @@ EXPECTED_TABLES = {
     "counterparty_history", "inbound_queue", "adapter_dead_letters",
     # Knowledge & projects
     "knowledge_base", "projects", "project_maturity_history",
-    # FEAT-019
+    # FEAT-019 / handbook ADR 0004 Track 3
     "agent_actions_log",
-    # FEAT-025
-    "bash_oneshot_grants",
+    # ADR 0004 Track 4 (kill switch / observability)
+    "agent_kill_switch",
     # FEAT-024
     "agent_token_usage", "model_pricing",
     # Portal
@@ -56,7 +56,6 @@ EXPECTED_INDEXES = {
     "idx_actions_log_session",
     "idx_actions_log_agent",
     "idx_actions_log_status",
-    "idx_bash_oneshot_lookup",
     "idx_token_usage_time",
     "idx_token_usage_agent",
     "idx_token_usage_principal",
