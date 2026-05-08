@@ -100,18 +100,23 @@ if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
 fi
 
 if [[ -n "${TURSO_URL:-}" ]]; then
+  # SQL-escape single quotes via sed (bash 3.2 parameter expansion
+  # `${V//\'/\'\'}` produces `\'\'` on macOS default bash, which is
+  # not valid SQL escaping — would silently fail every INSERT carrying
+  # apostrophes. See FEAT-008 layer-2 dogfood finding (2026-05-08).
+  sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+
   STATUS="pending"
   DENY_SQL="NULL"
   if [[ "$DECISION" == "deny" ]]; then
     STATUS="denied"
-    # SQL escape single quotes via bash parameter expansion
-    DENY_ESCAPED="${DENY_REASON//\'/\'\'}"
+    DENY_ESCAPED=$(sql_escape "$DENY_REASON")
     DENY_SQL="'$DENY_ESCAPED'"
   fi
 
-  SESSION_ESC="${SESSION_ID//\'/\'\'}"
-  ROLE_ESC="${ROLE//\'/\'\'}"
-  TOOL_ESC="${TOOL_NAME//\'/\'\'}"
+  SESSION_ESC=$(sql_escape "$SESSION_ID")
+  ROLE_ESC=$(sql_escape "$ROLE")
+  TOOL_ESC=$(sql_escape "$TOOL_NAME")
 
   turso db shell "$TURSO_URL" "INSERT INTO agent_actions_log
     (session_id, agent, tool_name, args_hash, status, deny_reason)
