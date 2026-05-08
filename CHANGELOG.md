@@ -20,7 +20,9 @@ were not bridged, so canonical `Task(subagent_type='<role>', ...)` failed
 to register on every adopter and the Skill had to fall back to
 `general-purpose` with inline briefing.
 
-- `docs/adr/0009-compiled-agent-registration.md` (Proposed) — decision to
+- `docs/adr/0009-compiled-agent-registration.md` (Accepted, validated by
+  Beta Corp re-run on the same date — `Task(subagent_type='cso', ...)`
+  resolved canonically with no inline-briefing fallback) — decision to
   ship `.claude/agents/<role>.md` as relative symlinks into
   `agents/<scope>/<role>.md`. Documented home stays at `agents/`; runtime
   registration becomes implicit via the symlink layer.
@@ -29,8 +31,13 @@ to register on every adopter and the Skill had to fall back to
 - `JUVANT_OS.md` Step 7 — item 5 documents the implicit registration;
   project-init analog noted at "Project setup".
 - `README.md` — repo layout shows `.claude/agents/` + the symlink prose.
-- `tests/integration/results-2026-05-08-acme-testco.md` — full testco
+- `tests/integration/results-2026-05-08-acme-testco.md` — full Acme
   run record (10 findings, severity, v1.0 block/defer matrix).
+- `tests/integration/results-2026-05-08-beta-testco.md` — re-validation
+  record (all six v1.0-blocking fixes held; three new MEDIUM/HIGH
+  findings surfaced — #11 prompt-format inconsistency, #12 heredoc
+  improvisation, #13 eng-platform founding/deferred reconciliation —
+  all targeted to v1.1).
 
 ### Fixed — Acme Corp testco findings batch (FEAT-008 layer 4, 2026-05-08)
 

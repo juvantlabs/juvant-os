@@ -2,9 +2,12 @@
 
 ## Status
 
-Proposed (2026-05-08). Surfaced by the Acme Corp testco bootstrap run
+Accepted (2026-05-08). Surfaced by the Acme Corp testco bootstrap
 documented in `tests/integration/results-2026-05-08-acme-testco.md`
-(finding #6, severity CRITICAL).
+(finding #6, severity CRITICAL); validated end-to-end by the Beta Corp
+testco re-run on the same date, where `Task(subagent_type='cso', ...)`
+resolved through the canonical path and the CSO bootstrap_baseline audit
+returned PASS without any inline-briefing fallback.
 
 ## Context
 
