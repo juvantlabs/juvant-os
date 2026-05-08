@@ -8,6 +8,7 @@ on:
       - main
       - 'release/**'
       - 'feat/**'
+      - 'fix/**'
   workflow_dispatch:
 
 jobs:
