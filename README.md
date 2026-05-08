@@ -23,14 +23,21 @@ claude
 
 ```
 JUVANT_OS.md            ← The Skill. The orchestrator. The only entry point.
-agents/company/         ← 10 company agents (CoS, CFO, CLO, CMO...)
-agents/projects/        ← 9 project agents (CTO, CPO, CDO, Eng/*...)
+agents/company/         ← 10 company agents (CoS, CFO, CLO, CMO...) — source of truth
+agents/projects/        ← 9 project agents (CTO, CPO, CDO, Eng/*...) — source of truth
+.claude/agents/         ← Symlinks into agents/<scope>/ — runtime registration for Task spawn
 hooks/                  ← 7 lifecycle bash scripts
 scripts/schema.sql      ← Turso database schema
 helpers/                ← Scheduled scripts populating Turso queues (FEAT-007)
 plugins/portal-bridge/  ← Channel — bridge between Azure Portal and agent sessions (v1.1)
 plugins/teams-meeting/  ← Channel — Teams meeting bot, CoS silent co-pilot (v1.1)
 ```
+
+Agent definitions live under `agents/<scope>/<role>.md` (the documented home,
+where adopters navigate and review changes). Claude Code's Task tool reads
+subagent definitions from `.claude/agents/<role>.md`; the OSS template ships
+relative symlinks from there into `agents/<scope>/` so a single substitution
+during company-init updates both views (see [ADR 0010](docs/adr/0010-compiled-agent-registration.md)).
 
 State lives in [Turso](https://turso.tech) — a cloud SQLite database shared across all agent sessions.
 Agents communicate through Turso, not through each other directly.

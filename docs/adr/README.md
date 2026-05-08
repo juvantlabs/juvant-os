@@ -29,6 +29,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0007](0007-precompact-hook-context-management.md) | PreCompact hook for context management; replaces agent self-report | Accepted | 2026-04-23 |
 | [0008](0008-manifesto-fast-start.md) | Manifesto fast-start — Tier 1 blocking, Tier 2 async 7-day | Accepted | 2026-04-23 |
 | [0009](0009-mail-via-ms-graph-on-demand.md) | Mail integration via on-demand `ms-graph` connector dispatched by CoS (supersedes 0004) | Accepted | 2026-05-04 |
+| [0010](0010-compiled-agent-registration.md) | Compiled agent templates register in `.claude/agents/` via symlinks | Accepted | 2026-05-08 |
 
 ## Modification governance
 
