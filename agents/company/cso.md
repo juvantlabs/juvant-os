@@ -190,6 +190,40 @@ your finding (`[REDACTED — {match_class}]`). Do not store the matched string a
    where the matrix says `bank` — see CA matrix for the canonical list).
 9. No agent file contains unsubstituted placeholder tokens. The canonical pattern is a double-brace token wrapping an uppercase identifier (matching `\{\{[A-Z_]+\}\}` outside of code fences); any surviving match is a substitution failure (`FAIL`), with the explicit exception of runtime-bound placeholders enumerated in `SYSTEM_INVARIANTS.md` §2 substitution-rules allowlist (today: `ACTIVE_PROJECT`).
 10. `manifests` row exists for every agent file, with consistent `installed_sha`.
+11. **Orphan-audit detection (cover-up failure mode, handbook ADR 0004 #6).**
+    Any `security_audit_log` row with `auditor='cso'` that has **no
+    corresponding `Task(subagent_type='cso', ...)` invocation in the
+    surrounding session window** is forensically suspect. Detection
+    procedure:
+
+    ```sql
+    -- Candidate: rows authored as 'cso' that lack a same-session Task
+    -- spawn into 'cso' (cross-reference via agent_actions_log).
+    SELECT sal.id, sal.session_id, sal.scope, sal.audit_type, sal.created_at
+      FROM security_audit_log sal
+     WHERE sal.auditor = 'cso'
+       AND NOT EXISTS (
+         SELECT 1
+           FROM agent_actions_log aal
+          WHERE aal.session_id = sal.session_id
+            AND aal.tool_name = 'Task'
+            AND aal.args_hash IN (
+              SELECT args_hash
+                FROM agent_actions_log
+               WHERE tool_name = 'Task'
+                 AND status = 'success'
+            )
+            AND aal.started_at <= sal.created_at
+            AND aal.started_at >= datetime(sal.created_at, '-30 minutes')
+       );
+    ```
+
+    Any non-empty result is reported as **HIGH severity** finding
+    `cover-up:cso-audit-fabrication`. The `bootstrap_baseline=1` row
+    is the canonical first instance; subsequent CSO audits MUST also
+    pass this orphan check. Operator-mode sessions (`AGENT_ROLE` unset
+    or `'ceo'`) writing CSO audit rows is also reported (a human
+    cannot author CSO audits — only the CSO subagent can).
 
 ---
 
