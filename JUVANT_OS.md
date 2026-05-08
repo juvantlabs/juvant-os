@@ -483,9 +483,18 @@ For each `agents/**/*.md` file:
    non-allowlisted token is a CSO Layer 5 finding; abort and surface the
    offending file.
 4. Write the compiled file in place (overwriting the template).
+5. **Runtime registration is implicit.** The OSS template ships with
+   `.claude/agents/<role>.md` as relative symlinks to
+   `../../agents/company/<role>.md` for each of the 10 founding company-scope
+   agents. Step 4's in-place substitution updates what Claude Code's Task tool
+   sees at `subagent_type='<role>'` automatically — no separate registration
+   step is required (see ADR 0009).
 
 Project-scope agents (`agents/projects/*.md`) are NOT compiled here — they are
-compiled at project init (see "Project setup" below).
+compiled at project init (see "Project setup" below). At project init, the
+wizard creates `.claude/agents/<project>-<role>.md` symlinks pointing to
+`agents/projects/<role>.md` so that `Task(subagent_type='<project>-<role>', ...)`
+resolves through the same mechanism.
 
 ### Wizard — Step 7.5: Render infrastructure files
 
