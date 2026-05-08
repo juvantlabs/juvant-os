@@ -658,15 +658,20 @@ After config is written, run `bash scripts/migrate.sh` to apply
 
 ### Wizard — Step 3: Bank provider binding
 
-The agent_tool_matrix references the abstract `bank` MCP role. Bind it now:
+The agent_tool_matrix references the abstract `bank` MCP role. Bind it now.
+
+When rendering this prompt, describe each option neutrally — the providers
+listed below are the ones with a known community MCP server, not endorsements.
+Do not mark any provider as a "default" or attribute it to a specific company,
+including the entity that maintains this OSS template.
 
 ```
 Which bank provides company accounts?
-  [1] Finom
-  [2] Mercury
-  [3] Revolut
-  [4] Wise
-  [5] Other (specify name + MCP server URL)
+  [1] Finom    — Italian SMB-focused EUR provider
+  [2] Mercury  — US-focused USD provider
+  [3] Revolut  — Multi-currency EU/UK provider
+  [4] Wise     — Multi-currency international provider
+  [5] Other    — Specify provider name + MCP server URL/package
 ```
 
 Record in `.juvant/config.json`:
@@ -994,10 +999,25 @@ This is the chicken-and-egg-resolving step. Follow SYSTEM_INVARIANTS.md §1 exac
 After bootstrap completes successfully:
 
 ```bash
-git add agents/ scripts/ hooks/ .claude/settings.json SYSTEM_INVARIANTS.md JUVANT_OS.md
+git add \
+  agents/ \
+  scripts/ \
+  hooks/ \
+  .claude/settings.json \
+  .claude/agents/ \
+  .github/CODEOWNERS \
+  .gitignore \
+  SYSTEM_INVARIANTS.md \
+  JUVANT_OS.md
 git commit -m "init({{COMPANY_NAME_SLUG}}): bootstrap company-scope agents"
 git push
 ```
+
+`.github/CODEOWNERS` was rendered at Step 7.5 and `.gitignore` may have been
+patched during the wizard run; both are part of the bootstrap deliverable.
+`.claude/agents/` ships as relative symlinks (ADR 0010) — committed once,
+they don't change at re-bootstrap, but staging them on the first commit
+ensures fresh clones see runtime registration without an extra step.
 
 Confirm with the CEO before pushing — the per-company repo is private but every push
 is a visible action (§ "Executing actions with care").

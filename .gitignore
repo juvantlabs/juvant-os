@@ -1,6 +1,7 @@
 # Secrets — never commit
 .juvant/config.json
 .juvant/sessions/
+.juvant/state.db
 .env
 *.env.*
 .env.local
