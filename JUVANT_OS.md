@@ -1993,6 +1993,89 @@ An unlogged override is a security incident — CSO Layer 5 audit will flag it.
 
 ---
 
+## Cost report
+
+Every Claude Code session and every subagent invocation captures token
+usage into `agent_token_usage` via the Stop / SessionEnd / SubagentStop
+hooks (FEAT-024). Cost is denormalized at write-time using the active
+row in `model_pricing`, so historical reports are stable across pricing
+updates.
+
+### Skill operation: *"Cost report"*
+
+Recognized phrasings: *"Cost report"*, *"How much did we spend last
+week?"*, *"Cost by agent"*, *"Token usage report"*.
+
+Default time window: **last 7 days**. Override via natural-language
+qualifiers: *"last 30 days"*, *"this month"*, *"since 2026-04-01"*.
+
+CoS executes the report by querying `agent_token_usage` joined to
+`model_pricing` (for the per-Mtok rates referenced in the breakdown).
+Output structure:
+
+```
+Total: $XX.XX USD
+Sessions: NN | Subagent invocations: MM | Window: <YYYY-MM-DD> → <YYYY-MM-DD>
+
+By agent:
+  cco             $X.XX  (NN sessions, avg $Y.YY)
+  cfo             $X.XX  (NN sessions, avg $Y.YY)
+  main            $X.XX  (NN sessions, avg $Y.YY)
+  ...
+
+By project (joined to projects.maturity_status; grouped by tier):
+  general_availability:
+    juvant.io     $X.XX
+  preview:
+    hardys        $X.XX
+  incubation:
+    <none in window>
+
+By model:
+  claude-opus-4-7   $X.XX  (NN turns, KK input + LL output Mtok)
+  claude-sonnet-4-6 $X.XX  (NN turns)
+
+Top 5 most expensive sessions:
+  YYYY-MM-DD HH:MM  agent=cco     $X.XX  (in/out tokens)
+  ...
+
+Trend: week-over-week ±X% (vs prior 7d $YY.YY)
+```
+
+Filter qualifiers may be combined: *"Cost report last 30 days for
+hardys"* (project filter), *"Cost by model last week"* (group focus),
+*"Costs for cco this month"* (agent filter).
+
+### Pricing refresh
+
+The `model_pricing` table is seeded at install time (see
+`scripts/schema.sql`) with placeholder values that **must** be verified
+against [Anthropic's published pricing](https://www.anthropic.com/pricing)
+before relying on cost figures.
+
+When Anthropic publishes new pricing, do **not** UPDATE the existing
+row — that would silently shift historical totals. Instead, close the
+prior row and INSERT a new active row:
+
+```sql
+UPDATE model_pricing
+   SET effective_to = DATE('now', '-1 day')
+ WHERE model = ?
+   AND effective_to IS NULL;
+
+INSERT INTO model_pricing
+  (model, effective_from, effective_to,
+   input_per_mtok_usd, output_per_mtok_usd,
+   cache_write_per_mtok_usd, cache_read_per_mtok_usd)
+VALUES
+  (?, DATE('now'), NULL, ?, ?, ?, ?);
+```
+
+Historical `agent_token_usage.computed_cost_usd` values are unaffected
+because the cost was denormalized at the original write time.
+
+---
+
 ## Hiring / offboarding
 
 ### Hiring a new agent (post-bootstrap)

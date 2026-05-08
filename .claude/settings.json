@@ -70,6 +70,16 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash hooks/stop.sh"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [

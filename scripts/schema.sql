@@ -402,3 +402,75 @@ CREATE TABLE IF NOT EXISTS agent_kill_switch (
 INSERT OR IGNORE INTO agent_kill_switch
   (id, active, set_by, set_at, reason, affected_agents)
 VALUES (1, 0, NULL, NULL, NULL, NULL);
+
+-- ─────────────────────────────────────────────
+-- TOKEN USAGE & COST (FEAT-024)
+-- ─────────────────────────────────────────────
+
+-- Per-session and per-subagent-invocation token usage capture.
+-- Written by hooks (Stop, SessionEnd, SubagentStop) from the session
+-- transcript JSONL. computed_cost_usd is denormalized at write time so
+-- historical reports do not drift if model_pricing is updated later.
+CREATE TABLE IF NOT EXISTS agent_token_usage (
+  id                  TEXT PRIMARY KEY,
+  -- uuid
+  session_id          TEXT NOT NULL,
+  -- Claude Code session uuid
+  parent_session_id   TEXT,
+  -- subagent → main link; NULL for main session rows
+  agent_name          TEXT NOT NULL,
+  -- 'main' | 'cco' | 'cfo' | ... matches agents.role + 'main' for top-level
+  principal_id        TEXT,
+  -- FEAT-022 forward-compat (nullable until multi-principal active)
+  project_slug        TEXT,
+  -- FEAT-023 forward-compat; NULL for company-scope sessions
+  model               TEXT NOT NULL,
+  -- 'claude-opus-4-7' | 'claude-sonnet-4-6' | 'claude-haiku-4-5-20251001'
+  input_tokens        INTEGER NOT NULL DEFAULT 0,
+  output_tokens       INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+  started_at          DATETIME NOT NULL,
+  ended_at            DATETIME,
+  computed_cost_usd   REAL
+  -- denormalized snapshot using model_pricing row active at ended_at
+);
+CREATE INDEX IF NOT EXISTS idx_token_usage_time
+  ON agent_token_usage(ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_agent
+  ON agent_token_usage(agent_name, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_principal
+  ON agent_token_usage(principal_id, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_project
+  ON agent_token_usage(project_slug, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_usage_session
+  ON agent_token_usage(session_id);
+
+-- Anthropic published pricing, versioned by effective_from.
+-- Adopters refresh this table when Anthropic publishes new prices.
+-- Historical agent_token_usage rows are unaffected (cost denormalized).
+CREATE TABLE IF NOT EXISTS model_pricing (
+  model                       TEXT NOT NULL,
+  effective_from              DATE NOT NULL,
+  effective_to                DATE,
+  -- NULL = currently active row
+  input_per_mtok_usd          REAL NOT NULL,
+  output_per_mtok_usd         REAL NOT NULL,
+  cache_write_per_mtok_usd    REAL NOT NULL,
+  cache_read_per_mtok_usd     REAL NOT NULL,
+  PRIMARY KEY (model, effective_from)
+);
+
+-- Initial seed — placeholder values. ADOPTERS MUST verify against
+-- https://www.anthropic.com/pricing at install time and UPDATE rows where
+-- the published price differs. The values below are best-effort drafts
+-- and will produce inaccurate cost figures if not refreshed.
+-- Refresh procedure: see JUVANT_OS.md § Cost report — pricing refresh.
+INSERT OR IGNORE INTO model_pricing
+  (model, effective_from, effective_to,
+   input_per_mtok_usd, output_per_mtok_usd,
+   cache_write_per_mtok_usd, cache_read_per_mtok_usd)
+VALUES
+  ('claude-opus-4-7',           '2026-01-01', NULL, 15.00, 75.00, 18.75, 1.50),
+  ('claude-sonnet-4-6',         '2026-01-01', NULL,  3.00, 15.00,  3.75, 0.30),
+  ('claude-haiku-4-5-20251001', '2026-01-01', NULL,  1.00,  5.00,  1.25, 0.10);
