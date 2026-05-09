@@ -51,17 +51,35 @@ SESSION_ESC=$(sql_escape "$SESSION_ID")
 ROLE_ESC=$(sql_escape "$ROLE")
 TOOL_ESC=$(sql_escape "$TOOL_NAME")
 
+# Args_hash adds precision to the strict (session, agent, tool_name)
+# match when tool_input is identical at pre-tool-use and post-tool-use.
+# For tools whose tool_input mutates between the two events (e.g.
+# AskUserQuestion: pre carries the question, post carries the
+# question + the user's selected option; args_hash differs
+# deterministically), the strict match would find 0 rows and the
+# pending row would leak forever — observed in the Golf Corp testco
+# run on 2026-05-09 as F-22 (2 orphan AskUserQuestion rows after
+# bootstrap completion). Fall back to the (session, agent, tool_name)
+# match for those tools — sequential-per-session ordering with
+# `LIMIT 1` selects the right pending row.
+WHERE_CLAUSE="WHERE session_id = '$SESSION_ESC'
+      AND agent = '$ROLE_ESC'
+      AND tool_name = '$TOOL_ESC'
+      AND status = 'pending'"
+
+case "$TOOL_NAME" in
+  AskUserQuestion) ;;  # tool_input mutates pre→post; skip args_hash
+  *) WHERE_CLAUSE="$WHERE_CLAUSE
+      AND args_hash = '$ARGS_HASH'" ;;
+esac
+
 juvant_db_exec "UPDATE agent_actions_log
   SET status = 'success',
       result_hash = '$RESULT_HASH',
       ended_at = '$NOW'
   WHERE id = (
     SELECT id FROM agent_actions_log
-    WHERE session_id = '$SESSION_ESC'
-      AND agent = '$ROLE_ESC'
-      AND tool_name = '$TOOL_ESC'
-      AND args_hash = '$ARGS_HASH'
-      AND status = 'pending'
+    $WHERE_CLAUSE
     ORDER BY started_at DESC
     LIMIT 1
   );" \
