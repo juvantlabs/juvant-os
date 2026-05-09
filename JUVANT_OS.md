@@ -2084,6 +2084,139 @@ git commit -m "init({{PROJECT_NAME_SLUG}}): bootstrap project agents"
 git push
 ```
 
+### Batch mode for project-init (HARD-REQUIRED override of interactive flow)
+
+> Authoritative reference: [ADR 0012 — Batch testco mode](docs/adr/0012-batch-testco-mode.md).
+>
+> Parallel preamble to the company-init `## Company setup` § Batch mode.
+> Manual interactive project-init remains the primary mode; batch is the
+> CI / test-automation override. When activated, the wizard rendering
+> rule above is suspended for project-init steps too.
+
+#### Activation
+
+Project-init batch activates when **either** of the following is true:
+
+1. The active fixture (loaded at SessionStart from
+   `.juvant/batch-inputs.yaml` per the company-init batch preamble)
+   contains an `inputs.project:` block AND company-init has already
+   completed in this same session (`master_context.bootstrap_completed_at`
+   is non-null), OR
+2. The CEO prompt cites the literal phrase
+   *"Add project to Juvant OS using batch inputs from `<path>`"*
+   against an already-bootstrapped instance (re-entry pattern: project-
+   init batch on top of an existing manual or batch company-init).
+
+In activation case 1, the Skill auto-chains: company-init batch
+completes → emits a `[BATCH] {"event":"phase_done","phase":"company"}`
+checkpoint → reads `inputs.project:` from the same fixture → enters
+project-init batch with `phase="project"` set in session state.
+
+Failure modes (all fail-loud, no fallback to interactive):
+- `inputs.project:` present but company-init has NOT completed
+  (programming error in fixture authoring) → emit
+  `[BATCH] {"event":"run_complete","verdict":"FAIL","reason":"project_phase_premature"}`.
+- `inputs.project:` block fails schema validation → emit
+  `run_complete` with `reason:"project_fixture_invalid"`.
+- A required project-init key is missing or `null` → emit
+  `run_complete` with `reason:"missing_fixture_key","key":"project.<dotted.path>"`.
+
+#### Lookup pattern (replaces every AskUserQuestion call)
+
+For every project-init wizard step that would normally call
+`AskUserQuestion`, the Skill **MUST** instead read the value from the
+loaded fixture at the step's canonical path. The full mapping:
+
+| Step | Fixture path | Notes |
+|---|---|---|
+| Step 1 (Project identity) | `inputs.project.{slug,name,description}` | `slug` lowercase + hyphenated; the `id` column in the projects table. |
+| Step 1 (GitHub repo) | `inputs.project.github_repo.{mode,org,repo_name,visibility}` | `mode: skip_in_batch` is canonical for CI (no `gh api` call); record an `install-spec` decision row marked `applied=false, reason=skip_in_batch`. |
+| Step 1 (Doc folder auto-discovery) | `inputs.project.doc_folder.{mode,path}` | `mode: skip_auto_discovery` skips the M365/GDrive folder scan; `path` is recorded directly into `projects.<slug>.doc_folder` if non-null. |
+| Step 2 (Project database) | `inputs.project.database.{provider,url,auth_token}` | For local SQLite the canonical url is `file:.juvant/project-<slug>.db`. Run `bash scripts/migrate.sh` against the new DB after writing config. |
+| Step 3 (Agent names) | `inputs.project.agent_names.<role>` | 9 roles: `cto, cpo, cdo, coo, vpe, eng-api, eng-backend, eng-frontend, eng-ai`. Defaults are `<slug>-<role>` (`apollo-cto`, `apollo-cpo`, …); `null` value = use default. |
+| Step 4 (Compile project templates) | (no fixture inputs) | Runs `compile-templates.sh --scope projects` (or equivalent project-template substitution). Allowlisted `{{ACTIVE_PROJECT}}` survives. |
+| Step 5 (Project-bootstrap §1) | `inputs.project.bootstrap.manifesto_approval_mode` | One of `accept_all_defaults`, `edit_specific`, `walk_through_each`, `skip` (same options as company-init Step 9). |
+| Step 5 (CSO project audit) | (no fixture inputs) | HARD-REQUIRED `Task(subagent_type='cso', ...)` per the wizard prose. Audit_type is `bootstrap_baseline`, scope is the project slug. |
+| Step 6 (Initial commit) | `inputs.project.commit.{push}` | `push: false` is canonical for batch (no remote push from CI runner). |
+
+If a required fixture key is missing or `null` where a value is
+required, the Skill **MUST** emit a
+`[BATCH] {"event":"run_complete","verdict":"FAIL","reason":"missing_fixture_key","key":"project.<dotted.path>"}`
+line and exit.
+
+#### Event emission protocol
+
+Same eight event types as company-init batch mode (`run_start`,
+`step_start`, `input_resolved`, `checkpoint`, `subagent_spawn`,
+`hook_activity`, `step_done`, `run_complete`). Step IDs are
+**prefixed `proj.<step>`** to disambiguate from company-init step
+IDs:
+
+```
+proj.1          Project identity
+proj.1.gh       GitHub repo (skip_in_batch)
+proj.1.doc      Doc folder mapping
+proj.2          Project database
+proj.3          Agent names
+proj.4          Compile project templates
+proj.5          Project-bootstrap (§1)
+proj.5.cso      CSO bootstrap_baseline=2 audit
+proj.6          Initial commit
+```
+
+Same dual-channel emission rule as company-init: every `[BATCH]`
+event MUST also be appended to `.juvant/batch-events.jsonl` via Bash
+echo. The driver merges both streams post-run.
+
+The phase boundary between company-init and project-init is marked
+by a dedicated `phase_done` event:
+
+```
+[BATCH] {"ts":"...","event":"phase_done","phase":"company","duration_s":<n>,"verdict":"PASS","total_steps":18}
+[BATCH] {"ts":"...","event":"step_start","step":"proj.1","phase":"project","total_steps":9}
+```
+
+#### Final verdict
+
+Before emitting `run_complete`, the Skill MUST query state.db for
+the project-bootstrap audit verdict:
+
+```sql
+SELECT severity FROM security_audit_log
+WHERE auditor = 'cso'
+  AND audit_type = 'bootstrap_baseline'
+  AND scope = '<project-slug>';
+```
+
+The verdict is the most-severe finding (P0 → FAIL, P1 → WARN-WITH-CONDITIONS,
+P2 or info → PASS). Emit as the `run_complete.project_verdict` field
+alongside `run_complete.company_verdict` (already present from company
+phase). The overall `run_complete.verdict` is the worst of the two.
+
+#### Other batch-mode behaviors
+
+- **No `AskUserQuestion` calls** at any point in project-init.
+- **GitHub repo creation is mocked** when `mode: skip_in_batch` —
+  emit a `checkpoint` event documenting the skip + write an
+  `install-spec` decision row with `applied=false, reason=skip_in_batch`.
+  Do not invoke `gh api` (no GitHub org auth on CI).
+- **Doc folder auto-discovery is mocked** when
+  `mode: skip_auto_discovery` — same pattern. Direct `path` writes
+  into `projects.<slug>.doc_folder` when present in fixture.
+- **Initial commit (Step 6)** runs `git add agents/projects/ ...; git commit`
+  but skips `git push` when `inputs.project.commit.push: false`.
+  Emit a `checkpoint` event noting the push-skip.
+- **Subagent spawn (Step 5 CSO audit)** is unchanged from company-init
+  Step 9.7 pattern — `Task(subagent_type='cso', ...)` is the canonical
+  path per ADR 0010, with the audit scoped to the project slug.
+
+The project-init batch path is a **subset** of the company-init batch
+path's complexity: 9 steps instead of 18, no matrix re-seed (matrix
+is shared per-company), no per-company file rewrites (those are
+done at company-init only). Expected wall duration: ~60-90s on top
+of the company-init phase, with cache_read benefits from the
+already-loaded JUVANT_OS.md context.
+
 ---
 
 ## Project maturity status

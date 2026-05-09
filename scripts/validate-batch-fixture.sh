@@ -155,12 +155,37 @@ require_bool '.inputs.cro_enabled'
 require_one_of '.inputs.bootstrap.manifesto_approval_mode' \
   accept_all_defaults edit_specific walk_through_each skip
 
+# ─── inputs.project (optional — present in single-project + multi-project) ──
+if [[ "$(jq -r '.inputs.project // null | type' <<<"$JSON")" == "object" ]]; then
+  require_string '.inputs.project.slug'
+  require_string '.inputs.project.name'
+  require_one_of '.inputs.project.github_repo.mode' skip_in_batch create_via_gh existing
+  require_one_of '.inputs.project.doc_folder.mode' skip_auto_discovery direct_path scan
+  require_one_of '.inputs.project.database.provider' local turso azure aws gcp
+  require_string '.inputs.project.database.url'
+  require_object '.inputs.project.agent_names'
+  for role in cto cpo cdo coo vpe eng-api eng-backend eng-frontend eng-ai; do
+    # agent_names accepts null (= use default <slug>-<role>) or string.
+    proj_type=$(jq -r ".inputs.project.agent_names[\"$role\"] | type" <<<"$JSON" 2>/dev/null || echo "missing")
+    if [[ "$proj_type" != "string" && "$proj_type" != "null" ]]; then
+      fail "field .inputs.project.agent_names[\"$role\"] must be string or null (got: $proj_type)"
+    fi
+  done
+  require_one_of '.inputs.project.bootstrap.manifesto_approval_mode' \
+    accept_all_defaults edit_specific walk_through_each skip
+fi
+
 # ─── expect block ──────────────────────────────────────────────────
 require_string '.expect.bootstrap_verdict'
 require_one_of '.expect.bootstrap_verdict' PASS WARN-WITH-CONDITIONS FAIL
-# manifests + matrix counts are mechanical
+# manifests count is mechanical: 10 founding for company-only scenarios,
+# 19 = 10 + 9 for single-project, etc. Acceptable values: 10 (no project),
+# 19 (1 project), 28 (2 projects), … (10 + 9*N).
 mc=$(jq -r '.expect.manifests_count // empty' <<<"$JSON")
-[[ "$mc" == "10" ]] || fail ".expect.manifests_count must be 10 (founding manifestos invariant; got: $mc)"
+case "$mc" in
+  10|19|28|37|46) ;;
+  *) fail ".expect.manifests_count must be 10 + 9*N where N = project count (got: $mc)" ;;
+esac
 
 # ─── exit ──────────────────────────────────────────────────────────
 if [[ "$errs" -gt 0 ]]; then

@@ -452,6 +452,34 @@ else
   assert_fail "manifests_count=$actual_manifests (expected $expected_manifests)"
 fi
 
+# Project-init phase assertions (only when fixture defines a project block).
+has_project=$(yq -r '.inputs.project // null | type' "$FIXTURE")
+if [[ "$has_project" == "!!map" || "$has_project" == "object" ]]; then
+  expected_projects=$(yq -r '.expect.project_phase.projects_count // 1' "$FIXTURE")
+  actual_projects=$(sqlite3 "$DB" "SELECT COUNT(*) FROM projects;" 2>/dev/null || echo "0")
+  if [[ "$actual_projects" -ge "$expected_projects" ]]; then
+    assert_ok "projects_count=$actual_projects (≥$expected_projects)"
+  else
+    assert_fail "projects_count=$actual_projects (expected ≥$expected_projects)"
+  fi
+
+  proj_slug=$(yq -r '.inputs.project.slug' "$FIXTURE")
+  expected_proj_agents=$(yq -r '.expect.project_phase.project_agents_count // 9' "$FIXTURE")
+  actual_proj_agents=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agents WHERE project_id='$proj_slug';" 2>/dev/null || echo "0")
+  if [[ "$actual_proj_agents" -ge "$expected_proj_agents" ]]; then
+    assert_ok "project_agents_count[$proj_slug]=$actual_proj_agents (≥$expected_proj_agents)"
+  else
+    assert_fail "project_agents_count[$proj_slug]=$actual_proj_agents (expected ≥$expected_proj_agents)"
+  fi
+
+  proj_audit=$(sqlite3 "$DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
+  if [[ "$proj_audit" -ge 1 ]]; then
+    assert_ok "project CSO bootstrap_baseline audit fired ($proj_audit findings)"
+  else
+    assert_fail "project CSO bootstrap_baseline audit absent (scope=$proj_slug)"
+  fi
+fi
+
 # decisions_count
 expected_decisions=$(yq -r '.expect.decisions_count' "$FIXTURE")
 actual_decisions=$(sqlite3 "$DB" "SELECT COUNT(*) FROM decisions;" 2>/dev/null || echo "0")
