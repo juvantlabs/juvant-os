@@ -71,38 +71,95 @@ a freshly-cloned per-company repo.
 
 ### Wizard rendering rule (HARD-REQUIRED — applies to every step below)
 
-Every wizard step that collects multiple fields **MUST** render as **one
-question at a time, sequentially**, waiting for the CEO's reply before
-proceeding to the next field. Batch-mode collection (*"reply with all
-six fields in one message"*, *"answer the following questions in
-order"*, etc.) is **forbidden** — it makes the onboarding
-non-deterministic across Skill sessions, breaks reasoning continuity
-for the CEO, and prevents per-field validation / re-prompting.
+The rule has **two clauses**, distinguishing identity-critical fields
+from collections of like-typed fields.
 
-The rule is global: it applies at Step 1, Step 1.5, Step 1.5b, Step 1.6,
-Step 2, Step 3, Step 4, Step 4.5, Step 5, Step 6, Step 8, Step 9 (per
-manifesto), Step 10, Step 10.5, and at every project-init wizard step
-(Project setup Step 1 through Step 6). Steps that present option menus
-(Step 2 DB choice, Step 3 bank choice, Step 5 counterparties path,
-Step 9 manifesto-approval mode) render the menu **verbatim from the
-JUVANT_OS.md prose** without paraphrase or restructuring — the Skill
-emits the exact text shown in this document.
+#### Clause 1 — Identity-critical / branching fields: **one at a time, sequential**
 
-If a step lists N fields, render N consecutive prompts. If the CEO
-replies with a multi-field block proactively, the Skill accepts it but
-**MUST NOT** prompt for batched input itself. Recovery from a
-mid-step abort: state recorded incrementally, so re-running
-*"Initialize Juvant OS"* resumes from the last unanswered prompt
-(Pre-flight detects partial state via `.juvant/config.json`
+Steps that collect heterogeneous fields where each value may branch
+the wizard logic, validate independently, or has user-specific
+semantics (Step 1 identity, Step 2 DB provider choice, Step 3 bank
+provider choice, Step 6 CRO enablement, Step 9 manifesto-approval
+mode) **MUST** render as **one question at a time, sequentially**,
+waiting for the CEO's reply before proceeding to the next field.
+Batch-mode collection (*"reply with all six fields in one message"*,
+*"answer the following questions in order"*) is **forbidden** — it
+makes the onboarding non-deterministic across Skill sessions, breaks
+reasoning continuity, and prevents per-field validation / re-prompting.
+
+If a step lists N identity-critical fields, render N consecutive
+prompts. Steps that present option menus render the menu **verbatim
+from the JUVANT_OS.md prose** without paraphrase or restructuring —
+the Skill emits the exact text shown in this document.
+
+#### Clause 2 — Collections of like-typed fields: **collection-collapse menu**
+
+Steps that collect a homogeneous collection of like-typed fields
+(Step 1.5 folders, Step 1.5b mailbox-enabled agents, Step 1.6
+GitHub multi-human handles, Step 4 notifications, Step 4.5
+guardrails, Step 5 counterparties, Step 6 §2-default agent names,
+Step 9 manifesto approvals) **MUST** offer a single collection-level
+menu before dropping into per-field prompts:
+
+```
+This step records N <items>. Choose how to drive it:
+
+[1] Accept all defaults (Recommended)
+    The Skill computes sensible defaults for all N <items> and
+    applies them in one pass. <Per-step description of what the
+    defaults are.>
+
+[2] Edit specific
+    Skill walks through the N <items>; for each, you pick
+    "accept default", "override", or "skip". Use this when you want
+    most defaults but a few overrides.
+
+[3] Walk-through every <item>
+    Per-<item>, sequential prompts (no defaults applied). Use this
+    when defaults are not appropriate or you want full control.
+
+[4] Skip the step (Recommended for sandbox / test)
+    Records the collection as empty / null / fallback-chain.
+    Re-runnable later via the Skill operation "Configure <step>".
+```
+
+Path [1] (accept all defaults) is **one approval**, not N. Path [2]
+walks N items but each is "accept/override" not "type from scratch".
+Path [3] is the v0.6.2 one-at-a-time fallback. Path [4] is the
+zero-input escape.
+
+Per the wizard rendering rule (clause 1), the menu text above is
+rendered verbatim — Skill substitutes only `N` and `<items>` /
+`<item>` per step.
+
+#### Recovery and rationale
+
+State is recorded incrementally regardless of clause used, so
+re-running *"Initialize Juvant OS"* resumes from the last unanswered
+prompt (Pre-flight detects partial state via `.juvant/config.json`
 presence + completeness check).
 
-This rule was added in v0.6.2 after the Delta Corp testco run on
-2026-05-08 surfaced batch-mode rendering at Step 1 (cf. wizard
-determinism finding #11). It complements the Step 9 hard-required rule
-shipped in v0.6.1 (`Task(subagent_type='cso', ...)` mandatory for the
-bootstrap_baseline audit): both are facets of the same architectural
-principle — wizard procedure must be deterministic across Skill
-sessions, integrity-relevant choices cannot be auto-routed-around.
+The rule was first introduced in v0.6.2 after the Delta Corp testco
+run on 2026-05-08 surfaced batch-mode rendering at Step 1 (the
+*"reply with all six fields"* failure). v0.6.2 made one-at-a-time
+HARD-REQUIRED globally; the Echo Corp testco run on 2026-05-09
+surfaced that the rule is **too rigid for collections** — the user
+faced 11 sequential prompts at Step 1.5 (folders), 4 at Step 1.5b
+(mailboxes), 6 at Step 4 (notifications), 20 at Step 9 (manifesto
+display + approve × 10). v0.6.4 amends the rule with clause 2 to
+cover collections.
+
+The two clauses together close the wizard determinism gap
+(integrity-side) and the collection-prompt fatigue (UX-side) — the
+twin facets of finding #11.
+
+This rule complements the Step 9 hard-required rule shipped in
+v0.6.1 (`Task(subagent_type='cso', ...)` mandatory for the
+bootstrap_baseline audit): all three are facets of the same
+architectural principle — wizard procedure must be deterministic
+across Skill sessions, integrity-relevant choices cannot be
+auto-routed-around, and UX cost must not push the operator to
+work around the rule.
 
 ### Pre-flight
 
@@ -154,6 +211,14 @@ This separation matters: Step 1's MCP binding makes the surface available;
 Step 1.5 makes it operationally usable. Without Step 1.5, every agent that
 wants to read or write a document hits "source unbound" and has to ask the
 CEO at runtime — friction the wizard exists to prevent.
+
+This step records **N=11 folder bindings** (root, legal, finance,
+operations, branding, gtm, products, research, press, sales, hr).
+The wizard renders the **collection-collapse menu** (rendering rule
+clause 2 at `## Company setup`) before dropping into per-folder
+prompts. Default policy: function-centric layout with
+`/<COMPANY_NAME>/<NN> - <Function>` paths; null-with-fallback for
+research/press/sales/hr at adopters' discretion.
 
 #### Discover-via-tool path (preferred)
 
@@ -987,7 +1052,55 @@ for agent capability declarations and surfaces design drift early
 
 ### Wizard — Step 9: Bootstrap Protocol (§1)
 
-This is the chicken-and-egg-resolving step. Follow SYSTEM_INVARIANTS.md §1 exactly:
+This is the chicken-and-egg-resolving step. Follow SYSTEM_INVARIANTS.md §1 exactly.
+
+This step records **N=10 manifesto approvals** (one per founding
+company-scope agent). Per the wizard rendering rule clause 2 at
+`## Company setup`, the Skill renders the collection-collapse menu
+**first** — *before* any manifesto draft is shown:
+
+```
+This step records 10 founding-agent manifesto approvals. Choose how to drive it:
+
+[1] Accept all defaults (Recommended for sandbox / test)
+    The Skill drafts all 10 manifestos from compiled-template
+    identity + scope + ethical commitments + anti-pattern sections,
+    structurally validates each, and writes all 10 in one
+    transaction with status=operational_restricted, tier=1,
+    tier1_bootstrap=1, precondition_bypassed='bootstrap',
+    approved_by=<CEO_NAME>. One bootstrap-action decision per
+    manifesto (10 rows). Then proceed to Step 9.7 (CSO audit).
+
+[2] Edit specific
+    Skill drafts all 10 and presents them as a summary index;
+    you select which manifesto bodies to view and edit. Approved
+    bodies persist; un-edited ones use the verbatim draft.
+
+[3] Walk-through every manifesto
+    Skill drafts and presents each of the 10 in sequence
+    (CoS→CFO→CLO→CMO→CCO→CHRO→CSO→CEthO→CA→CRO). For each:
+    Edit / Accept verbatim / Skip (defer to Tier 2). Slowest path
+    but exercises the canonical loop and is the production-default
+    for first bootstrap of a real company.
+
+[4] Skip Step 9 entirely
+    Manifestos remain pending; bootstrap NOT completed
+    (master_context.bootstrap_completed_at stays NULL). Re-runnable
+    later via Skill operation "Review manifestos". Prevents the
+    agents from reaching `operational` (they stay in `pending`).
+```
+
+Path [1] is **one decision** for the CEO — not 10 displays + 10
+approvals. Path [3] is the canonical pre-v0.6.4 walk-through (kept
+as fallback). Sandbox / test instances pick [1]; production company
+init picks [3] for the first bootstrap (the CEO genuinely should
+read the manifestos before signing).
+
+After the menu choice, the rest of the procedure runs unchanged
+(SYSTEM_INVARIANTS.md §1 step protocol). The numbered substeps
+below describe what happens **per manifesto** under any path; under
+path [1] all 10 are bulk-applied without inline display, under
+path [3] each is shown then approved, etc.
 
 1. For each of the 19 founding agents (10 company + 9 project — the project agents
    bootstrap when their first project is initialized; at company init only the 10
