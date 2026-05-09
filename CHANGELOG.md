@@ -11,6 +11,53 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — Wizard rendering rule amended with collection-collapse pattern (F-4 + F-5)
+
+The v0.6.2 wizard determinism rule (HARD-REQUIRED one-question-at-a-time)
+fixed the Delta Corp testco's batch-mode collapse but proved too rigid
+during the Echo Corp testco run on 2026-05-09: the user faced 11
+sequential prompts at Step 1.5 (folders), 4 at Step 1.5b (mailboxes),
+6 at Step 4 (notifications), 20 at Step 9 (manifesto display + approve
+× 10). Onboarding fatigue compounded by static-analysis approval
+prompts during the CSO subagent audit (~300+ approvals).
+
+v0.6.4 amends the rule with **two clauses**:
+
+- **Clause 1 (unchanged from v0.6.2)** — identity-critical / branching
+  fields render one question at a time, sequential, no batch.
+  Step 1 identity (6 fields), Step 2 DB provider, Step 3 bank
+  provider, Step 6 CRO enablement, Step 9 manifesto-approval mode.
+- **Clause 2 (new, v0.6.4)** — **collection-collapse menu** for
+  homogeneous collections of like-typed fields. Steps 1.5 / 1.5b /
+  1.6 multi-human / 4 / 4.5 / 5 / 6 §2 names / 9 manifestos render
+  a 4-option menu first:
+    - [1] Accept all defaults (one approval, defaults applied)
+    - [2] Edit specific (defaults + overrides)
+    - [3] Walk-through every item (per-field prompts; v0.6.2
+          fallback path)
+    - [4] Skip the step (record as empty / null / fallback chain)
+
+Path [1] for collections is **one decision** instead of N. Sandbox
+and test instances pick [1] universally; production picks [3] for
+the first bootstrap manifestos. v0.6.2 batch-mode prevention is
+preserved by clause 1 + the menu-renders-verbatim requirement
+(Skill emits exact text, no improvisation).
+
+Per-step amendments:
+
+- **Step 1.5 — folders**: header note documenting N=11 collection;
+  default policy is function-centric layout.
+- **Step 9 — manifestos**: full 4-option menu inlined verbatim.
+  Path [1] writes all 10 in one transaction (10 manifests +
+  10 agents + 10 bootstrap-action decisions). Path [3] is the
+  canonical pre-v0.6.4 walk-through — kept as fallback for the
+  production first-bootstrap. Path [4] keeps bootstrap NOT
+  completed (master_context.bootstrap_completed_at stays NULL).
+
+The two clauses together close finding #11 (wizard determinism)
+in both facets: integrity (no batch-mode collapse on identity
+fields) and UX (no N-prompt fatigue on collections).
+
 ### Fixed — v0.6.4 batch quick-wins (F-3, F-9, F-13, F-14, F-15)
 
 Five small but adopter-visible fixes from the Echo Corp testco backlog,
