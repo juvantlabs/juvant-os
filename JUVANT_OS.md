@@ -182,6 +182,18 @@ CEO provides each folder path; the wizard records them with non-empty
 validation only. Resource IDs are not captured (resolved at first call by
 the MCP server).
 
+**Slash-prefix caveat.** Claude Code's TUI interprets a leading `/` as
+a slash-command prefix; typing a path like `/Acme Corp/01 - Legal`
+emits *"Unknown command: /Acme"* + *"Args from unknown skill: Corp/01 -
+Legal"* before the wizard recovers and records the value. The wizard
+SHOULD pre-emit a one-line caveat at the first folder-path prompt:
+
+> *Tip: paste folder paths verbatim — Claude Code may flag the
+> leading `/` as an unknown command, but the wizard records the
+> path correctly regardless. Ignore the inline error chatter.*
+
+Surfaced by the Echo Corp testco run on 2026-05-09 (finding F-15).
+
 #### Three folder-organization models — all supported
 
 | Model | Pattern | Typical company |
@@ -836,15 +848,42 @@ backup helper depends on it.
 
 ### Wizard — Step 5: Counterparties intake
 
-Collect a starter set of counterparties. For each:
+Collect a starter set of counterparties. The Skill renders **this exact
+menu verbatim** (per the Wizard rendering rule at `## Company setup`):
+
+```
+[1] Skip — no counterparties yet
+    System works without them; re-runnable later via the Skill
+    operation "Add counterparty <id>".
+
+[2] Sample — accountant + lawyer (recommended for sandbox / test)
+    Inserts 2 stub rows: accountant-stub (owned by CFO) and
+    legal-stub (owned by CLO). Schema-exercising; no real
+    contacts.
+
+[3] Walk-through — add counterparties one at a time
+    Per counterparty, sequential prompts (entity id → type →
+    owning agent → primary contact email/name/role). Repeats
+    until you say "done".
+
+[4] Custom — type all rows in a single message
+    Format: id|type|owner|email|name|role per line.
+    Provided as an escape hatch; the walk-through path is
+    preferred.
+```
+
+For each counterparty added (paths [2], [3], [4]):
 
 - Entity (`counterparties.id`, e.g. `commercialista-rossi`).
 - Type (`accountant` | `legal` | `partner` | `investor` | `press`).
 - Owning agent (`cfo` | `clo` | `cco` | `cmo`).
 - Primary contact email + name + role.
 
-Insert rows into `counterparties`, `counterparty_contacts`, `counterparty_routing`.
-Skip the step if the CEO says "no counterparties yet" — the system works without them.
+Insert rows into `counterparties`, `counterparty_contacts`,
+`counterparty_routing`. The four-option menu pins UI determinism
+across Skill sessions (cf. wizard determinism rule); v0.6.4 patch
+added in response to the Echo Corp testco run on 2026-05-09 (run
+saw only "skip" surfaced, prior runs improvised different menus).
 
 ### Wizard — Step 6: Generate agent names
 

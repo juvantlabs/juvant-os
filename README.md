@@ -171,6 +171,65 @@ git push
 
 See [`JUVANT_OS.md`](JUVANT_OS.md) Appendix B for the canonical first-time setup procedure.
 
+### Adding the github MCP server
+
+The OSS template ships `.mcp.json` empty — adopters wire their MCP
+servers explicitly. The github MCP server is the most common addition;
+CSO uses it for branch-protection checks and COO uses it for pr-spec
+execution. To enable:
+
+1. Create a GitHub Personal Access Token (PAT) with `repo` + `read:org`
+   scope at https://github.com/settings/tokens.
+2. Add it to your shell environment:
+   ```bash
+   export GITHUB_PERSONAL_ACCESS_TOKEN="ghp_..."
+   ```
+   (Add to `~/.zshrc` / `~/.bashrc` / your shell init for persistence.)
+3. Edit `.mcp.json` to register the server:
+   ```json
+   {
+     "mcpServers": {
+       "github": {
+         "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-github"],
+         "env": {
+           "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+         }
+       }
+     }
+   }
+   ```
+4. Restart Claude Code (the change is picked up at session start).
+
+`.mcp.json` is committed to the per-company repo (it does NOT contain
+the token — only references the env var). The token itself stays in
+your shell env, never committed.
+
+### Permission modes for sandbox / test contexts
+
+The OSS template ships `.claude/settings.json` with
+`defaultMode: "acceptEdits"` — Edit/Write are auto-accepted, Bash
+prompts on each call. Production-safe.
+
+For sandbox and test contexts (testco runs, throwaway initializations)
+the prompt cadence can be excessive — especially during the CSO
+bootstrap audit which issues many tool calls in sequence. Two opt-out
+flags are available:
+
+```bash
+# Auto-accept anything matching the allow-list, never prompt.
+# Trusted local sessions; respects deny lists in hooks/bash-policy.json.
+claude --permission-mode auto
+
+# Bypass all permission checks (= --dangerously-skip-permissions).
+# Sandboxes only; recommended for `/tmp/<testco>` directories
+# where blast radius is contained.
+claude --permission-mode bypassPermissions
+```
+
+Document your choice per-instance in `.claude/settings.local.json`
+or invoke `claude` with the explicit flag each time.
+
 ---
 
 ## Agents
