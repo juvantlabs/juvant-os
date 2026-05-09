@@ -139,6 +139,54 @@ re-running *"Initialize Juvant OS"* resumes from the last unanswered
 prompt (Pre-flight detects partial state via `.juvant/config.json`
 presence + completeness check).
 
+**Incremental config persistence (HARD-REQUIRED, v0.6.5+).** The Skill
+**MUST** re-write `.juvant/config.json` after **every step** that
+collects new state, updating the `init_state` field with the
+last-completed step identifier. The schema:
+
+```json
+{
+  "schema_version": "0.6.x",
+  "init_started_at": "2026-MM-DDTHH:MM:SSZ",
+  "init_state": "step-NN-complete",
+  ...
+}
+```
+
+Where `init_state` cycles through:
+
+```
+"step-1-complete"      → after identity Q6 + doc-storage choice
+"step-1.5-complete"    → after folder mapping
+"step-1.5b-complete"   → after mailbox bindings
+"step-1.6-complete"    → after GitHub user mapping
+"step-2-complete"      → after DB provider + path
+"step-3-complete"      → after bank binding
+"step-4-complete"      → after notification setup
+"step-4.5-complete"    → after guardrail setup
+"step-5-complete"      → after counterparties intake
+"step-6-complete"      → after agent names
+"step-7-complete"      → after template compilation
+"step-7.5-complete"    → after CODEOWNERS render
+"step-7.6-complete"    → after per-company file rewrites
+"step-8.5-complete"    → after matrix + cross-check
+"step-9-complete"      → after Bootstrap Protocol §1
+"bootstrapped"         → terminal state; do not re-enter wizard
+```
+
+Surfaced by the Foxtrot Corp testco run on 2026-05-09 (F-17): the
+Skill wrote `init_state: "step-1.5-in-progress"` early but never
+updated it — by Step 9 the field still said `1.5-in-progress` despite
+9 subsequent steps complete. Recovery via re-run "Initialize Juvant
+OS" would have started from Step 1.5 (re-asking 11 folder prompts)
+instead of from where the CEO actually left off.
+
+The Skill **MUST** write the updated `init_state` value before any
+state-bearing operation that follows the step (DB INSERT, file
+write, etc.) — write the field first, persist, then proceed. Mid-step
+abort is recoverable to the granularity of `init_state` at that
+moment.
+
 The rule was first introduced in v0.6.2 after the Delta Corp testco
 run on 2026-05-08 surfaced batch-mode rendering at Step 1 (the
 *"reply with all six fields"* failure). v0.6.2 made one-at-a-time
@@ -1296,10 +1344,27 @@ path [3] each is shown then approved, etc.
         prompt='Run bootstrap_baseline=1 audit per
                 SYSTEM_INVARIANTS.md §1.7. Scope: company. All 10
                 founding manifestos are in OPERATIONAL_RESTRICTED
-                with precondition_bypassed=bootstrap. Return
+                with precondition_bypassed=bootstrap. Invoke
+                `bash scripts/audit-bootstrap-baseline.sh
+                --scope=company` for the canonical 5-layer checks
+                (newline-delimited JSON findings on stdout). Read the
+                output, interpret each finding in context per your
+                cso.md persona, and write `security_audit_log` rows
+                with appropriate severity. The script does NOT write
+                audit rows itself — that is your job. Return
                 PASS / WARN-WITH-CONDITIONS / FAIL plus the
                 `security_audit_log` rows.')
    ```
+
+   The CSO subagent invokes a single shipped script
+   (`scripts/audit-bootstrap-baseline.sh`, v0.6.5+) instead of issuing
+   N inline `sqlite3 / grep / find` heredocs. The Foxtrot Corp testco
+   run on 2026-05-09 surfaced ~300 approval prompts during a single
+   audit when CSO improvised inline (each heredoc tripping Claude
+   Code's "shell syntax cannot be statically analyzed" warning). One
+   allowlistable invocation
+   (`Bash(bash scripts/audit-bootstrap-baseline.sh:*)` in
+   `.claude/settings.json`) replaces them all.
 
    **The Skill MUST NOT:**
    - Synthesize the audit verdict in-session.

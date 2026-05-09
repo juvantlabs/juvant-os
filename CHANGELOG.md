@@ -11,6 +11,66 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added — `scripts/audit-bootstrap-baseline.sh` shipped (F-8 + F-11)
+
+Canonical CSO `bootstrap_baseline=1` audit as a single Bash invocation.
+Pre-v0.6.5 the CSO subagent issued ~30 inline `sqlite3 ... <<'SQL'`
+heredocs and ~50 `grep / awk / find` invocations during the audit —
+each tripping Claude Code's "shell syntax cannot be statically
+analyzed" approval prompt. The Foxtrot Corp testco run on 2026-05-09
+saw ~300+ approval prompts during a single audit, with the user
+clicking through every one. F-8 collapses this to ONE allowlistable
+invocation.
+
+`scripts/audit-bootstrap-baseline.sh`:
+
+- 5-layer audit encoded inline (access, secrets, network, code, agents).
+- Outputs newline-delimited JSON findings on stdout. Schema:
+  `{"layer":"...", "severity":"info|low|medium|high|critical",
+  "finding":"...", "category":"..."}`.
+- Plus a final summary line:
+  `{"summary":true, "verdict":"PASS|WARN-WITH-CONDITIONS|FAIL", "counts":{...}}`.
+- Verdict logic: FAIL on any critical/high; WARN-WITH-CONDITIONS on
+  medium; PASS otherwise.
+- The CSO subagent — NOT the script — is the source of truth for the
+  audit verdict and writes the `security_audit_log` rows. The script
+  encodes the WHAT; CSO interprets and decides severity per the cso.md
+  persona. This preserves the v0.6.1 hard-required rule (Skill must
+  not synthesize verdict / write audit rows directly) while
+  eliminating the heredoc prompt-flood.
+
+Folds in **F-11** (CSO query schema correctness) — the script's queries
+use the canonical schema (`messages.from_agent` not `messages.agent`,
+`agent_actions_log` for tool-call audit log, etc.), correcting the
+schema mismatches CSO improvised in prior runs.
+
+`JUVANT_OS.md` Step 9.7 prompt now instructs the CSO subagent to
+invoke the script and interpret its output. `.claude/settings.json`
+pre-allows `Bash(bash scripts/audit-bootstrap-baseline.sh:*)`.
+
+Adopters running their first bootstrap audit see one approval prompt
+(or zero, with `--permission-mode auto`) instead of 300+. Same family
+as F-6 `compile-templates.sh` shipped in v0.6.4 — replacing
+improvisation with a deterministic shipped helper.
+
+### Fixed — Wizard MUST update `init_state` after every step (F-17)
+
+Surfaced by the Foxtrot Corp testco run: the Skill wrote
+`init_state: "step-1.5-in-progress"` early in the wizard but never
+updated it — by Step 9 the field still said `1.5-in-progress` despite
+9 subsequent steps complete. Recovery via re-run *"Initialize Juvant
+OS"* would have restarted from Step 1.5 (re-asking 11 folder prompts)
+instead of from where the CEO actually left off.
+
+Fix in `JUVANT_OS.md` global wizard rendering rule: new HARD-REQUIRED
+clause "Incremental config persistence". The Skill MUST re-write
+`.juvant/config.json` after every step that collects new state,
+updating `init_state` with the canonical step identifier
+(`step-1-complete` → `step-1.5-complete` → ... → `bootstrapped`).
+The Skill MUST write the updated value before any state-bearing
+operation that follows the step. Mid-step abort recoverable to the
+granularity of `init_state` at that moment.
+
 ### Fixed — Local SQLite hooks silently fail when wizard writes `db.url=file:...` (HIGH; F-20)
 
 Surfaced by the Foxtrot Corp testco run on 2026-05-09. The wizard
