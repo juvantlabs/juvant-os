@@ -68,6 +68,7 @@ if ! command -v jq >/dev/null; then
 fi
 
 # Source the shared db-routing helper (sqlite3 vs turso CLI by provider).
+# shellcheck disable=SC1091
 . "$ROOT/hooks/lib/db.sh"
 
 # Refuse to overwrite a populated matrix unless --force. Reads go via
