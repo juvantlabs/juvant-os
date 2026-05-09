@@ -250,23 +250,53 @@ if [[ "$RENDER" == "1" ]] && [[ -t 1 ]]; then
 fi
 
 # ─── spawn claude ──────────────────────────────────────────────────────
-echo "▶ Spawning Skill in batch mode..."
+echo "▶ Spawning Skill in batch mode (stream-json + hook events + budget cap)..."
 
 ACTIVATION_PROMPT="Initialize Juvant OS using batch inputs from .juvant/batch-inputs.yaml"
 
-# Run claude headless. Pipe stdout to both session.log and the parser
-# that splits [BATCH] events into events.jsonl.
+# v0.7.0 transport: --output-format stream-json gives us a structured
+# JSON-Lines event stream covering hook lifecycle, assistant messages,
+# tool calls, tool results, and a final result event with total cost +
+# token usage. This replaces the text-mode buffering issue from the
+# 2026-05-09 baseline run (Markdown summary substituted for [BATCH]
+# events) — under stream-json each tool_use and hook event arrives as
+# its own line, so the driver gets live progress signal even when the
+# Skill itself does not emit [BATCH] events.
+#
+# --include-hook-events: surfaces every PreToolUse/PostToolUse event
+#                        (Track 3 audit log fires visible in real time).
+# --verbose: required by --output-format=stream-json per claude --help.
+# --max-budget-usd: safety cap on a misbehaving Skill loop. ~$1.50 per
+#                   scenario covers the cache-creation overhead of a
+#                   first-call (observed ~31k cache_creation_tokens at
+#                   smoke test) plus the bootstrap walk.
+STREAM_FILE="$TMP_DIR/stream.jsonl"
+: > "$STREAM_FILE"
+
 (
   cd "$TMP_DIR"
-  claude --print --permission-mode bypassPermissions "$ACTIVATION_PROMPT" 2>&1
+  claude --print \
+    --permission-mode bypassPermissions \
+    --output-format stream-json \
+    --verbose \
+    --include-hook-events \
+    --max-budget-usd 2.0 \
+    "$ACTIVATION_PROMPT" 2>&1
 ) | tee "$LOG_FILE" | while IFS= read -r line; do
-  # Capture [BATCH] events into the jsonl stream.
+  # Three sinks:
+  # 1) Skill-emitted [BATCH] {...} lines (from agent text, embedded
+  #    inside assistant message content). These rarely surface as
+  #    standalone lines under stream-json, but we keep the parse path
+  #    for forward-compat.
+  # 2) Stream-json events (one JSON object per line, .type set).
+  # 3) Other (driver / shell noise) — discard.
   if [[ "$line" == "[BATCH] "* ]]; then
     payload="${line#[BATCH] }"
-    # Validate payload is JSON before appending.
     if jq -e '.event' >/dev/null 2>&1 <<<"$payload"; then
       printf '%s\n' "$payload" >> "$EVENT_FILE"
     fi
+  elif jq -e '.type' >/dev/null 2>&1 <<<"$line"; then
+    printf '%s\n' "$line" >> "$STREAM_FILE"
   fi
 done || true
 
@@ -283,10 +313,71 @@ fi
 # end-of-run. Merge into the stdout-parsed stream now.
 PERSISTED_EVENTS="$TMP_DIR/.juvant/batch-events.jsonl"
 if [[ -f "$PERSISTED_EVENTS" ]]; then
-  # Append file events to event_file, preserving any stdout-parsed events
-  # that landed first. Dedupe on (event, step, ts) — same logical event
-  # may arrive twice (once via stdout, once via file).
   cat "$PERSISTED_EVENTS" >> "$EVENT_FILE"
+fi
+
+# ─── extract [BATCH] events embedded in assistant text content ────────
+# Even when the Skill doesn't write to .juvant/batch-events.jsonl, it
+# may still emit [BATCH] {...} lines as text in its agent messages.
+# Under stream-json those land inside .message.content[].text on
+# type=assistant events. Surface them into the canonical stream.
+if [[ -s "$STREAM_FILE" ]]; then
+  jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' \
+    "$STREAM_FILE" 2>/dev/null \
+    | grep -E '^\[BATCH\] ' \
+    | sed 's/^\[BATCH\] //' \
+    | while IFS= read -r payload; do
+        if jq -e '.event' >/dev/null 2>&1 <<<"$payload"; then
+          printf '%s\n' "$payload" >> "$EVENT_FILE"
+        fi
+      done || true
+fi
+
+# ─── derive run analytics from stream-json ────────────────────────────
+# Even if no [BATCH] events were emitted, the stream gives us:
+# - per-tool-call counts (Bash, Read, Write, Agent, etc.)
+# - hook event counts (PreToolUse / PostToolUse / SubagentStart…)
+# - cumulative tokens (input / output / cache)
+# - total cost in USD
+# - number of turns
+ANALYTICS_FILE="$TMP_DIR/analytics.json"
+if [[ -s "$STREAM_FILE" ]]; then
+  jq -s '
+    def tool_use_blocks: map(select(.type=="assistant") | .message.content[]? | select(.type=="tool_use"));
+    def hook_events: map(select(.type=="system" and .subtype=="hook_started"));
+    def result_event: map(select(.type=="result"))[0];
+
+    {
+      tool_calls_by_name: (tool_use_blocks | group_by(.name) | map({(.[0].name): length}) | add // {}),
+      tool_calls_total: (tool_use_blocks | length),
+      hook_events_by_type: (hook_events | group_by(.hook_event) | map({(.[0].hook_event): length}) | add // {}),
+      hook_events_total: (hook_events | length),
+      assistant_turns: (map(select(.type=="assistant")) | length),
+      total_cost_usd: (result_event.total_cost_usd // null),
+      duration_ms: (result_event.duration_ms // null),
+      duration_api_ms: (result_event.duration_api_ms // null),
+      num_turns: (result_event.num_turns // null),
+      stop_reason: (result_event.stop_reason // null),
+      is_error: (result_event.is_error // false),
+      errors: (result_event.errors // []),
+      model_usage: (result_event.modelUsage // {}),
+      permission_denials: (result_event.permission_denials // [])
+    }
+  ' "$STREAM_FILE" > "$ANALYTICS_FILE"
+
+  echo ""
+  echo "▶ Run analytics:"
+  jq -r '
+    "  - tool calls: \(.tool_calls_total) total, breakdown: \(.tool_calls_by_name)",
+    "  - hook events: \(.hook_events_total) total, breakdown: \(.hook_events_by_type)",
+    "  - assistant turns: \(.assistant_turns)",
+    "  - cost: $\(.total_cost_usd // "?") (api duration \(.duration_api_ms // "?")ms)",
+    "  - stop_reason: \(.stop_reason // "?"), is_error: \(.is_error)"
+  ' "$ANALYTICS_FILE"
+  if [[ "$(jq -r '.is_error' "$ANALYTICS_FILE")" == "true" ]]; then
+    echo "  - errors:" >&2
+    jq -r '.errors[]' "$ANALYTICS_FILE" | sed 's/^/    /' >&2
+  fi
 fi
 
 DB="$TMP_DIR/.juvant/state.db"
@@ -481,22 +572,51 @@ done
   echo "- Verdict: \`$actual_verdict\`"
   echo "- Assertions: $((row_count + fs_count + 7)) total, $fail failed"
   echo ""
-  echo "## Per-step durations + tokens"
-  echo ""
-  echo "| Step | Duration | Tokens in | Tokens out |"
-  echo "|------|----------|-----------|------------|"
-  jq -r 'select(.event=="step_done") | "| \(.step) | \(.duration_s)s | \(.tokens_in // "-") | \(.tokens_out // "-") |"' "$EVENT_FILE"
-  echo ""
-  echo "## Total budget"
-  echo ""
-  jq -s '
-    map(select(.event=="step_done")) |
-    {
-      duration_s: (map(.duration_s) | add),
-      tokens_in: (map(.tokens_in // 0) | add),
-      tokens_out: (map(.tokens_out // 0) | add),
-      step_count: length
-    }' "$EVENT_FILE" | jq -r '"- Total duration: \(.duration_s)s\n- Total tokens in: \(.tokens_in)\n- Total tokens out: \(.tokens_out)\n- Steps completed: \(.step_count)"'
+  if [[ -s "$ANALYTICS_FILE" ]]; then
+    echo "## Run analytics (from stream-json)"
+    echo ""
+    jq -r '
+      "- Total cost: $\(.total_cost_usd // "?")",
+      "- API duration: \(.duration_api_ms // "?") ms",
+      "- Wall duration: \(.duration_ms // "?") ms",
+      "- Assistant turns: \(.assistant_turns)",
+      "- Stop reason: \(.stop_reason // "?"), errors: \(.errors | length)"
+    ' "$ANALYTICS_FILE"
+    echo ""
+    echo "### Tool calls"
+    echo ""
+    echo "| Tool | Count |"
+    echo "|------|-------|"
+    jq -r '.tool_calls_by_name | to_entries[] | "| \(.key) | \(.value) |"' "$ANALYTICS_FILE"
+    echo ""
+    echo "### Hook events"
+    echo ""
+    echo "| Event | Count |"
+    echo "|-------|-------|"
+    jq -r '.hook_events_by_type | to_entries[] | "| \(.key) | \(.value) |"' "$ANALYTICS_FILE"
+    echo ""
+    echo "### Token + cost breakdown by model"
+    echo ""
+    jq -r '
+      .model_usage | to_entries[] |
+      "- **\(.key)**: input=\(.value.inputTokens), output=\(.value.outputTokens), cache_read=\(.value.cacheReadInputTokens), cache_create=\(.value.cacheCreationInputTokens), cost=$\(.value.costUSD)"
+    ' "$ANALYTICS_FILE"
+    echo ""
+  fi
+  if grep -q '"event":"step_done"' "$EVENT_FILE" 2>/dev/null; then
+    echo "## Per-step durations + tokens (from [BATCH] event stream)"
+    echo ""
+    echo "| Step | Duration | Tokens in | Tokens out |"
+    echo "|------|----------|-----------|------------|"
+    jq -r 'select(.event=="step_done") | "| \(.step) | \(.duration_s)s | \(.tokens_in // "-") | \(.tokens_out // "-") |"' "$EVENT_FILE"
+    echo ""
+  else
+    echo "## Per-step durations"
+    echo ""
+    echo "_No [BATCH] step_done events emitted; Skill produced final summary instead._"
+    echo "_(Event protocol persistence: file-persistence rule per JUVANT_OS.md § Batch mode.)_"
+    echo ""
+  fi
 } > "$RESULTS_MD"
 
 echo ""
