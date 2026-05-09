@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+# scripts/compile-templates.sh
+#
+# Substitute {{PLACEHOLDER}} tokens in agent templates from values in
+# `.juvant/config.json`. The wizard's Step 7 procedure runs this script.
+# Pre-v0.6.4, every wizard pass improvised an ad-hoc Python helper at a
+# different path (5 different paths across 5 testco runs); shipping a
+# canonical Bash script eliminates that drift, makes the operation
+# deterministic across Skill sessions, and pre-allowlistable in
+# `.claude/settings.json` (so adopters don't get prompted for each
+# heredoc — finding F-6 + F-7 + F-8 family in the v0.6.4 backlog).
+#
+# Usage:
+#   scripts/compile-templates.sh                  # default: company scope
+#   scripts/compile-templates.sh --scope company
+#   scripts/compile-templates.sh --scope projects  # at project init
+#   scripts/compile-templates.sh --codeowners      # render .github/CODEOWNERS
+#   scripts/compile-templates.sh --check-only      # dry-run; report leftover placeholders
+#
+# Exit codes:
+#   0   success — all targeted files compiled, only allowlisted placeholders survive
+#   1   missing config / unsupported provider / no jq
+#   2   surviving non-allowlisted placeholder (CSO Layer 5 finding) — refuse to write
+#
+# Allowlist: {{ACTIVE_PROJECT}} survives at company init (bound at SessionStart
+# per Boot Mode); {{PROJECT_NAME}} survives at company init (bound at project init).
+# Any other surviving {{...}} aborts.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG="$ROOT/.juvant/config.json"
+
+SCOPE="company"
+DO_CODEOWNERS=0
+CHECK_ONLY=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --scope) SCOPE="$2"; shift 2 ;;
+    --scope=*) SCOPE="${1#--scope=}"; shift ;;
+    --codeowners) DO_CODEOWNERS=1; shift ;;
+    --check-only) CHECK_ONLY=1; shift ;;
+    -h|--help)
+      sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# *//'
+      exit 0
+      ;;
+    *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+  esac
+done
+
+if [[ ! -f "$CONFIG" ]]; then
+  echo "ERROR: $CONFIG not found. Run JUVANT_OS.md wizard Step 1 first." >&2
+  exit 1
+fi
+if ! command -v jq &>/dev/null; then
+  echo "ERROR: jq required but not found. Install with: brew install jq" >&2
+  exit 1
+fi
+
+# ─────────────────────────────────────────────
+# Resolve substitutions from .juvant/config.json + SYSTEM_INVARIANTS.md §2 defaults
+# ─────────────────────────────────────────────
+
+# Identity (Step 1)
+COMPANY_NAME=$(jq -r '.company.name // empty' "$CONFIG")
+COMPANY_NAME_SLUG=$(jq -r '.company.slug // empty' "$CONFIG")
+COMPANY_DOMAIN=$(jq -r '.company.domain // empty' "$CONFIG")
+COMPANY_DESCRIPTION=$(jq -r '.company.description // empty' "$CONFIG")
+CEO_NAME=$(jq -r '.ceo.name // empty' "$CONFIG")
+
+# Per-agent names (Step 6 — §2 defaults if not overridden in config)
+agent_name() {
+  local role="$1"
+  local default="$2"
+  local v
+  v=$(jq -r --arg r "$role" '.agent_names[$r] // empty' "$CONFIG")
+  echo "${v:-$default}"
+}
+COS_NAME=$(agent_name cos Atlas)
+CFO_NAME=$(agent_name cfo Theos)
+CLO_NAME=$(agent_name clo Lex)
+CMO_NAME=$(agent_name cmo Mira)
+CCO_NAME=$(agent_name cco Clio)
+CHRO_NAME=$(agent_name chro Sage)
+CSO_NAME=$(agent_name cso Shield)
+CETHO_NAME=$(agent_name cetho Vera)
+CA_NAME=$(agent_name ca Arch)
+CRO_NAME=$(agent_name cro Lumen)
+ENG_PLATFORM_NAME=$(agent_name eng-platform Hephaestus)
+
+# GitHub user map (Step 1.6 — single CEO handle by default)
+github_handle() {
+  local role="$1"
+  jq -r --arg r "$role" '.github_user_map[$r] // .ceo.github // empty' "$CONFIG"
+}
+CEO_GITHUB=$(github_handle ceo)
+COS_GITHUB=$(github_handle cos)
+CFO_GITHUB=$(github_handle cfo)
+CLO_GITHUB=$(github_handle clo)
+CMO_GITHUB=$(github_handle cmo)
+CCO_GITHUB=$(github_handle cco)
+CHRO_GITHUB=$(github_handle chro)
+CSO_GITHUB=$(github_handle cso)
+CETHO_GITHUB=$(github_handle cetho)
+CA_GITHUB=$(github_handle ca)
+CRO_GITHUB=$(github_handle cro)
+ENG_PLATFORM_GITHUB=$(github_handle eng-platform)
+
+# Tunables (SYSTEM_INVARIANTS.md §2 defaults; overridable in config.tunables)
+tunable() {
+  local key="$1"
+  local default="$2"
+  local v
+  v=$(jq -r --arg k "$key" '.tunables[$k] // empty' "$CONFIG")
+  echo "${v:-$default}"
+}
+HIGH_VALUE_THRESHOLD=$(tunable HIGH_VALUE_THRESHOLD "10000")
+SPRINT_LENGTH=$(tunable SPRINT_LENGTH "2 weeks")
+ACCESSIBILITY_FLOOR=$(tunable ACCESSIBILITY_FLOOR "WCAG 2.2 AA")
+RUNBOOK_DRILL_CADENCE=$(tunable RUNBOOK_DRILL_CADENCE "90 days")
+POSTS_PER_CHANNEL_PER_WEEK=$(tunable POSTS_PER_CHANNEL_PER_WEEK "3")
+TIER_STRATEGIC=$(tunable TIER_STRATEGIC "Strategic")
+TIER_COMMERCIAL=$(tunable TIER_COMMERCIAL "Commercial")
+TIER_TECHNICAL=$(tunable TIER_TECHNICAL "Technical")
+VOICE_LONGFORM=$(tunable VOICE_LONGFORM "considered, evidence-led")
+VOICE_TWITTER=$(tunable VOICE_TWITTER "concise, builder, no hype")
+VOICE_LINKEDIN=$(tunable VOICE_LINKEDIN "professional, grounded, no slogans")
+VOICE_PRESS=$(tunable VOICE_PRESS "factual, attributable, AP-style")
+VOICE_BLOG=$(tunable VOICE_BLOG "conversational expert, examples-first")
+VOICE_CRISIS=$(tunable VOICE_CRISIS "calm, factual, accountable, no hedging")
+W_COMPLETION=$(tunable W_COMPLETION "0.30")
+W_EFFICIENCY=$(tunable W_EFFICIENCY "0.20")
+W_ESCALATION=$(tunable W_ESCALATION "0.30")
+W_QUALITY=$(tunable W_QUALITY "0.20")
+BACKEND_LANG=$(tunable BACKEND_LANG "Python")
+BACKEND_FRAMEWORK=$(tunable BACKEND_FRAMEWORK "FastAPI")
+FRONTEND_PLATFORM=$(tunable FRONTEND_PLATFORM "React Native + Expo")
+WEB_FRAMEWORK=$(tunable WEB_FRAMEWORK "Next.js")
+MONOREPO_TOOL=$(tunable MONOREPO_TOOL "Turborepo")
+STATE_SERVER=$(tunable STATE_SERVER "TanStack Query")
+STATE_CLIENT=$(tunable STATE_CLIENT "Zustand")
+FORMS_LIB=$(tunable FORMS_LIB "React Hook Form + Zod")
+DATABASE=$(tunable DATABASE "LibSQL via Turso")
+OBSERVABILITY=$(tunable OBSERVABILITY "OpenTelemetry")
+CICD=$(tunable CICD "GitHub Actions")
+
+AGENT_DESCRIPTION="$COMPANY_DESCRIPTION"
+
+# Allowlist of placeholders that may legitimately survive at company init
+# (runtime-bound at SessionStart or project init). Intentionally short.
+ALLOWLIST_REGEX='ACTIVE_PROJECT|PROJECT_NAME'
+
+# ─────────────────────────────────────────────
+# Substitute one file in place, validate residue
+# ─────────────────────────────────────────────
+
+# bash 3.2 (macOS default) mis-handles ${V//\\\}; sed sidesteps the issue.
+# We use Python for in-place substitution to avoid shell-escape nightmares
+# in heredoc/awk for arbitrary text content.
+substitute_file() {
+  local file="$1"
+  local file_basename
+  file_basename=$(basename "$file")
+
+  # Per-agent {{AGENT_NAME}} resolves to the agent's name based on the file
+  # basename. agents/company/cso.md → Shield, etc.
+  local agent_name_token=""
+  case "$file_basename" in
+    cos.md)          agent_name_token="$COS_NAME" ;;
+    cfo.md)          agent_name_token="$CFO_NAME" ;;
+    clo.md)          agent_name_token="$CLO_NAME" ;;
+    cmo.md)          agent_name_token="$CMO_NAME" ;;
+    cco.md)          agent_name_token="$CCO_NAME" ;;
+    chro.md)         agent_name_token="$CHRO_NAME" ;;
+    cso.md)          agent_name_token="$CSO_NAME" ;;
+    cetho.md)        agent_name_token="$CETHO_NAME" ;;
+    ca.md)           agent_name_token="$CA_NAME" ;;
+    cro.md)          agent_name_token="$CRO_NAME" ;;
+    eng-platform.md) agent_name_token="$ENG_PLATFORM_NAME" ;;
+    *)               agent_name_token="" ;;
+  esac
+
+  python3 - "$file" "$agent_name_token" "$ALLOWLIST_REGEX" "$CHECK_ONLY" <<'PYEOF'
+import os, re, sys
+
+path, agent_name_token, allowlist_re, check_only = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+with open(path) as f:
+    content = f.read()
+
+# Read substitutions from environment (parent shell exports them).
+subs = {
+    "COMPANY_NAME":              os.environ.get("COMPANY_NAME", ""),
+    "COMPANY_NAME_SLUG":         os.environ.get("COMPANY_NAME_SLUG", ""),
+    "COMPANY_DOMAIN":            os.environ.get("COMPANY_DOMAIN", ""),
+    "CEO_NAME":                  os.environ.get("CEO_NAME", ""),
+    "AGENT_DESCRIPTION":         os.environ.get("AGENT_DESCRIPTION", ""),
+    "AGENT_NAME":                agent_name_token,
+    "COS_NAME":                  os.environ.get("COS_NAME", ""),
+    "CFO_NAME":                  os.environ.get("CFO_NAME", ""),
+    "CLO_NAME":                  os.environ.get("CLO_NAME", ""),
+    "CMO_NAME":                  os.environ.get("CMO_NAME", ""),
+    "CCO_NAME":                  os.environ.get("CCO_NAME", ""),
+    "CHRO_NAME":                 os.environ.get("CHRO_NAME", ""),
+    "CSO_NAME":                  os.environ.get("CSO_NAME", ""),
+    "CETHO_NAME":                os.environ.get("CETHO_NAME", ""),
+    "CA_NAME":                   os.environ.get("CA_NAME", ""),
+    "CRO_NAME":                  os.environ.get("CRO_NAME", ""),
+    "ENG_PLATFORM_NAME":         os.environ.get("ENG_PLATFORM_NAME", ""),
+    "CEO_GITHUB":                os.environ.get("CEO_GITHUB", ""),
+    "COS_GITHUB":                os.environ.get("COS_GITHUB", ""),
+    "CFO_GITHUB":                os.environ.get("CFO_GITHUB", ""),
+    "CLO_GITHUB":                os.environ.get("CLO_GITHUB", ""),
+    "CMO_GITHUB":                os.environ.get("CMO_GITHUB", ""),
+    "CCO_GITHUB":                os.environ.get("CCO_GITHUB", ""),
+    "CHRO_GITHUB":               os.environ.get("CHRO_GITHUB", ""),
+    "CSO_GITHUB":                os.environ.get("CSO_GITHUB", ""),
+    "CETHO_GITHUB":              os.environ.get("CETHO_GITHUB", ""),
+    "CA_GITHUB":                 os.environ.get("CA_GITHUB", ""),
+    "CRO_GITHUB":                os.environ.get("CRO_GITHUB", ""),
+    "ENG_PLATFORM_GITHUB":       os.environ.get("ENG_PLATFORM_GITHUB", ""),
+    "HIGH_VALUE_THRESHOLD":      os.environ.get("HIGH_VALUE_THRESHOLD", ""),
+    "SPRINT_LENGTH":             os.environ.get("SPRINT_LENGTH", ""),
+    "ACCESSIBILITY_FLOOR":       os.environ.get("ACCESSIBILITY_FLOOR", ""),
+    "RUNBOOK_DRILL_CADENCE":     os.environ.get("RUNBOOK_DRILL_CADENCE", ""),
+    "POSTS_PER_CHANNEL_PER_WEEK":os.environ.get("POSTS_PER_CHANNEL_PER_WEEK", ""),
+    "TIER_STRATEGIC":            os.environ.get("TIER_STRATEGIC", ""),
+    "TIER_COMMERCIAL":           os.environ.get("TIER_COMMERCIAL", ""),
+    "TIER_TECHNICAL":            os.environ.get("TIER_TECHNICAL", ""),
+    "VOICE_LONGFORM":            os.environ.get("VOICE_LONGFORM", ""),
+    "VOICE_TWITTER":             os.environ.get("VOICE_TWITTER", ""),
+    "VOICE_LINKEDIN":            os.environ.get("VOICE_LINKEDIN", ""),
+    "VOICE_PRESS":               os.environ.get("VOICE_PRESS", ""),
+    "VOICE_BLOG":                os.environ.get("VOICE_BLOG", ""),
+    "VOICE_CRISIS":              os.environ.get("VOICE_CRISIS", ""),
+    "W_COMPLETION":              os.environ.get("W_COMPLETION", ""),
+    "W_EFFICIENCY":              os.environ.get("W_EFFICIENCY", ""),
+    "W_ESCALATION":              os.environ.get("W_ESCALATION", ""),
+    "W_QUALITY":                 os.environ.get("W_QUALITY", ""),
+    "BACKEND_LANG":              os.environ.get("BACKEND_LANG", ""),
+    "BACKEND_FRAMEWORK":         os.environ.get("BACKEND_FRAMEWORK", ""),
+    "FRONTEND_PLATFORM":         os.environ.get("FRONTEND_PLATFORM", ""),
+    "WEB_FRAMEWORK":             os.environ.get("WEB_FRAMEWORK", ""),
+    "MONOREPO_TOOL":             os.environ.get("MONOREPO_TOOL", ""),
+    "STATE_SERVER":              os.environ.get("STATE_SERVER", ""),
+    "STATE_CLIENT":              os.environ.get("STATE_CLIENT", ""),
+    "FORMS_LIB":                 os.environ.get("FORMS_LIB", ""),
+    "DATABASE":                  os.environ.get("DATABASE", ""),
+    "OBSERVABILITY":             os.environ.get("OBSERVABILITY", ""),
+    "CICD":                      os.environ.get("CICD", ""),
+}
+
+# Whole-token substitution (no partial matches).
+for key, val in subs.items():
+    if val == "":
+        continue  # don't substitute empty — leave placeholder for visibility
+    content = content.replace("{{" + key + "}}", val)
+
+# Verify residue.
+allowlist = re.compile(allowlist_re)
+survivors = set(re.findall(r"\{\{([A-Z_][A-Z0-9_]*)\}\}", content))
+disallowed = sorted(s for s in survivors if not allowlist.fullmatch(s))
+
+if disallowed:
+    print(f"FAIL {path}: surviving non-allowlisted placeholders: {disallowed}", file=sys.stderr)
+    sys.exit(2)
+
+if check_only == "1":
+    if survivors:
+        print(f"OK   {path} (allowlisted survivors: {sorted(survivors)})")
+    else:
+        print(f"OK   {path}")
+    sys.exit(0)
+
+with open(path, "w") as f:
+    f.write(content)
+
+if survivors:
+    print(f"compiled: {path} (allowlisted survivors: {sorted(survivors)})")
+else:
+    print(f"compiled: {path}")
+PYEOF
+}
+
+# Export shell variables so the embedded Python sees them via os.environ.
+export COMPANY_NAME COMPANY_NAME_SLUG COMPANY_DOMAIN CEO_NAME AGENT_DESCRIPTION
+export COS_NAME CFO_NAME CLO_NAME CMO_NAME CCO_NAME CHRO_NAME CSO_NAME CETHO_NAME CA_NAME CRO_NAME ENG_PLATFORM_NAME
+export CEO_GITHUB COS_GITHUB CFO_GITHUB CLO_GITHUB CMO_GITHUB CCO_GITHUB CHRO_GITHUB CSO_GITHUB CETHO_GITHUB CA_GITHUB CRO_GITHUB ENG_PLATFORM_GITHUB
+export HIGH_VALUE_THRESHOLD SPRINT_LENGTH ACCESSIBILITY_FLOOR RUNBOOK_DRILL_CADENCE POSTS_PER_CHANNEL_PER_WEEK
+export TIER_STRATEGIC TIER_COMMERCIAL TIER_TECHNICAL
+export VOICE_LONGFORM VOICE_TWITTER VOICE_LINKEDIN VOICE_PRESS VOICE_BLOG VOICE_CRISIS
+export W_COMPLETION W_EFFICIENCY W_ESCALATION W_QUALITY
+export BACKEND_LANG BACKEND_FRAMEWORK FRONTEND_PLATFORM WEB_FRAMEWORK MONOREPO_TOOL
+export STATE_SERVER STATE_CLIENT FORMS_LIB DATABASE OBSERVABILITY CICD
+
+# ─────────────────────────────────────────────
+# Drive
+# ─────────────────────────────────────────────
+
+if [[ "$DO_CODEOWNERS" == "1" ]]; then
+  TARGET="$ROOT/.github/CODEOWNERS"
+  if [[ ! -f "$TARGET" ]]; then
+    echo "ERROR: $TARGET not found." >&2
+    exit 1
+  fi
+  substitute_file "$TARGET"
+else
+  case "$SCOPE" in
+    company)  TARGET_DIR="$ROOT/agents/company" ;;
+    projects) TARGET_DIR="$ROOT/agents/projects" ;;
+    *) echo "ERROR: unknown --scope '$SCOPE' (expected 'company' or 'projects')" >&2; exit 1 ;;
+  esac
+
+  if [[ ! -d "$TARGET_DIR" ]]; then
+    echo "ERROR: $TARGET_DIR not found." >&2
+    exit 1
+  fi
+
+  for f in "$TARGET_DIR"/*.md; do
+    [[ -f "$f" ]] || continue
+    substitute_file "$f"
+  done
+fi
+
+if [[ "$CHECK_ONLY" == "1" ]]; then
+  echo "check-only: no files modified."
+fi
