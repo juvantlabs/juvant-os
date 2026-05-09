@@ -125,7 +125,9 @@
       "Bash(bash scripts/compile-templates.sh:*)",
       "Bash(scripts/compile-templates.sh:*)",
       "Bash(bash scripts/migrate.sh:*)",
-      "Bash(scripts/migrate.sh:*)"
+      "Bash(scripts/migrate.sh:*)",
+      "Bash(bash scripts/audit-bootstrap-baseline.sh:*)",
+      "Bash(scripts/audit-bootstrap-baseline.sh:*)"
     ],
     "deny": [
       "Edit(**/.env)",
