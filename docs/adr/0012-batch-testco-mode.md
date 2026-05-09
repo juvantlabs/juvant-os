@@ -258,51 +258,60 @@ visibly diff-able without re-deriving from raw logs.
 
 ### CI workflow
 
-`.github/workflows/testco-batch.yml` runs the batch suite at three
-trigger points, with **scenario coverage scaled to release class**:
+> **Updated 2026-05-10**: this section originally proposed scenario
+> tiering on tag pushes (major → full sweep, minor → primary). After
+> the v0.7.0 baseline run on 2026-05-09, the CI workflow was
+> simplified to **`workflow_dispatch` only** — no auto-trigger on
+> tag push, no PR-label trigger. The canonical pre-release gate is
+> the local run of `bash scripts/run-testco-batch.sh ...` on the
+> operator's machine. The CI workflow remains as an opt-in re-run
+> for cases where a GitHub-side audit artifact is wanted (adopter
+> enterprises with their own credentials, occasional verification).
+> See § Rationale for opt-in CI below.
 
-- **Major tag** (`v[0-9]+.0.0`) → all defined scenarios in matrix
-  (multi-scenario regression sweep; release-blocking).
-- **Minor tag** (`v[0-9]+.[1-9][0-9]*.0`) → primary scenario only
-  (`solo-founder-local-sqlite`); fast gate, ~3 min CI run.
-- **Manual dispatch + PR label `run:batch`** → primary scenario only;
-  opt-in pre-merge validation on Skill-touching PRs.
-- **Patch tags** (`v[0-9]+.[0-9]+.[1-9]+`) → no batch run (patches
-  are forward-fix-only, expected to be small and the prior release's
-  batch run is the relevant gate).
+`.github/workflows/testco-batch.yml` is `workflow_dispatch` only:
+
+- Operator clicks "Run workflow" in the Actions tab.
+- Inputs: `scenarios` (comma-separated list, or `"all"`; default
+  `solo-founder-local-sqlite`).
+- Three jobs: `resolve-matrix`, `validate-fixtures`, `batch`
+  (one job per scenario in the resolved matrix).
+- Cost: $0 by default; only the run-button click consumes tokens.
+
+#### Rationale for opt-in CI
+
+The framework has no platform-divergence surface — pure
+bash/jq/sqlite3/yq, validated equally on Mac and Linux. CI re-running
+on Linux would catch nothing that doesn't already fail in `lint.yml`
+(already platform-tested via shellcheck). LLM-driven E2E tests are
+slow (3-4 min) and per-run cost is non-trivial (~$2 at Opus). Auto-
+firing on every minor tag adds latency to release cadence and cost
+without proportional value. Solo-founder repository: forced gating
+is autodiscipline via convention, not via tooling. Adopter enterprises
+that want CI-gated releases fork the workflow and configure their
+own auth + triggers.
 
 ```yaml
 on:
-  push:
-    tags:
-      - 'v[0-9]+.0.0'              # major: full sweep
-      - 'v[0-9]+.[1-9][0-9]*.0'    # minor (excluding X.0.0): primary only
   workflow_dispatch:
     inputs:
       scenarios:
-        description: 'Scenarios to run (comma-separated, or "all")'
+        description: 'Comma-separated scenario list, or "all"'
         default: 'solo-founder-local-sqlite'
-  pull_request:
-    types: [labeled]
 jobs:
   resolve-matrix:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run:batch')
     runs-on: ubuntu-latest
     outputs:
       scenarios: ${{ steps.set.outputs.scenarios }}
     steps:
       - id: set
         run: |
-          # Major tag → all scenarios; everything else → primary only
-          if [[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.0\.0$ ]]; then
-            echo 'scenarios=["solo-founder-local-sqlite","solo-founder-turso-cloud","multi-project-local-sqlite"]' >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event.inputs.scenarios }}" == "all" ]]; then
-            echo 'scenarios=["solo-founder-local-sqlite","solo-founder-turso-cloud","multi-project-local-sqlite"]' >> "$GITHUB_OUTPUT"
-          else
-            echo 'scenarios=["solo-founder-local-sqlite"]' >> "$GITHUB_OUTPUT"
-          fi
+          # Pick scenarios from dispatch input; "all" expands to the
+          # full list under tests/fixtures/testco/.
+          ...
+  validate-fixtures: ...
   batch:
-    needs: resolve-matrix
+    needs: [resolve-matrix, validate-fixtures]
     strategy:
       fail-fast: false
       matrix:
@@ -310,26 +319,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash scripts/run-testco-batch.sh tests/fixtures/testco/${{ matrix.scenario }}.yaml
+      - name: Install dependencies
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run batch testco
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: bash scripts/run-testco-batch.sh tests/fixtures/testco/${{ matrix.scenario }}.yaml --no-render
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: batch-${{ matrix.scenario }}-${{ github.run_id }}
           path: |
-            /tmp/testco-batch-*/
             tests/fixtures/testco/results/
+            /tmp/testco-batch-*/.juvant/state.db
+            /tmp/testco-batch-*/session.log
+            /tmp/testco-batch-*/events.jsonl
 ```
 
-Cost discipline: minor releases run a single ~30k-token scenario;
-majors run the full multi-scenario sweep (~120k tokens). Patches
-run nothing. Manual dispatch is opt-in.
+Cost discipline: zero by default. Only fires when an operator
+explicitly clicks "Run workflow" with a scenario list.
 
-Tag-pinned: tags are immutable, so a release CI run is reproducible
-against the exact tagged commit. PR-label opt-in lets us run batch
-validation on any PR that touches Skill flow files (JUVANT_OS.md,
-scripts/, hooks/, agents/company/) before merge.
+#### Auth path
+
+The shipped workflow uses `ANTHROPIC_API_KEY` repo secret as the
+default auth path. Adopters can swap to one of the supported
+Claude Code backends without touching the driver:
+
+- **Microsoft Foundry** (`CLAUDE_CODE_USE_FOUNDRY=1` +
+  `ANTHROPIC_FOUNDRY_RESOURCE` + `azure/login@v2` OIDC step) —
+  Azure billing path, Entra ID federated credentials, no static
+  API key. Recommended for adopters with existing Azure / EA contracts.
+- **AWS Bedrock** (`CLAUDE_CODE_USE_BEDROCK=1` + AWS creds via
+  `aws-actions/configure-aws-credentials@v4` OIDC) — AWS billing,
+  IAM federated credentials.
+- **Google Vertex AI** (`CLAUDE_CODE_USE_VERTEX=1` + GCP creds via
+  `google-github-actions/auth@v2` workload identity) — GCP billing.
+- **Anthropic direct** (`ANTHROPIC_API_KEY` static repo secret) —
+  simplest, what the shipped workflow uses.
+
+Auth path is a fork-time decision per adopter; we don't bake any
+single path into the upstream workflow.
 
 ### Coverage hybrid
 
@@ -344,7 +377,7 @@ manual testco, not instead of it. The two cover different surfaces:
 
 | Surface | Gate | Frequency | Catches |
 |---|---|---|---|
-| Schema integrity, matrix correctness, hooks routing, ADR compliance, audit verdict, regression in step durations / token budget | Batch CI | Every minor + major tag (single scenario at minor, full sweep at major) + opt-in PR label | Determinism regressions, structural drift, performance degradation |
+| Schema integrity, matrix correctness, hooks routing, ADR compliance, audit verdict, regression in step durations / token budget | Batch (local pre-release; CI on-demand opt-in) | Pre-release on operator's machine; CI when GitHub-side audit artifact is wanted | Determinism regressions, structural drift, performance degradation |
 | Wizard wording, collection-collapse readability, prompt fatigue, first-impression UX, Skill judgment quality | Manual testco | When CEO drives a real or shadow company-init | F-4/F-5/F-15-class UX issues that batch is structurally blind to |
 
 Manual testco reports stay at `tests/integration/results-<date>-<company>-testco.md`

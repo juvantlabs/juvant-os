@@ -1,11 +1,25 @@
 name: Juvant OS testco batch
 
+# Per ADR 0012 — Batch testco mode + CI integration:
+#
+# Manual local testco remains the primary validation mode. Local-driven
+# `bash scripts/run-testco-batch.sh ...` is the canonical pre-release
+# gate; this workflow exists as an *opt-in* CI re-run for cases where
+# you want a GitHub-side audit artifact (PR-blockers, adopter
+# enterprises with their own credentials, etc.).
+#
+# Triggers: workflow_dispatch only. No tag-push trigger, no PR-label
+# trigger. To run, click "Run workflow" in the Actions tab and provide
+# scenarios. The workflow needs an authenticated Claude Code backend —
+# either ANTHROPIC_API_KEY repo secret, or Microsoft Foundry / Bedrock /
+# Vertex with the matching env vars (configure under workflow_dispatch
+# inputs or as secrets per your auth path).
+#
+# Cost discipline: every dispatched run consumes ~30k–120k tokens
+# (~$0.50–$2 at Opus pricing depending on scenario count). The
+# workflow does NOT auto-fire — there is no recurring cost.
+
 on:
-  push:
-    tags:
-      - 'v*.*.*'                  # all 3-segment version tags; tier decided at runtime
-  pull_request:
-    types: [labeled]
   workflow_dispatch:
     inputs:
       scenarios:
@@ -13,18 +27,8 @@ on:
         type: string
         default: solo-founder-local-sqlite
 
-# Per ADR 0012 — Batch testco mode + CI integration:
-# Manual testco remains the primary validation mode. This workflow is
-# an additional CI / test-automation layer for regression detection.
-# Cost discipline: minor tag → primary scenario only (~30k tokens);
-# major tag → full sweep (~120k tokens); patches → no run; PR-label
-# `run:batch` → primary scenario only (opt-in pre-merge validation).
-
 jobs:
   resolve-matrix:
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'run:batch')
     runs-on: ubuntu-latest
     outputs:
       scenarios: ${{ steps.set.outputs.scenarios }}
@@ -32,47 +36,19 @@ jobs:
       - id: set
         run: |
           set -euo pipefail
-          # Major tag → all scenarios; everything else → primary only.
-          # Manual dispatch with `scenarios=all` → all scenarios.
-          # `jq -c` produces compact (single-line) JSON; required by
-          # GITHUB_OUTPUT which fails on multi-line values without a
-          # `<<DELIMITER` heredoc envelope.
+          # All defined scenarios. Append new ones as fixtures land
+          # under tests/fixtures/testco/<scenario>.yaml.
           all_scenarios='["solo-founder-local-sqlite"]'
-          # Future: append "solo-founder-turso-cloud" + "multi-project-local-sqlite"
-          # once those fixtures land. Per ADR 0012 § Scope phasing.
 
-          # Tag tier decision (single-source-of-truth at runtime).
-          # Tag refs land as refs/tags/vX.Y.Z. We classify:
-          # - X.0.0 → major: full sweep
-          # - X.Y.0 (Y>0) → minor: primary only
-          # - X.Y.Z (Z>0) → patch: skip (no run; not on the trigger filter
-          #   technically because patches are rarely tagged here, but if
-          #   one slips through we no-op)
-          tag="${GITHUB_REF#refs/tags/}"
-          if [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            major="${BASH_REMATCH[1]}"
-            minor="${BASH_REMATCH[2]}"
-            patch="${BASH_REMATCH[3]}"
-            if [[ "$minor" == "0" && "$patch" == "0" ]]; then
-              echo "Major tag $tag detected — running full sweep."
-              scenarios="$all_scenarios"
-            elif [[ "$patch" == "0" ]]; then
-              echo "Minor tag $tag detected — primary scenario only."
-              scenarios='["solo-founder-local-sqlite"]'
-            else
-              echo "Patch tag $tag — no batch run scheduled; emitting empty matrix."
-              scenarios='[]'
-            fi
-          elif [[ "${{ github.event.inputs.scenarios }}" == "all" ]]; then
-            echo "Manual dispatch with scenarios=all."
+          input='${{ github.event.inputs.scenarios }}'
+          if [[ "$input" == "all" ]]; then
             scenarios="$all_scenarios"
-          elif [[ -n "${{ github.event.inputs.scenarios }}" ]]; then
-            # Manual dispatch with a comma-separated list — convert to JSON array.
-            scenarios=$(echo '${{ github.event.inputs.scenarios }}' \
+          elif [[ -n "$input" ]]; then
+            # Comma-separated list → JSON array (compact for GITHUB_OUTPUT).
+            scenarios=$(echo "$input" \
               | tr ',' '\n' | sed 's/^ *//; s/ *$//' \
               | jq -Rrcs 'split("\n") | map(select(length>0))')
           else
-            echo "PR label or unknown trigger — primary scenario only."
             scenarios='["solo-founder-local-sqlite"]'
           fi
 
@@ -80,9 +56,6 @@ jobs:
           echo "Resolved scenario matrix: $scenarios"
 
   validate-fixtures:
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'run:batch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,6 +99,14 @@ jobs:
 
       - name: Run batch testco
         env:
+          # Configure ONE of the following auth paths in repo secrets:
+          # - ANTHROPIC_API_KEY (direct Anthropic API)
+          # - CLAUDE_CODE_USE_FOUNDRY=1 + ANTHROPIC_FOUNDRY_RESOURCE +
+          #   azure/login@v2 OIDC step (Microsoft Foundry)
+          # - CLAUDE_CODE_USE_BEDROCK=1 + AWS creds (Bedrock)
+          # - CLAUDE_CODE_USE_VERTEX=1 + GCP creds (Vertex)
+          # Defaults below assume Anthropic direct; adapters fork and
+          # adjust per their auth path.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           bash scripts/run-testco-batch.sh \
