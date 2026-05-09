@@ -30,7 +30,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 POLICY="$SCRIPT_DIR/bash-policy.json"
 
 # Read event from stdin
