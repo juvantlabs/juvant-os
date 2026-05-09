@@ -209,6 +209,129 @@ across Skill sessions, integrity-relevant choices cannot be
 auto-routed-around, and UX cost must not push the operator to
 work around the rule.
 
+### Batch mode (HARD-REQUIRED override of interactive flow)
+
+> Authoritative reference: [ADR 0012 — Batch testco mode](docs/adr/0012-batch-testco-mode.md).
+>
+> Manual interactive testco remains the primary validation mode (see
+> the rendering rule above). Batch mode is an additional CI / test-
+> automation layer that runs the wizard end-to-end without human
+> input. When batch mode is active, the rendering rule above is
+> suspended (no human is reading the prompts); both clauses become
+> no-ops.
+
+#### Activation
+
+Batch mode activates when **either** of the following is true:
+
+1. The CEO prompt cites the literal phrase
+   *"Initialize Juvant OS using batch inputs from `<path>`"*, OR
+2. `.juvant/config.json` (already present at wizard entry) contains
+   the field `"_batch_mode": true`.
+
+If activated, the Skill **MUST** at SessionStart:
+
+- Read the YAML fixture at `<path>` (default
+  `.juvant/batch-inputs.yaml` if `_batch_mode: true` was the
+  trigger and no path was cited).
+- If the file is missing or fails YAML parse, emit a
+  `[BATCH] {"event":"run_complete","verdict":"FAIL","reason":"fixture_missing_or_invalid"}`
+  line and refuse to proceed. **Do not fall back to interactive.**
+- Set internal state `batch_mode = true` for the remainder of the
+  session.
+
+#### Lookup pattern (replaces every AskUserQuestion call)
+
+For every wizard step that would normally call `AskUserQuestion`,
+the Skill **MUST** instead read the value from the loaded fixture
+at the step's canonical path. The full mapping:
+
+| Step | Fixture path | Notes |
+|---|---|---|
+| Step 1 (Identity) | `inputs.identity.{company_name,company_slug,company_domain,ceo_name,ceo_pronouns,copyright_holder}` | All six fields required. |
+| Step 1.5 (Doc storage) | `inputs.doc_storage.{provider,mcp_server,path_pattern,folders,fallback_chain}` | `folders` empty → record empty mapping. |
+| Step 1.5b (Mailboxes) | `inputs.mail_enabled_agents.{cfo,clo,cco,cmo}` | Value `null` → agent not mail-enabled. |
+| Step 1.6 (GitHub map) | `inputs.github_user_map.<role>` | All 12 role slugs (lowercase) per F-21 fix. |
+| Step 2 (Database) | `inputs.database.{provider,setup_mode,url,auth_token}` | `auth_token: null` for local. |
+| Step 3 (Bank) | `inputs.bank.{provider,name,mcp_server,rationale}` | `name`+`mcp_server` required only when `provider=other`. |
+| Step 4 (Notifications) | `inputs.notifications.{telegram,webhooks}` | Telegram requires `is_operator_personal_channel: true` for the ADR 0011 carve-out. |
+| Step 4.5 (Guardrails) | `inputs.guardrails.{confirmation_token,anomaly_thresholds,audit_log_retention_days}` | All sub-keys required. |
+| Step 5 (Counterparties) | `inputs.counterparties.{mode,entries}` | `mode: skip` → empty entries. |
+| Step 6 (Agent names + CRO) | `inputs.agent_names.<role>`, `inputs.cro_enabled` | All 11 names + boolean. |
+| Step 7–8.5 (Compile + render + seed + cross-check) | (no fixture inputs) | Deterministic post-input procedures. |
+| Step 9 (Bootstrap protocol) | `inputs.bootstrap.manifesto_approval_mode` | One of `accept_all_defaults`, `edit_specific`, `walk_through_each`, `skip`. |
+| Step 10 (Initial commit) | (no fixture inputs) | Deterministic. |
+| Step 10.5 (Branch protection) | `inputs.branch_protection.mode` | `skip_in_batch` is the canonical batch value (no GitHub org reachable on CI). |
+
+If a required fixture key is missing or `null` where a value is
+required, the Skill **MUST** emit a
+`[BATCH] {"event":"run_complete","verdict":"FAIL","reason":"missing_fixture_key","key":"<dotted.path>"}`
+line and exit. **Fail loud — do not improvise defaults.**
+
+#### Event emission protocol
+
+The Skill emits structured progress events as plain text lines in
+its agent output, prefixed with `[BATCH]` and carrying a JSON
+payload. Eight event types per [ADR 0012 § Progress feedback]:
+
+| Event | Emit when | Required fields |
+|---|---|---|
+| `run_start` | Batch mode activated, before Step 1 | `scenario`, `fixture_version`, `skill_version` |
+| `step_start` | Entering each wizard step | `step` (e.g. `"1.5b"`), `phase` (e.g. `"mailboxes"`), `total_steps` |
+| `input_resolved` | Each fixture lookup | `step`, `field`, `source` (`"fixture"`/`"default"`), `value_redacted` (`true` if value contains a secret) |
+| `checkpoint` | Mid-step state-change worth surfacing | `step`, `detail` (free text), structured payload (`rows`, `findings`, `manifests`, etc.) |
+| `subagent_spawn` | Before invoking `Task(subagent_type=…)` | `step`, `subagent` (role slug), `reason` |
+| `hook_activity` | At step boundaries, summarizing PreToolUse counters | `step`, `detail`, `allowed`, `denied`, `pending_orphans` |
+| `step_done` | Exiting each wizard step | `step`, `phase`, `duration_s` (best-effort), `tokens_in` (`null` ok), `tokens_out` (`null` ok) |
+| `run_complete` | All steps complete OR fatal failure | `total_duration_s`, `verdict` (`PASS`/`WARN-WITH-CONDITIONS`/`FAIL`), `tokens_total` (`null` ok), `tool_calls` breakdown |
+
+Event format:
+```
+[BATCH] {"ts":"2026-MM-DDTHH:MM:SSZ","event":"<type>",<other-fields>}
+```
+
+The `[BATCH]` prefix is at the **start of the line**, with a single
+space, then a single JSON object. The driver parses these lines with
+a `[BATCH] ` prefix-strip + `jq -e '.event'` validation.
+
+**Secret redaction**: any fixture value that lives in
+`inputs.notifications.telegram.bot_token`,
+`inputs.guardrails.confirmation_token.token`,
+`inputs.database.auth_token`, or any field whose name contains
+`token`, `secret`, or `password` **MUST** be flagged with
+`value_redacted: true` in the `input_resolved` event and **MUST NOT**
+appear verbatim in any [BATCH] event payload.
+
+#### Final verdict
+
+Before emitting `run_complete`, the Skill **MUST** read
+`master_context.bootstrap_audit_verdict` from `state.db` and surface
+it as the event's `verdict` field. If the bootstrap protocol failed
+to write a verdict (Step 9 failed or did not complete), emit
+`verdict: "FAIL"` with `reason: "no_verdict_recorded"`.
+
+#### Other batch-mode behaviors
+
+- **No `AskUserQuestion` calls.** The wizard is fully unattended.
+- **No `[y/N]` confirmation pauses.** Tool approval is handled
+  externally by `--permission-mode bypassPermissions`; the Skill
+  does not solicit per-tool consent.
+- **Collection-collapse menus are bypassed.** Direct walk over
+  fixture entries; emit one `input_resolved` event per fixture
+  lookup but do not show a menu.
+- **Branch protection (Step 10.5)** when `mode: skip_in_batch` —
+  emit a `checkpoint` event documenting the skip, do not invoke
+  `gh api` (no GitHub org auth on CI).
+- **Subagent spawn (Step 9.7 CSO bootstrap_baseline audit)** is
+  unchanged — `Task(subagent_type='cso', ...)` is still the
+  canonical path per ADR 0010. Emit a `subagent_spawn` event
+  immediately before the Task call.
+
+The dual-path pattern is deliberate: the same Skill code handles
+both interactive and batch modes, with the activation check as the
+sole branch point. There is no separate "batch wizard" Skill — the
+Skill is one, the modes are two.
+
 ### Pre-flight
 
 Before starting the wizard, check:
