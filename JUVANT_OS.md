@@ -294,6 +294,42 @@ The `[BATCH]` prefix is at the **start of the line**, with a single
 space, then a single JSON object. The driver parses these lines with
 a `[BATCH] ` prefix-strip + `jq -e '.event'` validation.
 
+**Mandatory persistence (HARD-REQUIRED, v0.7.0+).** The Skill MUST
+write each emitted event to `.juvant/batch-events.jsonl` via a Bash
+append, in addition to surfacing it in agent text. The Bash command is:
+
+```bash
+echo '{"ts":"<UTC-ts>","event":"<type>",<other-fields>}' >> .juvant/batch-events.jsonl
+```
+
+This persistence requirement exists because `claude --print` buffers
+agent text output (the events arrive as one block at end-of-run, not
+as a stream); the file-on-disk path delivers events to the driver in
+real time and survives even if the Skill is interrupted mid-run.
+
+Concrete example — the first six events the Skill MUST emit verbatim
+(literal format, only timestamp and per-event fields vary):
+
+```bash
+echo '{"ts":"2026-05-09T20:00:00Z","event":"run_start","scenario":"solo-founder-local-sqlite","fixture_version":"1","skill_version":"<commit>"}' >> .juvant/batch-events.jsonl
+echo '{"ts":"2026-05-09T20:00:00Z","event":"step_start","step":"1","phase":"identity","total_steps":13}' >> .juvant/batch-events.jsonl
+echo '{"ts":"2026-05-09T20:00:01Z","event":"input_resolved","step":"1","field":"company_name","source":"fixture","value_redacted":false}' >> .juvant/batch-events.jsonl
+echo '{"ts":"2026-05-09T20:00:01Z","event":"input_resolved","step":"1","field":"company_slug","source":"fixture","value_redacted":false}' >> .juvant/batch-events.jsonl
+# ... (one per fixture lookup)
+echo '{"ts":"2026-05-09T20:00:03Z","event":"step_done","step":"1","phase":"identity","duration_s":3.0,"tokens_in":null,"tokens_out":null}' >> .juvant/batch-events.jsonl
+echo '{"ts":"2026-05-09T20:00:03Z","event":"step_start","step":"1.5","phase":"doc_storage","total_steps":13}' >> .juvant/batch-events.jsonl
+```
+
+Skip neither the `[BATCH] ` stdout line nor the `>> .juvant/batch-events.jsonl`
+append. They are dual-channel: the stdout line gives interactive
+visibility (when not under `--print` buffering); the file gives
+durable visibility under any output mode. The driver reads from the
+file as the canonical event source post-run.
+
+Markdown summary at end-of-run is allowed and useful, but it is **not
+a substitute** for the structured event stream. The summary lives in
+the agent text; events live in the file.
+
 **Secret redaction**: any fixture value that lives in
 `inputs.notifications.telegram.bot_token`,
 `inputs.guardrails.confirmation_token.token`,
