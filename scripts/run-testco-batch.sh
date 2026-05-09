@@ -183,17 +183,15 @@ render_board() {
   # Compute per-step status from the event stream.
   local board=""
   local cumul_dur="0" cumul_in="0" cumul_out="0"
-  local cumul_bash="0" cumul_agent="0" cumul_orphans="0"
 
   for entry in "${STEP_ORDER[@]}"; do
     local step="${entry%%:*}" name="${entry#*:}"
-    local started done_evt status icon dur_s tok_in tok_out check
+    local started done_evt icon dur_s tok_in tok_out check
     started=$(jq -r --arg s "$step" 'select(.event=="step_start" and .step==$s) | .ts' "$jsonl" 2>/dev/null | tail -1)
     done_evt=$(jq -c --arg s "$step" 'select(.event=="step_done" and .step==$s)' "$jsonl" 2>/dev/null | tail -1)
     check=$(jq -c --arg s "$step" 'select(.event=="checkpoint" and .step==$s)' "$jsonl" 2>/dev/null | tail -1)
 
     if [[ -n "$done_evt" ]]; then
-      status="done"
       icon=$'\033[32m✓\033[0m'
       dur_s=$(jq -r '.duration_s // "?"' <<<"$done_evt")
       tok_in=$(jq -r '.tokens_in // 0' <<<"$done_evt")
@@ -202,13 +200,11 @@ render_board() {
       cumul_in=$((cumul_in + tok_in))
       cumul_out=$((cumul_out + tok_out))
     elif [[ -n "$started" ]]; then
-      status="running"
       icon=$'\033[33m▶\033[0m'
       dur_s="..."
       tok_in="-"
       tok_out="-"
     else
-      status="pending"
       icon=$'\033[2m·\033[0m'
       dur_s="-"
       tok_in="-"
