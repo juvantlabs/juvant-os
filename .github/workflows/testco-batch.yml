@@ -25,7 +25,7 @@ on:
       scenarios:
         description: 'Comma-separated scenario list, or "all"'
         type: string
-        default: solo-founder-local-sqlite
+        default: single-company
 
 jobs:
   resolve-matrix:
@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
           # All defined scenarios. Append new ones as fixtures land
           # under tests/fixtures/testco/<scenario>.yaml.
-          all_scenarios='["solo-founder-local-sqlite"]'
+          all_scenarios='["single-company"]'
 
           input='${{ github.event.inputs.scenarios }}'
           if [[ "$input" == "all" ]]; then
@@ -49,7 +49,7 @@ jobs:
               | tr ',' '\n' | sed 's/^ *//; s/ *$//' \
               | jq -Rrcs 'split("\n") | map(select(length>0))')
           else
-            scenarios='["solo-founder-local-sqlite"]'
+            scenarios='["single-company"]'
           fi
 
           echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"

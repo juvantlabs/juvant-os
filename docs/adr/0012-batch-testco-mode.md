@@ -3,8 +3,8 @@
 ## Status
 
 Accepted (2026-05-09). Validated end-to-end on 2026-05-09 by the first
-green batch run against the `solo-founder-local-sqlite` scenario;
-results captured at `tests/fixtures/testco/results/2026-05-09-solo-founder-local-sqlite.{jsonl,md}`.
+green batch run against the `single-company` scenario;
+results captured at `tests/fixtures/testco/results/2026-05-09-single-company.{jsonl,md}`.
 27 assertions across 8 classes (verdict, manifests, decisions, matrix
 rows, audit findings, pending orphans, matrix row spot checks,
 filesystem) all passed; cost $1.96, 226s wall duration, 44 assistant
@@ -88,7 +88,7 @@ Schema covers all 12 wizard steps + an `expect:` block consumed by
 the driver's post-run assertions. Top-level structure:
 
 ```yaml
-scenario: <slug>                    # e.g. solo-founder-local-sqlite
+scenario: <slug>                    # e.g. single-company
 juvant_os_version: <semver>         # version this fixture targets
 inputs:
   identity: { ... }
@@ -156,7 +156,7 @@ checkpoint. Eight event types — designed so the driver can render
 both a high-level step board AND a low-level activity stream:
 
 ```jsonl
-[BATCH] {"ts":"2026-05-09T19:00:00Z","event":"run_start","scenario":"solo-founder-local-sqlite","fixture_version":"0.7.0","skill_version":"<commit>"}
+[BATCH] {"ts":"2026-05-09T19:00:00Z","event":"run_start","scenario":"single-company","fixture_version":"0.7.0","skill_version":"<commit>"}
 [BATCH] {"ts":"2026-05-09T19:00:00Z","event":"step_start","step":"1","phase":"identity","total_steps":13}
 [BATCH] {"ts":"2026-05-09T19:00:01Z","event":"input_resolved","step":"1","field":"company_name","value_redacted":false,"source":"fixture"}
 [BATCH] {"ts":"2026-05-09T19:00:03Z","event":"step_done","step":"1","phase":"identity","duration_s":3.2,"tokens_in":847,"tokens_out":312}
@@ -188,7 +188,7 @@ Event taxonomy (eight types):
 Live progress board rendered by `scripts/run-testco-batch.sh`:
 
 ```
-Juvant OS testco batch — scenario: solo-founder-local-sqlite
+Juvant OS testco batch — scenario: single-company
 Skill version: 7e67302 (v0.6.6 + batch-mode)   Run: 2026-05-09T19:00:00Z
 
   ✓ Step 1     Identity            (3.2s)    847→312 tok
@@ -273,7 +273,7 @@ visibly diff-able without re-deriving from raw logs.
 
 - Operator clicks "Run workflow" in the Actions tab.
 - Inputs: `scenarios` (comma-separated list, or `"all"`; default
-  `solo-founder-local-sqlite`).
+  `single-company`).
 - Three jobs: `resolve-matrix`, `validate-fixtures`, `batch`
   (one job per scenario in the resolved matrix).
 - Cost: $0 by default; only the run-button click consumes tokens.
@@ -297,7 +297,7 @@ on:
     inputs:
       scenarios:
         description: 'Comma-separated scenario list, or "all"'
-        default: 'solo-founder-local-sqlite'
+        default: 'single-company'
 jobs:
   resolve-matrix:
     runs-on: ubuntu-latest
@@ -446,7 +446,7 @@ Phase 1 — Skill plumbing:
 - `JUVANT_OS.md` Batch Mode preamble + per-step batch lookup lines.
 - Schema validator (`scripts/validate-batch-fixture.sh`).
 - Driver (`scripts/run-testco-batch.sh`) with progress board.
-- First fixture (`tests/fixtures/testco/solo-founder-local-sqlite.yaml`).
+- First fixture (`tests/fixtures/testco/single-company.yaml`).
 - CI workflow (`.github/workflows/testco-batch.yml`).
 - Iterate on the first scenario until determinism holds.
 

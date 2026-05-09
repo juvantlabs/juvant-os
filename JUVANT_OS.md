@@ -311,7 +311,7 @@ Concrete example — the first six events the Skill MUST emit verbatim
 (literal format, only timestamp and per-event fields vary):
 
 ```bash
-echo '{"ts":"2026-05-09T20:00:00Z","event":"run_start","scenario":"solo-founder-local-sqlite","fixture_version":"1","skill_version":"<commit>"}' >> .juvant/batch-events.jsonl
+echo '{"ts":"2026-05-09T20:00:00Z","event":"run_start","scenario":"single-company","fixture_version":"1","skill_version":"<commit>"}' >> .juvant/batch-events.jsonl
 echo '{"ts":"2026-05-09T20:00:00Z","event":"step_start","step":"1","phase":"identity","total_steps":13}' >> .juvant/batch-events.jsonl
 echo '{"ts":"2026-05-09T20:00:01Z","event":"input_resolved","step":"1","field":"company_name","source":"fixture","value_redacted":false}' >> .juvant/batch-events.jsonl
 echo '{"ts":"2026-05-09T20:00:01Z","event":"input_resolved","step":"1","field":"company_slug","source":"fixture","value_redacted":false}' >> .juvant/batch-events.jsonl

@@ -8,7 +8,7 @@
 #
 # Schema reference: docs/adr/0012-batch-testco-mode.md § Schema.
 
-scenario: solo-founder-local-sqlite
+scenario: single-company
 fixture_version: 1
 juvant_os_version: 0.7.0
 description: |

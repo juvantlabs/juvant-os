@@ -17,7 +17,7 @@
 # The schema is encoded inline in this script as a sequence of yq
 # field-existence + type-shape checks. Keep in sync with
 # `docs/adr/0012-batch-testco-mode.md` § Schema and the canonical
-# example at `tests/fixtures/testco/solo-founder-local-sqlite.yaml`.
+# example at `tests/fixtures/testco/single-company.yaml`.
 
 set -euo pipefail
 

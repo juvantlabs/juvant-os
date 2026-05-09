@@ -1,4 +1,4 @@
-# Batch testco run — solo-founder-local-sqlite (2026-05-09)
+# Batch testco run — single-company (2026-05-09)
 
 - Skill version: `84ad549`
 - Fixture version: 1
