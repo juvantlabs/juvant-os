@@ -35,6 +35,13 @@
 
 set -euo pipefail
 
+# Ensure common Mac + Linux tool paths are visible to subshells we spawn.
+# When invoked via a wrapper that strips the user's shell PATH (e.g.
+# Claude Code background tasks, some CI runners), `claude` and `yq`
+# under /opt/homebrew/bin or /usr/local/bin are otherwise not found
+# inside the `( cd "$TMP_DIR"; claude --print ... )` subshell.
+export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
 # ─── flag parsing ──────────────────────────────────────────────────────
 FIXTURE=""
 KEEP_TMP=0
@@ -70,9 +77,49 @@ for tool in jq yq sqlite3 git; do
   fi
 done
 
-if [[ "$DRY_RUN" != "1" ]] && ! command -v claude >/dev/null; then
-  echo "ERROR: claude CLI not on PATH." >&2
-  exit 1
+CLAUDE_BIN=""
+if [[ "$DRY_RUN" != "1" ]]; then
+  # Resolve absolute path to claude once. Some run-context wrappers
+  # (Claude Code background tasks, restricted CI shells) strip user
+  # PATH between this script and the spawned subshell, so resolving
+  # ONCE at startup and using the absolute path is more robust.
+  #
+  # Then dereference symlinks via realpath so we exec the actual
+  # binary file (claude is shipped as a npm-bin symlink that points
+  # at ../lib/node_modules/.../claude.exe; some sandboxed subshell
+  # contexts fail to exec via the symlink path even when the
+  # symlink resolves correctly from a foreground shell).
+  CLAUDE_BIN=$(command -v claude || true)
+  if [[ -z "$CLAUDE_BIN" ]]; then
+    for candidate in /opt/homebrew/bin/claude /usr/local/bin/claude /usr/bin/claude; do
+      [[ -x "$candidate" ]] && CLAUDE_BIN="$candidate" && break
+    done
+  fi
+  if [[ -z "$CLAUDE_BIN" ]]; then
+    echo "ERROR: claude CLI not found on PATH or at /opt/homebrew/bin, /usr/local/bin, /usr/bin." >&2
+    exit 1
+  fi
+  if command -v realpath >/dev/null 2>&1; then
+    CLAUDE_BIN=$(realpath "$CLAUDE_BIN")
+  elif command -v readlink >/dev/null 2>&1; then
+    # macOS readlink -f from coreutils is preferred; fallback handles
+    # the BSD readlink case manually.
+    if readlink -f "$CLAUDE_BIN" >/dev/null 2>&1; then
+      CLAUDE_BIN=$(readlink -f "$CLAUDE_BIN")
+    else
+      target=$(readlink "$CLAUDE_BIN")
+      if [[ "$target" != /* ]]; then
+        CLAUDE_BIN="$(cd "$(dirname "$CLAUDE_BIN")" && cd "$(dirname "$target")" && pwd)/$(basename "$target")"
+      else
+        CLAUDE_BIN="$target"
+      fi
+    fi
+  fi
+  if [[ ! -x "$CLAUDE_BIN" ]]; then
+    echo "ERROR: claude CLI resolved to '$CLAUDE_BIN' but the file is not executable." >&2
+    exit 1
+  fi
+  echo "▶ Using claude binary: $CLAUDE_BIN"
 fi
 
 # ─── repo root ─────────────────────────────────────────────────────────
@@ -271,7 +318,7 @@ STREAM_FILE="$TMP_DIR/stream.jsonl"
 
 (
   cd "$TMP_DIR"
-  claude --print \
+  "$CLAUDE_BIN" --print \
     --permission-mode bypassPermissions \
     --output-format stream-json \
     --verbose \
