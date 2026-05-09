@@ -9,7 +9,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
 EVENT_JSON=""
 if [ ! -t 0 ]; then
@@ -23,24 +22,22 @@ ROLE="${AGENT_ROLE:-unknown}"
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
 ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')
 
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  if [[ -f "$CONFIG" ]]; then
-    TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
-    TURSO_TOKEN=$(jq -r '.turso_token // ""' "$CONFIG" 2>/dev/null || echo "")
-  fi
-fi
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/db.sh"
+juvant_db_resolve
 
-if [[ -z "${TURSO_URL:-}" ]]; then
-  echo "[post-tool-use-failure] WARN: no Turso credentials; skipping log update" >&2
+if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
+  echo "[post-tool-use-failure] WARN: no db.provider configured; skipping log update" >&2
   exit 0
 fi
 
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
-SESSION_ESC="${SESSION_ID//\'/\'\'}"
-ROLE_ESC="${ROLE//\'/\'\'}"
-TOOL_ESC="${TOOL_NAME//\'/\'\'}"
+sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+SESSION_ESC=$(sql_escape "$SESSION_ID")
+ROLE_ESC=$(sql_escape "$ROLE")
+TOOL_ESC=$(sql_escape "$TOOL_NAME")
 
-turso db shell "$TURSO_URL" "UPDATE agent_actions_log
+juvant_db_exec "UPDATE agent_actions_log
   SET status = 'failure',
       ended_at = '$NOW'
   WHERE id = (
@@ -52,7 +49,7 @@ turso db shell "$TURSO_URL" "UPDATE agent_actions_log
       AND status = 'pending'
     ORDER BY started_at DESC
     LIMIT 1
-  );" >/dev/null 2>&1 \
+  );" \
   || echo "[post-tool-use-failure] WARN: failed to update agent_actions_log" >&2
 
 exit 0

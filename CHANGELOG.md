@@ -11,6 +11,87 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — Local SQLite hooks were silently no-op (HIGH) + Layer 5 orphan check correlation rewritten
+
+Surfaced by the Delta Corp testco run on 2026-05-08: `agent_actions_log`
+was **completely empty** after a full bootstrap with hundreds of tool
+calls. Track 3 of handbook ADR 0004 (audit log) had been silently
+disabled for every Local SQLite adopter since hooks were first shipped
+on `main` (commit `9acfa71`). And the Layer 5 orphan-audit detection
+rule shipped in v0.6.1 (`cso.md` §11) used a session_id-equality join
+that **never matches** because the parent invoking Task and the spawned
+CSO subagent use distinct Claude Code session_id values — the rule
+produced false positives on every legitimate audit.
+
+Two coupled bugs, both fixed in v0.6.3:
+
+**Bug B — Local SQLite hooks no-op.** Pre-v0.6.3 every hook called
+`turso db shell "$TURSO_URL"` directly. For Local SQLite adopters,
+`db.url` is a filesystem path (e.g. `.juvant/state.sqlite`) — the
+turso CLI cannot read filesystem paths, so every INSERT/UPDATE/SELECT
+fell through to the silent `2>/dev/null || echo WARN` fallback.
+`agent_actions_log` empty, `agents.status` never updated,
+`agent_token_usage` never populated, `session_snapshots` never written.
+Cloud adopters (Turso/Azure/AWS/GCP) were unaffected.
+
+Fix:
+
+- `hooks/lib/db.sh` — new shared helper. Three entry points:
+  `juvant_db_exec` (DDL/DML), `juvant_db_query` (SELECT, text output),
+  `juvant_db_query_csv` (SELECT, CSV output). `juvant_db_resolve`
+  reads `db.provider` from `.juvant/config.json` and routes through
+  either `sqlite3 <path>` (Local) or `turso db shell <url>` (cloud).
+  Env override (`TURSO_URL`/`TURSO_TOKEN`) honored for cloud paths.
+- All ten DB-touching hooks migrated to the helper:
+  `pre-tool-use.sh`, `post-tool-use.sh`, `post-tool-use-failure.sh`,
+  `session-start.sh`, `session-end.sh`, `subagent-start.sh`,
+  `subagent-stop.sh`, `stop.sh`, `pre-compact.sh`, `post-compact.sh`,
+  plus the `hooks/lib/track-tokens.sh` library.
+- bash 3.2 SQL-escape regression fixed in `pre-compact.sh` while
+  migrating (same root cause as the v0.6.0 fix in `pre-tool-use.sh`).
+
+L2 hook tests (15/15) continue to pass — fake-turso shim is
+provider-agnostic so the test setup works unchanged.
+
+**Bug A — Layer 5 orphan check correlation broken.** The v0.6.1 rule
+joined `security_audit_log.session_id` with `agent_actions_log.session_id`,
+expecting them to share the parent's session_id. They don't:
+`security_audit_log.session_id` is populated by the CSO subagent
+(running in its own Claude Code session, getting its own session_id —
+or a synthetic one as Delta showed: `cso-bootstrap-baseline-<TS>`),
+while `agent_actions_log` rows for the Task invocation are written by
+`pre-tool-use.sh` in the parent session (parent's session_id). The
+two side never matched, so the orphan SQL flagged every legitimate
+audit as suspect.
+
+Fix in `agents/company/cso.md` Layer 5 §11:
+
+- Rewrote the detection SQL to use a **time-window** correlation
+  (Task invocation in the 60-min window preceding the audit row),
+  no longer joining on session_id. Imprecise on which agent was
+  spawned, but precise on the absence-of-Task signal (which is the
+  cover-up failure mode we care about).
+- Added two **fail-safe predicates** that catch the failure mode
+  regardless of correlation precision:
+  - Predicate (a): `agent_actions_log` empty plus `security_audit_log`
+    with `auditor='cso'` populated → always cover-up flag.
+  - Predicate (b): operator-mode (`AGENT_ROLE` unset / `'ceo'` /
+    `'operator'`) writing audit rows → always cover-up flag, since
+    humans cannot author CSO audits.
+- Documented that the orphan check is best-effort
+  defense-in-depth; the primary integrity guarantee remains
+  `JUVANT_OS.md` Step 9.7 HARD-REQUIRED rule (v0.6.1).
+- v0.6.4+ will add a `parent_session_id` column to
+  `agent_actions_log` (or pass the parent session_id through the
+  Task prompt and have CSO write it into `security_audit_log.session_id`)
+  for tighter correlation. The `security_audit_log.session_id`
+  column shipped in v0.6.1 stays in the schema as forward-compat
+  metadata.
+
+The Delta run is documented separately as an in-progress incident in
+`tests/integration/results-2026-05-08-delta-testco.md` (added in a
+follow-up commit if not already present).
+
 ### Fixed — wizard rendering must be deterministic (one question at a time)
 
 Surfaced by the Delta Corp testco run on 2026-05-08 (post-v0.6.1

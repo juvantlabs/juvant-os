@@ -3,26 +3,21 @@
 # Claude Code hook: PreCompact
 # Called immediately before Claude Code compacts the context window.
 # CRITICAL ORDER:
-#   1. Agent MUST have committed all pending Turso writes before this runs.
+#   1. Agent MUST have committed all pending state writes before this runs.
 #      (The JUVANT_OS.md Skill instructs agents to commit before snapshot.)
 #   2. This script reads the snapshot from stdin (written by agent),
-#      then writes it to Turso session_snapshots.
+#      then writes it to session_snapshots.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
-# Load credentials
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  if [[ -f "$CONFIG" ]]; then
-    TURSO_URL=$(jq -r '.turso_url' "$CONFIG" 2>/dev/null || echo "")
-    TURSO_TOKEN=$(jq -r '.turso_token' "$CONFIG" 2>/dev/null || echo "")
-  fi
-fi
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/db.sh"
+juvant_db_resolve
 
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  echo "[pre-compact] WARN: No Turso credentials. Snapshot not persisted." >&2
+if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
+  echo "[pre-compact] WARN: No db.provider configured. Snapshot not persisted." >&2
   exit 0
 fi
 
@@ -41,16 +36,22 @@ if [[ -z "$SNAPSHOT_CONTENT" ]]; then
   exit 0
 fi
 
-# Escape single quotes for SQL (bash parameter expansion — safer + faster than sed)
-SNAPSHOT_ESCAPED="${SNAPSHOT_CONTENT//\'/\'\'}"
+# Escape single quotes for SQL via sed — bash 3.2 (macOS) parameter
+# expansion `${V//\'/\'\'}` produces `\'\'`, which is not valid SQL.
+sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+SNAPSHOT_ESCAPED=$(sql_escape "$SNAPSHOT_CONTENT")
+ROLE_ESC=$(sql_escape "$ROLE")
 
 # Get current session_id
-SESSION_ID=$(turso db shell "$TURSO_URL" \
-  "SELECT session_id FROM agents WHERE role='$ROLE' LIMIT 1;" 2>/dev/null | tail -n 1 || echo "")
+SESSION_ID=$(juvant_db_query \
+  "SELECT session_id FROM agents WHERE role='$ROLE_ESC' LIMIT 1;" \
+  | tail -n 1 || echo "")
+SESSION_ESC=$(sql_escape "$SESSION_ID")
 
-# Write snapshot to Turso
-turso db shell "$TURSO_URL" \
-  "INSERT INTO session_snapshots (agent, snapshot, session_id, created_at) VALUES ('$ROLE', '$SNAPSHOT_ESCAPED', '$SESSION_ID', '$NOW');" \
-  2>/dev/null || echo "[pre-compact] WARN: Failed to write snapshot to Turso." >&2
+# Write snapshot
+juvant_db_exec \
+  "INSERT INTO session_snapshots (agent, snapshot, session_id, created_at)
+   VALUES ('$ROLE_ESC', '$SNAPSHOT_ESCAPED', '$SESSION_ESC', '$NOW');" \
+  || echo "[pre-compact] WARN: Failed to write snapshot." >&2
 
 exit 0

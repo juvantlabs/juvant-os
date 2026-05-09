@@ -192,38 +192,72 @@ your finding (`[REDACTED — {match_class}]`). Do not store the matched string a
 10. `manifests` row exists for every agent file, with consistent `installed_sha`.
 11. **Orphan-audit detection (cover-up failure mode, handbook ADR 0004 #6).**
     Any `security_audit_log` row with `auditor='cso'` that has **no
-    corresponding `Task(subagent_type='cso', ...)` invocation in the
-    surrounding session window** is forensically suspect. Detection
-    procedure:
+    corresponding `Task` tool invocation in the surrounding time
+    window** is forensically suspect. The CSO subagent only ever
+    writes audit rows in turns spawned via `Task(subagent_type='cso', ...)`
+    by the orchestrating Skill or another agent — if the
+    `agent_actions_log` shows no `Task` calls in the 60-min window
+    preceding an audit row, the row was likely fabricated by a
+    non-CSO context (handbook ADR 0004 cover-up failure mode #6).
+
+    **Important note on correlation precision (v0.6.3 baseline).**
+    The check below uses a **time-window** correlation, not a strict
+    session_id join. Reason: in the current schema, the parent session
+    that invokes Task and the spawned CSO subagent session use
+    distinct `session_id` values (the subagent gets its own from
+    Claude Code), so a same-session join produces false positives
+    on every legitimate audit. v0.6.4+ will add a
+    `parent_session_id` column to `agent_actions_log` (or pass the
+    parent session_id through the Task prompt and have CSO write it
+    into `security_audit_log.session_id`) for tighter correlation;
+    until then this check is precise on the absence-of-Task signal
+    and imprecise on the identity-of-spawned-agent signal.
 
     ```sql
-    -- Candidate: rows authored as 'cso' that lack a same-session Task
-    -- spawn into 'cso' (cross-reference via agent_actions_log).
+    -- For each CSO audit row, require at least one Task invocation
+    -- in the 60-min window preceding it. Empty result = no orphans.
     SELECT sal.id, sal.session_id, sal.scope, sal.audit_type, sal.created_at
       FROM security_audit_log sal
      WHERE sal.auditor = 'cso'
        AND NOT EXISTS (
-         SELECT 1
-           FROM agent_actions_log aal
-          WHERE aal.session_id = sal.session_id
-            AND aal.tool_name = 'Task'
-            AND aal.args_hash IN (
-              SELECT args_hash
-                FROM agent_actions_log
-               WHERE tool_name = 'Task'
-                 AND status = 'success'
-            )
+         SELECT 1 FROM agent_actions_log aal
+          WHERE aal.tool_name = 'Task'
+            AND aal.status IN ('pending', 'success')
+            AND aal.started_at >= datetime(sal.created_at, '-60 minutes')
             AND aal.started_at <= sal.created_at
-            AND aal.started_at >= datetime(sal.created_at, '-30 minutes')
        );
     ```
 
     Any non-empty result is reported as **HIGH severity** finding
     `cover-up:cso-audit-fabrication`. The `bootstrap_baseline=1` row
     is the canonical first instance; subsequent CSO audits MUST also
-    pass this orphan check. Operator-mode sessions (`AGENT_ROLE` unset
-    or `'ceo'`) writing CSO audit rows is also reported (a human
-    cannot author CSO audits — only the CSO subagent can).
+    pass this check.
+
+    Two fail-safe predicates that catch the failure mode regardless
+    of correlation precision:
+
+    a. **Empty `agent_actions_log` plus non-empty `security_audit_log`
+       with `auditor='cso'` is always a cover-up flag**, since
+       `pre-tool-use.sh` writes a row for every tool call when the
+       database is reachable. An audit row authored without ANY tool
+       activity recorded is structurally impossible from a real CSO
+       subagent run.
+
+    b. **Operator-mode CSO audit rows (`AGENT_ROLE` unset or `'ceo'`
+       or `'operator'`) are always a cover-up flag.** Humans cannot
+       author CSO audits — only the CSO subagent can. `pre-tool-use.sh`
+       records the role of the writer in `agent_actions_log.agent`;
+       cross-reference any audit row's adjacent log entries to confirm
+       the writing role was `'cso'` and not the operator.
+
+    The orphan check is best-effort defense-in-depth. The primary
+    integrity guarantee comes from `JUVANT_OS.md` Step 9.7
+    HARD-REQUIRED rule (Skill must invoke Task; cannot synthesize
+    verdict; cannot write audit rows directly). This Layer 5 check
+    catches **negligent** fabrication; a determined adversary
+    spawning a Task to a non-CSO subagent and then writing audit
+    rows would pass time-window check but fail predicate (b) if the
+    writing role is logged correctly.
 
 ---
 

@@ -92,38 +92,37 @@ fi
 # ─────────────────────────────────────────────
 # Track 3 — append-only audit log
 # ─────────────────────────────────────────────
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  if [[ -f "$CONFIG" ]]; then
-    TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
-    TURSO_TOKEN=$(jq -r '.turso_token // ""' "$CONFIG" 2>/dev/null || echo "")
-  fi
+# Routes via hooks/lib/db.sh so Local SQLite adopters get audit-log
+# writes too. Pre-v0.6.3 the hook only used `turso db shell` directly,
+# which silently no-ops on Local installations (the turso CLI cannot
+# read filesystem paths) — Track 3 of handbook ADR 0004 was effectively
+# disabled for every Local adopter. v0.6.3 fix.
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/db.sh"
+
+# SQL-escape single quotes via sed (bash 3.2 parameter expansion
+# `${V//\'/\'\'}` produces `\'\'` on macOS default bash, which is
+# not valid SQL escaping — would silently fail every INSERT carrying
+# apostrophes. See FEAT-008 layer-2 dogfood finding (2026-05-08).
+sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+
+STATUS="pending"
+DENY_SQL="NULL"
+if [[ "$DECISION" == "deny" ]]; then
+  STATUS="denied"
+  DENY_ESCAPED=$(sql_escape "$DENY_REASON")
+  DENY_SQL="'$DENY_ESCAPED'"
 fi
 
-if [[ -n "${TURSO_URL:-}" ]]; then
-  # SQL-escape single quotes via sed (bash 3.2 parameter expansion
-  # `${V//\'/\'\'}` produces `\'\'` on macOS default bash, which is
-  # not valid SQL escaping — would silently fail every INSERT carrying
-  # apostrophes. See FEAT-008 layer-2 dogfood finding (2026-05-08).
-  sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+SESSION_ESC=$(sql_escape "$SESSION_ID")
+ROLE_ESC=$(sql_escape "$ROLE")
+TOOL_ESC=$(sql_escape "$TOOL_NAME")
 
-  STATUS="pending"
-  DENY_SQL="NULL"
-  if [[ "$DECISION" == "deny" ]]; then
-    STATUS="denied"
-    DENY_ESCAPED=$(sql_escape "$DENY_REASON")
-    DENY_SQL="'$DENY_ESCAPED'"
-  fi
-
-  SESSION_ESC=$(sql_escape "$SESSION_ID")
-  ROLE_ESC=$(sql_escape "$ROLE")
-  TOOL_ESC=$(sql_escape "$TOOL_NAME")
-
-  turso db shell "$TURSO_URL" "INSERT INTO agent_actions_log
-    (session_id, agent, tool_name, args_hash, status, deny_reason)
-    VALUES
-    ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL);" \
-    >/dev/null 2>&1 || echo "[pre-tool-use] WARN: failed to write agent_actions_log row" >&2
-fi
+juvant_db_exec "INSERT INTO agent_actions_log
+  (session_id, agent, tool_name, args_hash, status, deny_reason)
+  VALUES
+  ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL);" \
+  || echo "[pre-tool-use] WARN: failed to write agent_actions_log row" >&2
 
 # ─────────────────────────────────────────────
 # Output decision

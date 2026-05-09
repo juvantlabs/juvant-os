@@ -2,7 +2,7 @@
 # hooks/subagent-stop.sh
 # Claude Code hook: SubagentStop
 # Called when a subagent (nested agent) stops within a session.
-# Logs deactivation to Turso agents table AND inserts a token-usage row
+# Logs deactivation to the agents table AND inserts a token-usage row
 # for the subagent invocation (FEAT-024).
 #
 # stdin: JSON event with subagent type, session_id, transcript_path.
@@ -11,7 +11,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
 # Read event from stdin
 EVENT_JSON=""
@@ -19,19 +18,21 @@ if [ -p /dev/stdin ]; then
   EVENT_JSON=$(cat -)
 fi
 
-# Load credentials
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  if [[ -f "$CONFIG" ]]; then
-    TURSO_URL=$(jq -r '.turso_url // .db.url // ""' "$CONFIG" 2>/dev/null || echo "")
-    TURSO_TOKEN=$(jq -r '.turso_token // .db.auth_token // ""' "$CONFIG" 2>/dev/null || echo "")
-  fi
-fi
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/db.sh"
+juvant_db_resolve
 
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
+if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
   exit 0
 fi
 
-export TURSO_URL TURSO_TOKEN
+# Cloud-provider env propagation for track-tokens.sh.
+if [[ -n "${JUVANT_DB_URL:-}" ]]; then
+  export TURSO_URL="$JUVANT_DB_URL"
+fi
+if [[ -n "${JUVANT_DB_TOKEN:-}" ]]; then
+  export TURSO_TOKEN="$JUVANT_DB_TOKEN"
+fi
 
 SUBAGENT_ROLE=""
 PARENT_SESSION_ID=""
@@ -44,10 +45,12 @@ fi
 SUBAGENT_ROLE="${SUBAGENT_ROLE:-${AGENT_ROLE:-unknown}}"
 
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
+sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+ROLE_ESC=$(sql_escape "$SUBAGENT_ROLE")
 
-turso db shell "$TURSO_URL" \
-  "UPDATE agents SET status='inactive', updated_at='$NOW' WHERE role='$SUBAGENT_ROLE';" \
-  2>/dev/null || true
+juvant_db_exec \
+  "UPDATE agents SET status='inactive', updated_at='$NOW' WHERE role='$ROLE_ESC';" \
+  || true
 
 # FEAT-024 — record subagent invocation token usage.
 if [[ -n "$TRANSCRIPT" && -n "$PARENT_SESSION_ID" && -f "$SCRIPT_DIR/lib/track-tokens.sh" ]]; then
