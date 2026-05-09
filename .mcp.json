@@ -1,11 +1,4 @@
 {
-  "mcpServers": {
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
-      }
-    }
-  }
+  "_comment": "Project-shared MCP server registrations. Empty by default — every adopter wires the servers they actually use during company-init or after. The github MCP server (used by CSO for branch-protection checks and by COO for pr-spec execution) is the most common addition; see README.md § 'Adding the github MCP server' for the exact JSON snippet plus the GITHUB_PERSONAL_ACCESS_TOKEN env-var setup. Pre-v0.6.4 this file shipped with github pre-registered, which produced a 'missing environment variable' warning at every fresh adopter's first claude invocation — first-impression UX cost. v0.6.4 ships empty here; adopters add servers explicitly.",
+  "mcpServers": {}
 }

@@ -11,6 +11,56 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — v0.6.4 batch quick-wins (F-3, F-9, F-13, F-14, F-15)
+
+Five small but adopter-visible fixes from the Echo Corp testco backlog,
+batched together because each is a single-file change with clear
+scope. Detail per finding:
+
+- **F-3 — `hooks/bash-policy.json` CSO allow-list expansion.**
+  Previous: `[git, gh, gpg, shellcheck, jq]` — too narrow for the
+  audit job. CSO needs read-only access to query state, scan agent
+  files, validate frontmatter. Expanded to: add `sqlite3`, `turso`,
+  `grep`, `awk`, `sed`, `find`, `ls`, `cat`, `head`, `tail`, `wc`,
+  `python3`. All read-only verbs; destructive `sudo`/`rm -rf`/`DROP`
+  remain blocked by the universal deny-list.
+
+- **F-9 — `.claude/settings.json` `defaultMode` policy + flag docs.**
+  Kept the production-safe `acceptEdits` default (Edit/Write
+  auto-accept, Bash prompts on each call). Added `README.md §
+  Permission modes for sandbox / test contexts` documenting
+  `claude --permission-mode auto` for trusted local work and
+  `--permission-mode bypassPermissions` for `/tmp/<testco>` throwaway
+  directories where the prompt cadence during the CSO audit becomes
+  excessive (~300 prompts on the Echo run).
+
+- **F-13 — `.mcp.json` first-run UX.** Pre-v0.6.4 shipped
+  `.mcp.json` with the github MCP server pre-registered, requiring
+  `GITHUB_PERSONAL_ACCESS_TOKEN` — every fresh adopter saw the
+  *"Missing environment variables: GITHUB_PERSONAL_ACCESS_TOKEN"*
+  warning at the first `claude` invocation. v0.6.4 ships an empty
+  `mcpServers: {}` (with explanatory comment); README adds an
+  `### Adding the github MCP server` section walking through PAT
+  creation + env-var setup + `.mcp.json` snippet.
+
+- **F-14 — `JUVANT_OS.md` Step 5 menu canonical pinning.** Previous
+  prose said only *"Skip if CEO says 'no counterparties yet'"* —
+  Skill improvised different menu UIs each session (Acme/Beta:
+  4-option menu; Gamma: pipe-delimited; Echo: skip-only). Now the
+  doc inlines the canonical 4-option menu verbatim
+  (Skip / Sample / Walk-through / Custom); per the wizard
+  determinism rule, Skill renders verbatim.
+
+- **F-15 — `JUVANT_OS.md` Step 1.5 type-it slash-prefix caveat.**
+  Claude Code's TUI interprets a leading `/` as a slash-command
+  prefix; typing `/Echo Corp/01 - Legal` emits *"Unknown command:
+  /Echo"* before the wizard recovers. Added a one-line caveat under
+  the type-it path: *"Tip: paste folder paths verbatim — Claude
+  Code may flag the leading `/` as an unknown command, but the
+  wizard records the path correctly regardless."*
+
+L1 4/4, L2 15/15, L4 10/10 PASS unchanged.
+
 ### Fixed — Layer 5 orphan-check SQL had wrong tool_name (HIGH; v0.6.4 patch #1)
 
 Surfaced by the Echo Corp testco run on 2026-05-09 against post-v0.6.3

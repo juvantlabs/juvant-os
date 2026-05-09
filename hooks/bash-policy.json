@@ -30,7 +30,7 @@
   "agent_allow": {
     "cos":          ["git", "gh", "turso", "jq"],
     "coo":          ["git", "gh", "npm", "npx", "node", "turso", "jq"],
-    "cso":          ["git", "gh", "gpg", "shellcheck", "jq"],
+    "cso":          ["git", "gh", "gpg", "shellcheck", "jq", "sqlite3", "turso", "grep", "awk", "sed", "find", "ls", "cat", "head", "tail", "wc", "python3"],
     "ca":           ["git", "gh", "jq"],
     "vpe":          ["git", "gh", "npm", "npx", "node", "turso", "jq"],
     "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
