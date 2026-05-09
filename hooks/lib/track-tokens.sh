@@ -60,15 +60,18 @@ _aggregate_usage_by_model() {
 _lookup_pricing() {
   local model="$1"
   local row
-  row=$(turso db shell "$TURSO_URL" --output csv \
+  # Routes through hooks/lib/db.sh — caller hooks source db.sh and call
+  # juvant_db_resolve before invoking track_main_session_usage /
+  # track_subagent_invocation, so juvant_db_query_csv is available.
+  row=$(juvant_db_query_csv \
     "SELECT input_per_mtok_usd, output_per_mtok_usd,
             cache_write_per_mtok_usd, cache_read_per_mtok_usd
      FROM model_pricing
      WHERE model='$model'
        AND effective_from <= DATE('now')
        AND (effective_to IS NULL OR effective_to > DATE('now'))
-     ORDER BY effective_from DESC LIMIT 1;" 2>/dev/null \
-    | tail -n +2 | head -1)
+     ORDER BY effective_from DESC LIMIT 1;" \
+    | tail -n +1 | head -1)
   if [[ -z "$row" ]]; then
     echo "0 0 0 0"
   else
@@ -120,7 +123,7 @@ track_main_session_usage() {
   local transcript="$1" session_id="$2" started_at="$3"
   local principal_id="$4" project_slug="$5" ended_at="$6"
 
-  if [[ -z "${TURSO_URL:-}" ]]; then return 0; fi
+  if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then return 0; fi
   if [[ -z "$transcript" || ! -f "$transcript" ]]; then return 0; fi
 
   local rows
@@ -152,7 +155,7 @@ track_main_session_usage() {
     principal_sql=$(_sql_quote "$principal_id")
     project_sql=$(_sql_quote "$project_slug")
 
-    turso db shell "$TURSO_URL" \
+    juvant_db_exec \
       "INSERT INTO agent_token_usage
         (id, session_id, parent_session_id, agent_name, principal_id,
          project_slug, model, input_tokens, output_tokens,
@@ -170,7 +173,7 @@ track_main_session_usage() {
          cache_read_tokens  = excluded.cache_read_tokens,
          ended_at           = excluded.ended_at,
          computed_cost_usd  = excluded.computed_cost_usd;" \
-      2>/dev/null || true
+      || true
 
     i=$((i+1))
   done
@@ -193,7 +196,7 @@ track_subagent_invocation() {
   local started_at="$4" ended_at="$5"
   local principal_id="$6" project_slug="$7"
 
-  if [[ -z "${TURSO_URL:-}" ]]; then return 0; fi
+  if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then return 0; fi
   if [[ -z "$transcript" || ! -f "$transcript" ]]; then return 0; fi
   if [[ -z "$agent" ]]; then return 0; fi
 
@@ -225,7 +228,7 @@ track_subagent_invocation() {
     principal_sql=$(_sql_quote "$principal_id")
     project_sql=$(_sql_quote "$project_slug")
 
-    turso db shell "$TURSO_URL" \
+    juvant_db_exec \
       "INSERT INTO agent_token_usage
         (id, session_id, parent_session_id, agent_name, principal_id,
          project_slug, model, input_tokens, output_tokens,
@@ -236,7 +239,7 @@ track_subagent_invocation() {
          $project_sql, '$model', $input, $output,
          $cache_write, $cache_read,
          '$started_at', '$ended_at', $cost);" \
-      2>/dev/null || true
+      || true
 
     i=$((i+1))
   done

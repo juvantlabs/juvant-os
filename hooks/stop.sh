@@ -11,22 +11,25 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
 EVENT_JSON=""
 if [ -p /dev/stdin ]; then
   EVENT_JSON=$(cat -)
 fi
 
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  if [[ -f "$CONFIG" ]]; then
-    TURSO_URL=$(jq -r '.turso_url // .db.url // ""' "$CONFIG" 2>/dev/null || echo "")
-    TURSO_TOKEN=$(jq -r '.turso_token // .db.auth_token // ""' "$CONFIG" 2>/dev/null || echo "")
-  fi
-fi
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/db.sh"
+juvant_db_resolve
 
-if [[ -z "${TURSO_URL:-}" ]]; then exit 0; fi
-export TURSO_URL TURSO_TOKEN
+if [[ -z "$JUVANT_DB_PROVIDER" ]]; then exit 0; fi
+
+# Cloud-provider env propagation for track-tokens.sh.
+if [[ -n "${JUVANT_DB_URL:-}" ]]; then
+  export TURSO_URL="$JUVANT_DB_URL"
+fi
+if [[ -n "${JUVANT_DB_TOKEN:-}" ]]; then
+  export TURSO_TOKEN="$JUVANT_DB_TOKEN"
+fi
 
 TRANSCRIPT=""
 SESSION_ID=""

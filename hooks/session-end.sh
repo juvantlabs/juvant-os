@@ -2,43 +2,48 @@
 # hooks/session-end.sh
 # Claude Code hook: SessionEnd
 # Called when a Claude Code session ends.
-# Marks agent as inactive in Turso AND finalizes the main-session
-# token-usage row (FEAT-024) with ended_at and final cumulative counters.
-# SessionEnd is the commit boundary: anything not in Turso is lost.
+# Marks agent as inactive AND finalizes the main-session token-usage
+# row (FEAT-024) with ended_at and final cumulative counters.
+# SessionEnd is the commit boundary: anything not persisted is lost.
 #
 # stdin: JSON event including transcript_path and session_id.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
 EVENT_JSON=""
 if [ -p /dev/stdin ]; then
   EVENT_JSON=$(cat -)
 fi
 
-# Load credentials
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  if [[ -f "$CONFIG" ]]; then
-    TURSO_URL=$(jq -r '.turso_url // .db.url // ""' "$CONFIG" 2>/dev/null || echo "")
-    TURSO_TOKEN=$(jq -r '.turso_token // .db.auth_token // ""' "$CONFIG" 2>/dev/null || echo "")
-  fi
-fi
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/db.sh"
+juvant_db_resolve
 
-if [[ -z "${TURSO_URL:-}" || -z "${TURSO_TOKEN:-}" ]]; then
-  echo "[session-end] WARN: No Turso credentials. Skipping status update." >&2
+if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
+  echo "[session-end] WARN: No db.provider configured. Skipping status update." >&2
   exit 0
 fi
 
-export TURSO_URL TURSO_TOKEN
+# Cloud-provider env propagation for track-tokens.sh (which expects
+# TURSO_URL/TURSO_TOKEN). Local provider sets only the URL — track-tokens
+# routes via the same db.sh helper internally.
+if [[ -n "${JUVANT_DB_URL:-}" ]]; then
+  export TURSO_URL="$JUVANT_DB_URL"
+fi
+if [[ -n "${JUVANT_DB_TOKEN:-}" ]]; then
+  export TURSO_TOKEN="$JUVANT_DB_TOKEN"
+fi
 
 ROLE="${AGENT_ROLE:-cos}"
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
+sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+ROLE_ESC=$(sql_escape "$ROLE")
 
-turso db shell "$TURSO_URL" \
-  "UPDATE agents SET status='inactive', updated_at='$NOW' WHERE role='$ROLE';" \
-  2>/dev/null || echo "[session-end] WARN: Failed to update agent status." >&2
+juvant_db_exec \
+  "UPDATE agents SET status='inactive', updated_at='$NOW' WHERE role='$ROLE_ESC';" \
+  || echo "[session-end] WARN: Failed to update agent status." >&2
 
 # FEAT-024 — finalize main-session token usage with ended_at.
 TRANSCRIPT=""
