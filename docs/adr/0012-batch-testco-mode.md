@@ -2,12 +2,21 @@
 
 ## Status
 
-Proposed (2026-05-09). Drives the v0.7.0 minor as the "automation"
-release. **Manual testco remains the primary validation mode**; batch
-is an additional test-automation layer that runs on CI for regression
-detection and faster iteration on framework changes. The two are
-parallel layers covering different surfaces (see § Coverage hybrid
-below).
+Accepted (2026-05-09). Validated end-to-end on 2026-05-09 by the first
+green batch run against the `solo-founder-local-sqlite` scenario;
+results captured at `tests/fixtures/testco/results/2026-05-09-solo-founder-local-sqlite.{jsonl,md}`.
+27 assertions across 8 classes (verdict, manifests, decisions, matrix
+rows, audit findings, pending orphans, matrix row spot checks,
+filesystem) all passed; cost $1.96, 226s wall duration, 44 assistant
+turns, 50 hook events. Three iterations to land determinism (proper
+[BATCH] event emission, correct yq syntax, MANDATORY matrix-seed
+decision row); each iteration ≤ 8 min.
+
+Drives the v0.7.0 minor as the "automation" release. **Manual testco
+remains the primary validation mode**; batch is an additional test-
+automation layer that runs on CI for regression detection and faster
+iteration on framework changes. The two are parallel layers covering
+different surfaces (see § Coverage hybrid below).
 
 ## Context
 
