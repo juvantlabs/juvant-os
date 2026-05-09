@@ -527,10 +527,10 @@ done
 fs_count=$(yq -r '.expect.filesystem_assertions | length' "$FIXTURE")
 for i in $(seq 0 $((fs_count-1))); do
   fs_path=$(yq -r ".expect.filesystem_assertions[$i].path" "$FIXTURE")
-  must_contain=$(yq -r ".expect.filesystem_assertions[$i].must_contain // empty" "$FIXTURE")
-  must_not_contain=$(yq -r ".expect.filesystem_assertions[$i].must_not_contain // empty" "$FIXTURE")
-  must_not_exist=$(yq -r ".expect.filesystem_assertions[$i].must_not_exist // empty" "$FIXTURE")
-  must_exist=$(yq -r ".expect.filesystem_assertions[$i].must_exist // empty" "$FIXTURE")
+  must_contain=$(yq -r ".expect.filesystem_assertions[$i].must_contain // \"\"" "$FIXTURE")
+  must_not_contain=$(yq -r ".expect.filesystem_assertions[$i].must_not_contain // \"\"" "$FIXTURE")
+  must_not_exist=$(yq -r ".expect.filesystem_assertions[$i].must_not_exist // \"\"" "$FIXTURE")
+  must_exist=$(yq -r ".expect.filesystem_assertions[$i].must_exist // \"\"" "$FIXTURE")
 
   full_path="$TMP_DIR/$fs_path"
   # Glob support for must_not_exist (e.g. docs/adr/0001-*.md).

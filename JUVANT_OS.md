@@ -1370,9 +1370,32 @@ The script reads the canonical v0 matrix from
 `scripts/templates/v0-agent-tool-matrix.json` (20 rows: 11 company-scope +
 9 project-scope; drift-corrected against `docs/MCP_INVENTORY.md` and
 `SYSTEM_INVARIANTS.md` §4 carve-outs as of v0.6.6). Each row is INSERTed
-with `version='v0'` and `approved_by='ceo'` (the CEO's act of running
-this wizard is the v0 approval, logged in `decisions` category
-`bootstrap-action`).
+with `version='v0'` and `approved_by='ceo'`.
+
+**HARD-REQUIRED — write the matrix-seed decision row.** Immediately
+after `seed-matrix.sh` exits 0, the Skill MUST insert a `decisions`
+row capturing CA's act of approving the v0 matrix (the CEO's act of
+running the wizard is the v0 approval; CA is the proxy author). This
+is required for audit-trail coherence with the manifesto-approval
+decisions written in Step 9 (10 rows; the matrix-seed decision brings
+the total to 11). Adopters running drift detection at month 6 expect
+to find this row.
+
+The exact INSERT (Skill must execute, batch mode and interactive mode
+identical):
+
+```sql
+INSERT INTO decisions (agent, title, category, status, approved_by, executed_at, rationale)
+VALUES ('ca',
+        'Seed agent_tool_matrix v0',
+        'bootstrap-action',
+        'executed',
+        'ceo',
+        CURRENT_TIMESTAMP,
+        'Initial v0 matrix seeded from scripts/templates/v0-agent-tool-matrix.json by scripts/seed-matrix.sh during company init wizard. CEO ratification implicit in running the wizard. Drift-corrected baseline per ADR 0011 + ADR 0012 (v0.6.6+).');
+```
+
+The Skill MUST emit a `[BATCH] {"event":"checkpoint","step":"8","detail":"matrix-seed decision row written","decisions_count":<post-insert-count>}` line + `>> .juvant/batch-events.jsonl` append after the INSERT (batch mode only — interactive mode skips event emission).
 
 The Skill MUST NOT improvise SQL helpers or Python scripts at this step.
 Pre-v0.6.6 testco runs surfaced five different ad-hoc paths across five
