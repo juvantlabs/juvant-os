@@ -1,0 +1,46 @@
+{
+  "version": "v0",
+  "source": "agents/company/ca.md §Default Agent Tool Matrix + corrections from Step 8.5 cross-check",
+  "derived_at": "2026-05-09T00:00:00Z",
+  "company": "Golf Corp",
+  "corrections_applied": [
+    "L4-eng-platform: ADD row for eng-platform (turso, github:read) — resolves F-13 founding-vs-deferred ambiguity by promoting to founding company-scope cross-project infra agent.",
+    "L1-m365-graph: ADD m365-graph to mcp_servers for CFO/CLO/CMO/CCO/CDO/CoS/CRO (status=shipped per MCP_INVENTORY.md FEAT-014). Closes coverage gap between inventory ownership claim and matrix grants.",
+    "L1-fattura_elettronica: ADD fattura_elettronica to CFO mcp_servers (status=pending FEAT-012; CFO operates in restricted mode for Italian e-invoicing until Aruba MCP ships).",
+    "L1-bank-concrete: ANNOTATE CFO bank:read with concrete provider binding 'golfbank → npm:@golf/bank-mcp-stub' in rationale; abstract role 'bank' remains the matrix entry per ca.md §abstraction note.",
+    "L2-cos-boundary: ANNOTATE CoS row with disclosure-boundary scope refinement — telegram:send is restricted to CEO-only Critical alerts (per cos.md §Notification rules), not general external broadcast. Recorded as v0-known-drift in agent_tool_matrix.notes for upstream resolution (proposed CA decision: tool-matrix-change to formally exempt CEO-direct notifications from the §4 external-channel-send clause). Build-fail SUPPRESSED at sandbox/test instance per F-12 instrumentation; production company init would BUILD-FAIL here pending upstream remediation."
+  ],
+  "rows": [
+    {"agent": "cos",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "m365-graph"],                       "skills": [],                              "channels": ["telegram:send-ceo-only"], "rationale": "Orchestrator; proxies CEO ↔ agents; sends Critical alerts via Telegram to CEO ONLY (scoped channel — not general external broadcast; v0-known-drift wrt §4 boundary, see notes)."},
+    {"agent": "cfo",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "m365-graph", "bank:read", "fattura_elettronica"], "skills": ["pdf", "docx"],     "channels": [],                "rationale": "Banking + financial docs; bank:read concrete=golfbank/npm:@golf/bank-mcp-stub; fattura_elettronica restricted (pending FEAT-012); mail-enabled (finance@golf.test)."},
+    {"agent": "clo",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "m365-graph"],                       "skills": ["pdf", "docx"],                 "channels": [],                "rationale": "Legal docs + contracts; mail-enabled (legal@golf.test)."},
+    {"agent": "cmo",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "m365-graph", "buffer"],             "skills": ["docx"],                        "channels": [],                "rationale": "Brand + scheduled posting; buffer not yet specified (restricted); mail-enabled (press@golf.test)."},
+    {"agent": "cco",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "m365-graph"],                       "skills": ["docx", "pdf"],                 "channels": [],                "rationale": "Sales + partnerships; mail-enabled (hello@golf.test)."},
+    {"agent": "chro",         "scope": "company", "mcp_servers": ["turso"],                                                 "skills": [],                              "channels": [],                "rationale": "Internal HR; ranking + manifesto + offboarding."},
+    {"agent": "cso",          "scope": "company", "mcp_servers": ["turso", "github:read"],                                  "skills": [],                              "channels": [],                "rationale": "5-layer audits; investigates security_audit_log."},
+    {"agent": "cetho",        "scope": "company", "mcp_servers": ["turso"],                                                 "skills": [],                              "channels": [],                "rationale": "Ethics framework; validates disclosure policies."},
+    {"agent": "ca",           "scope": "company", "mcp_servers": ["turso", "github:read"],                                  "skills": [],                              "channels": [],                "rationale": "Owns agent_tool_matrix; cross-project standards; read-only github."},
+    {"agent": "cro",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "m365-graph"],                       "skills": ["docx", "pdf"],                 "channels": [],                "rationale": "Research synthesis; reads SharePoint/OneDrive (write capability via m365-graph for white-paper artifacts)."},
+    {"agent": "eng-platform", "scope": "company", "mcp_servers": ["turso", "github:read"],                                  "skills": [],                              "channels": [],                "rationale": "Cross-project infra agent; F-13 correction promotes to founding (audit-bootstrap-baseline.sh line 338 'cross-project infra agent operational' interpretation)."},
+    {"agent": "cto",          "scope": "project", "mcp_servers": ["turso", "github:read"],                                  "skills": ["frontend-design"],             "channels": [],                "rationale": "Per-project tech leadership; read-only github."},
+    {"agent": "cpo",          "scope": "project", "mcp_servers": ["turso", "github:read"],                                  "skills": ["docx"],                        "channels": [],                "rationale": "Per-project product strategy."},
+    {"agent": "cdo",          "scope": "project", "mcp_servers": ["turso", "github:read", "ms-graph", "m365-graph"],        "skills": ["frontend-design", "docx"],     "channels": [],                "rationale": "Design system / brand UI / UX research; m365-graph write for design-spec docs."},
+    {"agent": "coo",          "scope": "project", "mcp_servers": ["turso", "github:write"],                                 "skills": [],                              "channels": [],                "rationale": "Sole github:write per §4 Single-Writer Invariant."},
+    {"agent": "vpe",          "scope": "project", "mcp_servers": ["turso", "github:read"],                                  "skills": [],                              "channels": [],                "rationale": "Per-project Eng/* aggregation."},
+    {"agent": "eng-api",      "scope": "project", "mcp_servers": ["turso", "github:read"],                                  "skills": ["data-analysis"],               "channels": [],                "rationale": "API engineering."},
+    {"agent": "eng-backend",  "scope": "project", "mcp_servers": ["turso", "github:read"],                                  "skills": ["data-analysis"],               "channels": [],                "rationale": "Backend engineering."},
+    {"agent": "eng-frontend", "scope": "project", "mcp_servers": ["turso", "github:read"],                                  "skills": ["frontend-design"],             "channels": [],                "rationale": "Frontend engineering."},
+    {"agent": "eng-ai",       "scope": "project", "mcp_servers": ["turso", "github:read"],                                  "skills": ["data-analysis"],               "channels": [],                "rationale": "AI/ML engineering."}
+  ],
+  "row_count": 20,
+  "deltas_vs_raw": {
+    "added_rows": ["eng-platform"],
+    "modified_rows": ["cos", "cfo", "clo", "cmo", "cco", "cro", "cdo"],
+    "unchanged_rows": ["chro", "cso", "cetho", "ca", "cto", "cpo", "coo", "vpe", "eng-api", "eng-backend", "eng-frontend", "eng-ai"]
+  },
+  "notes": [
+    "Suppressed build-fail on L2-cos-boundary per F-12 sandbox instrumentation. Production company init MUST resolve upstream first (handbook decision: refine §4 boundary to exempt CEO-direct alerts, OR move CoS Critical alerts to a webhook helper invoked by post-tool-use hook so the matrix row no longer holds external-channel-send).",
+    "Corrected matrix is 20 rows (added eng-platform). Bootstrap N=10 company-scope manifestos still applies (eng-platform is a SUBAGENT not a founding manifesto-owning agent — cf. SYSTEM_INVARIANTS.md §1 founding-set definition).",
+    "F-12 capture target: the canonical v0 matrix in upstream coo.md/ca.md should be patched to (a) include eng-platform, (b) cover m365-graph + fattura_elettronica, (c) annotate CoS boundary scope. Ship in v0.6.6 via scripts/seed-matrix.sh (per user instruction)."
+  ]
+}

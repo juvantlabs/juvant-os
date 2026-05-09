@@ -58,7 +58,15 @@ binding that violates these:
   handbook ADR 0002.
 - **`github:write`** to any agent except COO (single-writer invariant §4).
 - **`state.db` read AND external-channel send in the same matrix row** —
-  collapses the disclosure boundary.
+  collapses the disclosure boundary. **Exception**: channels of class
+  `<channel>:send-ceo-only` (e.g. `telegram:send-ceo-only`) are not
+  external-channel sends for the purposes of this clause; they are
+  operator-direct notifications bound to a config-resolved recipient
+  that is the human principal already in the trust loop. CoS holding
+  `[turso, telegram:send-ceo-only]` does not violate this boundary.
+  See [ADR 0011](adr/0011-ceo-direct-channel-class.md) for the
+  channel-class definition and the Step 4 confirmation gate that
+  enforces the operator-recipient contract.
 - **Unrestricted `Bash`** to any external-facing agent (portal / demo
   variants).
 

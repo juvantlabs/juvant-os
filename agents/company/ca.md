@@ -202,34 +202,47 @@ If a request would cross any boundary, REJECT and route to CEO via CoS as `unive
 ## Default Agent Tool Matrix (template seed)
 
 This is the v0 matrix shipped with the OSS template. It is loaded into `agent_tool_matrix`
-at company init and immediately becomes editable through the governance flow above.
+at company init by `scripts/seed-matrix.sh` (Step 8 of the wizard) — the canonical runtime
+source is `scripts/templates/v0-agent-tool-matrix.json`; this table is the human reference
+that must be kept in lockstep. Any drift between the two is detected by Step 8.5 cross-check
+against `docs/MCP_INVENTORY.md` and `SYSTEM_INVARIANTS.md` §4 (see also CSO subagent Layer 5
+§11 audit).
 
-| Agent | MCP servers | Skills | Channels |
-|---|---|---|---|
-| cos | turso, ms-graph | — | telegram (send) |
-| cfo | turso, ms-graph, bank:read | pdf, docx | — (mail-enabled, see footnote 2) |
-| clo | turso, ms-graph | pdf, docx | — (mail-enabled, see footnote 2) |
-| cmo | turso, ms-graph, buffer | docx | — (mail-enabled, press scope, see footnote 2) |
-| cco | turso, ms-graph | docx, pdf | — (mail-enabled, see footnote 2) |
-| chro | turso | — | — |
-| cso | turso, github:read | — | — |
-| cetho | turso | — | — |
-| ca | turso, github:read | — | — |
-| cro | turso, ms-graph | docx, pdf | — |
-| cto | turso, github:read | frontend-design | — |
-| cpo | turso, github:read | docx | — |
-| cdo | turso, github:read, ms-graph | frontend-design, docx | — |
-| coo | turso, github:write | — | — |
-| vpe | turso, github:read | — | — |
-| eng-api | turso, github:read | data-analysis | — |
-| eng-backend | turso, github:read | data-analysis | — |
-| eng-frontend | turso, github:read | frontend-design | — |
-| eng-ai | turso, github:read | data-analysis | — |
+The matrix becomes editable immediately after seeding through the governance flow above.
+
+| Agent | Scope | MCP servers | Skills | Channels |
+|---|---|---|---|---|
+| cos | company | turso, ms-graph, m365-graph | — | telegram:send-ceo-only (footnote 3) |
+| cfo | company | turso, ms-graph, m365-graph, bank:read, fattura_elettronica | pdf, docx | — (mail-enabled, see footnote 2) |
+| clo | company | turso, ms-graph, m365-graph | pdf, docx | — (mail-enabled, see footnote 2) |
+| cmo | company | turso, ms-graph, m365-graph, buffer | docx | — (mail-enabled, press scope, see footnote 2) |
+| cco | company | turso, ms-graph, m365-graph | docx, pdf | — (mail-enabled, see footnote 2) |
+| chro | company | turso | — | — |
+| cso | company | turso, github:read | — | — |
+| cetho | company | turso | — | — |
+| ca | company | turso, github:read | — | — |
+| cro | company | turso, ms-graph, m365-graph | docx, pdf | — |
+| eng-platform | company | turso, github:read | — | — (footnote 4) |
+| cto | project | turso, github:read | frontend-design | — |
+| cpo | project | turso, github:read | docx | — |
+| cdo | project | turso, github:read, ms-graph, m365-graph | frontend-design, docx | — |
+| coo | project | turso, github:write | — | — |
+| vpe | project | turso, github:read | — | — |
+| eng-api | project | turso, github:read | data-analysis | — |
+| eng-backend | project | turso, github:read | data-analysis | — |
+| eng-frontend | project | turso, github:read | frontend-design | — |
+| eng-ai | project | turso, github:read | data-analysis | — |
 
 Note: `bank` is an abstract role bound to a concrete provider (Finom, Mercury, Revolut, Wise, …)
-at company init. The matrix references the abstraction; the binding lives in `.claude/settings.json`.
-The `:read` qualifier is enforced by the MCP server configuration — the read-only client cannot invoke
+at company init. The matrix references the abstraction; the binding lives in `.claude/settings.json`
+(MCP server config) and `.juvant/config.json` (`bank.provider`, `bank.mcp_server`). The `:read`
+qualifier is enforced by the MCP server configuration — the read-only client cannot invoke
 write endpoints regardless of agent intent.
+
+`fattura_elettronica` is the abstract role for Italian e-invoicing (FEAT-012); the concrete
+provider binding (Aruba is the canonical seed) lives in `.juvant/config.json` `e_invoice.provider`.
+Status is `pending` in `docs/MCP_INVENTORY.md` until FEAT-012 ships; agents holding the row
+operate in restricted mode for e-invoicing workflows until then.
 
 **Footnote 2 — mail-enabled is not a Channel.** Per
 [ADR 0009](../../docs/adr/0009-mail-via-ms-graph-on-demand.md) (which
@@ -261,6 +274,33 @@ CDO, VPE, eng-*) carry `github:read` only. Single-writer is a security invariant
 SYSTEM_INVARIANTS.md §4 for the canonical statement: every state change to any repository flows
 through COO, which makes audit trails clean and human review tractable. Agents that need a
 repository change produce a PR spec; COO executes.
+
+**Footnote 3 — `telegram:send-ceo-only` is a §4 carve-out, not a violation.** The CoS row
+holds both `turso` (state.db read) and a Telegram send capability. On the literal reading of
+SYSTEM_INVARIANTS.md §4 / `docs/MCP_INVENTORY.md` § Universal boundary violations, a row
+holding both state read AND external-channel send collapses the disclosure boundary. The
+qualifier `:send-ceo-only` is a distinct channel class introduced by
+[ADR 0011](../../docs/adr/0011-ceo-direct-channel-class.md) and exempted from the §4
+boundary clause. The exemption applies because the recipient is bound at company-init time
+(`.juvant/config.json` `notifications.telegram.chat_id`) to the CEO's personal Telegram
+account, the destination is the human operator (not an external counterparty), and only CoS
+holds the grant. Step 4 of the wizard enforces a one-time confirmation that the bound chat
+is the operator's personal channel. Other agents may not bind any `:send-ceo-only` channel
+without ratification through `tool-matrix-change` decision class.
+
+**Footnote 4 — `eng-platform` is a founding company-scope subagent.** The `eng-platform`
+agent file ships in `agents/company/eng-platform.md` and is registered to the canonical Task
+spawn path (`.claude/agents/eng-platform.md` symlink per ADR 0010). The matrix row is
+company-scope (not project-scope) because the agent provides cross-project infrastructure
+work — repo housekeeping, tooling upgrades, CI maintenance, environment provisioning — that
+spans whatever projects are active. `eng-platform` carries `github:read` only; any
+infrastructure-touching change still flows through COO via the spec → execute pattern (§4
+Single-Writer Invariant). This row was promoted from per-project deferred status by Golf
+Corp testco F-12 finding L4-eng-platform; pre-v0.6.6 the file existed but the matrix row was
+absent, surfaced as `agents:upstream-matrix-drift` in `security_audit_log`. Note: the
+bootstrap protocol still expects 10 founding manifestos (cos, cfo, clo, cmo, cco, chro, cso,
+cetho, ca, cro) — `eng-platform` is a founding *agent* (matrix row, registered subagent) but
+not a founding *manifesto-owning* agent (no Tier-1 manifesto required at bootstrap).
 
 Portal variants (cfo-portal, clo-portal, cco-portal, cco-demo) are v1.1 and inherit their parent's
 matrix with restrictions to be defined at portal release.

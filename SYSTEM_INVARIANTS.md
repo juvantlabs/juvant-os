@@ -358,6 +358,15 @@ Summary:
 - This single-writer property is a security invariant, not a preference.
   CA cannot grant `github:write` to any other agent under any rationale.
 
+**Disclosure-boundary corollary** — `state.db` read AND external-channel
+send in the same matrix row collapses the disclosure boundary and is
+forbidden. The operational enumeration of this corollary, plus the
+`<channel>:send-ceo-only` carve-out for operator-direct notifications,
+lives in `docs/MCP_INVENTORY.md` § Universal Boundaries. See
+[ADR 0011](docs/adr/0011-ceo-direct-channel-class.md) for the
+channel-class definition and the wizard's Step 4 confirmation gate
+that enforces the operator-recipient contract.
+
 ---
 
 ## §5 — Universal CONFIDENTIAL List
