@@ -121,7 +121,11 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:learn.microsoft.com)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(bash scripts/compile-templates.sh:*)",
+      "Bash(scripts/compile-templates.sh:*)",
+      "Bash(bash scripts/migrate.sh:*)",
+      "Bash(scripts/migrate.sh:*)"
     ],
     "deny": [
       "Edit(**/.env)",

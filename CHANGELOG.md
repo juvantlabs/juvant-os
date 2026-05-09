@@ -11,6 +11,60 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added — `scripts/compile-templates.sh` shipped (F-6)
+
+Pre-v0.6.4 every wizard pass at Step 7 (template substitution)
+improvised an ad-hoc Python helper at a different path:
+
+- Acme: `.juvant/_compile.py`
+- Beta: `/tmp/compile_templates.py`
+- Gamma: `/tmp/testco-bootstrap-manifestos.py`
+- Delta: `.juvant/seed-manifests.py`
+- Echo: `/tmp/compile_agents.py`
+
+Five different paths across five testco runs. Different sessions
+interpret the substitution rules subtly differently; inconsistent
+behavior across adopters. Plus: each anonymous heredoc tripped
+Claude Code's "shell syntax cannot be statically analyzed" warning,
+contributing to the prompt-flood during the CSO subagent audit.
+
+v0.6.4 ships `scripts/compile-templates.sh` — canonical Bash script
+codifying the substitution rules:
+
+- Reads identity, agent names, GitHub handles, and tunables from
+  `.juvant/config.json` (with SYSTEM_INVARIANTS.md §2 defaults
+  for tunables when not overridden).
+- Walks `agents/<scope>/*.md` (default: company; `--scope projects`
+  at project init).
+- Substitutes whole-token placeholders only.
+- Refuses to write (exit code 2) if any non-allowlisted placeholder
+  survives. Allowlist: `ACTIVE_PROJECT`, `PROJECT_NAME` (runtime-
+  bound at SessionStart / project init).
+- `--codeowners` flag substitutes `{{*_GITHUB}}` in
+  `.github/CODEOWNERS` (Step 7.5 deliverable).
+- `--check-only` flag for dry-run validation.
+
+`JUVANT_OS.md` Step 7 + Step 7.5 rewritten to invoke the script:
+*"The Skill MUST invoke `bash scripts/compile-templates.sh --scope
+company`."* The improvised helper anti-pattern is closed at Step 7.
+
+`.claude/settings.json` pre-allows `Bash(bash scripts/compile-templates.sh:*)`
++ `Bash(scripts/compile-templates.sh:*)` + same for `migrate.sh` so
+adopters don't get prompted during normal bootstrap. One named
+allowlist entry per script vs N anonymous heredoc prompts pre-v0.6.4.
+
+This is the first of three shipped-script fixes in v0.6.4. The other
+two (`scripts/seed-matrix.sh` for F-7 and `scripts/audit-bootstrap-baseline.sh`
+for F-8) require additional investigation:
+
+- F-7 depends on F-12 (`coo.md` canonical v0 matrix has 11 errors
+  the wizard auto-corrects; need to fix at source before encoding
+  in a script).
+- F-8 depends on F-11 (CSO query schema correctness; need to know
+  which queries to encode).
+
+Both deferred to a focused dogfood pass with explicit logging.
+
 ### Fixed — Wizard rendering rule amended with collection-collapse pattern (F-4 + F-5)
 
 The v0.6.2 wizard determinism rule (HARD-REQUIRED one-question-at-a-time)

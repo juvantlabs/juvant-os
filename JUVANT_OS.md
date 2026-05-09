@@ -972,9 +972,17 @@ Whole-token substitution only — no partial matches.
 
 ### Wizard — Step 7: Compile templates
 
-For each `agents/**/*.md` file:
+The Skill **MUST** invoke the canonical compiler:
 
-1. Read the template.
+```bash
+bash scripts/compile-templates.sh --scope company
+```
+
+`scripts/compile-templates.sh` is shipped with the OSS template
+(v0.6.4+). Its responsibilities — codified in the script, not
+improvised by the Skill at runtime — are:
+
+1. Read the template files under `agents/company/*.md`.
 2. Substitute every `{{PLACEHOLDER}}` (whole-token only) using:
    - §2 defaults for `{{*_NAME}}` (overridden if CEO chose differently in Step 6).
    - Step 1–4 collected values for `{{COMPANY_NAME}}`, `{{COMPANY_DOMAIN}}`,
@@ -985,10 +993,27 @@ For each `agents/**/*.md` file:
      (they bind at SessionStart per Boot Mode and at project init respectively).
 3. Refuse to write if any `{{...}}` token survives substitution, **except for
    placeholders on the SYSTEM_INVARIANTS.md §2 runtime-bound allowlist**
-   (today: `{{ACTIVE_PROJECT}}`, bound at SessionStart). A surviving
-   non-allowlisted token is a CSO Layer 5 finding; abort and surface the
+   (`ACTIVE_PROJECT`, `PROJECT_NAME`). A surviving non-allowlisted token
+   exits with code 2 → CSO Layer 5 finding; abort the wizard and surface the
    offending file.
 4. Write the compiled file in place (overwriting the template).
+
+**Why a shipped script.** Pre-v0.6.4 every wizard pass improvised an
+ad-hoc Python helper at a different path (5 different paths across 5
+testco runs — Acme `.juvant/_compile.py`, Beta `/tmp/compile_templates.py`,
+Gamma `/tmp/testco-bootstrap-manifestos.py`, Delta `.juvant/seed-manifests.py`,
+Echo `/tmp/compile_agents.py`). Different sessions interpret the
+substitution rules subtly differently. Shipping `scripts/compile-templates.sh`
+makes the operation deterministic across all adopters and Skill sessions,
+allowlistable in `.claude/settings.json` (one `Bash(bash scripts/compile-templates.sh*)`
+allow instead of N anonymous heredocs each tripping static-analysis), and
+auditable through git history.
+
+For a dry-run check without writing:
+```bash
+bash scripts/compile-templates.sh --scope company --check-only
+```
+
 5. **Runtime registration is implicit.** The OSS template ships with
    `.claude/agents/<role>.md` as relative symlinks to
    `../../agents/company/<role>.md` for each of the 10 founding company-scope
@@ -997,8 +1022,9 @@ For each `agents/**/*.md` file:
    step is required (see ADR 0010).
 
 Project-scope agents (`agents/projects/*.md`) are NOT compiled here — they are
-compiled at project init (see "Project setup" below). At project init, the
-wizard creates `.claude/agents/<project>-<role>.md` symlinks pointing to
+compiled at project init via the same script with `--scope projects` (see
+"Project setup" below). At project init, the wizard creates
+`.claude/agents/<project>-<role>.md` symlinks pointing to
 `agents/projects/<role>.md` so that `Task(subagent_type='<project>-<role>', ...)`
 resolves through the same mechanism.
 
@@ -1008,8 +1034,15 @@ After agent template compilation, the wizard renders the infrastructure
 files that ship with the OSS template and require placeholder substitution:
 
 - **`.github/CODEOWNERS`** — substitutes `{{*_GITHUB}}` placeholders from
-  `github_user_map` (Step 1.6). Solo-founder instances collapse all
-  placeholders to the CEO's handle; multi-human teams get per-role overrides.
+  `github_user_map` (Step 1.6) via the same shipped script:
+
+  ```bash
+  bash scripts/compile-templates.sh --codeowners
+  ```
+
+  Solo-founder instances collapse all placeholders to the CEO's handle;
+  multi-human teams get per-role overrides. Same exit-code-2 protection
+  if any non-allowlisted placeholder survives.
 
 Other infrastructure files ship as-is — they reference role abstractions or
 are environment-agnostic:
