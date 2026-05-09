@@ -3,8 +3,7 @@ name: Juvant OS testco batch
 on:
   push:
     tags:
-      - 'v[0-9]+.0.0'             # major release: full multi-scenario sweep
-      - 'v[0-9]+.[1-9][0-9]*.0'   # minor release (excluding X.0.0): primary scenario only
+      - 'v*.*.*'                  # all 3-segment version tags; tier decided at runtime
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -35,13 +34,35 @@ jobs:
           set -euo pipefail
           # Major tag → all scenarios; everything else → primary only.
           # Manual dispatch with `scenarios=all` → all scenarios.
+          # `jq -c` produces compact (single-line) JSON; required by
+          # GITHUB_OUTPUT which fails on multi-line values without a
+          # `<<DELIMITER` heredoc envelope.
           all_scenarios='["solo-founder-local-sqlite"]'
           # Future: append "solo-founder-turso-cloud" + "multi-project-local-sqlite"
           # once those fixtures land. Per ADR 0012 § Scope phasing.
 
-          if [[ "${GITHUB_REF}" =~ ^refs/tags/v[0-9]+\.0\.0$ ]]; then
-            echo "Major tag detected — running full sweep."
-            scenarios="$all_scenarios"
+          # Tag tier decision (single-source-of-truth at runtime).
+          # Tag refs land as refs/tags/vX.Y.Z. We classify:
+          # - X.0.0 → major: full sweep
+          # - X.Y.0 (Y>0) → minor: primary only
+          # - X.Y.Z (Z>0) → patch: skip (no run; not on the trigger filter
+          #   technically because patches are rarely tagged here, but if
+          #   one slips through we no-op)
+          tag="${GITHUB_REF#refs/tags/}"
+          if [[ "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            if [[ "$minor" == "0" && "$patch" == "0" ]]; then
+              echo "Major tag $tag detected — running full sweep."
+              scenarios="$all_scenarios"
+            elif [[ "$patch" == "0" ]]; then
+              echo "Minor tag $tag detected — primary scenario only."
+              scenarios='["solo-founder-local-sqlite"]'
+            else
+              echo "Patch tag $tag — no batch run scheduled; emitting empty matrix."
+              scenarios='[]'
+            fi
           elif [[ "${{ github.event.inputs.scenarios }}" == "all" ]]; then
             echo "Manual dispatch with scenarios=all."
             scenarios="$all_scenarios"
@@ -49,15 +70,14 @@ jobs:
             # Manual dispatch with a comma-separated list — convert to JSON array.
             scenarios=$(echo '${{ github.event.inputs.scenarios }}' \
               | tr ',' '\n' | sed 's/^ *//; s/ *$//' \
-              | jq -Rrs 'split("\n") | map(select(length>0))')
+              | jq -Rrcs 'split("\n") | map(select(length>0))')
           else
-            echo "Minor tag or PR label — primary scenario only."
+            echo "PR label or unknown trigger — primary scenario only."
             scenarios='["solo-founder-local-sqlite"]'
           fi
 
           echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
-          echo "Resolved scenario matrix:"
-          echo "$scenarios" | jq .
+          echo "Resolved scenario matrix: $scenarios"
 
   validate-fixtures:
     if: >-
