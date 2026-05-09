@@ -70,8 +70,10 @@ fi
 # Source the shared db-routing helper (sqlite3 vs turso CLI by provider).
 . "$ROOT/hooks/lib/db.sh"
 
-# Refuse to overwrite a populated matrix unless --force.
-existing=$(juvant_db_exec "SELECT COUNT(*) FROM agent_tool_matrix;" 2>/dev/null | tail -1)
+# Refuse to overwrite a populated matrix unless --force. Reads go via
+# juvant_db_query, not juvant_db_exec — the latter pipes stdout to
+# /dev/null (write-fn semantics) and would always see an empty count.
+existing=$(juvant_db_query "SELECT COUNT(*) FROM agent_tool_matrix;" 2>/dev/null | tail -1)
 existing="${existing:-0}"
 if [[ "$existing" -gt 0 && "$FORCE" != "1" ]]; then
   echo "ERROR: agent_tool_matrix already has $existing rows; pass --force to re-seed." >&2
@@ -86,6 +88,12 @@ fi
 
 # Build a single SQL transaction. One INSERT per row; arrays serialized
 # as JSON strings so downstream readers can `json_extract` the columns.
+# SQLite literals are single-quoted; embedded single quotes escape via
+# doubling (`''`). Bash 3.2 ${var//pat/repl} produces broken escapes
+# on macOS for literal single-quote replacement (see pre-tool-use.sh
+# FEAT-008 comment), so we use a sed-based helper.
+sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+
 SQL_BUFFER=$(mktemp)
 trap 'rm -f "$SQL_BUFFER"' EXIT
 
@@ -94,15 +102,18 @@ trap 'rm -f "$SQL_BUFFER"' EXIT
   if [[ "$FORCE" == "1" ]]; then
     echo "DELETE FROM agent_tool_matrix;"
   fi
-  jq -r '
-    .rows[] |
-    "INSERT INTO agent_tool_matrix (role, mcp_servers, skills, channels, version, approved_by) VALUES ("
-    + (.role | @json) + ", "
-    + (.mcp_servers | tojson | @json) + ", "
-    + (.skills | tojson | @json) + ", "
-    + (.channels | tojson | @json) + ", "
-    + "\"v0\", \"ceo\");"
-  ' "$TEMPLATE"
+  for i in $(seq 0 $((EXPECTED-1))); do
+    role=$(jq -r ".rows[$i].role" "$TEMPLATE")
+    mcps=$(jq -c ".rows[$i].mcp_servers" "$TEMPLATE")
+    skills=$(jq -c ".rows[$i].skills" "$TEMPLATE")
+    channels=$(jq -c ".rows[$i].channels" "$TEMPLATE")
+    role_e=$(sql_escape "$role")
+    mcps_e=$(sql_escape "$mcps")
+    skills_e=$(sql_escape "$skills")
+    channels_e=$(sql_escape "$channels")
+    printf "INSERT INTO agent_tool_matrix (role, mcp_servers, skills, channels, version, approved_by) VALUES ('%s', '%s', '%s', '%s', 'v0', 'ceo');\n" \
+      "$role_e" "$mcps_e" "$skills_e" "$channels_e"
+  done
   echo "COMMIT;"
 } > "$SQL_BUFFER"
 
@@ -114,8 +125,8 @@ fi
 
 juvant_db_exec_stdin < "$SQL_BUFFER"
 
-# Verify row count matches template.
-ACTUAL=$(juvant_db_exec "SELECT COUNT(*) FROM agent_tool_matrix;" | tail -1)
+# Verify row count matches template. Use juvant_db_query for the read.
+ACTUAL=$(juvant_db_query "SELECT COUNT(*) FROM agent_tool_matrix;" | tail -1)
 if [[ "$ACTUAL" != "$EXPECTED" ]]; then
   echo "ERROR: post-INSERT row count mismatch: template=$EXPECTED, db=$ACTUAL" >&2
   exit 3
