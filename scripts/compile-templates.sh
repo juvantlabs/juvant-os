@@ -15,6 +15,7 @@
 #   scripts/compile-templates.sh --scope company
 #   scripts/compile-templates.sh --scope projects  # at project init
 #   scripts/compile-templates.sh --codeowners      # render .github/CODEOWNERS
+#   scripts/compile-templates.sh --rewrite-meta    # README/CHANGELOG/SECURITY/docs-adr-stub
 #   scripts/compile-templates.sh --check-only      # dry-run; report leftover placeholders
 #
 # Exit codes:
@@ -35,12 +36,14 @@ CONFIG="$ROOT/.juvant/config.json"
 SCOPE="company"
 DO_CODEOWNERS=0
 CHECK_ONLY=0
+DO_REWRITE_META=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) SCOPE="$2"; shift 2 ;;
     --scope=*) SCOPE="${1#--scope=}"; shift ;;
     --codeowners) DO_CODEOWNERS=1; shift ;;
+    --rewrite-meta) DO_REWRITE_META=1; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
     -h|--help)
       sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# *//'
@@ -296,10 +299,138 @@ export BACKEND_LANG BACKEND_FRAMEWORK FRONTEND_PLATFORM WEB_FRAMEWORK MONOREPO_T
 export STATE_SERVER STATE_CLIENT FORMS_LIB DATABASE OBSERVABILITY CICD
 
 # ─────────────────────────────────────────────
+# --rewrite-meta — replace per-company README/CHANGELOG/SECURITY +
+# replace docs/adr/* with company-scope stub. v0.6.5+ (F-16).
+# ─────────────────────────────────────────────
+#
+# Pre-v0.6.5 the per-company instance shipped with the Juvant OS framework's
+# README/CHANGELOG/SECURITY committed as if they were the company's own —
+# every adopter looking at their repo saw "Juvant OS — The OSS multi-agent
+# operating system" instead of their own brand. Same for `docs/adr/`:
+# framework-architecture decisions (Skill-first, ADR 0010 symlinks, etc.)
+# leaked into the per-company namespace, blocking adopters from numbering
+# their own ADRs from 0001.
+#
+# `--rewrite-meta` swaps these at bootstrap (Step 7.6, after substitution
+# but before commit):
+#   README.md            → from scripts/templates/README.md.template
+#   CHANGELOG.md         → from scripts/templates/CHANGELOG.md.template
+#   SECURITY.md          → from scripts/templates/SECURITY.md.template
+#   docs/adr/README.md   → from scripts/templates/docs-adr-README.md.template
+#   docs/adr/0001-*.md   → REMOVED (framework ADRs not part of company repo)
+#   docs/adr/0002-*.md   → REMOVED
+#   ... through docs/adr/0010-*.md
+#
+# Bootstrap metadata (date, audit verdict, DB provider, etc.) is read from
+# .juvant/state.db (master_context table — populated by Step 9.7+) and from
+# .juvant/config.json. JUVANT_OS_VERSION is read from the repo's `VERSION`
+# file at the root.
+rewrite_meta() {
+  local templates="$ROOT/scripts/templates"
+  if [[ ! -d "$templates" ]]; then
+    echo "ERROR: $templates not found — cannot run --rewrite-meta." >&2
+    exit 1
+  fi
+
+  # Resolve metadata for substitution.
+  local bootstrap_date bootstrap_verdict juvant_os_version
+  local db_url_raw db_url_display db_provider bank_provider doc_storage_provider
+
+  juvant_os_version=$(cat "$ROOT/VERSION" 2>/dev/null || echo "unknown")
+  juvant_os_version="v${juvant_os_version}"
+
+  # Read bootstrap state from state.db if available (provider=local path).
+  # juvant_db_resolve via the library handles file: prefix stripping (F-20).
+  # shellcheck disable=SC1091
+  . "$ROOT/hooks/lib/db.sh" 2>/dev/null || true
+  juvant_db_resolve 2>/dev/null || true
+
+  if [[ -n "${JUVANT_DB_PATH:-}" && -f "$JUVANT_DB_PATH" ]] && command -v sqlite3 &>/dev/null; then
+    bootstrap_date=$(sqlite3 "$JUVANT_DB_PATH" \
+      "SELECT value FROM master_context WHERE key='bootstrap_completed_at';" \
+      2>/dev/null | head -1)
+    bootstrap_verdict=$(sqlite3 "$JUVANT_DB_PATH" \
+      "SELECT value FROM master_context WHERE key='bootstrap_audit_verdict';" \
+      2>/dev/null | head -1)
+  fi
+  bootstrap_date="${bootstrap_date:-$(date -u +%Y-%m-%d)}"
+  bootstrap_verdict="${bootstrap_verdict:-PENDING}"
+
+  db_provider=$(jq -r '.db.provider // "unknown"' "$CONFIG")
+  db_url_raw=$(jq -r '.db.url // "unknown"' "$CONFIG")
+  db_url_display="${db_url_raw#file:}"
+  bank_provider=$(jq -r '.bank.provider // "unbound"' "$CONFIG")
+  doc_storage_provider=$(jq -r '.doc_storage.provider // "unbound"' "$CONFIG")
+
+  export JUVANT_OS_VERSION="$juvant_os_version"
+  export BOOTSTRAP_DATE="$bootstrap_date"
+  export BOOTSTRAP_VERDICT="$bootstrap_verdict"
+  export DB_PROVIDER="$db_provider"
+  export DB_URL_DISPLAY="$db_url_display"
+  export BANK_PROVIDER="$bank_provider"
+  export DOC_STORAGE_PROVIDER="$doc_storage_provider"
+
+  render_template() {
+    local template="$1"
+    local target="$2"
+    if [[ ! -f "$template" ]]; then
+      echo "ERROR: template not found: $template" >&2
+      exit 1
+    fi
+    python3 - "$template" "$target" <<'PYEOF'
+import os, sys
+template_path, target_path = sys.argv[1], sys.argv[2]
+with open(template_path) as f:
+    content = f.read()
+subs = {
+    "COMPANY_NAME":            os.environ.get("COMPANY_NAME", ""),
+    "COMPANY_DESCRIPTION":     os.environ.get("AGENT_DESCRIPTION", ""),
+    "COMPANY_DOMAIN":          os.environ.get("COMPANY_DOMAIN", ""),
+    "CEO_NAME":                os.environ.get("CEO_NAME", ""),
+    "BOOTSTRAP_DATE":          os.environ.get("BOOTSTRAP_DATE", ""),
+    "BOOTSTRAP_VERDICT":       os.environ.get("BOOTSTRAP_VERDICT", ""),
+    "JUVANT_OS_VERSION":       os.environ.get("JUVANT_OS_VERSION", ""),
+    "DB_PROVIDER":             os.environ.get("DB_PROVIDER", ""),
+    "DB_URL_DISPLAY":          os.environ.get("DB_URL_DISPLAY", ""),
+    "BANK_PROVIDER":           os.environ.get("BANK_PROVIDER", ""),
+    "DOC_STORAGE_PROVIDER":    os.environ.get("DOC_STORAGE_PROVIDER", ""),
+}
+for key, val in subs.items():
+    if val:
+        content = content.replace("{{" + key + "}}", val)
+os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+with open(target_path, "w") as f:
+    f.write(content)
+print(f"rewrote: {target_path}")
+PYEOF
+  }
+
+  render_template "$templates/README.md.template"          "$ROOT/README.md"
+  render_template "$templates/CHANGELOG.md.template"       "$ROOT/CHANGELOG.md"
+  render_template "$templates/SECURITY.md.template"        "$ROOT/SECURITY.md"
+  render_template "$templates/docs-adr-README.md.template" "$ROOT/docs/adr/README.md"
+
+  # Remove framework ADRs (0001-NNNN .md files); leave the (now-rewritten)
+  # README.md as the company-scope ADR stub.
+  echo "removing framework ADRs from docs/adr/ (kept upstream)…"
+  if compgen -G "$ROOT/docs/adr/0[0-9][0-9][0-9]-*.md" > /dev/null; then
+    for f in "$ROOT/docs/adr/"0[0-9][0-9][0-9]-*.md; do
+      [[ -f "$f" ]] || continue
+      rm -f "$f"
+      echo "  removed: $f"
+    done
+  fi
+
+  echo "rewrite-meta: complete."
+}
+
+# ─────────────────────────────────────────────
 # Drive
 # ─────────────────────────────────────────────
 
-if [[ "$DO_CODEOWNERS" == "1" ]]; then
+if [[ "$DO_REWRITE_META" == "1" ]]; then
+  rewrite_meta
+elif [[ "$DO_CODEOWNERS" == "1" ]]; then
   TARGET="$ROOT/.github/CODEOWNERS"
   if [[ ! -f "$TARGET" ]]; then
     echo "ERROR: $TARGET not found." >&2

@@ -1,0 +1,48 @@
+# Architecture Decision Records — {{COMPANY_NAME}}
+
+This directory holds **company-specific ADRs** for {{COMPANY_NAME}}.
+
+Framework-level ADRs (how Juvant OS is designed) live upstream:
+[juvantlabs/juvant-os/tree/main/docs/adr](https://github.com/juvantlabs/juvant-os/tree/main/docs/adr).
+
+When the upstream ships a new framework ADR you can read it there; you do not
+need a copy in this repo. Conversely, your own architectural decisions about
+how {{COMPANY_NAME}} works belong here, not upstream.
+
+## Numbering and form
+
+Number your ADRs starting from 0001 (zero-padded to four digits). Use the same
+**Nygard form** for consistency with framework docs:
+
+- **Status** — Proposed / Accepted / Rejected / Superseded by NNNN. Date.
+- **Context** — what problem we're solving and why now
+- **Decision** — what we're doing
+- **Consequences** — positive and negative
+- **Implementation** — concrete pointers (files, scripts, schema)
+- **References** — upstream docs, prior ADRs, external sources
+
+## Examples of decisions that belong here
+
+- *"We use Mercury for banking (not Finom) because we operate primarily in
+  USD and our payroll provider integrates with Mercury directly."* — ADR 0001
+- *"GDPR data retention is 7 years."* — ADR 0002
+- *"Our deployment target is AWS eu-west-1 (single region until at least
+  10× current load)."* — ADR 0003
+- *"Project hardys promoted to GA on 2026-Q3 after passing 6-month
+  preview-tier criteria."* — ADR 0004
+
+## Authorship and approval
+
+ADRs in this repo follow the framework's spec-driven single-writer model
+(SYSTEM_INVARIANTS.md §4 + §6). Typical flow:
+
+1. Proposer drafts (CA for cross-cutting, project CTO for project-scope).
+2. CoS routes to {{CEO_NAME}}; CEO approves.
+3. CA designs `pr-spec` for the doc + ADR file.
+4. COO opens the PR; CSO + CEthO + CHRO + CA review when relevant.
+5. After merge, CHRO triggers manifesto re-validation if the ADR touches
+   `SYSTEM_INVARIANTS.md` §1, §3, §4, §5, or §6.
+
+ADRs are **immutable** once Accepted. Amendments flow as successor ADRs;
+the old one is annotated `Superseded by NNNN`. Decisions never disappear
+from the record.
