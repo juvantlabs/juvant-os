@@ -3,9 +3,11 @@
 ## Status
 
 Proposed (2026-05-09). Drives the v0.7.0 minor as the "automation"
-release. Replaces manual testco runs as the primary integrity gate;
-manual testco is retained as a quarterly UX-validation gate (see
-§ Coverage hybrid below).
+release. **Manual testco remains the primary validation mode**; batch
+is an additional test-automation layer that runs on CI for regression
+detection and faster iteration on framework changes. The two are
+parallel layers covering different surfaces (see § Coverage hybrid
+below).
 
 ## Context
 
@@ -137,59 +139,94 @@ gets a `**Batch lookup**:` line specifying the fixture key. This is
 the dual-path pattern: same Skill code, two activation modes, no
 duplicated logic.
 
-### Progress feedback (first-class requirement)
+### Progress feedback (first-class requirement, maximally informative)
 
 The Skill emits structured progress events to stdout at every step
-boundary and at every state-change event:
+boundary, at every state-change event, and at every meaningful
+checkpoint. Eight event types — designed so the driver can render
+both a high-level step board AND a low-level activity stream:
 
-```
-[BATCH] {"ts":"2026-05-09T19:00:00Z","event":"step_start","step":"1","phase":"identity"}
-[BATCH] {"ts":"2026-05-09T19:00:03Z","event":"step_done","step":"1","phase":"identity","duration_s":3.2}
-[BATCH] {"ts":"2026-05-09T19:00:03Z","event":"step_start","step":"1.5","phase":"doc_storage"}
-[BATCH] {"ts":"2026-05-09T19:00:07Z","event":"step_done","step":"1.5","phase":"doc_storage","duration_s":4.1}
+```jsonl
+[BATCH] {"ts":"2026-05-09T19:00:00Z","event":"run_start","scenario":"solo-founder-local-sqlite","fixture_version":"0.7.0","skill_version":"<commit>"}
+[BATCH] {"ts":"2026-05-09T19:00:00Z","event":"step_start","step":"1","phase":"identity","total_steps":13}
+[BATCH] {"ts":"2026-05-09T19:00:01Z","event":"input_resolved","step":"1","field":"company_name","value_redacted":false,"source":"fixture"}
+[BATCH] {"ts":"2026-05-09T19:00:03Z","event":"step_done","step":"1","phase":"identity","duration_s":3.2,"tokens_in":847,"tokens_out":312}
+[BATCH] {"ts":"2026-05-09T19:00:03Z","event":"step_start","step":"1.5","phase":"doc_storage","total_steps":13}
+[BATCH] {"ts":"2026-05-09T19:00:07Z","event":"step_done","step":"1.5","phase":"doc_storage","duration_s":4.1,"tokens_in":1240,"tokens_out":420}
 ...
-[BATCH] {"ts":"2026-05-09T19:01:42Z","event":"checkpoint","step":"8","detail":"agent_tool_matrix seeded","rows":20}
-[BATCH] {"ts":"2026-05-09T19:01:48Z","event":"checkpoint","step":"8.5","detail":"cross-check","findings_p1":0,"findings_p2":3}
+[BATCH] {"ts":"2026-05-09T19:01:42Z","event":"checkpoint","step":"8","detail":"agent_tool_matrix seeded","rows":20,"sql_tx_duration_ms":18}
+[BATCH] {"ts":"2026-05-09T19:01:48Z","event":"checkpoint","step":"8.5","detail":"cross-check complete","findings":{"p0":0,"p1":0,"p2":3,"info":13}}
+[BATCH] {"ts":"2026-05-09T19:02:00Z","event":"subagent_spawn","step":"9.7","subagent":"cso","reason":"bootstrap_baseline_audit"}
+[BATCH] {"ts":"2026-05-09T19:02:12Z","event":"checkpoint","step":"9","detail":"manifestos approved","approved":7,"total":10}
 [BATCH] {"ts":"2026-05-09T19:02:14Z","event":"step_done","step":"9","phase":"bootstrap","duration_s":24.0,"manifests":10,"verdict":"WARN-WITH-CONDITIONS"}
-[BATCH] {"ts":"2026-05-09T19:02:20Z","event":"complete","total_duration_s":156.4,"verdict":"PASS"}
+[BATCH] {"ts":"2026-05-09T19:02:18Z","event":"hook_activity","step":"10","detail":"PreToolUse summary","allowed":42,"denied":0,"pending_orphans":0}
+[BATCH] {"ts":"2026-05-09T19:02:20Z","event":"run_complete","total_duration_s":156.4,"verdict":"PASS","tokens_total":34281,"tool_calls":{"Bash":42,"Read":19,"Write":12,"AskUserQuestion":0,"Agent":1,"TaskUpdate":18}}
 ```
 
-The driver `scripts/run-testco-batch.sh` parses these lines and
-renders a live progress board to a controlling terminal:
+Event taxonomy (eight types):
+
+| Event | When | Payload |
+|---|---|---|
+| `run_start` | Skill enters batch mode | scenario, fixture_version, skill_version |
+| `step_start` | Step boundary entry | step id, phase, total_steps |
+| `input_resolved` | Each fixture lookup | step, field, source (fixture\|default), value_redacted (true if secret) |
+| `checkpoint` | Mid-step state change worth surfacing | step, detail, structured payload |
+| `subagent_spawn` | Task() call to a subagent | step, subagent role, reason |
+| `hook_activity` | Hook summary at step boundary | step, detail, allowed/denied/orphan counts |
+| `step_done` | Step boundary exit | step, phase, duration_s, tokens_in, tokens_out |
+| `run_complete` | All steps complete (or failed) | total_duration_s, verdict, tokens_total, tool_calls breakdown |
+
+Live progress board rendered by `scripts/run-testco-batch.sh`:
 
 ```
 Juvant OS testco batch — scenario: solo-founder-local-sqlite
+Skill version: 7e67302 (v0.6.6 + batch-mode)   Run: 2026-05-09T19:00:00Z
 
-  ✓ Step 1     Identity            (3.2s)
-  ✓ Step 1.5   Doc storage         (4.1s)
-  ✓ Step 1.5b  Mailboxes           (1.8s)
-  ✓ Step 1.6   GitHub user map     (0.9s)
-  ✓ Step 2     Database            (12.4s)
-  ✓ Step 3     Bank                (5.3s)
-  ✓ Step 4     Notifications       (3.7s)
-  ✓ Step 4.5   Guardrails          (2.1s)
-  ✓ Step 5     Counterparties      (1.2s)
-  ✓ Step 6     Agent names + CRO   (4.8s)
-  ✓ Step 7     Compile templates   (8.3s)
-  ✓ Step 7.5/6 Render infra        (3.4s)
-  ✓ Step 8     Seed matrix         (1.1s)
-  ✓ Step 8.5   Cross-check         (0.8s)   findings: 0 P1, 3 P2 (status-pending)
-  ▶ Step 9     Bootstrap protocol  (running... 18.3s, 7/10 manifestos)
+  ✓ Step 1     Identity            (3.2s)    847→312 tok
+  ✓ Step 1.5   Doc storage         (4.1s)   1240→420 tok
+  ✓ Step 1.5b  Mailboxes           (1.8s)    520→180 tok
+  ✓ Step 1.6   GitHub user map     (0.9s)    320→ 95 tok
+  ✓ Step 2     Database            (12.4s)  2840→610 tok
+  ✓ Step 3     Bank                (5.3s)   1450→380 tok
+  ✓ Step 4     Notifications       (3.7s)   1120→290 tok
+  ✓ Step 4.5   Guardrails          (2.1s)    720→180 tok
+  ✓ Step 5     Counterparties      (1.2s)    480→140 tok
+  ✓ Step 6     Agent names + CRO   (4.8s)   1380→340 tok
+  ✓ Step 7     Compile templates   (8.3s)   2210→520 tok       Bash: 4 ok
+  ✓ Step 7.5/6 Render infra        (3.4s)    980→210 tok       Bash: 2 ok
+  ✓ Step 8     Seed matrix         (1.1s)    410→ 95 tok       Bash: 1 ok, 20 rows seeded
+  ✓ Step 8.5   Cross-check         (0.8s)    320→160 tok       findings: 0 P0, 0 P1, 3 P2 (status-pending), 13 info
+  ▶ Step 9     Bootstrap protocol  (running 18.3s)              CSO subagent active, 7/10 manifestos approved
     Step 10    Initial commit      (pending)
     Step 10.5  Branch protection   (pending)
+
+Cumulative: 53.2s · 14831→3932 tok · 9 Bash · 1 Agent · 0 denials · 0 orphans
 ```
 
 Rendering:
-- ANSI colors on TTY (`✓` green, `▶` yellow, `✗` red); plain on
-  non-TTY.
-- Live update on `[BATCH] step_*` events. The driver tails the
-  Skill's stdout stream in real time.
+- ANSI colors on TTY (`✓` green, `▶` yellow, `✗` red, dimmed for
+  pending); plain on non-TTY.
+- Live update on every `[BATCH]` event. The driver tails the
+  Skill's stdout stream in real time and re-renders the board.
+- Per-step the right-most column shows the most-recent
+  `checkpoint` payload (matrix rows seeded, manifestos approved,
+  audit findings count, etc.) — the operator can see *what* is
+  happening, not just *that* something is happening.
 - On CI the driver wraps each step in a `::group::` directive so
-  GitHub Actions renders collapsible step output.
+  GitHub Actions renders collapsible step output AND emits a
+  job-summary table at completion (`$GITHUB_STEP_SUMMARY`) with
+  per-step duration / token / tool-call breakdowns.
+- Footer line shows cumulative budget consumption (duration,
+  tokens in/out, tool-call counts, hook denials, orphan rows)
+  for fast-glance regression detection.
 
-The structured progress stream is also persisted as
-`tests/fixtures/testco/results/<date>-<scenario>.jsonl` for
-post-hoc analysis (per-step durations as a regression signal).
+The structured progress stream is persisted as
+`tests/fixtures/testco/results/<date>-<scenario>.jsonl` (canonical)
+plus a rendered Markdown summary at
+`tests/fixtures/testco/results/<date>-<scenario>.md` (per-step
+durations + total budget) for post-hoc diff against prior runs.
+A regression that doubles a step's token usage or duration is now
+visibly diff-able without re-deriving from raw logs.
 
 ### Driver
 
@@ -212,41 +249,73 @@ post-hoc analysis (per-step durations as a regression signal).
 
 ### CI workflow
 
-`.github/workflows/testco-batch.yml`:
+`.github/workflows/testco-batch.yml` runs the batch suite at three
+trigger points, with **scenario coverage scaled to release class**:
+
+- **Major tag** (`v[0-9]+.0.0`) → all defined scenarios in matrix
+  (multi-scenario regression sweep; release-blocking).
+- **Minor tag** (`v[0-9]+.[1-9][0-9]*.0`) → primary scenario only
+  (`solo-founder-local-sqlite`); fast gate, ~3 min CI run.
+- **Manual dispatch + PR label `run:batch`** → primary scenario only;
+  opt-in pre-merge validation on Skill-touching PRs.
+- **Patch tags** (`v[0-9]+.[0-9]+.[1-9]+`) → no batch run (patches
+  are forward-fix-only, expected to be small and the prior release's
+  batch run is the relevant gate).
 
 ```yaml
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.0']      # every minor (X.Y.0) including majors (X.0.0)
+    tags:
+      - 'v[0-9]+.0.0'              # major: full sweep
+      - 'v[0-9]+.[1-9][0-9]*.0'    # minor (excluding X.0.0): primary only
   workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Scenarios to run (comma-separated, or "all")'
+        default: 'solo-founder-local-sqlite'
   pull_request:
     types: [labeled]
-    # fires when label "run:batch" added; opt-in for pre-release validation
 jobs:
-  batch:
+  resolve-matrix:
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run:batch')
+    runs-on: ubuntu-latest
+    outputs:
+      scenarios: ${{ steps.set.outputs.scenarios }}
+    steps:
+      - id: set
+        run: |
+          # Major tag → all scenarios; everything else → primary only
+          if [[ "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.0\.0$ ]]; then
+            echo 'scenarios=["solo-founder-local-sqlite","solo-founder-turso-cloud","multi-project-local-sqlite"]' >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event.inputs.scenarios }}" == "all" ]]; then
+            echo 'scenarios=["solo-founder-local-sqlite","solo-founder-turso-cloud","multi-project-local-sqlite"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'scenarios=["solo-founder-local-sqlite"]' >> "$GITHUB_OUTPUT"
+          fi
+  batch:
+    needs: resolve-matrix
     strategy:
       fail-fast: false
       matrix:
-        scenario:
-          - solo-founder-local-sqlite
-          - solo-founder-turso-cloud
-          - multi-project-local-sqlite
-          # multi-principal: FEAT-022, lands in v0.7.x
+        scenario: ${{ fromJSON(needs.resolve-matrix.outputs.scenarios) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/run-testco-batch.sh tests/fixtures/testco/${{ matrix.scenario }}.yaml
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      - if: failure()
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: batch-${{ matrix.scenario }}-failure
+          name: batch-${{ matrix.scenario }}-${{ github.run_id }}
           path: |
             /tmp/testco-batch-*/
             tests/fixtures/testco/results/
 ```
+
+Cost discipline: minor releases run a single ~30k-token scenario;
+majors run the full multi-scenario sweep (~120k tokens). Patches
+run nothing. Manual dispatch is opt-in.
 
 Tag-pinned: tags are immutable, so a release CI run is reproducible
 against the exact tagged commit. PR-label opt-in lets us run batch
@@ -255,16 +324,35 @@ scripts/, hooks/, agents/company/) before merge.
 
 ### Coverage hybrid
 
-Batch is the **integrity gate**, not a replacement for the manual
-testco. Distinction:
+**Manual testco is the primary validation mode.** A human operator
+driving `claude` end-to-end remains the load-bearing exercise of the
+framework — it catches what an LLM-driven test cannot evaluate:
+prose quality, prompt fatigue, first-impression friction, the gap
+between "the wizard works" and "a new CEO can actually use this".
+
+**Batch is a CI test-automation layer.** It runs in addition to
+manual testco, not instead of it. The two cover different surfaces:
 
 | Surface | Gate | Frequency | Catches |
 |---|---|---|---|
-| Schema, matrix correctness, hooks, ADRs, audit verdict | Batch CI | Every release tag + opt-in PR | Determinism regressions |
-| Wizard wording, collection-collapse readability, prompt fatigue, first-impression UX | Manual testco | Quarterly or when CEO drives | F-4/F-5/F-15-class UX issues |
+| Schema integrity, matrix correctness, hooks routing, ADR compliance, audit verdict, regression in step durations / token budget | Batch CI | Every minor + major tag (single scenario at minor, full sweep at major) + opt-in PR label | Determinism regressions, structural drift, performance degradation |
+| Wizard wording, collection-collapse readability, prompt fatigue, first-impression UX, Skill judgment quality | Manual testco | When CEO drives a real or shadow company-init | F-4/F-5/F-15-class UX issues that batch is structurally blind to |
 
-Manual testco reports stay at `tests/integration/results-<date>-<company>-testco.md`;
-batch reports land at `tests/fixtures/testco/results/<date>-<scenario>.jsonl`.
+Manual testco reports stay at `tests/integration/results-<date>-<company>-testco.md`
+(narrative-style write-ups). Batch reports land at
+`tests/fixtures/testco/results/<date>-<scenario>.{jsonl,md}` (mechanical,
+diff-friendly artifacts).
+
+Manual remains primary because:
+
+1. The wizard is meant to be used by humans. The only test that
+   answers "is this usable?" is a human using it.
+2. New findings classes (F-21 doc/script schema drift; F-22 hook
+   orphan tracking) routinely surface from manual runs in ways batch
+   would not have caught — the human notices "this seems wrong" in
+   places the assertion language doesn't cover.
+3. Batch can lock in determinism for *known* surfaces. It cannot
+   discover *new* surfaces. Manual is the discovery channel.
 
 ## Consequences
 
