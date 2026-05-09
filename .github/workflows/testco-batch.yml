@@ -1,0 +1,140 @@
+name: Juvant OS testco batch
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.0.0'             # major release: full multi-scenario sweep
+      - 'v[0-9]+.[1-9][0-9]*.0'   # minor release (excluding X.0.0): primary scenario only
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Comma-separated scenario list, or "all"'
+        type: string
+        default: solo-founder-local-sqlite
+
+# Per ADR 0012 — Batch testco mode + CI integration:
+# Manual testco remains the primary validation mode. This workflow is
+# an additional CI / test-automation layer for regression detection.
+# Cost discipline: minor tag → primary scenario only (~30k tokens);
+# major tag → full sweep (~120k tokens); patches → no run; PR-label
+# `run:batch` → primary scenario only (opt-in pre-merge validation).
+
+jobs:
+  resolve-matrix:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'run:batch')
+    runs-on: ubuntu-latest
+    outputs:
+      scenarios: ${{ steps.set.outputs.scenarios }}
+    steps:
+      - id: set
+        run: |
+          set -euo pipefail
+          # Major tag → all scenarios; everything else → primary only.
+          # Manual dispatch with `scenarios=all` → all scenarios.
+          all_scenarios='["solo-founder-local-sqlite"]'
+          # Future: append "solo-founder-turso-cloud" + "multi-project-local-sqlite"
+          # once those fixtures land. Per ADR 0012 § Scope phasing.
+
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v[0-9]+\.0\.0$ ]]; then
+            echo "Major tag detected — running full sweep."
+            scenarios="$all_scenarios"
+          elif [[ "${{ github.event.inputs.scenarios }}" == "all" ]]; then
+            echo "Manual dispatch with scenarios=all."
+            scenarios="$all_scenarios"
+          elif [[ -n "${{ github.event.inputs.scenarios }}" ]]; then
+            # Manual dispatch with a comma-separated list — convert to JSON array.
+            scenarios=$(echo '${{ github.event.inputs.scenarios }}' \
+              | tr ',' '\n' | sed 's/^ *//; s/ *$//' \
+              | jq -Rrs 'split("\n") | map(select(length>0))')
+          else
+            echo "Minor tag or PR label — primary scenario only."
+            scenarios='["solo-founder-local-sqlite"]'
+          fi
+
+          echo "scenarios=$scenarios" >> "$GITHUB_OUTPUT"
+          echo "Resolved scenario matrix:"
+          echo "$scenarios" | jq .
+
+  validate-fixtures:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'run:batch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+      - name: Validate every fixture under tests/fixtures/testco/
+        run: |
+          set -euo pipefail
+          fail=0
+          shopt -s nullglob
+          for f in tests/fixtures/testco/*.yaml; do
+            echo "::group::validate $f"
+            bash scripts/validate-batch-fixture.sh "$f" || fail=1
+            echo "::endgroup::"
+          done
+          [ "$fail" = 0 ]
+
+  batch:
+    needs: [resolve-matrix, validate-fixtures]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: ${{ fromJSON(needs.resolve-matrix.outputs.scenarios) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          # jq, sqlite3, git already present on ubuntu-latest
+
+      - name: Install Claude Code CLI
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+
+      - name: Run batch testco
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          bash scripts/run-testco-batch.sh \
+            tests/fixtures/testco/${{ matrix.scenario }}.yaml \
+            --no-render \
+            --skill-version=${{ github.sha }}
+
+      - name: Render job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          RESULTS_DIR=tests/fixtures/testco/results
+          if [ -d "$RESULTS_DIR" ]; then
+            for f in "$RESULTS_DIR"/*-${{ matrix.scenario }}.md; do
+              [ -f "$f" ] || continue
+              cat "$f" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+            done
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-${{ matrix.scenario }}-${{ github.run_id }}
+          path: |
+            tests/fixtures/testco/results/
+            /tmp/testco-batch-*/.juvant/state.db
+            /tmp/testco-batch-*/session.log
+            /tmp/testco-batch-*/events.jsonl
+          if-no-files-found: ignore
+          retention-days: 30

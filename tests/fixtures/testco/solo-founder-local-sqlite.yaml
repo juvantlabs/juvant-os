@@ -1,0 +1,202 @@
+# Batch testco fixture — primary scenario.
+#
+# Solo-founder company, Local SQLite database, telegram notifications,
+# mail-enabled agents (CFO/CLO/CCO/CMO), CRO enabled, sample
+# counterparties. This is the closest analog to the manual Golf Corp
+# testco run on 2026-05-09 (commit `7e67302`, v0.6.6 baseline) and is
+# the primary scenario gated on every minor and major release tag.
+#
+# Schema reference: docs/adr/0012-batch-testco-mode.md § Schema.
+
+scenario: solo-founder-local-sqlite
+fixture_version: 1
+juvant_os_version: 0.7.0
+description: |
+  Closest analog to Golf Corp manual run. Solo founder, no team
+  members owning roles, no Turso (local SQLite), CRO enabled.
+  Bank: Other-provider stub. Notifications: Telegram. Mail-enabled
+  agents: 4 default mailboxes (no custom overrides). Counterparties:
+  sample (accountant + legal stub) for CFO + CLO ergonomic test.
+  Doc storage: OneDrive type-it path, no folder pre-mapping.
+
+inputs:
+  # Step 1 — Identity.
+  identity:
+    company_name: Solo Founder Test Corp
+    company_slug: solo-founder-test
+    company_domain: solofoundertest.example
+    ceo_name: Alex Solo
+    ceo_pronouns: they/them
+    copyright_holder: Solo Founder Test Corp
+
+  # Step 1.5 — Document storage.
+  doc_storage:
+    provider: onedrive
+    mcp_server: ms-graph        # read-only fallback; m365-graph upgrade is post-bootstrap
+    path_pattern: type-it       # operator types path per role; v1.0 doesn't validate
+    folders: {}                 # no pre-mapping; agents surface unbound at first call
+    fallback_chain: {}
+
+  # Step 1.5b — Mail-enabled agents.
+  mail_enabled_agents:
+    # value=null means "skip / not mail-enabled"; explicit address means bound
+    cfo: finance@solofoundertest.example
+    clo: legal@solofoundertest.example
+    cco: hello@solofoundertest.example
+    cmo: press@solofoundertest.example
+
+  # Step 1.6 — GitHub user map. All roles collapse to CEO for solo founder.
+  github_user_map:
+    ceo: alex-solo
+    cos: alex-solo
+    cfo: alex-solo
+    clo: alex-solo
+    cmo: alex-solo
+    cco: alex-solo
+    chro: alex-solo
+    cso: alex-solo
+    cetho: alex-solo
+    ca: alex-solo
+    cro: alex-solo
+    eng-platform: alex-solo
+
+  # Step 2 — Database.
+  database:
+    provider: local           # SQLite at .juvant/state.db
+    setup_mode: cli           # not relevant for local; kept for schema parity
+    url: file:.juvant/state.db
+    auth_token: null
+
+  # Step 3 — Bank.
+  bank:
+    provider: other           # Other-vendor stub; tests Step 3 [5] Other branch (F-19)
+    name: solofoundertest-bank
+    mcp_server: 'npm:@solofoundertest/bank-mcp-stub'
+    rationale: |
+      No real bank for the test fixture. Concrete provider binding
+      records into agent_tool_matrix.notes per ca.md abstraction
+      footnote.
+
+  # Step 4 — Notifications.
+  notifications:
+    telegram:
+      enabled: true
+      bot_token: TEST_TOKEN_PLACEHOLDER
+      chat_id: '123456789'
+      is_operator_personal_channel: true   # required for :send-ceo-only carve-out (ADR 0011)
+      message_time_window: '08:00-22:00 Europe/Rome'
+    webhooks: []                           # no Slack/Discord/etc. for primary scenario
+
+  # Step 4.5 — Agent action guardrails (handbook ADR 0004 Track 1).
+  guardrails:
+    confirmation_token:
+      enabled: true
+      token: TEST_CONFIRM_TOKEN_PLACEHOLDER
+    anomaly_thresholds:
+      cost_p95_multiplier: 3.0           # default
+      tool_call_burst_per_min: 60        # default
+    audit_log_retention_days: 365        # default
+
+  # Step 5 — Counterparties (sample for ergonomic exercise).
+  counterparties:
+    mode: sample
+    entries:
+      - { name: Accountant Stub, role: accountant, owner_agent: cfo, contact: accountant@solofoundertest.example }
+      - { name: Legal Stub,      role: legal,      owner_agent: clo, contact: legal-counsel@solofoundertest.example }
+
+  # Step 6 — Agent names + CRO toggle (HARD-REQUIRED Clause 1, identity-critical).
+  agent_names:
+    cos: Atlas
+    cfo: Theos
+    clo: Lex
+    cmo: Mira
+    cco: Hermes
+    chro: Sage
+    cso: Shield
+    cetho: Vera
+    ca: Arch
+    cro: Lumen
+    eng-platform: Hephaestus
+  cro_enabled: true
+
+  # Step 7-8.5 are deterministic post-input steps (compile templates,
+  # rewrite meta, render CODEOWNERS, seed matrix, cross-check).
+  # No fixture inputs needed.
+
+  # Step 9 — Bootstrap protocol manifesto approval mode.
+  bootstrap:
+    manifesto_approval_mode: accept_all_defaults    # [1] in collection-collapse menu
+    # alternatives: edit_specific, walk_through_each, skip
+
+  # Step 10 — Initial commit: deterministic; uses identity + bootstrap_completed_at.
+  # Step 10.5 — Branch protection: stubbed in batch (no GitHub org reachable on CI).
+  branch_protection:
+    mode: skip_in_batch
+
+# ─────────────────────────────────────────────────────────────────────
+# Expectations consumed by the driver's post-run assertions. The Skill
+# never sees this block (driver strips before rendering batch-inputs).
+# ─────────────────────────────────────────────────────────────────────
+expect:
+  bootstrap_verdict: WARN-WITH-CONDITIONS
+  bootstrap_verdict_acceptable: [WARN-WITH-CONDITIONS, PASS]
+  # Acceptable list lets us tighten over time: as v0.6.6 closes upstream
+  # drift, the verdict moves from WARN-WITH-CONDITIONS to PASS for the
+  # primary scenario. Both are accepted now; tighten to [PASS] when
+  # FEAT-011/012 land and remove the status-pending warns.
+
+  manifests_count: 10
+  decisions_count: 11           # 1 CA matrix-seed + 10 manifesto approvals
+  matrix_rows_count: 20         # 11 company-scope + 9 project-scope (post-v0.6.6)
+
+  audit_findings:
+    p0_max: 0
+    p1_max: 0
+    p2_max: 3                   # status-pending: bank, fattura_elettronica, buffer
+    info_min: 10                # 5-layer audit produces ≥ 10 info findings on a clean run
+
+  matrix_row_assertions:
+    - { role: cos,          channels_includes: [telegram:send-ceo-only] }
+    - { role: cos,          mcp_servers_includes: [turso, ms-graph, m365-graph] }
+    - { role: cfo,          mcp_servers_includes: [m365-graph, fattura_elettronica, bank:read] }
+    - { role: clo,          mcp_servers_includes: [m365-graph] }
+    - { role: cmo,          mcp_servers_includes: [m365-graph, buffer] }
+    - { role: cco,          mcp_servers_includes: [m365-graph] }
+    - { role: cro,          mcp_servers_includes: [m365-graph] }
+    - { role: cdo,          mcp_servers_includes: [m365-graph] }
+    - { role: eng-platform, scope: company, mcp_servers: [turso, github:read] }
+    - { role: coo,          mcp_servers: [turso, github:write] }      # single-writer §4
+
+  decision_categories:
+    bootstrap-action_min: 11
+
+  filesystem_assertions:
+    - { path: README.md, must_contain: 'Solo Founder Test Corp' }
+    - { path: README.md, must_not_contain: 'open-source multi-agent' }   # framework README signature
+    - { path: CHANGELOG.md, must_contain: 'Solo Founder Test Corp' }
+    - { path: SECURITY.md, must_contain: 'Solo Founder Test Corp' }
+    - { path: docs/adr/README.md, must_contain: 'Solo Founder Test Corp' }
+    - { path: 'docs/adr/0001-skill-first-architecture.md', must_not_exist: true }
+    - { path: 'docs/adr/0010-compiled-agent-registration.md', must_not_exist: true }
+    - { path: '.github/CODEOWNERS', must_contain: '@alex-solo' }
+    - { path: '.juvant/config.json', must_exist: true }
+    - { path: '.juvant/state.db', must_exist: true }
+
+  pending_orphan_assertions:
+    # F-22 fix verification: no AskUserQuestion orphans should remain
+    AskUserQuestion: 0
+    Bash_max: 0           # all bash actions should close cleanly post-bootstrap
+
+  performance_envelope:
+    # Soft assertions; warn but don't fail when exceeded. Provides a
+    # regression signal for unexpectedly slow steps or token bloat.
+    total_duration_s_max: 600
+    total_tokens_max: 80000
+    step_duration_s_p95: 60
+
+  agent_actions_log:
+    min_rows: 80                # bootstrap typically produces ~100 rows
+    tool_call_distribution:
+      Bash_min: 30
+      Agent_count: 1            # exactly one CSO subagent spawn
+      AskUserQuestion: 0        # batch mode bypasses interactive prompts entirely
