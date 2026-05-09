@@ -1,0 +1,38 @@
+# Changelog — {{COMPANY_NAME}}
+
+All notable changes to this {{COMPANY_NAME}} instance.
+
+The framework's CHANGELOG is at the upstream:
+[juvantlabs/juvant-os/CHANGELOG.md](https://github.com/juvantlabs/juvant-os/blob/main/CHANGELOG.md).
+
+This file tracks {{COMPANY_NAME}}-specific changes only — project initializations,
+maturity transitions, hires/offboards, manifesto major versions, framework
+upstream syncs, and any company-domain configuration changes. Granular tool calls
+live in `state.db.agent_actions_log`; this file is the human-readable summary.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [Unreleased]
+
+(No changes yet.)
+
+---
+
+## [0.0.1] — {{BOOTSTRAP_DATE}} — Bootstrap
+
+Initial company-scope bootstrap.
+
+- 10 founding agents compiled and approved (CoS, CFO, CLO, CMO, CCO, CHRO,
+  CSO, CEthO, CA, CRO) — all in `OPERATIONAL` after CSO bootstrap_baseline
+  audit returned **{{BOOTSTRAP_VERDICT}}**.
+- DB provider: `{{DB_PROVIDER}}` ({{DB_URL_DISPLAY}}).
+- Bank provider: `{{BANK_PROVIDER}}`.
+- Doc storage provider: `{{DOC_STORAGE_PROVIDER}}`.
+- `master_context.bootstrap_completed_at` recorded.
+
+Powered by [Juvant OS](https://github.com/juvantlabs/juvant-os) {{JUVANT_OS_VERSION}}.
+
+---

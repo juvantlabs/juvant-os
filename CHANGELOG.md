@@ -11,6 +11,98 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — Local SQLite hooks silently fail when wizard writes `db.url=file:...` (HIGH; F-20)
+
+Surfaced by the Foxtrot Corp testco run on 2026-05-09. The wizard
+sometimes writes `db.url = "file:.juvant/state.db"` (libsql URI form)
+into `.juvant/config.json` for local provider — this is libsql-syntax
+valid but our `hooks/lib/db.sh` and `scripts/migrate.sh` (v0.6.3)
+passed the value verbatim to `sqlite3`, which interpreted it as a
+literal path `<repo>/file:.juvant/state.db`. Result: silent
+INSERT/UPDATE failures swallowed by `2>/dev/null`. Track 3 (audit log)
+non-functional whenever the wizard chose the `file:` prefix variant.
+
+Echo Corp run wrote `.juvant/state.sqlite` (no prefix) and worked;
+Foxtrot wrote `file:.juvant/state.db` (with prefix) and silently
+failed. Skill-side variation surfaced again — non-deterministic
+config generation for the same `provider=local` choice.
+
+Fix: `hooks/lib/db.sh` and `scripts/migrate.sh` strip the `file:`
+prefix when resolving the local-provider filesystem path. Verified
+post-hoc against the Foxtrot `state.db`: an `agent_actions_log`
+INSERT that previously failed silently now writes the row.
+
+### Fixed — Step 3 [5] Other branch must collect provider name + MCP URL (F-19 + F-18)
+
+Surfaced by the Foxtrot Corp testco run on 2026-05-09: the CEO chose
+`[5] Other` at Step 3 (Bank provider binding), and the Skill recorded
+`bank.provider = null, bank.mcp_server = null` and advanced — without
+prompting for the provider slug or MCP server URL. The doc said
+*"Other (specify name + MCP server URL)"* but the Skill collapsed
+the branch into a "skip" path.
+
+Fix in `JUVANT_OS.md` Step 3:
+
+- Menu now exposes both `[5] Other` AND `[6] Skip` as distinct paths.
+- `[5] Other` HARD-REQUIRES two sub-prompts: provider slug, then MCP
+  server URL/package. The Skill MUST NOT collapse these to null.
+- `[6] Skip` is the explicit defer path; sets `bank.provider = null`,
+  `bank.mcp_server = null` cleanly.
+- Validation rule: any selection that ends with both fields null AND
+  was NOT explicitly `[6] Skip` must re-prompt with the same options.
+
+This closes F-18 (no input validation / no re-prompt on invalid bank
+input) by folding it into the same Step 3 amendment.
+
+### Added — Per-company file rewrites at bootstrap (F-16)
+
+The OSS template at `juvantlabs/juvant-os` ships with framework-facing
+`README.md` / `CHANGELOG.md` / `SECURITY.md` / `docs/adr/*.md` —
+appropriate **upstream**, but wrong inside a per-company instance.
+Pre-v0.6.5, every adopter who looked at their own private repo saw
+"Juvant OS — The OSS multi-agent operating system" instead of their
+own brand. Same for `docs/adr/`: framework-architecture decisions
+(Skill-first, ADR 0010 symlinks, etc.) leaked into the per-company
+namespace, blocking adopters from numbering their own ADRs from 0001.
+
+Fix: new wizard Step 7.6 invokes `scripts/compile-templates.sh
+--rewrite-meta`, which:
+
+- Renders `README.md` from `scripts/templates/README.md.template` —
+  company-specific landing page with name, domain, CEO, bootstrap
+  date, audit verdict, "Powered by Juvant OS" footer, and an
+  AUTO-GENERATED `Active projects` section (maintained by future
+  Skill operations on project-init / maturity transition).
+- Renders `CHANGELOG.md` from `scripts/templates/CHANGELOG.md.template`
+  — empty `[Unreleased]` + `[0.0.1] — <bootstrap-date> — Bootstrap`
+  initial entry. Tracks **company-specific** changes only; framework
+  CHANGELOG stays at upstream.
+- Renders `SECURITY.md` from `scripts/templates/SECURITY.md.template`
+  — `security@<domain>` disclosure policy + 48h SLA + scope
+  declaration. Framework-level SECURITY policy at upstream.
+- Renders `docs/adr/README.md` from
+  `scripts/templates/docs-adr-README.md.template` — company-scope
+  ADR stub (numbering, Nygard form, authorship flow, examples).
+- **Removes** all framework ADRs (`docs/adr/0001-*.md` through
+  `docs/adr/NNNN-*.md`) from the per-company repo. Adopters read
+  framework ADRs at upstream when they need to.
+
+Bootstrap metadata (`bootstrap_completed_at`, `bootstrap_audit_verdict`)
+is read from `state.db` `master_context`. Framework version is read
+from a new repo-root `VERSION` file (`0.6.5`).
+
+`JUVANT_OS.md` Step 10 git-add list extended with `README.md`,
+`CHANGELOG.md`, `SECURITY.md`, `docs/adr/`, `VERSION`; uses `git add -A`
+so the framework ADRs removed at Step 7.6 are picked up as deletions.
+
+Validated post-hoc against the Foxtrot Corp testco state: all four
+files rewrote with company-specific content; 10 framework ADRs
+removed cleanly.
+
+`LICENSE` is **not** rewritten by this step — adopters keep the
+upstream MIT license unless they manually replace it post-bootstrap.
+A future v0.6.6+ extension may add a wizard prompt for license choice.
+
 ### Added — `scripts/compile-templates.sh` shipped (F-6)
 
 Pre-v0.6.4 every wizard pass at Step 7 (template substitution)

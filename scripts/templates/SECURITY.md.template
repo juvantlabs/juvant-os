@@ -1,0 +1,46 @@
+# Security — {{COMPANY_NAME}}
+
+## Reporting a vulnerability
+
+If you discover a security vulnerability in {{COMPANY_NAME}} systems or code,
+please report it privately to:
+
+- **Email**: security@{{COMPANY_DOMAIN}}
+- **Acknowledgement SLA**: 48 hours
+- **Remediation timeline**: 14 days for HIGH/CRITICAL; 30 days for MEDIUM
+
+Do **NOT** open a public GitHub issue for security vulnerabilities.
+
+## Scope
+
+This policy covers vulnerabilities in:
+
+- {{COMPANY_NAME}}'s code, infrastructure, agent configurations, and data
+- The deployed instances of MCP servers and channels bound to this instance
+- The state stored in `.juvant/state.db` (sensitive at runtime)
+
+For Juvant OS **framework** vulnerabilities (the OSS template at
+juvantlabs/juvant-os), see the upstream policy:
+[juvantlabs/juvant-os/SECURITY.md](https://github.com/juvantlabs/juvant-os/blob/main/SECURITY.md).
+
+## Continuous CSO audit
+
+This repository ships with a CSO (Chief Security Officer) agent that performs
+continuous security audits. Audit history lives in
+`.juvant/state.db` table `security_audit_log`; the canonical 5-layer audit is
+defined in [`agents/company/cso.md`](agents/company/cso.md).
+
+Layer 5 (Agents) includes the **orphan-audit detection rule** that flags
+`security_audit_log` rows authored as `auditor='cso'` without a corresponding
+`Task(subagent_type='cso', ...)` invocation in the surrounding session window —
+defense-in-depth against handbook ADR 0004 cover-up failure mode #6.
+
+## Disclosure
+
+Vulnerabilities reported to security@{{COMPANY_DOMAIN}} are triaged by CSO
+(routed through CoS proxy per the framework's communication contract).
+Coordinated disclosure terms negotiated case-by-case.
+
+---
+
+Powered by [Juvant OS](https://github.com/juvantlabs/juvant-os) {{JUVANT_OS_VERSION}}.

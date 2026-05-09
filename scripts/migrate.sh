@@ -46,6 +46,9 @@ fi
 case "$PROVIDER" in
   local)
     # db.url is a filesystem path (relative paths resolve from the repo root).
+    # Strip libsql `file:` prefix if the wizard wrote it (Foxtrot Corp
+    # testco surfaced this in F-20).
+    DB_URL="${DB_URL#file:}"
     if [[ -z "$DB_URL" ]]; then
       echo "ERROR: db.url empty for provider=local. Expected a filesystem path."
       exit 1

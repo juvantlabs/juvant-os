@@ -789,7 +789,34 @@ Which bank provides company accounts?
   [3] Revolut  — Multi-currency EU/UK provider
   [4] Wise     — Multi-currency international provider
   [5] Other    — Specify provider name + MCP server URL/package
+  [6] Skip     — Bind later (CFO operates in restricted mode for banking)
 ```
+
+If [1]–[4]: record the canonical provider id (`finom` / `mercury` / `revolut`
+/ `wise`) and the corresponding MCP server reference.
+
+If [5] **Other**: the Skill **MUST** branch into two sub-prompts (one at
+a time, per the wizard rendering rule clause 1):
+
+1. *"Provider name (lowercase slug, e.g. `acmebank`)?"* — recorded as
+   `bank.provider`.
+2. *"MCP server URL or npm package (e.g. `npm:@org/<provider>-mcp-server`
+   or `https://...`)?"* — recorded as `bank.mcp_server`.
+
+The Skill **MUST NOT** record `bank.provider = null, bank.mcp_server = null`
+when [5] Other is selected — that's the F-19 failure mode (Foxtrot Corp
+testco run, 2026-05-09): the Skill treated [5] Other as a "skip" path and
+collapsed both fields to null without prompting. If the CEO genuinely
+wants to defer, they pick [6] Skip explicitly.
+
+If [6] **Skip**: record `bank.provider = null, bank.mcp_server = null,
+bank.scope = read`. CFO operates in restricted mode for banking until
+re-bound via Skill operation `Bind bank provider`.
+
+Validation: if any selection ends with `bank.provider = null` AND
+`bank.mcp_server = null` AND the CEO's last response was NOT [6] Skip,
+re-prompt with the same options (do not silently advance). Same family
+as the F-18 finding (no input validation / no re-prompt on invalid).
 
 Record in `.juvant/config.json`:
 
@@ -1056,6 +1083,62 @@ are environment-agnostic:
 Refuse to write CODEOWNERS if any non-allowlisted `{{...}}` token survives
 substitution — same rule as Step 7 for agent templates.
 
+### Wizard — Step 7.6: Per-company file rewrite (v0.6.5+)
+
+The OSS template at `juvantlabs/juvant-os` ships with framework-facing
+files (`README.md`, `CHANGELOG.md`, `SECURITY.md`, `docs/adr/*.md`) that
+are appropriate **upstream** but wrong for a per-company instance: an
+adopter looking at their own repo expects to see "Foxtrot Corp", not
+"Juvant OS — The OSS multi-agent operating system that runs your
+company". Pre-v0.6.5 these files leaked into the per-company namespace
+unchanged; v0.6.5 fixes this at bootstrap.
+
+The Skill **MUST** invoke:
+
+```bash
+bash scripts/compile-templates.sh --rewrite-meta
+```
+
+This:
+
+- Renders `README.md` from `scripts/templates/README.md.template` —
+  company-specific landing page with name, domain, CEO, bootstrap
+  date, audit verdict, "Powered by Juvant OS" footer, and an
+  AUTO-GENERATED projects section maintained by future Skill
+  operations on project-init / maturity transition.
+- Renders `CHANGELOG.md` from `scripts/templates/CHANGELOG.md.template`
+  — empty `[Unreleased]` + `[0.0.1] — <bootstrap-date> — Bootstrap`
+  initial entry. Tracks **company-specific** changes only; the
+  framework's CHANGELOG is at upstream.
+- Renders `SECURITY.md` from `scripts/templates/SECURITY.md.template`
+  — `security@<domain>` disclosure policy + 48h SLA + scope
+  declaration. Framework-level SECURITY policy is at upstream.
+- Renders `docs/adr/README.md` from
+  `scripts/templates/docs-adr-README.md.template` — company-scope
+  ADR stub explaining numbering, Nygard form, and authorship flow.
+  Examples of decisions that belong in the per-company ADR namespace.
+- **Removes** all framework ADRs (`docs/adr/0001-*.md` through
+  `docs/adr/NNNN-*.md`) from the per-company repo. Adopters read
+  framework ADRs at upstream when they need to; their own
+  numbering starts from 0001 in this directory.
+
+Bootstrap metadata for the templates is read from `state.db`
+`master_context` (bootstrap_completed_at, bootstrap_audit_verdict)
+and from `.juvant/config.json`. The framework version is read from
+the repo's `VERSION` file at the root.
+
+The `LICENSE` file is **not** rewritten by this step. Adopters keep
+the upstream license (MIT, Juvant Srls + contributors copyright)
+unless they replace it manually post-bootstrap with a different
+license. A future v0.6.6+ extension may add a wizard prompt at
+Step 7.6 to ask the CEO for license preference (keep MIT / switch
+to "All rights reserved" / use a custom license).
+
+After this step the working tree's user-visible files describe
+**this company**, not the framework. Step 10's commit captures the
+rewritten files alongside the compiled agents and rendered
+infrastructure.
+
 ### Wizard — Step 8: Seed agent_tool_matrix
 
 Insert the v0 default matrix rows into `agent_tool_matrix` (one row per role) using
@@ -1264,7 +1347,7 @@ path [3] each is shown then approved, etc.
 After bootstrap completes successfully:
 
 ```bash
-git add \
+git add -A \
   agents/ \
   scripts/ \
   hooks/ \
@@ -1273,16 +1356,31 @@ git add \
   .github/CODEOWNERS \
   .gitignore \
   SYSTEM_INVARIANTS.md \
-  JUVANT_OS.md
+  JUVANT_OS.md \
+  README.md \
+  CHANGELOG.md \
+  SECURITY.md \
+  docs/adr/ \
+  VERSION
 git commit -m "init({{COMPANY_NAME_SLUG}}): bootstrap company-scope agents"
 git push
 ```
+
+The `-A` flag picks up deletions (the framework ADRs `docs/adr/0001-*.md`
+through `docs/adr/NNNN-*.md` are removed by Step 7.6 `--rewrite-meta`;
+`git add` without `-A` would leave them staged-as-existing).
 
 `.github/CODEOWNERS` was rendered at Step 7.5 and `.gitignore` may have been
 patched during the wizard run; both are part of the bootstrap deliverable.
 `.claude/agents/` ships as relative symlinks (ADR 0010) — committed once,
 they don't change at re-bootstrap, but staging them on the first commit
 ensures fresh clones see runtime registration without an extra step.
+
+`README.md`, `CHANGELOG.md`, `SECURITY.md`, and `docs/adr/README.md` were
+rewritten at Step 7.6 with company-specific content; staging them on the
+first commit replaces the framework's templates in the per-company repo.
+`VERSION` records the framework version this instance bootstrapped against —
+useful for upstream-sync compatibility checks later.
 
 Confirm with the CEO before pushing — the per-company repo is private but every push
 is a visible action (§ "Executing actions with care").

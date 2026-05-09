@@ -59,11 +59,18 @@ juvant_db_resolve() {
   fi
 
   # Resolve filesystem path for local provider.
+  # The wizard sometimes writes db.url with a `file:` prefix (libsql URI
+  # form) for local provider — strip it so sqlite3 receives a plain path.
+  # Surfaced by the Foxtrot Corp testco run on 2026-05-09 (F-20): silent
+  # audit-log write failures because `file:.juvant/state.db` was passed
+  # verbatim to sqlite3, producing the path `<repo>/file:.juvant/state.db`
+  # which sqlite3 interpreted as a literal filename.
   if [[ "$JUVANT_DB_PROVIDER" == "local" && -n "$JUVANT_DB_URL" ]]; then
-    if [[ "$JUVANT_DB_URL" != /* ]]; then
-      JUVANT_DB_PATH="${SCRIPT_DIR}/../$JUVANT_DB_URL"
+    local stripped="${JUVANT_DB_URL#file:}"
+    if [[ "$stripped" != /* ]]; then
+      JUVANT_DB_PATH="${SCRIPT_DIR}/../$stripped"
     else
-      JUVANT_DB_PATH="$JUVANT_DB_URL"
+      JUVANT_DB_PATH="$stripped"
     fi
   fi
 }

@@ -1,0 +1,59 @@
+# {{COMPANY_NAME}}
+
+{{COMPANY_DESCRIPTION}}
+
+Domain: [{{COMPANY_DOMAIN}}](https://{{COMPANY_DOMAIN}})
+
+## How this works
+
+This repository is a per-company instance of [Juvant OS](https://github.com/juvantlabs/juvant-os),
+a multi-agent operating system that runs on Claude Code. {{CEO_NAME}} (CEO) drives the company by
+speaking to the JUVANT_OS Skill in Claude Code.
+
+To enter:
+
+```bash
+cd /path/to/this/repo
+claude
+```
+
+Then ask the Skill anything: *"Status check"*, *"Cost report"*, *"Add project &lt;name&gt;"*,
+*"Hire CRO"*, *"Run CSO audit"*, etc.
+
+State lives in [Turso](https://turso.tech) (or local SQLite for testing instances) at
+`.juvant/state.db`, gitignored. The 10 founding company-scope agents communicate through state,
+not directly with each other. See [`JUVANT_OS.md`](JUVANT_OS.md) for the orchestrator semantics
+and [`SYSTEM_INVARIANTS.md`](SYSTEM_INVARIANTS.md) for framework invariants.
+
+## Active projects
+
+<!-- AUTO-GENERATED — updated via Skill operation "Update README" at every project init / -->
+<!-- maturity transition. Do not edit manually below this line; it gets re-rendered.        -->
+
+(none yet — initialize the first project with *"Add project &lt;name&gt;"*)
+
+<!-- /AUTO-GENERATED -->
+
+## Bootstrap info
+
+- **Bootstrapped on**: {{BOOTSTRAP_DATE}} (UTC)
+- **Powered by**: [Juvant OS](https://github.com/juvantlabs/juvant-os) {{JUVANT_OS_VERSION}}
+- **Founding agents**: 10 company-scope (CoS, CFO, CLO, CMO, CCO, CHRO, CSO, CEthO, CA, CRO) operational
+- **Bootstrap audit verdict**: {{BOOTSTRAP_VERDICT}}
+
+## Architecture references
+
+Framework documentation lives upstream — these files in your repo are the **frozen** framework
+contract; do not edit them locally without an upstream sync:
+
+- [`JUVANT_OS.md`](JUVANT_OS.md) — the Skill orchestrator
+- [`SYSTEM_INVARIANTS.md`](SYSTEM_INVARIANTS.md) — framework invariants
+
+Your company-specific architectural decisions go in [`docs/adr/`](docs/adr/).
+
+For framework-level ADRs (why Juvant OS is designed the way it is), see the upstream:
+[juvantlabs/juvant-os/tree/main/docs/adr](https://github.com/juvantlabs/juvant-os/tree/main/docs/adr).
+
+---
+
+Powered by [Juvant OS](https://github.com/juvantlabs/juvant-os) {{JUVANT_OS_VERSION}}.
