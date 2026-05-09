@@ -11,6 +11,30 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed — Layer 5 orphan-check SQL had wrong tool_name (HIGH; v0.6.4 patch #1)
+
+Surfaced by the Echo Corp testco run on 2026-05-09 against post-v0.6.3
+`main`. The v0.6.3 §11 detection SQL queries
+`agent_actions_log.tool_name = 'Task'`, but Claude Code logs subagent
+invocations with `tool_name = 'Agent'`. Result on every legitimate
+audit: orphan check returns ALL CSO audit rows as suspect (11/11 false
+positives in the Echo run), indistinguishable from the cover-up the
+rule was designed to detect.
+
+Fix: `tool_name IN ('Task', 'Agent')` in `agents/company/cso.md` §11.
+Both names kept for forward-compat in case Anthropic renames.
+
+This is the third revision of the §11 orphan check (v0.6.1 introduced
+session_id-equality which never matched; v0.6.3 rewrote to time-window
+correlation; v0.6.4 corrects the tool_name predicate). After this fix
+the time-window correlation works as designed: zero false positives on
+the Echo run's 11-row CSO audit.
+
+The Echo run is documented in
+`tests/integration/results-2026-05-09-echo-testco.md` as the canonical
+v0.6.x cumulative validation record. 14 additional findings (F-2
+through F-15) are tracked there for future v0.6.4+ patches.
+
 ### Fixed — Local SQLite hooks were silently no-op (HIGH) + Layer 5 orphan check correlation rewritten
 
 Surfaced by the Delta Corp testco run on 2026-05-08: `agent_actions_log`
