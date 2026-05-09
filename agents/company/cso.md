@@ -214,14 +214,21 @@ your finding (`[REDACTED — {match_class}]`). Do not store the matched string a
     and imprecise on the identity-of-spawned-agent signal.
 
     ```sql
-    -- For each CSO audit row, require at least one Task invocation
+    -- For each CSO audit row, require at least one Task/Agent invocation
     -- in the 60-min window preceding it. Empty result = no orphans.
+    -- Note: Claude Code logs subagent spawns in agent_actions_log with
+    -- tool_name='Agent' (the framework's internal name); 'Task' is kept
+    -- in the IN-list as forward-compat in case Anthropic renames the
+    -- tool. Surfaced by the Echo Corp testco run on 2026-05-09 — the
+    -- v0.6.3 query that only checked tool_name='Task' produced false
+    -- positives on every legitimate audit because spawn rows are
+    -- logged as 'Agent'.
     SELECT sal.id, sal.session_id, sal.scope, sal.audit_type, sal.created_at
       FROM security_audit_log sal
      WHERE sal.auditor = 'cso'
        AND NOT EXISTS (
          SELECT 1 FROM agent_actions_log aal
-          WHERE aal.tool_name = 'Task'
+          WHERE aal.tool_name IN ('Task', 'Agent')
             AND aal.status IN ('pending', 'success')
             AND aal.started_at >= datetime(sal.created_at, '-60 minutes')
             AND aal.started_at <= sal.created_at
