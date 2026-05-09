@@ -1,0 +1,32 @@
+{
+  "version": "v0",
+  "source": "agents/company/ca.md §Default Agent Tool Matrix (template seed) + agents/projects/coo.md (canonical seed)",
+  "derived_at": "2026-05-09T00:00:00Z",
+  "company": "Golf Corp",
+  "rows": [
+    {"agent": "cos",          "scope": "company", "mcp_servers": ["turso", "ms-graph"],                    "skills": [],                              "channels": ["telegram:send"], "rationale": "Orchestrator; proxies CEO ↔ agents; sends Critical alerts via Telegram."},
+    {"agent": "cfo",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "bank:read"],       "skills": ["pdf", "docx"],                 "channels": [],                "rationale": "Banking + financial docs; mail-enabled (finance@)."},
+    {"agent": "clo",          "scope": "company", "mcp_servers": ["turso", "ms-graph"],                    "skills": ["pdf", "docx"],                 "channels": [],                "rationale": "Legal docs + contracts; mail-enabled (legal@)."},
+    {"agent": "cmo",          "scope": "company", "mcp_servers": ["turso", "ms-graph", "buffer"],          "skills": ["docx"],                        "channels": [],                "rationale": "Brand + scheduled posting; mail-enabled (press@)."},
+    {"agent": "cco",          "scope": "company", "mcp_servers": ["turso", "ms-graph"],                    "skills": ["docx", "pdf"],                 "channels": [],                "rationale": "Sales + partnerships; mail-enabled (hello@)."},
+    {"agent": "chro",         "scope": "company", "mcp_servers": ["turso"],                                "skills": [],                              "channels": [],                "rationale": "Internal HR; ranking + manifesto + offboarding."},
+    {"agent": "cso",          "scope": "company", "mcp_servers": ["turso", "github:read"],                 "skills": [],                              "channels": [],                "rationale": "5-layer audits; investigates security_audit_log."},
+    {"agent": "cetho",        "scope": "company", "mcp_servers": ["turso"],                                "skills": [],                              "channels": [],                "rationale": "Ethics framework; validates disclosure policies."},
+    {"agent": "ca",           "scope": "company", "mcp_servers": ["turso", "github:read"],                 "skills": [],                              "channels": [],                "rationale": "Owns agent_tool_matrix; cross-project standards; read-only github."},
+    {"agent": "cro",          "scope": "company", "mcp_servers": ["turso", "ms-graph"],                    "skills": ["docx", "pdf"],                 "channels": [],                "rationale": "Research synthesis; reads SharePoint/OneDrive."},
+    {"agent": "cto",          "scope": "project", "mcp_servers": ["turso", "github:read"],                 "skills": ["frontend-design"],             "channels": [],                "rationale": "Per-project tech leadership; read-only github."},
+    {"agent": "cpo",          "scope": "project", "mcp_servers": ["turso", "github:read"],                 "skills": ["docx"],                        "channels": [],                "rationale": "Per-project product strategy."},
+    {"agent": "cdo",          "scope": "project", "mcp_servers": ["turso", "github:read", "ms-graph"],     "skills": ["frontend-design", "docx"],     "channels": [],                "rationale": "Design system / brand UI / UX research."},
+    {"agent": "coo",          "scope": "project", "mcp_servers": ["turso", "github:write"],                "skills": [],                              "channels": [],                "rationale": "Sole github:write per §4 Single-Writer Invariant."},
+    {"agent": "vpe",          "scope": "project", "mcp_servers": ["turso", "github:read"],                 "skills": [],                              "channels": [],                "rationale": "Per-project Eng/* aggregation."},
+    {"agent": "eng-api",      "scope": "project", "mcp_servers": ["turso", "github:read"],                 "skills": ["data-analysis"],               "channels": [],                "rationale": "API engineering."},
+    {"agent": "eng-backend",  "scope": "project", "mcp_servers": ["turso", "github:read"],                 "skills": ["data-analysis"],               "channels": [],                "rationale": "Backend engineering."},
+    {"agent": "eng-frontend", "scope": "project", "mcp_servers": ["turso", "github:read"],                 "skills": ["frontend-design"],             "channels": [],                "rationale": "Frontend engineering."},
+    {"agent": "eng-ai",       "scope": "project", "mcp_servers": ["turso", "github:read"],                 "skills": ["data-analysis"],               "channels": [],                "rationale": "AI/ML engineering."}
+  ],
+  "row_count": 19,
+  "notes": [
+    "Derived verbatim from ca.md table at lines 207-227. eng-platform is present at agents/company/eng-platform.md but ABSENT from this canonical matrix table — F-13 founding-vs-deferred ambiguity flagged by audit-bootstrap-baseline.sh.",
+    "MCP_INVENTORY.md mentions m365-graph (write capability for CFO/CLO/CMO/CCO/CDO/CoS/CRO) and fattura_elettronica (CFO) — neither appears in the canonical matrix above. Coverage gap surfaced at cross-check."
+  ]
+}

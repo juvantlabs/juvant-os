@@ -731,20 +731,31 @@ collapse to the CEO. For larger teams where multiple humans own roles
 ```json
 {
   "github_user_map": {
-    "CEO_GITHUB": "<ceo-handle>",
-    "COS_GITHUB": "<ceo-handle>",
-    "CFO_GITHUB": "<ceo-handle>",
-    "CLO_GITHUB": "<ceo-handle>",
-    "CMO_GITHUB": "<ceo-handle>",
-    "CCO_GITHUB": "<ceo-handle>",
-    "CHRO_GITHUB": "<ceo-handle>",
-    "CSO_GITHUB": "<ceo-handle>",
-    "CETHO_GITHUB": "<ceo-handle>",
-    "CA_GITHUB": "<ceo-handle>",
-    "CRO_GITHUB": "<ceo-handle>"
+    "ceo": "<ceo-handle>",
+    "cos": "<ceo-handle>",
+    "cfo": "<ceo-handle>",
+    "clo": "<ceo-handle>",
+    "cmo": "<ceo-handle>",
+    "cco": "<ceo-handle>",
+    "chro": "<ceo-handle>",
+    "cso": "<ceo-handle>",
+    "cetho": "<ceo-handle>",
+    "ca": "<ceo-handle>",
+    "cro": "<ceo-handle>",
+    "eng-platform": "<ceo-handle>"
   }
 }
 ```
+
+Keys are the canonical lowercase role slugs — the same identifier set used
+in `.claude/agents/<role>.md`, `agents/company/<role>.md`, and the
+`agent_tool_matrix.role` column. The full slug list is `ceo, cos, cfo, clo,
+cmo, cco, chro, cso, cetho, ca, cro, eng-platform`. `scripts/compile-templates.sh`
+reads `.github_user_map[<role-slug>]` to render `{{*_GITHUB}}` placeholders
+in `.github/CODEOWNERS`; do not capitalize the keys or append `_GITHUB`
+suffixes (the script will return empty and CODEOWNERS will render with
+no `@<user>` annotations). This was a doc/script schema drift fixed in
+v0.6.6 (Golf Corp testco F-21).
 
 The wizard prompt is light: ask once for the CEO's GitHub handle, then for
 each role surface "(default: `<ceo-handle>`)" and accept Enter for default
@@ -1189,30 +1200,84 @@ infrastructure.
 
 ### Wizard — Step 8: Seed agent_tool_matrix
 
-Insert the v0 default matrix rows into `agent_tool_matrix` (one row per role) using
-the matrix in `session-commit-p1.md` / `coo.md`. Set `version='v0'` and
-`approved_by='ceo'` (the CEO's act of running this wizard is the v0 approval, logged
-in `decisions` category `bootstrap-action`).
+Run `scripts/seed-matrix.sh` (HARD-REQUIRED — single allowlistable
+invocation, deterministic across runs):
+
+```bash
+bash scripts/seed-matrix.sh
+```
+
+The script reads the canonical v0 matrix from
+`scripts/templates/v0-agent-tool-matrix.json` (20 rows: 11 company-scope +
+9 project-scope; drift-corrected against `docs/MCP_INVENTORY.md` and
+`SYSTEM_INVARIANTS.md` §4 carve-outs as of v0.6.6). Each row is INSERTed
+with `version='v0'` and `approved_by='ceo'` (the CEO's act of running
+this wizard is the v0 approval, logged in `decisions` category
+`bootstrap-action`).
+
+The Skill MUST NOT improvise SQL helpers or Python scripts at this step.
+Pre-v0.6.6 testco runs surfaced five different ad-hoc paths across five
+runs (Acme → Echo) and each diverged on row content; F-7 ships
+`seed-matrix.sh` as the canonical seed, and F-12 patches the upstream
+matrix in `agents/company/ca.md` to match the JSON template (the JSON
+is the runtime source of truth; the table in `ca.md` is the human
+reference and they MUST stay in lockstep).
+
+If the script fails (config missing, template missing, jq missing,
+matrix already populated without `--force`), surface the error to the
+CEO verbatim and pause the wizard. Do not work around it.
 
 ### Wizard — Step 8.5: MCP inventory cross-check
 
-After seeding `agent_tool_matrix` v0 (Step 8), the wizard validates each
-matrix row against `docs/MCP_INVENTORY.md` (the normative MCP server
-manifest). Failure modes:
+After Step 8 seeds `agent_tool_matrix`, validate each row against
+`docs/MCP_INVENTORY.md` (the normative MCP server manifest) and
+`SYSTEM_INVARIANTS.md` §4 (single-writer + disclosure boundary).
+Failure modes:
 
 - **Server not in inventory** → build-fail. Hint: "Add a new row to
   `docs/MCP_INVENTORY.md` and open a `tool-matrix-change` decision per
   `SYSTEM_INVARIANTS.md` §6 before re-running the wizard."
-- **Universal Boundary violation** (per `SYSTEM_INVARIANTS.md` §4) →
-  build-fail. Hint: "This grant is forbidden by §4. The wizard cannot
-  proceed."
+- **Universal Boundary violation** (per `SYSTEM_INVARIANTS.md` §4 +
+  `docs/MCP_INVENTORY.md` § Universal Boundaries) → build-fail. Hint:
+  "This grant is forbidden by §4. The wizard cannot proceed."
+  Channels of class `<channel>:send-ceo-only` are exempted from the
+  state-read + external-channel-send conjunction per
+  [ADR 0011](docs/adr/0011-ceo-direct-channel-class.md); the wizard
+  recognizes the `:send-ceo-only` suffix and does not flag CoS rows
+  holding `[turso, telegram:send-ceo-only]` as violations.
 - **Server status `pending FEAT-XXX`** → warn, allow pass. The agent
   operates in restricted mode for the affected capability until the
   named FEAT lands.
 
-This check enforces that the inventory is the canonical source of truth
-for agent capability declarations and surfaces design drift early
-(before bootstrap rather than at first agent call).
+This check enforces that the inventory is the canonical source of
+truth for agent capability declarations and surfaces design drift
+early (before bootstrap rather than at first agent call). The post-
+v0.6.6 expectation is that the v0 matrix as shipped passes Step 8.5
+with at most informational findings (status-pending warnings); the
+P1 boundary-violation and P2 coverage-gaps surfaced by the Echo and
+Golf testco runs are closed at the source.
+
+**F-12 instrumented capture (optional)**: when the run prompt opts
+in (e.g. *"F-12 instrumented capture: write Step 8.5 artifacts to
+`/tmp/<company>-matrix-{raw,errors,corrected}.json`"*), the wizard
+writes three JSON artifacts at this step:
+
+- `/tmp/<company>-matrix-raw.json` — canonical v0 matrix as derived
+  from the upstream source (snapshot of what `scripts/seed-matrix.sh`
+  loaded).
+- `/tmp/<company>-matrix-errors.json` — newline-delimited JSON
+  findings, one per cross-check layer (L1 server-inventory, L2
+  universal-boundary, L3 status-warnings, L4 registration-completeness).
+- `/tmp/<company>-matrix-corrected.json` — post-correction matrix
+  actually written, with `corrections_applied` rationale and
+  `deltas_vs_raw` summary.
+
+The orchestrator copies the artifacts to
+`tests/fixtures/matrix/<date>-<company>-{raw,errors,corrected}.json`
+at run close. These are the canonical fixtures for upstream-matrix
+correctness work; see `tests/fixtures/matrix/README.md` for usage.
+Without instrumentation, no fixtures are written (cross-check still
+runs and findings still land in `security_audit_log`).
 
 ### Wizard — Step 9: Bootstrap Protocol (§1)
 
