@@ -2,14 +2,16 @@
 
 > Canonical source of truth for invariants that span all subagent templates.
 >
-> The 19 subagent templates in `agents/**/*.md` defer to this document for:
-> bootstrap protocol, naming convention, disclosure fallback cascade,
+> The subagent templates in `agents/**/*.md` (10 mandatory company-scope +
+> up to 2 optional company-scope + 8 per-project) defer to this document
+> for: bootstrap protocol, naming convention, disclosure fallback cascade,
 > single-writer invariant, universal CONFIDENTIAL list, spec authorization
 > matrix, and architectural principles.
 >
 > Future modifications to any of these invariants happen here, then propagate
 > to subagent files via the standard versioning flow (CHRO proposes → CEO
-> approves → CA designs `pr-spec` → COO executes).
+> approves → CTO designs `pr-spec` → eng-platform executes at company
+> scope; project Eng Lead executes at project scope).
 >
 > All written artifacts in English. No exceptions.
 
@@ -23,7 +25,32 @@ creates a chicken-and-egg deadlock at day-1 fork initialization: CSO itself
 needs an audit before its own manifesto can be approved.
 
 The Bootstrap Protocol resolves this with a one-shot CEO-override mode for
-the founding 19 agents.
+the founding N agents (see "Founding agent count" below).
+
+### Founding agent count
+
+The founding manifesto count is **company-scope only** and parameterized
+by the optional-role toggles set at company init in
+`.juvant/config.json`'s `feature_toggles`:
+
+```
+N = 9 (mandatory company)
+  + (1 if feature_toggles.eng_platform_enabled, default true)
+  + (1 if feature_toggles.cro_enabled,           default false)
+  + (1 if feature_toggles.vpe_enabled,           default false)
+```
+
+- **Default at v0.8.0**: `N = 10` (9 mandatory + eng-platform on).
+- **Maximum**: `N = 12` (all three optional roles enabled).
+- **Minimum**: `N = 9` (eng-platform disabled — only valid for
+  non-software company-only adopters per ADR 0016).
+
+Per-project agents (PCA, Product Lead, Design Lead, Eng Lead, eng-api,
+eng-backend, eng-frontend, eng-ai = 8 per project) are **not** counted
+in N. They bootstrap separately at project-init, after company
+bootstrap completes; each goes through the same Tier-1-bootstrap +
+Tier-2 review flow individually with the post-bootstrap CSO precondition
+gate.
 
 ### Bootstrap entry conditions
 
@@ -32,7 +59,7 @@ A fork enters Bootstrap Mode when ALL of the following hold:
 - The fork has just been initialized (`git push --mirror` from
   `juvantlabs/juvant-os` complete).
 - `master_context.bootstrap_completed_at IS NULL`.
-- `agent_tool_matrix` has been seeded with the v0 default matrix (CA-owned
+- `agent_tool_matrix` has been seeded with the v0 default matrix (CTO-owned
   template) but no `manifests` rows yet exist.
 - The CEO has launched Claude Code in the fork directory and invoked
   `Initialize Juvant OS` (the JUVANT_OS.md skill orchestrator).
@@ -54,10 +81,10 @@ A fork enters Bootstrap Mode when ALL of the following hold:
 5. The agent transitions to `OPERATIONAL_RESTRICTED` with the standard
    `[MANIFESTO PENDING]` flag visible on outputs.
 6. Tier 2 async review (7-day window) follows the standard flow. CEthO,
-   CHRO, CA review during Tier 2 even though they themselves are also in
+   CHRO, CTO review during Tier 2 even though they themselves are also in
    bootstrap. Tier 2 reviews of bootstrap manifestos record
    `tier2_bootstrap = 1` for traceability.
-7. CSO performs the first system audit immediately after all 19 agents
+7. CSO performs the first system audit immediately after all N agents
    reach `OPERATIONAL_RESTRICTED`. The audit output goes to `decisions`
    category `system-audit` with `bootstrap_baseline = 1`.
 
@@ -73,7 +100,7 @@ A fork enters Bootstrap Mode when ALL of the following hold:
    a Skill that fabricates a CSO audit verdict is structurally
    indistinguishable from a malicious agent forging audit history. CSO
    Layer 5 detects orphan rows (see `agents/company/cso.md` § Layer 5).
-8. When all 19 agents complete Tier 2 AND the first CSO audit returns
+8. When all N agents complete Tier 2 AND the first CSO audit returns
    PASS or WARN-WITH-CONDITIONS, the skill writes:
    - `master_context.bootstrap_completed_at = NOW()`,
    - all `manifests.status = 'operational'` (where Tier 2 cleared),
@@ -83,9 +110,9 @@ A fork enters Bootstrap Mode when ALL of the following hold:
 
 - `master_context.bootstrap_completed_at` is set exactly once. It does not
   reset.
-- Any subsequent agent addition (e.g. enabling CRO post-bootstrap, or
-  introducing a new role via tool-matrix extension) follows the standard
-  manifesto lifecycle WITH the CSO precondition gate enforced.
+- Any subsequent agent addition (e.g. enabling CRO or VPE post-bootstrap,
+  or introducing a new role via tool-matrix extension) follows the
+  standard manifesto lifecycle WITH the CSO precondition gate enforced.
 - A corrupted bootstrap (interrupted compilation, partial state, mid-flow
   failure) is recovered by deleting the fork's `.juvant/` directory and
   re-running `Initialize Juvant OS`. There is no partial bootstrap recovery.
@@ -96,9 +123,9 @@ A fork enters Bootstrap Mode when ALL of the following hold:
 ### Bootstrap CEO-only override authority
 
 During Bootstrap Mode, the CEO holds combined authority that during normal
-operation is split among CHRO + CA + CTO + CSO. The override is bounded:
+operation is split among CHRO + CTO + CSO + CEthO. The override is bounded:
 
-- ONLY for the founding 19 agents.
+- ONLY for the founding N agents (per "Founding agent count" above).
 - ONLY during the bootstrap session(s) before
   `master_context.bootstrap_completed_at` is set.
 - ONLY via the JUVANT_OS.md skill flow (no manual `manifests` table writes).
@@ -107,7 +134,9 @@ operation is split among CHRO + CA + CTO + CSO. The override is bounded:
 
 The CEO cannot bypass:
 - The Universal CONFIDENTIAL list (§5) — even at bootstrap.
-- The Universal Boundaries (no `github:write` to non-COO; no `bank:write`
+- The Universal Boundaries (single-writer-per-scope per §4 — no
+  `github:write` to non-`eng-platform` at company scope, no
+  `github:write` to non-`eng-lead` at project scope; no `bank:write`
   to non-treasury; etc.).
 - Plus: the manifesto draft itself, even at bootstrap, must pass structural
   completeness checks (identity, scope, ethical commitments, anti-pattern
@@ -119,7 +148,7 @@ After `master_context.bootstrap_completed_at` is set:
 
 - The CSO Manifesto Precondition Gate is structural and unbypassable.
 - New agents (e.g. portal variants in v1.1, future CRM-integrated roles)
-  follow the standard CA → CSO audit → CHRO/CTO Tier 1 → Tier 2 → CEO
+  follow the standard CTO → CSO audit → CHRO Tier 1 → Tier 2 → CEO
   approval flow.
 - Bootstrap-marked manifestos remain auditable; CSO Layer 5 audits include
   a check that bootstrap manifestos have not been silently re-classified.
@@ -131,7 +160,9 @@ After `master_context.bootstrap_completed_at` is set:
 All subagent templates use `{{PLACEHOLDER}}` syntax. The JUVANT_OS.md skill
 substitutes placeholders at company init from the values below.
 
-### Agent name placeholders (defaults)
+### Agent name placeholders (defaults) — company scope
+
+Mandatory (always bootstrapped):
 
 | Placeholder | Default name | Role | Scope |
 |---|---|---|---|
@@ -143,33 +174,53 @@ substitutes placeholders at company init from the values below.
 | `{{CHRO_NAME}}` | Sage | Chief Human Resources Officer | Company |
 | `{{CSO_NAME}}` | Shield | Chief Security Officer | Company |
 | `{{CETHO_NAME}}` | Vera | Chief Ethics Officer | Company |
-| `{{CA_NAME}}` | Arch | Chief Architect | Company |
-| `{{CRO_NAME}}` | Lumen | Chief Research Officer (optional) | Company |
-| `{{ENG_PLATFORM_NAME}}` | Hephaestus | Platform Engineer (optional) | Company |
+| `{{CTO_NAME}}` | Arch | Chief Technology Officer | Company |
 
-Optional company-scope agents (CRO, eng-platform) are NOT bootstrapped by
-default. They are introduced via the standard Hire flow (CHRO opens
-`hiring_log` row, CA authors pr-spec, CEO approves, COO installs the
-templated `agents/company/<role>.md` file). The eng-platform template
-(`agents/company/eng-platform.md`) ships an opinionated Azure-first
-default starter set of 14 Hard Conventions; the hire pr-spec is where
-the CEO ratifies, amends, or removes them per adoption.
+Optional, gated by `feature_toggles` in `.juvant/config.json`:
+
+| Placeholder | Default name | Role | Toggle | Default |
+|---|---|---|---|---|
+| `{{ENG_PLATFORM_NAME}}` | Hephaestus | Platform Engineer | `eng_platform_enabled` | **true** |
+| `{{CRO_NAME}}` | Lumen | Chief Research Officer | `cro_enabled` | false |
+| `{{VPE_NAME}}` | Helm | VP of Engineering (cross-project aggregator) | `vpe_enabled` | false |
+
+`eng-platform` is mandatory by default for software adopters (per
+ADR 0016 framework positioning); the toggle is preserved for
+non-software company-only adopters who don't need a company-scope
+infra writer. CRO ships off-by-default for adopters without active
+research-synthesis needs. VPE (renamed from project-scope per
+ADR 0014) ships off-by-default and is intended for multi-project
+software adopters who want a cross-project engineering aggregator
+distinct from the company CTO.
+
+Optional roles are introduced post-bootstrap via the standard Hire
+flow (CHRO opens `hiring_log` row, CTO authors `pr-spec`, CEO
+approves, eng-platform installs the templated
+`agents/company/<role>.md` file at company scope). The eng-platform
+template (`agents/company/eng-platform.md`) ships an opinionated
+Azure-first default starter set of 14 Hard Conventions; the hire
+pr-spec is where the CEO ratifies, amends, or removes them per
+adoption.
 
 ### Project-scope agent name placeholders
 
 Project-scope agents are instantiated per project. The placeholder resolves
-to a project-suffixed default unless the company init flow specifies otherwise.
+to a project-suffixed default unless the project init flow specifies otherwise.
 
 | Placeholder | Default pattern | Role |
 |---|---|---|
-| `{{CTO_NAME}}` | `<project_id>-cto` | CTO for the project |
-| `{{CPO_NAME}}` | `<project_id>-cpo` | CPO for the project |
-| `{{CDO_NAME}}` | `<project_id>-cdo` | Chief Design Officer for the project |
-| `{{COO_NAME}}` | `<project_id>-coo` | COO for the project |
-| `{{VPE_NAME}}` | `<project_id>-vpe` | VP of Engineering for the project |
+| `{{PCA_NAME}}` | `<project_id>-pca` | Project Chief Architect |
+| `{{PRODUCT_LEAD_NAME}}` | `<project_id>-product-lead` | Product Lead for the project |
+| `{{DESIGN_LEAD_NAME}}` | `<project_id>-design-lead` | Design Lead for the project |
+| `{{ENG_LEAD_NAME}}` | `<project_id>-eng-lead` | Engineering Lead for the project (sole project-scope `github:write`) |
 
 Eng/* agents (eng-api, eng-backend, eng-frontend, eng-ai) do not have a
 human-name placeholder; they are referenced by their role identifier.
+
+VPE has been removed from project scope per ADR 0014; cross-project
+engineering aggregation, when needed, is handled at company scope by
+the optional VPE role (toggle above) or by the company CTO directly
+when no VPE is enabled.
 
 ### System placeholders
 
@@ -188,9 +239,9 @@ human-name placeholder; they are referenced by their role identifier.
 | Placeholder | Default | Used by |
 |---|---|---|
 | `{{HIGH_VALUE_THRESHOLD}}` | €10,000 | CFO Security Rule #7 |
-| `{{SPRINT_LENGTH}}` | 2 weeks | VPE Sprint Coordination Protocol |
-| `{{ACCESSIBILITY_FLOOR}}` | WCAG 2.2 AA | CDO Accessibility Protocol |
-| `{{RUNBOOK_DRILL_CADENCE}}` | 90 days | COO Runbook drill cadence |
+| `{{SPRINT_LENGTH}}` | 2 weeks | Eng Lead Sprint Coordination Protocol |
+| `{{ACCESSIBILITY_FLOOR}}` | WCAG 2.2 AA | Design Lead Accessibility Protocol |
+| `{{RUNBOOK_DRILL_CADENCE}}` | 90 days | Eng Lead Runbook drill cadence |
 | `{{POSTS_PER_CHANNEL_PER_WEEK}}` | 3 | CMO Buffer cadence |
 | `{{TIER_STRATEGIC}}` | Strategic | CCO Partnership tiers |
 | `{{TIER_COMMERCIAL}}` | Commercial | CCO Partnership tiers |
@@ -205,17 +256,17 @@ human-name placeholder; they are referenced by their role identifier.
 | `{{W_EFFICIENCY}}` | 0.20 | CHRO ranking weight |
 | `{{W_ESCALATION}}` | 0.30 | CHRO ranking weight |
 | `{{W_QUALITY}}` | 0.20 | CHRO ranking weight |
-| `{{BACKEND_LANG}}` | Python | CA tech standards |
-| `{{BACKEND_FRAMEWORK}}` | FastAPI | CA tech standards |
-| `{{FRONTEND_PLATFORM}}` | React Native + Expo | CA tech standards |
-| `{{WEB_FRAMEWORK}}` | Next.js | CA tech standards |
-| `{{MONOREPO_TOOL}}` | Turborepo | CA tech standards |
-| `{{STATE_SERVER}}` | TanStack Query | CA tech standards |
-| `{{STATE_CLIENT}}` | Zustand | CA tech standards |
-| `{{FORMS_LIB}}` | React Hook Form + Zod | CA tech standards |
-| `{{DATABASE}}` | LibSQL via Turso | CA tech standards |
-| `{{OBSERVABILITY}}` | OpenTelemetry | CA tech standards (mandatory) |
-| `{{CICD}}` | GitHub Actions | CA tech standards |
+| `{{BACKEND_LANG}}` | Python | CTO tech standards |
+| `{{BACKEND_FRAMEWORK}}` | FastAPI | CTO tech standards |
+| `{{FRONTEND_PLATFORM}}` | React Native + Expo | CTO tech standards |
+| `{{WEB_FRAMEWORK}}` | Next.js | CTO tech standards |
+| `{{MONOREPO_TOOL}}` | Turborepo | CTO tech standards |
+| `{{STATE_SERVER}}` | TanStack Query | CTO tech standards |
+| `{{STATE_CLIENT}}` | Zustand | CTO tech standards |
+| `{{FORMS_LIB}}` | React Hook Form + Zod | CTO tech standards |
+| `{{DATABASE}}` | LibSQL via Turso | CTO tech standards |
+| `{{OBSERVABILITY}}` | OpenTelemetry | CTO tech standards (mandatory) |
+| `{{CICD}}` | GitHub Actions | CTO tech standards |
 
 ### Substitution rules
 
@@ -223,7 +274,8 @@ human-name placeholder; they are referenced by their role identifier.
 - Substitution happens at company init for company-scope agents and at
   project init for project-scope agents.
 - Re-substitution after init requires the standard tool-matrix change flow
-  (CA proposes → CEO approves → CA `pr-spec` → COO executes).
+  (CTO proposes → CEO approves → CTO `pr-spec` → eng-platform executes
+  at company scope, or the project's Eng Lead at project scope).
 - The placeholder syntax `{{...}}` is reserved. Any `{{...}}` that appears
   in committed agent output is a substitution failure and triggers a
   CSO Layer 5 audit finding, **with the explicit exception of the runtime-
@@ -249,8 +301,8 @@ governance — it is not a routine matrix change.
 
 When any agent detects that `disclosure_policies` is unreachable or returns
 zero active rows, it applies a unified four-tier cascade. Per-agent extensions
-(documented in CoS, COO, Eng/*) build on top of this baseline; they do not
-replace it.
+(documented in CoS, eng-platform, eng-lead, Eng/*) build on top of this
+baseline; they do not replace it.
 
 ### Tier 1 — Universal (every agent)
 
@@ -291,32 +343,49 @@ CoS, in addition to applying Tier 1, performs aggregation:
    CSO via `inbound_queue` priority `High` for post-incident audit.
 4. CoS does not lift the cascade; recovery is structural, not declarative.
 
-### Tier 3 — COO single-writer extension
+### Tier 3 — Per-scope writer single-writer extension
 
-COO, in addition to applying Tier 1, halts ALL spec execution while the
-cascade is active:
+The writer for each affected scope (eng-platform at company scope; the
+project's eng-lead at project scope), in addition to applying Tier 1,
+halts ALL spec execution **for its scope** while the cascade is active.
+Cascades are scope-local: an active project-scope cascade does not halt
+eng-platform; an active company-scope cascade does not halt project
+eng-leads.
 
-1. Reject every spec in `inbound_queue WHERE agent_owner='coo' AND status='pending'`
-   with reason `cascade-active`. The author re-submits after recovery.
-2. Refuse new GitHub writes of any kind. The single-writer property
-   inverts to single-reader-only during cascade.
-3. Active-but-uncompleted multi-step specs (e.g. a release-spec mid-execution)
-   pause at the next step boundary; the partial state is recorded in a
-   `decisions` row category `spec-paused-cascade`.
-4. Resume happens automatically when CoS records cascade recovery.
+For each affected writer:
 
-### Tier 4 — Eng/* VPE-routing extension
+1. Reject every spec in `inbound_queue WHERE agent_owner=<writer-role>
+   AND status='pending'` with reason `cascade-active`. The author
+   re-submits after recovery.
+2. Refuse new GitHub writes (or cloud/npm writes for eng-platform) of
+   any kind for the affected scope. The single-writer property inverts
+   to single-reader-only during cascade.
+3. Active-but-uncompleted multi-step specs (e.g. a release-spec
+   mid-execution) pause at the next step boundary; the partial state
+   is recorded in a `decisions` row category `spec-paused-cascade`.
+4. Resume happens automatically when CoS records cascade recovery
+   for the affected scope.
 
-Eng/* agents, in addition to applying Tier 1, route their fallback notification
-to VPE INSTEAD of CoS:
+### Tier 4 — Eng/* aggregation routing
 
-1. The `inbound_queue` Tier 1 insert uses `agent_owner='vpe'` rather than
-   `agent_owner='cos'`.
-2. VPE aggregates Eng/* fallbacks and forwards to CoS as a single
-   `inbound_queue` row priority `High` with content
-   "Eng/* fallback cascade: <count> agents, project <project_name>".
-3. CoS treats this as a single Tier 1 trigger from Eng/* (not <count>
-   triggers), which simplifies the cascade aggregation.
+Eng/* agents, in addition to applying Tier 1, route their fallback
+notification to the project's **Eng Lead** for project-scope
+aggregation (replacing the per-project VPE that existed pre-v0.8.0):
+
+1. The `inbound_queue` Tier 1 insert uses `agent_owner='eng-lead'`
+   (project-scoped) rather than `agent_owner='cos'`.
+2. The project's Eng Lead aggregates Eng/* fallbacks and forwards
+   to CoS as a single `inbound_queue` row priority `High` with
+   content "Eng/* fallback cascade: <count> agents, project
+   <project_name>".
+3. When `feature_toggles.vpe_enabled = true` AND multiple projects
+   are concurrently affected, CoS performs a second-level aggregation
+   under VPE (cross-project rollup) — VPE receives a single forwarded
+   row "Cross-project Eng/* cascade: <count> projects". When
+   VPE is disabled (default) OR only one project is affected, the
+   Eng Lead → CoS path is the only routing.
+4. CoS treats the aggregated row as a single Tier 1 trigger
+   (not <count> triggers), simplifying the cascade aggregation.
 
 ### CSO post-incident audit
 
@@ -330,7 +399,8 @@ After cascade recovery, CSO automatically opens an investigation:
    duration, agents affected, recovery mechanism, structural recommendations.
 4. If the root cause is reproducible structural (e.g. credential expiration
    without rotation runbook), generate `branch-protection-spec` or
-   `secret-rotation-spec` for COO.
+   `secret-rotation-spec` for the affected scope's writer (eng-platform
+   at company scope; the project's Eng Lead at project scope).
 
 ### What the cascade does NOT do
 
@@ -342,30 +412,61 @@ After cascade recovery, CSO automatically opens an investigation:
 
 ---
 
-## §4 — Single-Writer Invariant
+## §4 — Single-Writer Invariant (per-scope)
 
-> Authoritative reference: `agents/projects/coo.md` and
-> `agents/company/ca.md` (Architectural Principle #4).
+> Authoritative references: `agents/projects/eng-lead.md`,
+> `agents/company/eng-platform.md`, and `agents/company/cto.md`
+> (Architectural Principle #4). Restructured per ADR 0014.
 
-Summary:
+The single-writer property holds **per scope**, not system-wide. The
+system has two write scopes; each has exactly one writer.
 
-- **COO is the sole agent in the system that writes to GitHub repositories.**
-  Commits, PRs, Issues, project boards, milestones, labels, branch protection
-  — all originate from COO.
-- All other agents that need a GitHub write produce a spec (one of nine spec
-  classes — see §6) in the `decisions` table. COO reads, verifies (5-check
-  protocol), and executes.
-- This single-writer property is a security invariant, not a preference.
-  CA cannot grant `github:write` to any other agent under any rationale.
+### Company-scope writer: `eng-platform`
+
+The company fork repo (`<adopter>/<adopter-os>` or equivalent), the
+template/IaC repo, the cloud control plane, and the npm registry are
+written **only** by `eng-platform`. Capabilities: `github:write`
+(company repo only), `cloud:write` (azure/aws/gcp/turso per
+`feature_toggles.cloud_provider`), `npm:publish`.
+
+### Project-scope writer: `eng-lead` (per project)
+
+Each project's repo (`<adopter>/<project-slug>`) is written **only**
+by that project's `eng-lead`. Capabilities: `github:write` (that
+project's repo only). One `eng-lead` per project; cross-project
+writes are not permitted.
+
+### Universal rules
+
+- All other agents that need a write at either scope produce a spec
+  (one of the spec classes in §6) in the `decisions` table. The
+  scope's writer reads, verifies (5-check protocol), and executes.
+- **Cross-scope writes are forbidden.** An `eng-lead` cannot write
+  to the company repo under any spec or rationale; `eng-platform`
+  cannot write to a project repo under any spec or rationale. Each
+  writer's 5-check protocol verifies the spec's target scope matches
+  its own scope before execution.
+- This single-writer-per-scope property is a security invariant,
+  not a preference. CTO cannot grant `github:write` to any other
+  agent under any rationale.
 
 **Disclosure-boundary corollary** — `state.db` read AND external-channel
 send in the same matrix row collapses the disclosure boundary and is
-forbidden. The operational enumeration of this corollary, plus the
-`<channel>:send-ceo-only` carve-out for operator-direct notifications,
-lives in `docs/MCP_INVENTORY.md` § Universal Boundaries. See
+forbidden. The corollary applies **per scope**: the company-scope writer
+cannot also hold a company-scope external channel; the project-scope
+writer cannot also hold a project-scope external channel. The operational
+enumeration, plus the `<channel>:send-ceo-only` carve-out for
+operator-direct notifications, lives in `docs/MCP_INVENTORY.md`
+§ Universal Boundaries. See
 [ADR 0011](docs/adr/0011-ceo-direct-channel-class.md) for the
 channel-class definition and the wizard's Step 4 confirmation gate
 that enforces the operator-recipient contract.
+
+**Tier 3 disclosure cascade extension** — when the §3 cascade activates,
+the writer for the affected scope halts spec execution at the next
+step boundary (independently per scope: an active cascade affecting
+project-A's eng-lead does not halt project-B's eng-lead or
+eng-platform). Resume on cascade recovery is per-scope analogously.
 
 ---
 
@@ -402,35 +503,57 @@ a structural change requiring full re-audit).
 
 ## §6 — Spec Authorization Matrix
 
-> Authoritative reference: `agents/projects/coo.md`.
+> Authoritative references: `agents/projects/eng-lead.md` (project-scope
+> 5-check), `agents/company/eng-platform.md` (company-scope 5-check).
+> Restructured per ADR 0014 + ADR 0015.
 
-Summary:
+Specs route to one of the two scope writers (eng-platform at company
+scope; the project's eng-lead at project scope) per the spec's target.
+The writer performs 5-check verification on every incoming spec
+(author authorization, approval state, format completeness,
+universal-CONFIDENTIAL invariant, linked artifact integrity). Failed
+verification = REJECT. No partial execution.
 
-| Spec category | Authorized authors |
-|---|---|
-| `pr-spec` | CA, CTO, CDO, CSO |
-| `gh-issue-spec` | CPO, CTO, CDO, CSO, VPE |
-| `gh-project-update-spec` | CPO, CTO, CDO, VPE |
-| `gh-milestone-spec` | CPO, CTO |
-| `install-spec` | CA |
-| `branch-protection-spec` | CSO, CTO |
-| `release-spec` | VPE, CTO |
-| `deployment-spec` | VPE, CTO |
-| `secret-rotation-spec` | CSO |
-| `gh-pr-review-spec` | VPE (delegated by CTO when architectural) |
+**Notation**: "+ VPE" indicates the role is added to the author list
+when `feature_toggles.vpe_enabled = true`. "Eng Lead" refers to the
+specific project's Eng Lead when the spec is project-scoped.
 
-COO performs 5-check verification on every spec (author authorization,
-approval state, format completeness, universal-CONFIDENTIAL invariant,
-linked artifact integrity). Failed verification = REJECT. No partial
-execution.
+| Spec category | Authorized authors | Approver | Executor (writer) |
+|---|---|---|---|
+| `pr-spec` (project) | PCA, Design Lead, CSO | PCA | Eng Lead (project) |
+| `pr-spec` (company) | CTO, CSO | CTO | eng-platform |
+| `gh-issue-spec` | Product Lead, PCA, Design Lead, CSO (+ VPE) | PCA (project) / CTO (company) | Eng Lead / eng-platform per scope |
+| `gh-project-update-spec` | Product Lead, PCA, Design Lead (+ VPE) | PCA / CTO | Eng Lead / eng-platform |
+| `gh-milestone-spec` | Product Lead, PCA | PCA / CTO | Eng Lead / eng-platform |
+| `install-spec` | CTO | CTO | eng-platform |
+| `branch-protection-spec` (project) | CSO, PCA | PCA | Eng Lead (project) |
+| `branch-protection-spec` (company) | CSO, CTO | CTO | eng-platform |
+| `release-spec` | PCA (+ VPE) | PCA / CTO | Eng Lead / eng-platform |
+| `deployment-spec` | PCA (+ VPE) | PCA / CTO | Eng Lead / eng-platform |
+| `secret-rotation-spec` | CSO | CSO | eng-platform (company) / Eng Lead (project) |
+| `gh-pr-review-spec` | Eng Lead (delegated by PCA when architectural; or VPE at cross-project review when enabled) | PCA / CTO | Eng Lead / eng-platform |
+| `eng-platform-spec` | eng-platform | CTO | eng-platform |
+| `brand-spec` (mode: inherit / extend) | Design Lead (project), CMO (company) | CMO | Design Lead / CMO |
+| `brand-spec` (mode: independent) | Design Lead (project) | CEO (mode ratification) + Design Lead executes; CMO advisory in parallel (NOT validator against company brand book — see ADR 0015) | Design Lead |
+| `brand-mode-ratification` | n/a (system-emitted from first independent brand-spec) | CEO | n/a (records mode for project) |
+
+The `eng-platform-spec` class covers company-scope infra changes that
+don't fit `pr-spec` / `install-spec` (IaC drift, cloud control-plane
+bumps, npm version cuts). The eng-platform agent is both author and
+executor; the 5-check protocol still runs and CTO is the
+approver-of-record gating execution.
+
+The `brand-spec` class lifecycle, mode semantics, and CMO
+advisory-vs-validator boundary are codified in
+[ADR 0015](docs/adr/0015-design-brand-ownership.md).
 
 ---
 
 ## §7 — Architectural Principles
 
-> Authoritative reference: `agents/company/ca.md`.
+> Authoritative reference: `agents/company/cto.md`.
 
-Summary (cited when CA APPROVE/REJECT/DEFER any change):
+Summary (cited when CTO APPROVE/REJECT/DEFER any change):
 
 1. Composition over modification.
 2. Boundary enforcement.
@@ -459,10 +582,11 @@ standard pointer:
 > This template defers to those invariants where applicable.
 ```
 
-Per-template extensions to invariants (e.g. CoS's Tier-2 aggregation logic,
-COO's Tier-3 single-writer halt, Eng/*'s Tier-4 VPE routing) remain in the
-respective subagent files as they encode role-specific behavior on top of
-the canonical baseline.
+Per-template extensions to invariants (e.g. CoS's Tier-2 aggregation
+logic, the per-scope writer's Tier-3 single-writer halt, Eng/*'s
+Tier-4 routing through the project Eng Lead with optional VPE
+cross-project rollup) remain in the respective subagent files as they
+encode role-specific behavior on top of the canonical baseline.
 
 ---
 
@@ -470,12 +594,13 @@ the canonical baseline.
 
 Changes to this document follow the standard versioning flow:
 
-1. Proposer drafts a change (CHRO if discovered via drift; CA if discovered
-   via tool-matrix interaction; any agent in principle).
+1. Proposer drafts a change (CHRO if discovered via drift; CTO if
+   discovered via tool-matrix interaction; any agent in principle).
 2. CoS routes the proposal to CEO.
 3. CEO approves.
-4. CA designs `pr-spec` for SYSTEM_INVARIANTS.md update.
-5. COO opens PR; review involves CHRO + CA + CSO + CEthO.
+4. CTO designs `pr-spec` (company-scope; SYSTEM_INVARIANTS.md is a
+   company-scope artifact).
+5. eng-platform opens PR; review involves CHRO + CTO + CSO + CEthO.
 6. After merge, CHRO triggers a system-wide manifesto re-validation pass
    if the change touches §1, §3, §4, §5, or §6. Changes touching only §2
    (naming) or §7 (principles citation) are non-structural and do not
