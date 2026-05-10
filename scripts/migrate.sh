@@ -194,15 +194,15 @@ run_schema_apply() {
 # inbound_queue/security_audit_log are NOT modified — joins go through
 # role_aliases at audit time.
 #
-# Format: old_role:new_role:scope-context
-RENAME_PAIRS=(
-  "ca:cto:company"
-  "cto:pca:project"
-  "coo:eng-lead:project"
-  "cdo:design-lead:project"
-  "cpo:product-lead:project"
-  "vpe:vpe:cross-scope"   # SAME identifier, scope changed project→company-optional
-)
+# Format: old_role:new_role:scope-context (documentation only — the actual
+# inserts are inline in the SQL heredoc below; this list is the human
+# reference for what the migration does).
+#   ca   → cto          (company)
+#   cto  → pca          (project)
+#   coo  → eng-lead     (project)
+#   cdo  → design-lead  (project)
+#   cpo  → product-lead (project)
+#   vpe  → vpe          (cross-scope: project → company-optional)
 
 # Old → new file basename (no scope qualifier in the filename so the move
 # pattern is direct). Parallel arrays — bash 3.2 (macOS default) lacks
@@ -299,7 +299,9 @@ run_version_pair_migration() {
   # Backup
   # ────────────────────
   log_step "Backup state.db"
-  local BACKUP_PATH="${DB_PATH}.pre-v0.8.$(date -u +%Y%m%dT%H%M%SZ)"
+  local BACKUP_PATH BACKUP_TS
+  BACKUP_TS=$(date -u +%Y%m%dT%H%M%SZ)
+  BACKUP_PATH="${DB_PATH}.pre-v0.8.${BACKUP_TS}"
   if [[ "$DRY_RUN" == "0" ]]; then
     cp "$DB_PATH" "$BACKUP_PATH"
     echo "  backup: $BACKUP_PATH"
