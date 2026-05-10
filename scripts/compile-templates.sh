@@ -11,20 +11,30 @@
 # heredoc — finding F-6 + F-7 + F-8 family in the v0.6.4 backlog).
 #
 # Usage:
-#   scripts/compile-templates.sh                  # default: company scope
+#   scripts/compile-templates.sh                              # default: company scope
 #   scripts/compile-templates.sh --scope company
-#   scripts/compile-templates.sh --scope projects  # at project init
-#   scripts/compile-templates.sh --codeowners      # render .github/CODEOWNERS
-#   scripts/compile-templates.sh --rewrite-meta    # README/CHANGELOG/SECURITY/docs-adr-stub
-#   scripts/compile-templates.sh --check-only      # dry-run; report leftover placeholders
+#   scripts/compile-templates.sh --scope projects --project=<slug>
+#                                                             # at project init
+#   scripts/compile-templates.sh --codeowners                 # render .github/CODEOWNERS
+#   scripts/compile-templates.sh --rewrite-meta               # README/CHANGELOG/SECURITY/docs-adr-stub
+#   scripts/compile-templates.sh --check-only                 # dry-run; report leftover placeholders
 #
 # Exit codes:
 #   0   success — all targeted files compiled, only allowlisted placeholders survive
-#   1   missing config / unsupported provider / no jq
+#   1   missing config / unsupported provider / no jq / project slug not resolved
 #   2   surviving non-allowlisted placeholder (CSO Layer 5 finding) — refuse to write
 #
-# Allowlist: {{ACTIVE_PROJECT}} survives at company init (bound at SessionStart
-# per Boot Mode); {{PROJECT_NAME}} survives at company init (bound at project init).
+# Allowlist behavior (F-23, v0.7.x):
+# - --scope company → ALLOWLIST = ACTIVE_PROJECT|PROJECT_NAME (both
+#   survive: ACTIVE_PROJECT bound at SessionStart per Boot Mode,
+#   PROJECT_NAME bound later at project init).
+# - --scope projects --project=<slug> → ALLOWLIST = ACTIVE_PROJECT only;
+#   PROJECT_NAME is substituted with the resolved project's display
+#   name. Project-scope agent name placeholders ({{CTO_NAME}}, {{CPO_NAME}},
+#   {{CDO_NAME}}, {{COO_NAME}}, {{VPE_NAME}}, {{ENG_API_NAME}},
+#   {{ENG_BACKEND_NAME}}, {{ENG_FRONTEND_NAME}}, {{ENG_AI_NAME}}) are
+#   substituted from .juvant/config.json projects.<slug>.agent_names.<role>
+#   with default fallback "<slug>-<role>" (e.g. apollo-cto).
 # Any other surviving {{...}} aborts.
 
 set -euo pipefail
@@ -37,11 +47,14 @@ SCOPE="company"
 DO_CODEOWNERS=0
 CHECK_ONLY=0
 DO_REWRITE_META=0
+PROJECT_SLUG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --scope) SCOPE="$2"; shift 2 ;;
     --scope=*) SCOPE="${1#--scope=}"; shift ;;
+    --project) PROJECT_SLUG="$2"; shift 2 ;;
+    --project=*) PROJECT_SLUG="${1#--project=}"; shift ;;
     --codeowners) DO_CODEOWNERS=1; shift ;;
     --rewrite-meta) DO_REWRITE_META=1; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
@@ -92,6 +105,68 @@ CETHO_NAME=$(agent_name cetho Vera)
 CA_NAME=$(agent_name ca Arch)
 CRO_NAME=$(agent_name cro Lumen)
 ENG_PLATFORM_NAME=$(agent_name eng-platform Hephaestus)
+
+# Project-scope agent names + project metadata (Step 3 of project-init).
+# Read from .juvant/config.json `projects.<slug>` only when --scope projects
+# is invoked with --project=<slug>. For company-scope, these stay empty.
+project_agent_name() {
+  local slug="$1"
+  local role="$2"
+  local default="$3"
+  local v
+  v=$(jq -r --arg s "$slug" --arg r "$role" '.projects[$s].agent_names[$r] // empty' "$CONFIG")
+  echo "${v:-$default}"
+}
+PROJECT_NAME=""
+PROJECT_NAME_SLUG=""
+CTO_NAME=""
+CPO_NAME=""
+CDO_NAME=""
+COO_NAME=""
+VPE_NAME=""
+ENG_API_NAME=""
+ENG_BACKEND_NAME=""
+ENG_FRONTEND_NAME=""
+ENG_AI_NAME=""
+if [[ "$SCOPE" == "projects" ]]; then
+  # Resolve PROJECT_SLUG from --project flag, or from config.active_project,
+  # or from a single project entry if exactly one exists.
+  if [[ -z "$PROJECT_SLUG" ]]; then
+    PROJECT_SLUG=$(jq -r '.active_project // empty' "$CONFIG")
+  fi
+  if [[ -z "$PROJECT_SLUG" ]]; then
+    only=$(jq -r '.projects // {} | keys | if length == 1 then .[0] else "" end' "$CONFIG")
+    [[ -n "$only" ]] && PROJECT_SLUG="$only"
+  fi
+  if [[ -z "$PROJECT_SLUG" ]]; then
+    echo "ERROR: --scope projects requires --project=<slug> (or .active_project / single .projects entry in $CONFIG)." >&2
+    exit 1
+  fi
+  PROJECT_NAME=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].name // empty' "$CONFIG")
+  PROJECT_NAME_SLUG="$PROJECT_SLUG"
+  if [[ -z "$PROJECT_NAME" ]]; then
+    # Fallback: if .projects.<slug>.name is missing, derive a Title-cased
+    # display name from the slug (apollo → "Apollo"). Schemas pre-F-23
+    # (v0.7.0) didn't always write .name; this fallback lets the script
+    # succeed against partial configs while the wizard catches up.
+    if jq -e --arg s "$PROJECT_SLUG" '.projects[$s]' "$CONFIG" >/dev/null; then
+      PROJECT_NAME=$(echo "$PROJECT_SLUG" | awk -F'-' '{ for (i=1;i<=NF;i++) $i = toupper(substr($i,1,1)) substr($i,2); print }' OFS=' ')
+      echo "WARN: .projects.$PROJECT_SLUG.name missing in $CONFIG; derived '$PROJECT_NAME' from slug." >&2
+    else
+      echo "ERROR: project '$PROJECT_SLUG' not found in $CONFIG (.projects.$PROJECT_SLUG missing)." >&2
+      exit 1
+    fi
+  fi
+  CTO_NAME=$(project_agent_name "$PROJECT_SLUG" cto "$PROJECT_SLUG-cto")
+  CPO_NAME=$(project_agent_name "$PROJECT_SLUG" cpo "$PROJECT_SLUG-cpo")
+  CDO_NAME=$(project_agent_name "$PROJECT_SLUG" cdo "$PROJECT_SLUG-cdo")
+  COO_NAME=$(project_agent_name "$PROJECT_SLUG" coo "$PROJECT_SLUG-coo")
+  VPE_NAME=$(project_agent_name "$PROJECT_SLUG" vpe "$PROJECT_SLUG-vpe")
+  ENG_API_NAME=$(project_agent_name "$PROJECT_SLUG" eng-api "$PROJECT_SLUG-eng-api")
+  ENG_BACKEND_NAME=$(project_agent_name "$PROJECT_SLUG" eng-backend "$PROJECT_SLUG-eng-backend")
+  ENG_FRONTEND_NAME=$(project_agent_name "$PROJECT_SLUG" eng-frontend "$PROJECT_SLUG-eng-frontend")
+  ENG_AI_NAME=$(project_agent_name "$PROJECT_SLUG" eng-ai "$PROJECT_SLUG-eng-ai")
+fi
 
 # GitHub user map (Step 1.6 — single CEO handle by default)
 github_handle() {
@@ -153,7 +228,17 @@ AGENT_DESCRIPTION="$COMPANY_DESCRIPTION"
 
 # Allowlist of placeholders that may legitimately survive at company init
 # (runtime-bound at SessionStart or project init). Intentionally short.
-ALLOWLIST_REGEX='ACTIVE_PROJECT|PROJECT_NAME'
+# When --scope projects is invoked with a resolved $PROJECT_SLUG, both
+# ACTIVE_PROJECT and PROJECT_NAME ARE substituted (not allowlisted as
+# survivors); the allowlist for that path is just ACTIVE_PROJECT, which
+# the project files use to reference the runtime-bound active project
+# state at SessionStart. For company-scope compilation, PROJECT_NAME
+# survives because no project is bound yet at company init.
+if [[ "$SCOPE" == "projects" && -n "${PROJECT_NAME:-}" ]]; then
+  ALLOWLIST_REGEX='ACTIVE_PROJECT'
+else
+  ALLOWLIST_REGEX='ACTIVE_PROJECT|PROJECT_NAME'
+fi
 
 # ─────────────────────────────────────────────
 # Substitute one file in place, validate residue
@@ -171,18 +256,27 @@ substitute_file() {
   # basename. agents/company/cso.md → Shield, etc.
   local agent_name_token=""
   case "$file_basename" in
-    cos.md)          agent_name_token="$COS_NAME" ;;
-    cfo.md)          agent_name_token="$CFO_NAME" ;;
-    clo.md)          agent_name_token="$CLO_NAME" ;;
-    cmo.md)          agent_name_token="$CMO_NAME" ;;
-    cco.md)          agent_name_token="$CCO_NAME" ;;
-    chro.md)         agent_name_token="$CHRO_NAME" ;;
-    cso.md)          agent_name_token="$CSO_NAME" ;;
-    cetho.md)        agent_name_token="$CETHO_NAME" ;;
-    ca.md)           agent_name_token="$CA_NAME" ;;
-    cro.md)          agent_name_token="$CRO_NAME" ;;
-    eng-platform.md) agent_name_token="$ENG_PLATFORM_NAME" ;;
-    *)               agent_name_token="" ;;
+    cos.md)           agent_name_token="$COS_NAME" ;;
+    cfo.md)           agent_name_token="$CFO_NAME" ;;
+    clo.md)           agent_name_token="$CLO_NAME" ;;
+    cmo.md)           agent_name_token="$CMO_NAME" ;;
+    cco.md)           agent_name_token="$CCO_NAME" ;;
+    chro.md)          agent_name_token="$CHRO_NAME" ;;
+    cso.md)           agent_name_token="$CSO_NAME" ;;
+    cetho.md)         agent_name_token="$CETHO_NAME" ;;
+    ca.md)            agent_name_token="$CA_NAME" ;;
+    cro.md)           agent_name_token="$CRO_NAME" ;;
+    eng-platform.md)  agent_name_token="$ENG_PLATFORM_NAME" ;;
+    cto.md)           agent_name_token="$CTO_NAME" ;;
+    cpo.md)           agent_name_token="$CPO_NAME" ;;
+    cdo.md)           agent_name_token="$CDO_NAME" ;;
+    coo.md)           agent_name_token="$COO_NAME" ;;
+    vpe.md)           agent_name_token="$VPE_NAME" ;;
+    eng-api.md)       agent_name_token="$ENG_API_NAME" ;;
+    eng-backend.md)   agent_name_token="$ENG_BACKEND_NAME" ;;
+    eng-frontend.md)  agent_name_token="$ENG_FRONTEND_NAME" ;;
+    eng-ai.md)        agent_name_token="$ENG_AI_NAME" ;;
+    *)                agent_name_token="" ;;
   esac
 
   python3 - "$file" "$agent_name_token" "$ALLOWLIST_REGEX" "$CHECK_ONLY" <<'PYEOF'
@@ -212,6 +306,17 @@ subs = {
     "CA_NAME":                   os.environ.get("CA_NAME", ""),
     "CRO_NAME":                  os.environ.get("CRO_NAME", ""),
     "ENG_PLATFORM_NAME":         os.environ.get("ENG_PLATFORM_NAME", ""),
+    "PROJECT_NAME":              os.environ.get("PROJECT_NAME", ""),
+    "PROJECT_NAME_SLUG":         os.environ.get("PROJECT_NAME_SLUG", ""),
+    "CTO_NAME":                  os.environ.get("CTO_NAME", ""),
+    "CPO_NAME":                  os.environ.get("CPO_NAME", ""),
+    "CDO_NAME":                  os.environ.get("CDO_NAME", ""),
+    "COO_NAME":                  os.environ.get("COO_NAME", ""),
+    "VPE_NAME":                  os.environ.get("VPE_NAME", ""),
+    "ENG_API_NAME":              os.environ.get("ENG_API_NAME", ""),
+    "ENG_BACKEND_NAME":          os.environ.get("ENG_BACKEND_NAME", ""),
+    "ENG_FRONTEND_NAME":         os.environ.get("ENG_FRONTEND_NAME", ""),
+    "ENG_AI_NAME":               os.environ.get("ENG_AI_NAME", ""),
     "CEO_GITHUB":                os.environ.get("CEO_GITHUB", ""),
     "COS_GITHUB":                os.environ.get("COS_GITHUB", ""),
     "CFO_GITHUB":                os.environ.get("CFO_GITHUB", ""),
@@ -290,6 +395,8 @@ PYEOF
 # Export shell variables so the embedded Python sees them via os.environ.
 export COMPANY_NAME COMPANY_NAME_SLUG COMPANY_DOMAIN CEO_NAME AGENT_DESCRIPTION
 export COS_NAME CFO_NAME CLO_NAME CMO_NAME CCO_NAME CHRO_NAME CSO_NAME CETHO_NAME CA_NAME CRO_NAME ENG_PLATFORM_NAME
+export PROJECT_NAME PROJECT_NAME_SLUG
+export CTO_NAME CPO_NAME CDO_NAME COO_NAME VPE_NAME ENG_API_NAME ENG_BACKEND_NAME ENG_FRONTEND_NAME ENG_AI_NAME
 export CEO_GITHUB COS_GITHUB CFO_GITHUB CLO_GITHUB CMO_GITHUB CCO_GITHUB CHRO_GITHUB CSO_GITHUB CETHO_GITHUB CA_GITHUB CRO_GITHUB ENG_PLATFORM_GITHUB
 export HIGH_VALUE_THRESHOLD SPRINT_LENGTH ACCESSIBILITY_FLOOR RUNBOOK_DRILL_CADENCE POSTS_PER_CHANNEL_PER_WEEK
 export TIER_STRATEGIC TIER_COMMERCIAL TIER_TECHNICAL

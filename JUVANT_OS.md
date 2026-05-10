@@ -2011,12 +2011,13 @@ when resolving roles like `research` or `branding`. Cross-cutting functions
 
 Same wizard as company setup, Step 2, but for `project-<slug>` DB. Save to
 `.juvant/config.json` under `projects.<slug>`, alongside any `doc_folder`
-captured at Step 1 auto-discovery:
+captured at Step 1 auto-discovery and the project's display name:
 
 ```json
 {
   "projects": {
     "<project-slug>": {
+      "name": "<Display Name>",
       "provider": "turso",
       "url": "libsql://project-<project-slug>-<your-org>.turso.io",
       "auth_token": "<token>",
@@ -2027,10 +2028,13 @@ captured at Step 1 auto-discovery:
 }
 ```
 
-The `doc_folder` field is optional — present when Step 1 auto-discovery
-matched an existing folder, absent when no folder mapping is configured
-(project-scope agents fall back to company-level `doc_storage.folders`
-plus their own `fallback_chain` resolution).
+The `name` field is HARD-REQUIRED (read by `scripts/compile-templates.sh
+--scope projects --project=<slug>` to substitute `{{PROJECT_NAME}}` in
+project-scope agent files; F-23 v0.7.x). The `doc_folder` field is
+optional — present when Step 1 auto-discovery matched an existing folder,
+absent when no folder mapping is configured (project-scope agents fall
+back to company-level `doc_storage.folders` plus their own
+`fallback_chain` resolution).
 
 Run `bash scripts/migrate.sh` against the new DB.
 
@@ -2049,12 +2053,59 @@ etc.).
 
 Allow CEO override per role.
 
+Write each chosen name to `.juvant/config.json` under
+`projects.<slug>.agent_names.<role>`:
+
+```json
+{
+  "projects": {
+    "<project-slug>": {
+      "agent_names": {
+        "cto": "Pallas",
+        "cpo": "Echo",
+        "cdo": "Iris",
+        "coo": "Tyche",
+        "vpe": "Praxis",
+        "eng-api": "Crispus",
+        "eng-backend": "Mark",
+        "eng-frontend": "Pliny",
+        "eng-ai": "Linus"
+      }
+    }
+  }
+}
+```
+
+This is the canonical source `scripts/compile-templates.sh` reads to
+substitute the `{{*_NAME}}` placeholders in project-scope templates at
+Step 4 (F-23, v0.7.x).
+
 ### Wizard — Step 4: Compile project templates
 
-For each `agents/projects/*.md`, substitute placeholders (incl. `{{PROJECT_NAME}}`,
-`{{ACTIVE_PROJECT}}`, `{{*_NAME}}` for project-scope roles, peer references back to
-company-scope agents). Refuse to write if any non-allowlisted `{{...}}` token
-survives (allowlist per `SYSTEM_INVARIANTS.md` §2 — today: `{{ACTIVE_PROJECT}}`).
+Run `scripts/compile-templates.sh --scope projects --project=<slug>`
+(HARD-REQUIRED — single allowlistable invocation, deterministic across
+runs):
+
+```bash
+bash scripts/compile-templates.sh --scope projects --project=<slug>
+```
+
+The script iterates `agents/projects/*.md` and substitutes:
+- `{{PROJECT_NAME}}` → `.projects.<slug>.name`
+- `{{*_NAME}}` for project roles (CTO_NAME, CPO_NAME, CDO_NAME, COO_NAME,
+  VPE_NAME, ENG_API_NAME, ENG_BACKEND_NAME, ENG_FRONTEND_NAME, ENG_AI_NAME)
+  → `.projects.<slug>.agent_names.<role>` with `<slug>-<role>` fallback
+- Peer references back to company-scope agents — already substituted at
+  company init, no re-substitution needed
+- `{{COMPANY_NAME}}`, `{{COMPANY_DOMAIN}}`, etc. → company config (same
+  values as company-scope compile)
+
+Allowlisted survivor (per F-23 allowlist): `{{ACTIVE_PROJECT}}` only —
+runtime-bound at SessionStart per Boot Mode. Any other surviving
+`{{...}}` aborts with exit 2 (CSO Layer 5 finding).
+
+The Skill MUST NOT improvise inline substitution at this step. F-23
+closes the script gap that pre-v0.7.x runs worked around inline.
 
 ### Wizard — Step 5: Project-bootstrap analog (§1)
 
