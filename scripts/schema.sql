@@ -202,7 +202,10 @@ CREATE TABLE IF NOT EXISTS agent_tool_matrix (
   mcp_servers     TEXT,
   -- JSON array e.g. ["turso","github:read","bank:read"]
   -- bank is abstract: bound to concrete provider at company init
-  -- COO is the SOLE bearer of github:write (SYSTEM_INVARIANTS.md §4)
+  -- v0.8.0 (ADR 0014 §4): single-writer-per-scope. eng-platform is
+  -- the SOLE bearer of github:write at company scope; each project's
+  -- eng-lead is the sole bearer at that project's scope (project
+  -- DBs hold their own rows). Cross-scope writes are forbidden.
   skills          TEXT,
   -- JSON array of skill paths e.g. ["/mnt/skills/public/pdf/SKILL.md"]
   channels        TEXT,
@@ -211,8 +214,31 @@ CREATE TABLE IF NOT EXISTS agent_tool_matrix (
   approved_by     TEXT DEFAULT 'ceo',
   version         TEXT,
   superseded_by   INTEGER,
-  -- FK to newer row; NULL means current
+  -- FK to newer row; NULL means current. -1 means "superseded at
+  -- migration time without a successor row pointer" (e.g. role
+  -- removed in a version transition).
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ─────────────────────────────────────────────
+-- ROLE ALIASES — audit-time joins for renamed roles (ADR 0014 §7)
+-- ─────────────────────────────────────────────
+-- Populated by scripts/migrate.sh during version-pair migrations
+-- (e.g. v0.7→v0.8 renames ca→cto, project cto→pca, coo→eng-lead, etc.).
+-- New forks bootstrap with this table empty; only adopters that
+-- migrate from a prior version populate rows here. CSO Layer 5
+-- audits join historical rows in manifests/decisions/agent_actions_log/
+-- inbound_queue/security_audit_log against this alias table when
+-- reconciling activity-by-role across version boundaries.
+
+CREATE TABLE IF NOT EXISTS role_aliases (
+  old_role               TEXT NOT NULL,
+  new_role               TEXT NOT NULL,
+  scope                  TEXT,
+  -- 'company' | 'project' | 'cross-scope' (e.g. vpe project→company-optional)
+  introduced_in_version  TEXT,
+  notes                  TEXT,
+  PRIMARY KEY (old_role, new_role, scope)
 );
 
 -- ─────────────────────────────────────────────

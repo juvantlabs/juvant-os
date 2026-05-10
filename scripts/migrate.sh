@@ -393,23 +393,31 @@ SQL
   # Update active state: agent_tool_matrix
   # ────────────────────
   log_step "Supersede old agent_tool_matrix rows; insert new from template"
+  # The agent_tool_matrix table is scope-less in the schema (per schema.sql:
+  # "One DB per scope: company-<name>, project-<name>"). Each scope's DB
+  # holds only its own rows. This migration runs against the company DB
+  # by default; project DBs need a separate `--from=v0.7 --to=v0.8
+  # --project=<slug>` invocation (out-of-scope for v0.8.0; documented as
+  # follow-up in the remediation summary).
   local matrix_template="$ROOT/scripts/templates/v0-agent-tool-matrix.json"
   if [[ ! -f "$matrix_template" ]]; then
     echo "  WARN: $matrix_template missing; skipping matrix update. Adopter must apply manually."
   else
     if [[ "$DRY_RUN" == "0" ]]; then
+      # Supersede legacy company-scope rows. The 'ca' row is unambiguous
+      # (only existed at company scope). The 'vpe' row is also handled here
+      # since v0.8 promotes vpe to company-scope; legacy project-vpe lives
+      # in project DBs and needs the per-project migration to handle it.
       sqlite3 "$DB_PATH" <<SQL
 UPDATE agent_tool_matrix
-   SET superseded_by='v0.8.0-migration',
-       superseded_at=datetime('now')
- WHERE role IN ('ca', 'coo', 'cdo', 'cpo')
-    OR (role='cto' AND scope != 'company')
-    OR (role='vpe' AND scope != 'company')
+   SET superseded_by=-1
+ WHERE role IN ('ca')
    AND superseded_by IS NULL;
 SQL
-      echo "  superseded: ca + project-cto + coo + cdo + cpo + project-vpe rows"
-      # Insert new rows from template (idempotent — INSERT OR IGNORE on
-      # primary key (role, scope) where superseded_by IS NULL).
+      echo "  superseded: company-scope 'ca' row marked superseded_by=-1"
+      # Insert new company-scope rows from template (only company-scope
+      # entries — project rows belong in project DBs which this run does
+      # not touch).
       python3 - "$matrix_template" "$DB_PATH" <<'PYEOF'
 import json, sqlite3, sys
 template_path, db_path = sys.argv[1], sys.argv[2]
@@ -419,33 +427,32 @@ conn = sqlite3.connect(db_path)
 cur = conn.cursor()
 inserted = 0
 for row in template["rows"]:
-    role  = row["role"]
-    scope = row["scope"]
-    # Skip if an active row already exists.
+    if row.get("scope") != "company":
+        continue  # project rows live in project DBs; out of scope here
+    role = row["role"]
     cur.execute(
-        "SELECT 1 FROM agent_tool_matrix WHERE role=? AND scope=? AND superseded_by IS NULL LIMIT 1",
-        (role, scope),
+        "SELECT 1 FROM agent_tool_matrix WHERE role=? AND superseded_by IS NULL LIMIT 1",
+        (role,),
     )
     if cur.fetchone():
         continue
     cur.execute(
         """INSERT INTO agent_tool_matrix
-                  (role, scope, mcp_servers, skills, channels, rationale, superseded_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, NULL, datetime('now'))""",
+                  (role, mcp_servers, skills, channels, approved_by, version, superseded_by, created_at)
+           VALUES (?, ?, ?, ?, 'ceo', 'v0.8.0', NULL, datetime('now'))""",
         (
-            role, scope,
+            role,
             json.dumps(row.get("mcp_servers", [])),
             json.dumps(row.get("skills", [])),
             json.dumps(row.get("channels", [])),
-            row.get("rationale", ""),
         ),
     )
     inserted += 1
 conn.commit()
-print(f"  agent_tool_matrix: {inserted} new active rows inserted from v0.8 template")
+print(f"  agent_tool_matrix: {inserted} new company-scope active rows inserted from v0.8 template")
 PYEOF
     else
-      echo "  would supersede 6 old rows + insert new active rows from template"
+      echo "  would supersede legacy 'ca' company row + insert new company-scope rows (project rows out of scope for company-DB run)"
     fi
   fi
 
