@@ -10,7 +10,8 @@
     "true", "false", ":",
     "test", "[", "[[",
     "command", "type",
-    "set", "unset", "export"
+    "set", "unset", "export",
+    "bash", "sh"
   ],
 
   "deny_patterns": [
