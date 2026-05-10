@@ -188,8 +188,12 @@ audit_count=$(t_db "SELECT COUNT(*) FROM agent_actions_log WHERE agent='eng-fron
 t_assert "allow-list miss → audit log row written (status=denied)" "1" "$audit_count"
 
 # 4. Unknown role → deny (operator-mode bypass does NOT apply for unknown agent roles).
-# v0.6.0 main hook: unknown role hits else-branch → allow-list miss path → deny.
-event_json='{"tool_name":"Bash","session_id":"sess-pt-4","tool_input":{"command":"echo hi"}}'
+# v0.7.3+ (F-28): universal_allow contains POSIX shell builtins (cd, echo,
+# bash, sh, …). The test must use a binary NOT in universal_allow to exercise
+# the allow-list-miss path. `git` is the canonical choice — a real binary
+# several roles legitimately need, so a ghost role attempting `git` correctly
+# falls through to the per-role allow-list and gets denied.
+event_json='{"tool_name":"Bash","session_id":"sess-pt-4","tool_input":{"command":"git status"}}'
 out=$(echo "$event_json" | AGENT_ROLE=ghost-role bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
 decision=$(echo "$out" | jq -r '.permissionDecision')
 t_assert "unknown role → deny" "deny" "$decision"
