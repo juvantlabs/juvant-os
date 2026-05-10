@@ -1,0 +1,7 @@
+{"ts":"2026-05-10T20:45:48Z","event":"checkpoint","step":"7","detail":"compile-templates --scope company","exit_code":0}
+{"ts":"2026-05-10T20:46:57Z","event":"checkpoint","step":"7","detail":"vpe.md compile failed (illustrative {{ENG_LEAD_NAME}} placeholder); vpe_enabled=false so file is operationally inert. WARN, not FAIL.","severity":"warn","file":"agents/company/vpe.md"}
+{"ts":"2026-05-10T20:46:57Z","event":"checkpoint","step":"7.5","detail":"compile-templates --codeowners","exit_code":0}
+{"ts":"2026-05-10T20:46:58Z","event":"checkpoint","step":"7.6","detail":"compile-templates --rewrite-meta","exit_code":0}
+{"ts":"2026-05-10T20:47:27Z","event":"checkpoint","step":"7.5","detail":"Patched legacy {{CA_GITHUB}} -> {{CTO_GITHUB}} in .github/CODEOWNERS template (ADR 0014 §1 token rename; framework bug)","severity":"warn"}
+{"ts":"2026-05-10T20:47:49Z","event":"checkpoint","step":"8","detail":"matrix seeded","rows":20}
+{"ts":"2026-05-10T20:50:34Z","event":"run_complete","verdict":"WARN-WITH-CONDITIONS","total_duration_s":null,"tokens_total":null,"tool_calls":null,"events_emitted":122,"manifests":11,"decisions":13,"matrix_rows":20,"audit_rows":8,"conditions":["vpe.md illustrative placeholder (toggle-inert)","CODEOWNERS template legacy {{CA_GITHUB}} patched in-place"]}

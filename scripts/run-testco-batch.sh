@@ -528,7 +528,10 @@ if [[ "$has_project" == "!!map" || "$has_project" == "object" ]]; then
   fi
 
   proj_slug=$(yq -r '.inputs.project.slug' "$FIXTURE")
-  expected_proj_agents=$(yq -r '.expect.project_phase.project_agents_count // 9' "$FIXTURE")
+  # v0.8.0 (ADR 0014 §2): default project agent count is 8 (project-VPE
+  # removed; absorbed by eng-lead). Pre-v0.8 fixtures may set 9; the
+  # `//` fallback respects whatever the fixture declares.
+  expected_proj_agents=$(yq -r '.expect.project_phase.project_agents_count // 8' "$FIXTURE")
   actual_proj_agents=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agents WHERE project_id='$proj_slug';" 2>/dev/null || echo "0")
   if [[ "$actual_proj_agents" -ge "$expected_proj_agents" ]]; then
     assert_ok "project_agents_count[$proj_slug]=$actual_proj_agents (≥$expected_proj_agents)"
@@ -536,7 +539,19 @@ if [[ "$has_project" == "!!map" || "$has_project" == "object" ]]; then
     assert_fail "project_agents_count[$proj_slug]=$actual_proj_agents (expected ≥$expected_proj_agents)"
   fi
 
-  proj_audit=$(sqlite3 "$DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
+  # Per F-24 (v0.7.1+), project-scope CSO audits write to the per-project
+  # DB at .juvant/project-<slug>.db, not the company state.db. Query the
+  # right DB; fall back to the company DB for legacy fixtures that wrote
+  # project audits there (pre-F-24).
+  PROJ_DB="$TMP_DIR/.juvant/project-$proj_slug.db"
+  proj_audit=0
+  if [[ -f "$PROJ_DB" ]]; then
+    proj_audit=$(sqlite3 "$PROJ_DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
+  fi
+  if [[ "$proj_audit" -lt 1 ]]; then
+    # Legacy fallback: pre-F-24 fixtures landed project audits in the company DB.
+    proj_audit=$(sqlite3 "$DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
+  fi
   if [[ "$proj_audit" -ge 1 ]]; then
     assert_ok "project CSO bootstrap_baseline audit fired ($proj_audit findings)"
   else

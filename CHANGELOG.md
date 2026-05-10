@@ -11,6 +11,246 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-10 — Tech leadership restructure + brand-spec authority + framework scope position (ADR 0014/0015/0016)
+
+Major minor release. Three companion ADRs land in lockstep:
+
+- **ADR 0014** — Tech leadership restructure (CTO promotion, project-scope
+  rename, VPE toggle).
+- **ADR 0015** — Design & brand ownership (CMO ↔ Design Lead split,
+  3-mode brand-spec pattern).
+- **ADR 0016** — Framework scope position (Juvant OS as software-
+  development-flavored opinionated stack).
+
+The release is invasive: ~40 files touched, ~1100 LOC churn across role
+identifiers, agent templates, the matrix, the bash policy, the wizard, the
+audit script, the schema, the migration script, and all four testco
+fixtures. Adopters on v0.7.x must run `bash scripts/migrate.sh
+--from=v0.7 --to=v0.8` to land on this baseline (see Migration below).
+
+### ⚠ MIGRATION REQUIRED for v0.7.x adopter forks
+
+```bash
+# From the root of your adopter fork:
+bash scripts/migrate.sh --from=v0.7 --to=v0.8 --dry-run    # inspect first
+bash scripts/migrate.sh --from=v0.7 --to=v0.8              # apply
+git fetch origin && git merge origin/main                  # pull v0.8 framework changes
+bash scripts/compile-templates.sh --scope company          # recompile placeholders
+bash scripts/compile-templates.sh --scope projects --project=<your-active-project-slug>
+bash scripts/audit-bootstrap-baseline.sh --scope=company   # verify v0.8 expected-roles
+```
+
+The migration script:
+- Renames agent files in place (`git mv` preserving compiled per-company
+  content + history).
+- Creates the `role_aliases` table (audit-time joins for renamed roles
+  per ADR 0014 §7).
+- Updates active `agents` and `agent_tool_matrix` rows; supersedes legacy
+  rows; leaves historical rows in `manifests`/`decisions`/
+  `agent_actions_log`/`inbound_queue`/`security_audit_log` UNTOUCHED
+  (audit-time joins via `role_aliases`).
+- Migrates `.juvant/config.json` `agent_names` keys + seeds
+  `feature_toggles` defaults.
+- Migrates `hooks/bash-policy.json` `agent_allow` keys.
+- Does NOT re-run bootstrap.
+
+A backup of pre-migration `state.db` is taken automatically:
+`<state.db>.pre-v0.8.<utc-iso-timestamp>`.
+
+New adopter forks (no prior bootstrap) start clean at v0.8.0 — no
+migration needed.
+
+### Changed — Role identifier rename (ADR 0014 §1)
+
+Company scope:
+- `ca` (Chief Architect) → **`cto`** (Chief Technology Officer). Restores
+  industry alignment; acknowledges company-wide tech authority.
+
+Project scope:
+- `cto` (project) → **`pca`** (Project Chief Architect).
+- `coo` (project) → **`eng-lead`** (Engineering Lead).
+- `cdo` (project) → **`design-lead`** (Design Lead). Removes the Chief
+  Data Officer collision surfaced in 3/5 preflight conversations through
+  v0.7.x.
+- `cpo` (project) → **`product-lead`** (Product Lead).
+
+Eng/* identifiers (`eng-api`, `eng-backend`, `eng-frontend`, `eng-ai`)
+unchanged.
+
+Affects: every `agents/**/*.md` template, the `agent_tool_matrix` JSON
+template, `hooks/bash-policy.json` keys, `compile-templates.sh`
+placeholder substitutions, `audit-bootstrap-baseline.sh` expected-roles
+list, `JUVANT_OS.md` wizard prose, all 4 testco fixtures, and
+SYSTEM_INVARIANTS.md §1/§2/§4/§6/§7/Appendix.
+
+### Changed — Project-VPE removed; optional company-scope VPE added (ADR 0014 §2)
+
+Project-scope VPE is removed. Aggregator function (Eng/* day-to-day
+delegation, model override, sprint coordination, release-spec authoring)
+is absorbed by the project's `eng-lead`.
+
+VPE returns at company scope as an OPTIONAL role gated by
+`feature_toggles.vpe_enabled` (default false). When enabled, VPE
+aggregates Eng/* status across ALL projects into a Weekly Engineering
+Health Report, coordinates cross-project releases, receives cross-
+project Tier-4 disclosure-cascade fallbacks. SKIP for single-project
+shops — the company `cto` performs cross-project aggregation directly
+when N=1.
+
+### Changed — eng-platform expansion to company-scope sole writer (ADR 0014 §3)
+
+`eng-platform` matrix row upgraded:
+
+```
+mcp_servers: ["turso", "github:write", "cloud:write", "npm:publish"]
+```
+
+Authority codified per §4 single-writer-per-scope:
+- **Company scope** sole writer: `eng-platform` (company repos, cloud
+  control plane, npm registry for canonical helpers).
+- **Project scope** sole writer per project: project's `eng-lead`.
+- Cross-scope writes are forbidden; the 5-check protocol verifies spec
+  target scope before execution.
+
+`eng-platform` is mandatory by default in v0.8.0
+(`feature_toggles.eng_platform_enabled=true` per ADR 0016 — software-
+flavored framework). Toggle OFF only for non-software adopters who run
+no cloud / IaC / canonical-helper publishing surface.
+
+`cloud:write` is an abstract MCP entry resolved at adoption time per
+`feature_toggles.cloud_provider` ∈ {`azure`, `aws`, `gcp`, `none`}; with
+`cloud_provider: none` the entry is dropped from eng-platform's row
+(single-Mac local-only setups).
+
+### Added — `eng-platform-spec` class (ADR 0014 §5)
+
+New spec class covering company-level infra changes that don't fit
+`pr-spec` or `install-spec` — IaC drift remediation, cloud control-plane
+bumps, npm version cuts of canonical helpers.
+
+Author = executor (the explicit exception to author/executor split,
+because no other agent has both company-scope infra context and
+company-scope writer authority). `cto` is approver-of-record at the
+5-check protocol — that gate is what preserves the audit boundary.
+
+`scripts/templates/v0-agent-tool-matrix.json` schema_version 2 codifies
+this; `cso.md` Layer 5 audits read against the new spec class.
+
+### Changed — SYSTEM_INVARIANTS.md §1 founding count parameterized (ADR 0014 §6)
+
+```
+N = (mandatory company)
+  + (eng-platform if feature_toggles.eng_platform_enabled — default true)
+  + (CRO          if feature_toggles.cro_enabled          — default false)
+  + (VPE          if feature_toggles.vpe_enabled          — default false)
+```
+
+Default at v0.8.0 baseline: **N = 10** (9 mandatory + eng-platform on by
+default). Adopter overrides at company init: +1 per optional role
+enabled. Per-project agents (PCA + Product Lead + Design Lead + Eng Lead
++ 4 Eng/* = 8 per project) bootstrap at project-init AFTER company
+bootstrap; not part of N.
+
+`scripts/audit-bootstrap-baseline.sh` Layer 1 + Layer 5 read
+`feature_toggles` from `.juvant/config.json` and compute the expected
+count + expected-roles list dynamically. Layer 5 also checks toggle-
+coherence per role: when toggle=true, file + matrix row must both
+exist; when toggle=false, neither should leak.
+
+### Added — Brand-spec class with 3-mode validator/advisory pattern (ADR 0015)
+
+CMO is the canonical owner of company brand identity (logo system,
+color tokens, typography, voice/tone, brand architecture across
+sub-products) and the company brand book artifact.
+
+NEW spec class: `brand-spec`. Carries a `mode` field:
+
+- `inherit` — project visuals are a direct child of company brand. CMO
+  validates against company brand book; CMO is approver of record.
+- `extend` — project inherits some elements + invents others. CMO
+  validates inheritance coherence + that invented elements don't break
+  company-brand promises; CMO is approver of record.
+- `independent` — project brand is intentionally separate (acquired
+  product, sub-brand strategy, disjoint audience, portfolio play). CMO
+  is **advisory only** (must NOT veto on grounds of divergence —
+  divergence is the explicit point of the mode); CEO ratifies the mode
+  once per brand; Design Lead executes; CMO advisory recorded in
+  `decisions` category `brand-advisory`.
+
+Audit boundaries (CSO Layer 5):
+- `brand-spec` with `mode: independent` MUST have a corresponding
+  `brand-mode-ratification` row from CEO. Missing = FAIL.
+- CMO advisory in `independent` mode MUST NOT contain rejection-on-
+  divergence language. Mode-laundering = FAIL.
+- Brand-architecture document drift > 7 days from approved specs = WARN.
+
+Design Lead authors brand-specs at project scope; CMO authors at company
+scope. The full lifecycle is documented in `agents/projects/design-lead.md`
+§ Brand-Spec Protocol and `agents/company/cmo.md` § Brand-Spec Authority
+Protocol.
+
+### Changed — Framework scope position (ADR 0016)
+
+Juvant OS is positioned as a **software-development-flavored opinionated
+stack** — not a vertical-agnostic operating system. Default-on
+`eng-platform` reflects this; non-software adopters explicitly toggle
+it off.
+
+This is a positioning decision, not a feature change — the framework
+already shipped IaC modules, CI/CD federation patterns, npm canonical-
+helper publishing surface (FEAT-024), and software-engineering-shaped
+agent roles. ADR 0016 names the assumption and lets the matrix +
+config defaults reflect it cleanly.
+
+### Added — `role_aliases` table in schema.sql
+
+Audit-time joins for renamed roles. Populated by `migrate.sh` during
+version-pair migrations; new v0.8 forks bootstrap with the table empty.
+CSO Layer 5 audits join historical `manifests` / `decisions` /
+`agent_actions_log` / `inbound_queue` / `security_audit_log` rows
+against this alias table when reconciling activity-by-role across
+version boundaries — without modifying historical rows themselves.
+
+### Added — `multi-project-vpe` testco fixture
+
+First fixture exercising `feature_toggles.vpe_enabled=true`. Two
+projects (Apollo + Boreas) bootstrapped in sequence; verifies
+manifest count = 11 (9 mandatory + eng-platform + vpe; cro off);
+project agents = 8 each (project-VPE removed); company-scope
+`agents/company/vpe.md` exists; `agents/projects/vpe.md` does NOT
+exist (rename verification). Also confirms the cro-off + vpe-on
+combination — i.e. that the two optional toggles are truly
+independent.
+
+### Removed
+
+- `agents/projects/vpe.md` (cross-scope move to `agents/company/vpe.md`).
+- `agent_names.ca`, `.cdo`, `.cpo`, `.coo`, `.vpe` keys at project scope
+  (renamed in `.juvant/config.json` per migrate.sh; removed
+  unconditionally for project-VPE).
+- `bash-policy.json` legacy `ca` / `coo` / `cdo` / `cpo` keys (renamed).
+
+### Deprecated
+
+- v0.7.x adopter forks running on the old role identifier set are
+  unsupported in v0.8.0. The migration script is the supported path;
+  forks that don't migrate will fail bootstrap on the v0.8 audit
+  (toggle-coherence + expected-roles list will mismatch).
+
+### Cross-references
+
+- `docs/adr/0014-tech-leadership-restructure.md` — full migration sequence.
+- `docs/adr/0015-design-brand-ownership.md` — brand-spec lifecycle.
+- `docs/adr/0016-framework-scope-position.md` — framework positioning.
+- Handbook ADR 0004 (agent action guardrails) — Track 2 bash policy
+  keys renamed in lockstep; Track 3 audit log rows pre-rename are
+  preserved via `role_aliases`.
+- `juvantlabs/juvant-os-pm` ARCH-010 (to be filed at v0.8.0 ship) —
+  historical "what was renamed and why" reference for adopters arriving
+  from blog posts citing v0.6 / v0.7 vocabulary.
+
+---
+
 ### Added — `scripts/audit-bootstrap-baseline.sh` shipped (F-8 + F-11)
 
 Canonical CSO `bootstrap_baseline=1` audit as a single Bash invocation.

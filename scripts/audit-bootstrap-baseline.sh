@@ -63,9 +63,20 @@ done
 # 'company' (default) or a project slug present in
 # .juvant/config.json `.projects.<slug>`. Layers 1-4 are broadly
 # applicable across both scopes; Layer 5 (agents) branches by scope
-# to inspect agents/company/*.md (10 founding) vs agents/projects/*.md
-# (9 project-scope) per ARCH-009 # 42 (juvantlabs/juvant-os-pm) script
-# scope-flag uniformity pattern.
+# to inspect agents/company/*.md vs agents/projects/*.md per ARCH-009
+# #42 (juvantlabs/juvant-os-pm) script scope-flag uniformity pattern.
+#
+# v0.8.0 (ADR 0014 §1/§2/§6): expected agent counts are now
+# parameterized rather than hard-coded.
+#   Company-scope (mandatory): cos cfo clo cmo cco chro cso cetho cto
+#                              (9 mandatory)
+#                  + eng-platform   (toggle: feature_toggles.eng_platform_enabled, default true)
+#                  + cro            (toggle: feature_toggles.cro_enabled, default false)
+#                  + vpe            (toggle: feature_toggles.vpe_enabled, default false)
+#                  → N = 9 + 1 (default-on eng-platform) = 10 (v0.8.0 baseline).
+#   Project-scope: pca product-lead design-lead eng-lead
+#                  eng-api eng-backend eng-frontend eng-ai
+#                  → 8 per project (v0.8.0; was 9 in v0.7 with project-VPE).
 if [[ "$SCOPE" != "company" ]]; then
   if [[ ! -f "$CONFIG" ]]; then
     echo "ERROR: --scope=$SCOPE requires $CONFIG (project lookup needs .projects.<slug>.name)." >&2
@@ -107,7 +118,21 @@ emit() {
 # ─────────────────────────────────────────────
 
 audit_layer_1_access() {
-  local manifests_count operational_count bootstrap_decisions
+  local manifests_count operational_count bootstrap_decisions expected_n
+
+  # v0.8.0 (ADR 0014 §1): expected manifesto count is parameterized
+  # from feature_toggles. 9 mandatory + eng-platform (default true)
+  # + cro (default false) + vpe (default false).
+  expected_n=9
+  if [[ "$(jq -r '.feature_toggles.eng_platform_enabled // true' "$CONFIG")" == "true" ]]; then
+    expected_n=$((expected_n + 1))
+  fi
+  if [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" == "true" ]]; then
+    expected_n=$((expected_n + 1))
+  fi
+  if [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" == "true" ]]; then
+    expected_n=$((expected_n + 1))
+  fi
 
   manifests_count=$(juvant_db_query \
     "SELECT COUNT(*) FROM manifests WHERE tier1_bootstrap=1 AND precondition_bypassed='bootstrap';" \
@@ -119,30 +144,30 @@ audit_layer_1_access() {
     "SELECT COUNT(*) FROM decisions WHERE category='bootstrap-action' AND status='executed';" \
     | tail -1)
 
-  if [[ "${manifests_count:-0}" == "10" ]]; then
+  if [[ "${manifests_count:-0}" == "$expected_n" ]]; then
     emit "access" "info" \
-      "10 founding manifestos in OPERATIONAL_RESTRICTED with tier1_bootstrap=1 and precondition_bypassed='bootstrap'."
+      "${expected_n} founding manifestos in OPERATIONAL_RESTRICTED with tier1_bootstrap=1 and precondition_bypassed='bootstrap' (matches feature_toggles-derived expected count)."
   else
     emit "access" "high" \
-      "Expected 10 founding manifestos with tier1_bootstrap=1; found ${manifests_count:-0}." \
+      "Expected ${expected_n} founding manifestos with tier1_bootstrap=1 (per feature_toggles); found ${manifests_count:-0}." \
       "manifesto-bootstrap-incomplete"
   fi
 
-  if [[ "${operational_count:-0}" == "10" ]]; then
+  if [[ "${operational_count:-0}" == "$expected_n" ]]; then
     emit "access" "info" \
-      "10 agent rows mirror manifesto state (operational/operational_restricted, tier1_bootstrap=1)."
+      "${expected_n} agent rows mirror manifesto state (operational/operational_restricted, tier1_bootstrap=1)."
   else
     emit "access" "medium" \
-      "Expected 10 agent rows mirroring manifesto state; found ${operational_count:-0}." \
+      "Expected ${expected_n} agent rows mirroring manifesto state; found ${operational_count:-0}." \
       "agent-manifest-drift"
   fi
 
-  if [[ "${bootstrap_decisions:-0}" -ge 10 ]]; then
+  if [[ "${bootstrap_decisions:-0}" -ge "$expected_n" ]]; then
     emit "access" "info" \
-      "${bootstrap_decisions} bootstrap-action decisions executed (≥10 expected — one per founding manifesto)."
+      "${bootstrap_decisions} bootstrap-action decisions executed (≥${expected_n} expected — one per founding manifesto)."
   else
     emit "access" "medium" \
-      "Expected ≥10 bootstrap-action decisions; found ${bootstrap_decisions:-0}." \
+      "Expected ≥${expected_n} bootstrap-action decisions; found ${bootstrap_decisions:-0}." \
       "decision-trail-incomplete"
   fi
 
@@ -290,8 +315,18 @@ audit_layer_5_agents() {
 
   if [[ "$SCOPE" == "company" ]]; then
     agents_dir="$ROOT/agents/company"
-    expected_agents=(cos cfo clo cmo cco chro cso cetho ca cro)
-    agent_count=10
+    # v0.8.0 (ADR 0014 §1/§2): mandatory 9 + toggle-gated 3.
+    expected_agents=(cos cfo clo cmo cco chro cso cetho cto)
+    if [[ "$(jq -r '.feature_toggles.eng_platform_enabled // true' "$CONFIG")" == "true" ]]; then
+      expected_agents+=(eng-platform)
+    fi
+    if [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" == "true" ]]; then
+      expected_agents+=(cro)
+    fi
+    if [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" == "true" ]]; then
+      expected_agents+=(vpe)
+    fi
+    agent_count="${#expected_agents[@]}"
     agent_set_label="founding company-scope"
     # Company-init: PROJECT_NAME may survive (no project bound yet).
     allowlist_csv="ACTIVE_PROJECT,PROJECT_NAME"
@@ -300,9 +335,11 @@ audit_layer_5_agents() {
     # have been compiled by `compile-templates.sh --scope projects
     # --project=<slug>` per F-23. PROJECT_NAME is now bound; only
     # ACTIVE_PROJECT (runtime-resolved at SessionStart) survives.
+    # v0.8.0 (ADR 0014 §1/§2): project-scope agents renamed; project-VPE
+    # removed (absorbed by eng-lead).
     agents_dir="$ROOT/agents/projects"
-    expected_agents=(cto cpo cdo coo vpe eng-api eng-backend eng-frontend eng-ai)
-    agent_count=9
+    expected_agents=(pca product-lead design-lead eng-lead eng-api eng-backend eng-frontend eng-ai)
+    agent_count=8
     agent_set_label="project-scope ($SCOPE)"
     allowlist_csv="ACTIVE_PROJECT"
   fi
@@ -360,19 +397,40 @@ PYEOF
       "placeholder-residue"
   fi
 
-  # eng-platform presence check (company-scope only; cross-project agent).
-  if [[ "$SCOPE" == "company" && -f "$agents_dir/eng-platform.md" ]]; then
-    local eng_platform_in_matrix
-    eng_platform_in_matrix=$(juvant_db_query \
-      "SELECT COUNT(*) FROM agent_tool_matrix WHERE role='eng-platform' AND superseded_by IS NULL;" | tail -1)
-    if [[ "${eng_platform_in_matrix:-0}" -ge 1 ]]; then
-      emit "agents" "info" \
-        "eng-platform.md present at agents/company/eng-platform.md AND has agent_tool_matrix v0 row (cross-project infra agent operational)."
-    else
-      emit "agents" "low" \
-        "eng-platform.md present in agents/company/ but NOT in agent_tool_matrix v0. Cross-project infra agent registered as file but not as matrix row — F-13 founding-vs-deferred ambiguity surfaces here." \
-        "eng-platform-matrix-mismatch"
-    fi
+  # eng-platform / vpe / cro toggle-coherence checks (company-scope only).
+  # v0.8.0 (ADR 0014 §1/§2): for each optional role, confirm the file
+  # presence + agent_tool_matrix row state matches the toggle.
+  if [[ "$SCOPE" == "company" ]]; then
+    for optional_role in eng-platform cro vpe; do
+      local toggle_key default_value enabled
+      case "$optional_role" in
+        eng-platform) toggle_key="eng_platform_enabled"; default_value="true" ;;
+        cro)          toggle_key="cro_enabled";          default_value="false" ;;
+        vpe)          toggle_key="vpe_enabled";          default_value="false" ;;
+      esac
+      enabled=$(jq -r --arg k "$toggle_key" --arg d "$default_value" '.feature_toggles[$k] // $d' "$CONFIG")
+
+      local in_matrix
+      in_matrix=$(juvant_db_query \
+        "SELECT COUNT(*) FROM agent_tool_matrix WHERE role='$optional_role' AND superseded_by IS NULL;" | tail -1)
+
+      if [[ "$enabled" == "true" ]]; then
+        if [[ -f "$agents_dir/${optional_role}.md" && "${in_matrix:-0}" -ge 1 ]]; then
+          emit "agents" "info" \
+            "Optional role '${optional_role}' enabled (feature_toggles.${toggle_key}=true): file + matrix row both present."
+        else
+          emit "agents" "high" \
+            "Optional role '${optional_role}' enabled (feature_toggles.${toggle_key}=true) but file missing or matrix row missing (file=$([[ -f \"$agents_dir/${optional_role}.md\" ]] && echo present || echo missing), matrix=${in_matrix:-0})." \
+            "optional-role-toggle-mismatch"
+        fi
+      else
+        if [[ -f "$agents_dir/${optional_role}.md" || "${in_matrix:-0}" -ge 1 ]]; then
+          emit "agents" "low" \
+            "Optional role '${optional_role}' disabled (feature_toggles.${toggle_key}=false) but file present or matrix row exists (file=$([[ -f \"$agents_dir/${optional_role}.md\" ]] && echo present || echo missing), matrix=${in_matrix:-0}). Toggle-gating expects neither when disabled." \
+            "optional-role-toggle-leak"
+        fi
+      fi
+    done
   fi
 }
 

@@ -24,17 +24,28 @@
 #   1   missing config / unsupported provider / no jq / project slug not resolved
 #   2   surviving non-allowlisted placeholder (CSO Layer 5 finding) — refuse to write
 #
-# Allowlist behavior (F-23, v0.7.x):
+# Allowlist behavior (F-23, v0.7.x; placeholder set updated v0.8.0 per ADR 0014):
 # - --scope company → ALLOWLIST = ACTIVE_PROJECT|PROJECT_NAME (both
 #   survive: ACTIVE_PROJECT bound at SessionStart per Boot Mode,
 #   PROJECT_NAME bound later at project init).
 # - --scope projects --project=<slug> → ALLOWLIST = ACTIVE_PROJECT only;
 #   PROJECT_NAME is substituted with the resolved project's display
-#   name. Project-scope agent name placeholders ({{CTO_NAME}}, {{CPO_NAME}},
-#   {{CDO_NAME}}, {{COO_NAME}}, {{VPE_NAME}}, {{ENG_API_NAME}},
-#   {{ENG_BACKEND_NAME}}, {{ENG_FRONTEND_NAME}}, {{ENG_AI_NAME}}) are
-#   substituted from .juvant/config.json projects.<slug>.agent_names.<role>
-#   with default fallback "<slug>-<role>" (e.g. apollo-cto).
+#   name. Project-scope agent name placeholders ({{PCA_NAME}},
+#   {{PRODUCT_LEAD_NAME}}, {{DESIGN_LEAD_NAME}}, {{ENG_LEAD_NAME}},
+#   {{ENG_API_NAME}}, {{ENG_BACKEND_NAME}}, {{ENG_FRONTEND_NAME}},
+#   {{ENG_AI_NAME}}) are substituted from .juvant/config.json
+#   projects.<slug>.agent_names.<role> with default fallback
+#   "<slug>-<role>" (e.g. apollo-pca). Per ADR 0014 §1, the v0.7.x
+#   project placeholders ({{CTO_NAME}}, {{CPO_NAME}}, {{CDO_NAME}},
+#   {{COO_NAME}}) are renamed to PCA / PRODUCT_LEAD / DESIGN_LEAD /
+#   ENG_LEAD respectively. The project-VPE was removed in v0.8.0; the
+#   {{VPE_NAME}} placeholder still exists but now substitutes the
+#   optional COMPANY-scope VPE name (gated by feature_toggles.vpe_enabled).
+# - {{CTO_NAME}} (was {{CA_NAME}} in v0.7.x) substitutes the company-
+#   scope CTO name (Arch by default). Adopters migrating from v0.7
+#   should run `bash scripts/migrate.sh --from=v0.7 --to=v0.8` before
+#   recompiling — the migration handles agent_tool_matrix row renames
+#   and bash-policy.json key renames in lockstep.
 # Any other surviving {{...}} aborts.
 
 set -euo pipefail
@@ -102,8 +113,17 @@ CCO_NAME=$(agent_name cco Clio)
 CHRO_NAME=$(agent_name chro Sage)
 CSO_NAME=$(agent_name cso Shield)
 CETHO_NAME=$(agent_name cetho Vera)
-CA_NAME=$(agent_name ca Arch)
+# v0.8.0 (ADR 0014 §1): {{CA_NAME}} → {{CTO_NAME}} at company scope.
+# Adopter configs that still set .agent_names.ca are read transparently
+# (migrate.sh moves the value to .agent_names.cto).
+CTO_NAME=$(agent_name cto Arch)
 CRO_NAME=$(agent_name cro Lumen)
+# v0.8.0 (ADR 0014 §2): VPE moved from project-mandatory to
+# company-optional. The placeholder always substitutes (visibility in
+# cross-references); the wizard's manifesto/activation flow gates by
+# feature_toggles.vpe_enabled. Default name "Helm" per
+# SYSTEM_INVARIANTS.md §2 (line 185).
+VPE_NAME=$(agent_name vpe Helm)
 ENG_PLATFORM_NAME=$(agent_name eng-platform Hephaestus)
 
 # Project-scope agent names + project metadata (Step 3 of project-init).
@@ -119,11 +139,14 @@ project_agent_name() {
 }
 PROJECT_NAME=""
 PROJECT_NAME_SLUG=""
-CTO_NAME=""
-CPO_NAME=""
-CDO_NAME=""
-COO_NAME=""
-VPE_NAME=""
+# v0.8.0 (ADR 0014 §1): project-scope role placeholders renamed.
+# Old → new: CTO_NAME → PCA_NAME, CPO_NAME → PRODUCT_LEAD_NAME,
+# CDO_NAME → DESIGN_LEAD_NAME, COO_NAME → ENG_LEAD_NAME. Project-VPE
+# removed (§2; absorbed by ENG_LEAD).
+PCA_NAME=""
+PRODUCT_LEAD_NAME=""
+DESIGN_LEAD_NAME=""
+ENG_LEAD_NAME=""
 ENG_API_NAME=""
 ENG_BACKEND_NAME=""
 ENG_FRONTEND_NAME=""
@@ -157,11 +180,10 @@ if [[ "$SCOPE" == "projects" ]]; then
       exit 1
     fi
   fi
-  CTO_NAME=$(project_agent_name "$PROJECT_SLUG" cto "$PROJECT_SLUG-cto")
-  CPO_NAME=$(project_agent_name "$PROJECT_SLUG" cpo "$PROJECT_SLUG-cpo")
-  CDO_NAME=$(project_agent_name "$PROJECT_SLUG" cdo "$PROJECT_SLUG-cdo")
-  COO_NAME=$(project_agent_name "$PROJECT_SLUG" coo "$PROJECT_SLUG-coo")
-  VPE_NAME=$(project_agent_name "$PROJECT_SLUG" vpe "$PROJECT_SLUG-vpe")
+  PCA_NAME=$(project_agent_name "$PROJECT_SLUG" pca "$PROJECT_SLUG-pca")
+  PRODUCT_LEAD_NAME=$(project_agent_name "$PROJECT_SLUG" product-lead "$PROJECT_SLUG-product-lead")
+  DESIGN_LEAD_NAME=$(project_agent_name "$PROJECT_SLUG" design-lead "$PROJECT_SLUG-design-lead")
+  ENG_LEAD_NAME=$(project_agent_name "$PROJECT_SLUG" eng-lead "$PROJECT_SLUG-eng-lead")
   ENG_API_NAME=$(project_agent_name "$PROJECT_SLUG" eng-api "$PROJECT_SLUG-eng-api")
   ENG_BACKEND_NAME=$(project_agent_name "$PROJECT_SLUG" eng-backend "$PROJECT_SLUG-eng-backend")
   ENG_FRONTEND_NAME=$(project_agent_name "$PROJECT_SLUG" eng-frontend "$PROJECT_SLUG-eng-frontend")
@@ -182,8 +204,10 @@ CCO_GITHUB=$(github_handle cco)
 CHRO_GITHUB=$(github_handle chro)
 CSO_GITHUB=$(github_handle cso)
 CETHO_GITHUB=$(github_handle cetho)
-CA_GITHUB=$(github_handle ca)
+# v0.8.0 (ADR 0014 §1): {{CA_GITHUB}} → {{CTO_GITHUB}} at company scope.
+CTO_GITHUB=$(github_handle cto)
 CRO_GITHUB=$(github_handle cro)
+VPE_GITHUB=$(github_handle vpe)
 ENG_PLATFORM_GITHUB=$(github_handle eng-platform)
 
 # Tunables (SYSTEM_INVARIANTS.md §2 defaults; overridable in config.tunables)
@@ -258,6 +282,11 @@ substitute_file() {
   # Per-agent {{AGENT_NAME}} resolves to the agent's name based on the file
   # basename. agents/company/cso.md → Shield, etc.
   local agent_name_token=""
+  # v0.8.0 (ADR 0014 §1) basename → agent-name-token map. File renames
+  # land via git mv in the renaming commit (8578d90); compile-templates
+  # follows the new basenames here. Old basenames (ca.md, cdo.md,
+  # coo.md, cpo.md, project-cto.md) are obsolete and should not be
+  # encountered post-migration.
   case "$file_basename" in
     cos.md)           agent_name_token="$COS_NAME" ;;
     cfo.md)           agent_name_token="$CFO_NAME" ;;
@@ -267,14 +296,14 @@ substitute_file() {
     chro.md)          agent_name_token="$CHRO_NAME" ;;
     cso.md)           agent_name_token="$CSO_NAME" ;;
     cetho.md)         agent_name_token="$CETHO_NAME" ;;
-    ca.md)            agent_name_token="$CA_NAME" ;;
+    cto.md)           agent_name_token="$CTO_NAME" ;;       # company scope (was ca.md in v0.7)
     cro.md)           agent_name_token="$CRO_NAME" ;;
+    vpe.md)           agent_name_token="$VPE_NAME" ;;       # company scope (cross-scope move from project per §2)
     eng-platform.md)  agent_name_token="$ENG_PLATFORM_NAME" ;;
-    cto.md)           agent_name_token="$CTO_NAME" ;;
-    cpo.md)           agent_name_token="$CPO_NAME" ;;
-    cdo.md)           agent_name_token="$CDO_NAME" ;;
-    coo.md)           agent_name_token="$COO_NAME" ;;
-    vpe.md)           agent_name_token="$VPE_NAME" ;;
+    pca.md)           agent_name_token="$PCA_NAME" ;;       # project scope (was cto.md in v0.7)
+    product-lead.md)  agent_name_token="$PRODUCT_LEAD_NAME" ;;  # project scope (was cpo.md in v0.7)
+    design-lead.md)   agent_name_token="$DESIGN_LEAD_NAME" ;;   # project scope (was cdo.md in v0.7)
+    eng-lead.md)      agent_name_token="$ENG_LEAD_NAME" ;;      # project scope (was coo.md in v0.7; absorbed VPE)
     eng-api.md)       agent_name_token="$ENG_API_NAME" ;;
     eng-backend.md)   agent_name_token="$ENG_BACKEND_NAME" ;;
     eng-frontend.md)  agent_name_token="$ENG_FRONTEND_NAME" ;;
@@ -306,16 +335,19 @@ subs = {
     "CHRO_NAME":                 os.environ.get("CHRO_NAME", ""),
     "CSO_NAME":                  os.environ.get("CSO_NAME", ""),
     "CETHO_NAME":                os.environ.get("CETHO_NAME", ""),
-    "CA_NAME":                   os.environ.get("CA_NAME", ""),
+    # v0.8.0 (ADR 0014 §1): CTO_NAME at company scope (was CA_NAME).
+    "CTO_NAME":                  os.environ.get("CTO_NAME", ""),
     "CRO_NAME":                  os.environ.get("CRO_NAME", ""),
+    # v0.8.0 (ADR 0014 §2): VPE_NAME at company scope (cross-scope move).
+    "VPE_NAME":                  os.environ.get("VPE_NAME", ""),
     "ENG_PLATFORM_NAME":         os.environ.get("ENG_PLATFORM_NAME", ""),
     "PROJECT_NAME":              os.environ.get("PROJECT_NAME", ""),
     "PROJECT_NAME_SLUG":         os.environ.get("PROJECT_NAME_SLUG", ""),
-    "CTO_NAME":                  os.environ.get("CTO_NAME", ""),
-    "CPO_NAME":                  os.environ.get("CPO_NAME", ""),
-    "CDO_NAME":                  os.environ.get("CDO_NAME", ""),
-    "COO_NAME":                  os.environ.get("COO_NAME", ""),
-    "VPE_NAME":                  os.environ.get("VPE_NAME", ""),
+    # v0.8.0 (ADR 0014 §1) project-scope role placeholders.
+    "PCA_NAME":                  os.environ.get("PCA_NAME", ""),
+    "PRODUCT_LEAD_NAME":         os.environ.get("PRODUCT_LEAD_NAME", ""),
+    "DESIGN_LEAD_NAME":          os.environ.get("DESIGN_LEAD_NAME", ""),
+    "ENG_LEAD_NAME":             os.environ.get("ENG_LEAD_NAME", ""),
     "ENG_API_NAME":              os.environ.get("ENG_API_NAME", ""),
     "ENG_BACKEND_NAME":          os.environ.get("ENG_BACKEND_NAME", ""),
     "ENG_FRONTEND_NAME":         os.environ.get("ENG_FRONTEND_NAME", ""),
@@ -329,8 +361,9 @@ subs = {
     "CHRO_GITHUB":               os.environ.get("CHRO_GITHUB", ""),
     "CSO_GITHUB":                os.environ.get("CSO_GITHUB", ""),
     "CETHO_GITHUB":              os.environ.get("CETHO_GITHUB", ""),
-    "CA_GITHUB":                 os.environ.get("CA_GITHUB", ""),
+    "CTO_GITHUB":                os.environ.get("CTO_GITHUB", ""),
     "CRO_GITHUB":                os.environ.get("CRO_GITHUB", ""),
+    "VPE_GITHUB":                os.environ.get("VPE_GITHUB", ""),
     "ENG_PLATFORM_GITHUB":       os.environ.get("ENG_PLATFORM_GITHUB", ""),
     "HIGH_VALUE_THRESHOLD":      os.environ.get("HIGH_VALUE_THRESHOLD", ""),
     "SPRINT_LENGTH":             os.environ.get("SPRINT_LENGTH", ""),
@@ -397,10 +430,16 @@ PYEOF
 
 # Export shell variables so the embedded Python sees them via os.environ.
 export COMPANY_NAME COMPANY_NAME_SLUG COMPANY_DOMAIN CEO_NAME AGENT_DESCRIPTION
-export COS_NAME CFO_NAME CLO_NAME CMO_NAME CCO_NAME CHRO_NAME CSO_NAME CETHO_NAME CA_NAME CRO_NAME ENG_PLATFORM_NAME
+# v0.8.0 (ADR 0014): company-scope agent names. CA_NAME → CTO_NAME at
+# company scope; VPE_NAME moved to company scope (toggle-gated).
+export COS_NAME CFO_NAME CLO_NAME CMO_NAME CCO_NAME CHRO_NAME CSO_NAME CETHO_NAME
+export CTO_NAME CRO_NAME VPE_NAME ENG_PLATFORM_NAME
 export PROJECT_NAME PROJECT_NAME_SLUG
-export CTO_NAME CPO_NAME CDO_NAME COO_NAME VPE_NAME ENG_API_NAME ENG_BACKEND_NAME ENG_FRONTEND_NAME ENG_AI_NAME
-export CEO_GITHUB COS_GITHUB CFO_GITHUB CLO_GITHUB CMO_GITHUB CCO_GITHUB CHRO_GITHUB CSO_GITHUB CETHO_GITHUB CA_GITHUB CRO_GITHUB ENG_PLATFORM_GITHUB
+# v0.8.0 (ADR 0014 §1): project-scope agent name placeholders renamed.
+export PCA_NAME PRODUCT_LEAD_NAME DESIGN_LEAD_NAME ENG_LEAD_NAME
+export ENG_API_NAME ENG_BACKEND_NAME ENG_FRONTEND_NAME ENG_AI_NAME
+export CEO_GITHUB COS_GITHUB CFO_GITHUB CLO_GITHUB CMO_GITHUB CCO_GITHUB CHRO_GITHUB CSO_GITHUB CETHO_GITHUB
+export CTO_GITHUB CRO_GITHUB VPE_GITHUB ENG_PLATFORM_GITHUB
 export HIGH_VALUE_THRESHOLD SPRINT_LENGTH ACCESSIBILITY_FLOOR RUNBOOK_DRILL_CADENCE POSTS_PER_CHANNEL_PER_WEEK
 export TIER_STRATEGIC TIER_COMMERCIAL TIER_TECHNICAL
 export VOICE_LONGFORM VOICE_TWITTER VOICE_LINKEDIN VOICE_PRESS VOICE_BLOG VOICE_CRISIS

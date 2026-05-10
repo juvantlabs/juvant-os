@@ -1,7 +1,9 @@
 {
-  "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). universal_allow lists POSIX shell builtins + harmless flow-control that pass FIRST_TOKEN check for any role (cd, echo, etc. are not real binaries). agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow only via tool-matrix-change decision (CA proposes, CSO reviews, CEO approves, COO installs) per SYSTEM_INVARIANTS.md §6.",
+  "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). universal_allow lists POSIX shell builtins + harmless flow-control that pass FIRST_TOKEN check for any role (cd, echo, etc. are not real binaries). agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow only via tool-matrix-change decision (cto proposes at company scope / pca proposes at project scope, cso reviews, CEO approves, eng-platform installs at company scope / project's eng-lead installs at project scope) per SYSTEM_INVARIANTS.md §6 + ADR 0014 §4 single-writer-per-scope.",
 
   "_compound_command_caveat": "FIRST_TOKEN check on per-role allow-list inspects only the first binary in compound commands ('cmd1 && cmd2 || cmd3' → only cmd1 is matched). If cmd1 is in universal_allow (e.g. cd) or in role allow-list, downstream binaries pass UNCHECKED by allow-list. Universal deny-list still applies regex-wide (rm -rf /, force-push, drop table caught regardless of position). v0.8.x candidate: extract every binary from compound commands and validate each.",
+
+  "_v08_rename_note": "Per ADR 0014 §1, agent_allow keys renamed at v0.8.0: ca→cto (company scope), project cto→pca (project scope), coo→eng-lead, cdo→design-lead, cpo→product-lead. Project-vpe removed (absorbed by eng-lead per §2); vpe key now refers to the optional company-scope VPE gated by feature_toggles.vpe_enabled. eng-platform allow-list extended with npm/npx/node for npm:publish capability per ADR 0014 §3.",
 
   "universal_allow": [
     "cd", "pushd", "popd",
@@ -37,22 +39,25 @@
     "(^|[^a-zA-Z])shutdown([[:space:]]|$)",
     "(^|[^a-zA-Z])reboot([[:space:]]|$)",
     "(^|[^a-zA-Z])halt([[:space:]]|$)",
-    "(^|[^a-zA-Z])kill[[:space:]]+-9[[:space:]]+1(\\s|$)"
+    "(^|[^a-zA-Z])kill[[:space:]]+-9[[:space:]]+1(\\s|$)",
+    "npm[[:space:]]+unpublish"
   ],
 
   "agent_allow": {
-    "cos":          ["git", "gh", "turso", "jq"],
-    "coo":          ["git", "gh", "npm", "npx", "node", "turso", "jq"],
-    "cso":          ["git", "gh", "gpg", "shellcheck", "jq", "sqlite3", "turso", "grep", "awk", "sed", "find", "ls", "cat", "head", "tail", "wc", "python3"],
-    "ca":           ["git", "gh", "jq"],
-    "vpe":          ["git", "gh", "npm", "npx", "node", "turso", "jq"],
-    "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
-    "eng-backend":  ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
-    "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "jq"],
-    "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "jq"],
-    "cto":          ["git", "gh", "node", "turso", "jq"],
-    "cpo":          ["git", "gh", "turso", "jq"],
-    "cdo":          ["git", "gh", "node", "npm", "jq"],
-    "eng-platform": ["git", "gh", "turso", "jq", "terraform", "tflint", "checkov", "az", "aws", "gcloud", "shellcheck"]
+    "cos":           ["git", "gh", "turso", "jq"],
+    "cto":           ["git", "gh", "jq"],
+    "cso":           ["git", "gh", "gpg", "shellcheck", "jq", "sqlite3", "turso", "grep", "awk", "sed", "find", "ls", "cat", "head", "tail", "wc", "python3"],
+    "vpe":           ["git", "gh", "turso", "jq"],
+    "eng-platform":  ["git", "gh", "turso", "jq", "terraform", "tflint", "checkov", "az", "aws", "gcloud", "shellcheck", "npm", "npx", "node"],
+
+    "pca":           ["git", "gh", "node", "turso", "jq"],
+    "product-lead":  ["git", "gh", "turso", "jq"],
+    "design-lead":   ["git", "gh", "node", "npm", "jq"],
+    "eng-lead":      ["git", "gh", "npm", "npx", "node", "turso", "jq"],
+
+    "eng-api":       ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
+    "eng-backend":   ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
+    "eng-frontend":  ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "jq"],
+    "eng-ai":        ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "jq"]
   }
 }

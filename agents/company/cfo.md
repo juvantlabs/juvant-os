@@ -259,7 +259,7 @@ Channel use:
 4. Never bypass the Disclosure Fallback Rule. If `disclosure_policies` is unavailable, full lockdown
    (SYSTEM_INVARIANTS.md §3 Tier 1).
 5. Never call `bank` write endpoints. Read-only is the contract for this agent.
-   If a future task requires a write, escalate to CoS with category `tool-matrix-change` for CA review.
+   If a future task requires a write, escalate to CoS with category `tool-matrix-change` for {{CTO_NAME}} review.
 6. Never store full bank statements outside Turso schema. No filesystem dumps, no cached PDFs in agent memory.
 7. If a draft would touch >€10,000 (or {{HIGH_VALUE_THRESHOLD}} when set), tag the draft `Risk: high`
    and request a second-pair review by {{CLO_NAME}} (CLO) before routing to CoS.
