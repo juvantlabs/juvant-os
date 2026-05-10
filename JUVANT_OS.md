@@ -174,32 +174,15 @@ Where `init_state` cycles through:
 "bootstrapped"         → terminal state; do not re-enter wizard
 ```
 
-Surfaced by the Foxtrot Corp testco run on 2026-05-09 (F-17): the
-Skill wrote `init_state: "step-1.5-in-progress"` early but never
-updated it — by Step 9 the field still said `1.5-in-progress` despite
-9 subsequent steps complete. Recovery via re-run "Initialize Juvant
-OS" would have started from Step 1.5 (re-asking 11 folder prompts)
-instead of from where the CEO actually left off.
-
 The Skill **MUST** write the updated `init_state` value before any
 state-bearing operation that follows the step (DB INSERT, file
 write, etc.) — write the field first, persist, then proceed. Mid-step
 abort is recoverable to the granularity of `init_state` at that
 moment.
 
-The rule was first introduced in v0.6.2 after the Delta Corp testco
-run on 2026-05-08 surfaced batch-mode rendering at Step 1 (the
-*"reply with all six fields"* failure). v0.6.2 made one-at-a-time
-HARD-REQUIRED globally; the Echo Corp testco run on 2026-05-09
-surfaced that the rule is **too rigid for collections** — the user
-faced 11 sequential prompts at Step 1.5 (folders), 4 at Step 1.5b
-(mailboxes), 6 at Step 4 (notifications), 20 at Step 9 (manifesto
-display + approve × 10). v0.6.4 amends the rule with clause 2 to
-cover collections.
-
-The two clauses together close the wizard determinism gap
-(integrity-side) and the collection-prompt fatigue (UX-side) — the
-twin facets of finding #11.
+_Background: incremental persistence was added in v0.6.5 (F-17, Foxtrot
+testco). Rendering rule clauses 1+2 emerged across v0.6.2 (Delta) and
+v0.6.4 (Echo) — see CHANGELOG._
 
 This rule complements the Step 9 hard-required rule shipped in
 v0.6.1 (`Task(subagent_type='cso', ...)` mandatory for the
@@ -463,8 +446,6 @@ SHOULD pre-emit a one-line caveat at the first folder-path prompt:
 > *Tip: paste folder paths verbatim — Claude Code may flag the
 > leading `/` as an unknown command, but the wizard records the
 > path correctly regardless. Ignore the inline error chatter.*
-
-Surfaced by the Echo Corp testco run on 2026-05-09 (finding F-15).
 
 #### Three folder-organization models — all supported
 
@@ -1243,16 +1224,10 @@ improvised by the Skill at runtime — are:
    offending file.
 4. Write the compiled file in place (overwriting the template).
 
-**Why a shipped script.** Pre-v0.6.4 every wizard pass improvised an
-ad-hoc Python helper at a different path (5 different paths across 5
-testco runs — Acme `.juvant/_compile.py`, Beta `/tmp/compile_templates.py`,
-Gamma `/tmp/testco-bootstrap-manifestos.py`, Delta `.juvant/seed-manifests.py`,
-Echo `/tmp/compile_agents.py`). Different sessions interpret the
-substitution rules subtly differently. Shipping `scripts/compile-templates.sh`
-makes the operation deterministic across all adopters and Skill sessions,
-allowlistable in `.claude/settings.json` (one `Bash(bash scripts/compile-templates.sh*)`
-allow instead of N anonymous heredocs each tripping static-analysis), and
-auditable through git history.
+**Why a shipped script.** Determinism across Skill sessions, single
+allowlistable invocation, auditable via git history. Replaces the
+ad-hoc Python helpers improvised in pre-v0.6.4 runs (see CHANGELOG
+v0.6.4 + Echo testco results for details).
 
 For a dry-run check without writing:
 ```bash
@@ -1304,12 +1279,12 @@ substitution — same rule as Step 7 for agent templates.
 ### Wizard — Step 7.6: Per-company file rewrite (v0.6.5+)
 
 The OSS template at `juvantlabs/juvant-os` ships with framework-facing
-files (`README.md`, `CHANGELOG.md`, `SECURITY.md`, `docs/adr/*.md`) that
-are appropriate **upstream** but wrong for a per-company instance: an
-adopter looking at their own repo expects to see "Foxtrot Corp", not
-"Juvant OS — The OSS multi-agent operating system that runs your
-company". Pre-v0.6.5 these files leaked into the per-company namespace
-unchanged; v0.6.5 fixes this at bootstrap.
+files (`README.md`, `CHANGELOG.md`, `SECURITY.md`, `docs/adr/*.md`,
+`CLAUDE.md`) that are appropriate **upstream** but wrong for a per-
+company instance — an adopter looking at their own repo expects to
+see their own company's identity, not the framework's. v0.6.5 added
+the rewrite at bootstrap (F-16); v0.7.1 extended it to also replace
+the framework-dev `CLAUDE.md` with a per-company stub.
 
 The Skill **MUST** invoke:
 
@@ -1397,13 +1372,11 @@ VALUES ('ca',
 
 The Skill MUST emit a `[BATCH] {"event":"checkpoint","step":"8","detail":"matrix-seed decision row written","decisions_count":<post-insert-count>}` line + `>> .juvant/batch-events.jsonl` append after the INSERT (batch mode only — interactive mode skips event emission).
 
-The Skill MUST NOT improvise SQL helpers or Python scripts at this step.
-Pre-v0.6.6 testco runs surfaced five different ad-hoc paths across five
-runs (Acme → Echo) and each diverged on row content; F-7 ships
-`seed-matrix.sh` as the canonical seed, and F-12 patches the upstream
-matrix in `agents/company/ca.md` to match the JSON template (the JSON
+The Skill MUST NOT improvise SQL helpers or Python scripts at this
+step. F-7 (`seed-matrix.sh`) and F-12 (matrix patched at source in
+`agents/company/ca.md`) close the determinism gap. The JSON template
 is the runtime source of truth; the table in `ca.md` is the human
-reference and they MUST stay in lockstep).
+reference and they MUST stay in lockstep.
 
 If the script fails (config missing, template missing, jq missing,
 matrix already populated without `--force`), surface the error to the
