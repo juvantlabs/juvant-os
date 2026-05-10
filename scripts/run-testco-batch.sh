@@ -354,9 +354,26 @@ fi
 # requirement, v0.7.0+). This survives `claude --print` stdout
 # buffering — events flushed to disk as the wizard runs, not all at
 # end-of-run. Merge into the stdout-parsed stream now.
+#
+# F-26 hardening (v0.7.2+): the Skill writes this file directly via
+# Bash echo / heredoc. Shell variable expansion can produce malformed
+# JSON if a value is empty (e.g. "exit_code":}). Filter each line via
+# jq validation; warn on rejects and drop them.
 PERSISTED_EVENTS="$TMP_DIR/.juvant/batch-events.jsonl"
 if [[ -f "$PERSISTED_EVENTS" ]]; then
-  cat "$PERSISTED_EVENTS" >> "$EVENT_FILE"
+  reject_count=0
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if jq -e '.event' >/dev/null 2>&1 <<<"$line"; then
+      printf '%s\n' "$line" >> "$EVENT_FILE"
+    else
+      reject_count=$((reject_count + 1))
+      echo "WARN: dropping malformed [BATCH] event from .juvant/batch-events.jsonl: ${line:0:120}" >&2
+    fi
+  done < "$PERSISTED_EVENTS"
+  if [[ "$reject_count" -gt 0 ]]; then
+    echo "WARN: $reject_count malformed event(s) dropped (F-26; Skill emitted invalid JSON)" >&2
+  fi
 fi
 
 # ─── extract [BATCH] events embedded in assistant text content ────────

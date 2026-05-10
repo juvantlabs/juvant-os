@@ -277,6 +277,32 @@ The `[BATCH]` prefix is at the **start of the line**, with a single
 space, then a single JSON object. The driver parses these lines with
 a `[BATCH] ` prefix-strip + `jq -e '.event'` validation.
 
+**Valid JSON is HARD-REQUIRED (F-26, v0.7.2+).** When emitting events
+via Bash echo / heredoc, every field value MUST be a valid JSON value
+— never a bare `:` followed by closing brace. Common pitfall: shell
+variable expansion produces an empty string between the colon and
+the closing brace:
+
+```bash
+# WRONG — if $exit is empty, this writes `"exit_code":}` (invalid JSON):
+echo '{"event":"checkpoint","exit_code":'"$exit"'}' >> .juvant/batch-events.jsonl
+
+# CORRECT — quote the value, OR omit the field when empty:
+echo '{"event":"checkpoint","exit_code":'"${exit:-null}"'}' >> .juvant/batch-events.jsonl
+# Or build the JSON via jq -nc to guarantee validity:
+jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+       --arg detail "compile-templates --scope company" \
+       --argjson exit_code "${exit:-null}" \
+       '{ts:$ts, event:"checkpoint", step:"7", detail:$detail, exit_code:$exit_code}' \
+  >> .juvant/batch-events.jsonl
+```
+
+The driver tolerates malformed lines on the stdout-parse path
+(filtered by `jq -e '.event'` validation), but `.juvant/batch-events.jsonl`
+is written DIRECTLY by the Skill — invalid JSON there propagates into
+the post-run merge and breaks downstream analytics. The Skill MUST
+emit valid JSON every time.
+
 **Mandatory persistence (HARD-REQUIRED, v0.7.0+).** The Skill MUST
 write each emitted event to `.juvant/batch-events.jsonl` via a Bash
 append, in addition to surfacing it in agent text. The Bash command is:

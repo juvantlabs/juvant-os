@@ -43,10 +43,37 @@ integration).
    bash scripts/run-testco-batch.sh tests/fixtures/testco/<scenario>.yaml --no-render --keep-tmp 2>&1 | tail -120
    ```
 4. Live progress feedback (HARD-REQUIRED) — arm a `Monitor` task
-   tailing both event sinks so the operator sees `[BATCH]` events
-   flowing in real time:
+   tailing the **live event sinks** so the operator sees `[BATCH]`
+   events flowing in real time. There are THREE files in play during
+   a batch run; the Monitor reads the two live ones, NOT the driver's
+   post-run aggregate:
+   ```
+   /tmp/testco-batch-<scenario>/.juvant/batch-events.jsonl   ← LIVE during run.
+                                                                Skill writes via
+                                                                Bash echo at every
+                                                                step boundary.
+                                                                Tail this for
+                                                                progress feed.
+   /tmp/testco-batch-<scenario>/stream.jsonl                  ← LIVE during run.
+                                                                Driver writes from
+                                                                claude --print
+                                                                --output-format
+                                                                stream-json output.
+                                                                Tail this for
+                                                                tool_use + result
+                                                                events.
+   /tmp/testco-batch-<scenario>/events.jsonl                  ← NOT live.
+                                                                Driver-aggregated,
+                                                                populated POST-RUN
+                                                                by merging .juvant/
+                                                                batch-events.jsonl
+                                                                into it. Stays at
+                                                                0 bytes during the
+                                                                run. Do NOT tail
+                                                                this for live feed.
+   ```
    ```bash
-   EVENTS=/tmp/testco-batch-<scenario>/.juvant/batch-events.jsonl
+   EVENTS=/tmp/testco-batch-<scenario>/.juvant/batch-events.jsonl   # ← live, NOT events.jsonl
    STREAM=/tmp/testco-batch-<scenario>/stream.jsonl
    # poll both, emit events with elapsed-second timestamps and
    # periodic ping every 30s; exit on `"type":"result"` in stream

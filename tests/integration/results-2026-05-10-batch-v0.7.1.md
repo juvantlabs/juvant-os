@@ -135,6 +135,54 @@ filesystem assertion that failed in iter 13 would now pass.
 
 **Status**: CLOSED in v0.7.1.
 
+### F-26 — Skill emits malformed JSON via shell-variable expansion (CLOSED)
+
+**Surfaced**: 2026-05-10 fresh Claude Code session running
+single-company batch via the framework-dev CLAUDE.md instructions
+("facciamo e2e test"). At Step 7 checkpoint, observer reported:
+
+> *"exit_code":} è JSON malformato (valore vuoto) nel checkpoint
+> event — anomalia da loggare"*
+
+Verified in `/tmp/testco-batch-single-project/.juvant/batch-events.jsonl`
+from single-project iter 13 — line 85 (1 of 105 events) had:
+
+```json
+{"ts":"2026-05-10T07:27:04Z","event":"checkpoint","step":"7","detail":"compile-templates --scope company","exit_code":}
+```
+
+Invalid JSON: bare `:` followed by `}`.
+
+**Diagnosis**: Skill emits events via Bash echo with shell-variable
+expansion. Common pattern:
+
+```bash
+# unquoted, fragile:
+echo '{"event":"checkpoint","exit_code":'"$exit"'}' >> .juvant/batch-events.jsonl
+```
+
+If `$exit` is empty (e.g. command exited but variable wasn't captured
+explicitly, or `set -u` triggered an empty default), the echo expands
+to `"exit_code":}` — invalid JSON. The driver's stdout-parse path
+filters via `jq -e '.event'` and would drop this, but
+`.juvant/batch-events.jsonl` is written DIRECTLY by the Skill —
+invalid JSON propagates into the post-run merge.
+
+**Fix**:
+
+1. **JUVANT_OS.md tightening** — § Batch mode event emission protocol
+   gains a "Valid JSON is HARD-REQUIRED" subsection with explicit
+   correct/wrong examples and a `jq -nc` recipe for guaranteed-valid
+   construction.
+2. **Driver hardening** — `scripts/run-testco-batch.sh` now validates
+   each line in `.juvant/batch-events.jsonl` before merging into
+   `events.jsonl`. Malformed lines are dropped with a per-line WARN
+   + total count summary to stderr. Operator sees the issue
+   immediately; downstream analytics (`jq -s` over events.jsonl) no
+   longer break on malformed input.
+
+**Status**: CLOSED in v0.7.2.
+
 ### F-25 — Bash tool allow-list path-isolation (CLOSED-IN-CONFIG)
 
 **Surfaced**: single-project iter 9-11 on 2026-05-10. The driver
@@ -255,6 +303,18 @@ support) closed in this iteration as a parallel pattern to F-23 —
 schema applied successfully against the existing apollo project DB
 slot. F-25 (Bash tool allow-list mismatch) was a config-only fix and
 is closed.
+
+**v0.7.2 amendment** (post-tag, fresh-session shake-out): F-26
+surfaced the day after v0.7.1 tag when a fresh Claude Code session
+exercised the framework-dev `CLAUDE.md` "facciamo e2e test" trigger
+and noticed a malformed `"exit_code":}` event in the live Skill
+emission. JUVANT_OS.md tightened with explicit "valid JSON" rule +
+correct/wrong examples; driver now filters + warns on malformed
+lines in the post-run merge. Plus a CLAUDE.md path-clarification
+fix: the framework-dev CLAUDE.md now explicitly distinguishes the
+LIVE event sinks (`.juvant/batch-events.jsonl`, `stream.jsonl`)
+from the driver's post-run-aggregated `events.jsonl` (which stays
+at 0 bytes during the run and should NOT be tailed for live feed).
 
 The framework's CLAUDE.md ships framework-dev shortcuts to fresh
 sessions; adopter instances receive a 3-line per-company stub. The
