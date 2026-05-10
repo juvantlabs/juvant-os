@@ -37,16 +37,24 @@ checks for these rules; absence is recorded as a Tier-2 follow-up.
 
 ## Application path
 
-Branch protection is applied via COO using the `branch-protection-spec`
-spec class (per `SYSTEM_INVARIANTS.md` §6 Spec Authorization Matrix).
-CSO or CTO authors the spec; CEO approves; COO executes against the
-GitHub API.
+Branch protection is applied via the scope's writer using the
+`branch-protection-spec` spec class (per `SYSTEM_INVARIANTS.md` §6 Spec
+Authorization Matrix + ADR 0014 §4 single-writer-per-scope):
+
+- **Company-scope repos** (template fork, *-infra at company scope,
+  shared-services-infra, canonical-helpers source): `eng-platform`
+  executes. Authors of the spec: CSO + CTO + eng-platform (joint).
+- **Project-scope repos** (`<your-org>/<project>-infra`, project
+  application repos): the project's `eng-lead` executes. Authors:
+  CSO + PCA.
+
+CEO approves either way before execution.
 
 For first-time application during company init, the spec is authored
-automatically by the wizard at Step 10.5 and queued for COO execution.
-Adopters running with a single-CEO setup may apply the rules manually
-via the GitHub web UI instead — both paths are accepted; the audit only
-checks the resulting state.
+automatically by the wizard at Step 10.5 and queued for the appropriate
+scope's writer. Adopters running with a single-CEO setup may apply the
+rules manually via the GitHub web UI instead — both paths are accepted;
+the audit only checks the resulting state.
 
 ## Free-plan caveat
 
@@ -82,5 +90,7 @@ The CSO baseline audit checks branch protection state via the
 
 When the OSS template ships updates to this spec (e.g. a new required
 status check), adopters apply the delta via the standard upstream-sync
-flow: CHRO drift detection → CA `pr-spec` (here: `branch-protection-spec`
-revision) → CEO approval → COO execution.
+flow: CHRO drift detection → CTO `pr-spec` (here: `branch-protection-spec`
+revision) → CEO approval → executor by scope (eng-platform for company-
+scope repos, project's eng-lead for project-scope repos) per §4
+single-writer-per-scope (ADR 0014).

@@ -25,9 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial company-scope bootstrap.
 
-- 10 founding agents compiled and approved (CoS, CFO, CLO, CMO, CCO, CHRO,
-  CSO, CEthO, CA, CRO) — all in `OPERATIONAL` after CSO bootstrap_baseline
-  audit returned **{{BOOTSTRAP_VERDICT}}**.
+- 9 mandatory founding agents compiled and approved (CoS, CFO, CLO, CMO,
+  CCO, CHRO, CSO, CEthO, CTO) plus the toggle-gated optional roles
+  (eng-platform default-on, CRO/VPE optional per ADR 0014 §2 + ADR 0016)
+  — all in `OPERATIONAL` after CSO bootstrap_baseline audit returned
+  **{{BOOTSTRAP_VERDICT}}**.
 - DB provider: `{{DB_PROVIDER}}` ({{DB_URL_DISPLAY}}).
 - Bank provider: `{{BANK_PROVIDER}}`.
 - Doc storage provider: `{{DOC_STORAGE_PROVIDER}}`.

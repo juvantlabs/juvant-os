@@ -11,6 +11,53 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-05-10 — Documentation refresh — propagate v0.8 vocabulary to README + docs + adopter templates
+
+Docs-only patch. Surface-level files that describe Juvant OS structure
+still cited v0.7 role identifiers + agent counts after v0.8.0 +
+v0.8.1 shipped. No code or behavior changes; pure prose alignment.
+
+### Changed
+
+- **`README.md`** — agent tree, company-agent table (split mandatory 9
+  + toggle-gated 3), project-agent table (8 per project; renamed
+  identifiers), GitHub-MCP section (eng-platform + Eng Lead per scope),
+  roadmap table (added v0.5, batch-testco, v0.8.0/v0.8.1 milestones).
+  Cross-references to ADR 0014/0015/0016 added.
+- **`docs/MCP_INVENTORY.md`** — owning-agent columns updated for all
+  rows (ca→cto, cdo→Design Lead, github:write to eng-platform + each
+  project's eng-lead per §4 single-writer-per-scope). New rows for
+  `cloud:write` (eng-platform only, abstract, resolved per
+  feature_toggles.cloud_provider) and `npm:publish` (eng-platform only,
+  CEO-gated). Universal Boundaries section: forbidden grants
+  re-expressed per scope. Adding-new-MCP-server procedure: CTO/CSO
+  joint review + eng-platform / project's eng-lead execution.
+- **`docs/branch-protection-spec.md`** — Application path documents
+  the scope-determined executor (eng-platform for company repos /
+  project's eng-lead for project repos). Re-application-after-sync
+  flow: CHRO → CTO pr-spec → scope writer.
+- **`plugins/README.md`** — Joint-review chain: CTO + CSO (was CA + CSO).
+- **`scripts/templates/README.md.template`** (adopter README) — Bootstrap
+  info section: 9 mandatory + toggle-gated optional roles (was
+  "10 founding"); per-project agent count documented as 8.
+- **`scripts/templates/CHANGELOG.md.template`** (adopter CHANGELOG) —
+  Same correction; mentions feature_toggles + ADR 0014 §2 + ADR 0016.
+- **`scripts/templates/docs-adr-README.md.template`** (adopter ADR README) —
+  ADR authorship flow: CTO drafts cross-cutting; project PCA drafts
+  project-scope. Spec executor by scope.
+
+### Why a patch release for docs
+
+These files render publicly on the OSS template's GitHub front page
+and ship verbatim to every adopter via `compile-templates.sh
+--rewrite-meta`. A v0.7-named README at v0.8.x reality is a friction
+point for adopters following blog posts or the README in their fresh
+fork — they'd hit role names that don't match the agent files
+they're seeing. Tagging the docs refresh independently makes the
+"docs match reality at this version" claim verifiable per-tag.
+
+---
+
 ## [0.8.1] — 2026-05-10 — v0.8.0 follow-ups (driver iteration, [BATCH] split, F-24 DB routing prose)
 
 Maintenance patch surfacing the four follow-ups identified during

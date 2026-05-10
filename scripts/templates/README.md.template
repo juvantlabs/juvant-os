@@ -21,7 +21,7 @@ Then ask the Skill anything: *"Status check"*, *"Cost report"*, *"Add project &l
 *"Hire CRO"*, *"Run CSO audit"*, etc.
 
 State lives in [Turso](https://turso.tech) (or local SQLite for testing instances) at
-`.juvant/state.db`, gitignored. The 10 founding company-scope agents communicate through state,
+`.juvant/state.db`, gitignored. The founding company-scope agents communicate through state,
 not directly with each other. See [`JUVANT_OS.md`](JUVANT_OS.md) for the orchestrator semantics
 and [`SYSTEM_INVARIANTS.md`](SYSTEM_INVARIANTS.md) for framework invariants.
 
@@ -38,7 +38,11 @@ and [`SYSTEM_INVARIANTS.md`](SYSTEM_INVARIANTS.md) for framework invariants.
 
 - **Bootstrapped on**: {{BOOTSTRAP_DATE}} (UTC)
 - **Powered by**: [Juvant OS](https://github.com/juvantlabs/juvant-os) {{JUVANT_OS_VERSION}}
-- **Founding agents**: 10 company-scope (CoS, CFO, CLO, CMO, CCO, CHRO, CSO, CEthO, CA, CRO) operational
+- **Founding agents**: 9 mandatory company-scope (CoS, CFO, CLO, CMO, CCO, CHRO, CSO, CEthO, CTO)
+  + toggle-gated optional roles per `.juvant/config.json` `feature_toggles`
+  (eng-platform default-on, CRO/VPE default-off per ADR 0014 §2 + ADR 0016).
+  Per-project agents (8: PCA, Product Lead, Design Lead, Eng Lead, eng-api/backend/frontend/ai)
+  bootstrap at project init.
 - **Bootstrap audit verdict**: {{BOOTSTRAP_VERDICT}}
 
 ## Architecture references
