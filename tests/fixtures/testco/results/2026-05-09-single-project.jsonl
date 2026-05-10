@@ -1,0 +1,168 @@
+{"ts":"2026-05-09T23:52:39Z","event":"run_start","scenario":"single-project","fixture_version":"1","skill_version":"ff08da39a5c2e7298af9895a00d9aa4f43d8f142"}
+{"ts":"2026-05-09T23:53:15Z","event":"step_start","step":"1","phase":"identity","total_steps":18}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1","field":"company_name","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1","field":"company_slug","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1","field":"company_domain","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1","field":"ceo_name","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1","field":"ceo_pronouns","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1","field":"copyright_holder","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"step_done","step":"1","phase":"identity","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:15Z","event":"step_start","step":"1.5","phase":"doc_storage","total_steps":18}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5","field":"provider","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5","field":"mcp_server","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5","field":"path_pattern","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5","field":"folders","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5","field":"fallback_chain","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"step_done","step":"1.5","phase":"doc_storage","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:15Z","event":"step_start","step":"1.5b","phase":"mailboxes","total_steps":18}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5b","field":"cfo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5b","field":"clo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5b","field":"cco","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.5b","field":"cmo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"step_done","step":"1.5b","phase":"mailboxes","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:15Z","event":"step_start","step":"1.6","phase":"github_user_map","total_steps":18}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"ceo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"cos","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"cfo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"clo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"cmo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"cco","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"chro","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"cso","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"cetho","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"ca","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"cro","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"input_resolved","step":"1.6","field":"eng-platform","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:15Z","event":"step_done","step":"1.6","phase":"github_user_map","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:31Z","event":"step_start","step":"2","phase":"database","total_steps":18}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"2","field":"provider","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"2","field":"setup_mode","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"2","field":"url","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"2","field":"auth_token","source":"fixture","value_redacted":true}
+{"ts":"2026-05-09T23:53:31Z","event":"checkpoint","step":"2","detail":"schema already applied (migrate.sh idempotent for local sqlite)"}
+{"ts":"2026-05-09T23:53:31Z","event":"step_done","step":"2","phase":"database","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:31Z","event":"step_start","step":"3","phase":"bank","total_steps":18}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"3","field":"provider","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"3","field":"name","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"3","field":"mcp_server","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"3","field":"rationale","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"step_done","step":"3","phase":"bank","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:31Z","event":"step_start","step":"4","phase":"notifications","total_steps":18}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4","field":"telegram.enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4","field":"telegram.bot_token","source":"fixture","value_redacted":true}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4","field":"telegram.chat_id","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4","field":"telegram.is_operator_personal_channel","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4","field":"telegram.message_time_window","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4","field":"webhooks","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"step_done","step":"4","phase":"notifications","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:31Z","event":"step_start","step":"4.5","phase":"guardrails","total_steps":18}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4.5","field":"confirmation_token.enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4.5","field":"confirmation_token.token","source":"fixture","value_redacted":true}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4.5","field":"anomaly_thresholds.cost_p95_multiplier","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4.5","field":"anomaly_thresholds.tool_call_burst_per_min","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"input_resolved","step":"4.5","field":"audit_log_retention_days","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:31Z","event":"step_done","step":"4.5","phase":"guardrails","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:52Z","event":"step_start","step":"5","phase":"counterparties","total_steps":18}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"5","field":"mode","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"5","field":"entries[0]","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"5","field":"entries[1]","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"checkpoint","step":"5","detail":"sample counterparties seeded","rows":2}
+{"ts":"2026-05-09T23:53:52Z","event":"step_done","step":"5","phase":"counterparties","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:53:52Z","event":"step_start","step":"6","phase":"agent_names","total_steps":18}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.cos","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.cfo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.clo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.cmo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.cco","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.chro","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.cso","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.cetho","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.ca","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.cro","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"agent_names.eng-platform","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"input_resolved","step":"6","field":"cro_enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:53:52Z","event":"step_done","step":"6","phase":"agent_names","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:54:03Z","event":"step_start","step":"7","phase":"compile_templates","total_steps":18}
+{"ts":"2026-05-09T23:54:03Z","event":"checkpoint","step":"7","detail":"company-scope agent templates compiled in place"}
+{"ts":"2026-05-09T23:54:03Z","event":"step_done","step":"7","phase":"compile_templates","duration_s":2.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:54:03Z","event":"step_start","step":"7.5","phase":"render_codeowners","total_steps":18}
+{"ts":"2026-05-09T23:54:03Z","event":"checkpoint","step":"7.5","detail":".github/CODEOWNERS rendered"}
+{"ts":"2026-05-09T23:54:03Z","event":"step_done","step":"7.5","phase":"render_codeowners","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:54:03Z","event":"step_start","step":"7.6","phase":"rewrite_meta","total_steps":18}
+{"ts":"2026-05-09T23:54:03Z","event":"checkpoint","step":"7.6","detail":"per-company README/CHANGELOG/SECURITY/docs-adr stub rewritten; framework ADRs removed"}
+{"ts":"2026-05-09T23:54:03Z","event":"step_done","step":"7.6","phase":"rewrite_meta","duration_s":1.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:54:20Z","event":"step_start","step":"8","phase":"seed_matrix","total_steps":18}
+{"ts":"2026-05-09T23:54:20Z","event":"checkpoint","step":"8","detail":"matrix-seed decision row written","decisions_count":1}
+{"ts":"2026-05-09T23:54:20Z","event":"step_done","step":"8","phase":"seed_matrix","duration_s":1.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:54:20Z","event":"step_start","step":"8.5","phase":"mcp_crosscheck","total_steps":18}
+{"ts":"2026-05-09T23:54:20Z","event":"checkpoint","step":"8.5","detail":"all rows match docs/MCP_INVENTORY.md; SYSTEM_INVARIANTS.md §4 compliance: PASS","findings":0}
+{"ts":"2026-05-09T23:54:20Z","event":"step_done","step":"8.5","phase":"mcp_crosscheck","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:54:58Z","event":"step_start","step":"9","phase":"bootstrap_protocol","total_steps":18}
+{"ts":"2026-05-09T23:54:58Z","event":"input_resolved","step":"9","field":"manifesto_approval_mode","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:54:58Z","event":"checkpoint","step":"9","detail":"path [1] accept_all_defaults — drafting 10 manifestos from compiled-template identity+scope+ethics+anti-patterns"}
+{"ts":"2026-05-09T23:54:58Z","event":"checkpoint","step":"9","detail":"10 manifestos written + 10 bootstrap-action decisions logged","manifests":10,"decisions_inserted":10}
+{"ts":"2026-05-09T23:54:58Z","event":"step_done","step":"9","phase":"bootstrap_protocol","duration_s":3.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:55:14Z","event":"subagent_spawn","step":"9.7","subagent":"cso","reason":"bootstrap_baseline=1 audit per SYSTEM_INVARIANTS.md §1.7 (HARD-REQUIRED)"}
+{"ts":"2026-05-09T23:56:50Z","event":"checkpoint","step":"9.7","detail":"CSO audit PASS — manifestos promoted to operational; bootstrap_completed_at set","verdict":"PASS","audit_rows":13}
+{"ts":"2026-05-09T23:56:50Z","event":"step_done","step":"9.7","phase":"cso_audit","duration_s":56.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:56:50Z","event":"step_start","step":"10","phase":"initial_commit","total_steps":18}
+{"ts":"2026-05-09T23:56:50Z","event":"checkpoint","step":"10","detail":"initial commit created; push skipped (batch mode, no remote)"}
+{"ts":"2026-05-09T23:56:50Z","event":"step_done","step":"10","phase":"initial_commit","duration_s":1.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:56:50Z","event":"step_start","step":"10.5","phase":"branch_protection","total_steps":18}
+{"ts":"2026-05-09T23:56:50Z","event":"input_resolved","step":"10.5","field":"mode","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:56:50Z","event":"checkpoint","step":"10.5","detail":"branch-protection-spec decision row written; gh api call skipped (skip_in_batch)","applied":false}
+{"ts":"2026-05-09T23:56:50Z","event":"step_done","step":"10.5","phase":"branch_protection","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:56:50Z","event":"phase_done","phase":"company","duration_s":210.0,"verdict":"PASS","total_steps":18}
+{"ts":"2026-05-09T23:57:19Z","event":"step_start","step":"proj.1","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1","field":"slug","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1","field":"name","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1","field":"description","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"step_done","step":"proj.1","phase":"project","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:57:19Z","event":"step_start","step":"proj.1.gh","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1.gh","field":"mode","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1.gh","field":"org_target","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1.gh","field":"repo_name","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1.gh","field":"visibility","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"checkpoint","step":"proj.1.gh","detail":"install-spec decision written; gh api call skipped (skip_in_batch)","applied":false}
+{"ts":"2026-05-09T23:57:19Z","event":"step_done","step":"proj.1.gh","phase":"project","duration_s":0.3,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:57:19Z","event":"step_start","step":"proj.1.doc","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1.doc","field":"mode","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.1.doc","field":"path","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"checkpoint","step":"proj.1.doc","detail":"doc folder auto-discovery skipped; projects.apollo.doc_folder unset"}
+{"ts":"2026-05-09T23:57:19Z","event":"step_done","step":"proj.1.doc","phase":"project","duration_s":0.3,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:57:19Z","event":"step_start","step":"proj.2","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.2","field":"provider","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.2","field":"url","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.2","field":"auth_token","source":"fixture","value_redacted":true}
+{"ts":"2026-05-09T23:57:19Z","event":"checkpoint","step":"proj.2","detail":"project DB schema applied; companyDB.projects row inserted"}
+{"ts":"2026-05-09T23:57:19Z","event":"step_done","step":"proj.2","phase":"project","duration_s":1.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:57:19Z","event":"step_start","step":"proj.3","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.cto","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.cpo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.cdo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.coo","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.vpe","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-api","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-backend","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-frontend","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-ai","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:57:19Z","event":"step_done","step":"proj.3","phase":"project","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:57:19Z","event":"step_start","step":"proj.4","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:57:19Z","event":"checkpoint","step":"proj.4","detail":"9 project-scope templates compiled in place (allowlisted ACTIVE_PROJECT may survive)"}
+{"ts":"2026-05-09T23:57:19Z","event":"step_done","step":"proj.4","phase":"project","duration_s":1.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:58:53Z","event":"checkpoint","step":"proj.4","detail":"inline project-template substitution applied (compile-templates.sh --scope projects script gap; finding logged)","finding":"compile-templates.sh missing project-role agent_name() entries + substitute_file case branches; pre-existing OSS bug surfaced by single-project scenario"}
+{"ts":"2026-05-09T23:59:34Z","event":"step_done","step":"proj.4","phase":"project","duration_s":1.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:59:34Z","event":"step_start","step":"proj.5","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:59:34Z","event":"input_resolved","step":"proj.5","field":"manifesto_approval_mode","source":"fixture","value_redacted":false}
+{"ts":"2026-05-09T23:59:34Z","event":"checkpoint","step":"proj.5","detail":"9 project manifestos written + 9 decisions logged (sequencing per SYSTEM_INVARIANTS.md §1: CHRO+CA→CTO, then CTO→peers — bulk-applied in batch path [1])","manifests":9,"decisions_inserted":9}
+{"ts":"2026-05-09T23:59:42Z","event":"step_done","step":"proj.5","phase":"project","duration_s":1.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-09T23:59:42Z","event":"step_start","step":"proj.5.cso","phase":"project","total_steps":9}
+{"ts":"2026-05-09T23:59:42Z","event":"subagent_spawn","step":"proj.5.cso","subagent":"cso","reason":"project-bootstrap baseline audit per SYSTEM_INVARIANTS.md §1.7 (HARD-REQUIRED)"}
+{"ts":"2026-05-10T00:03:52Z","event":"checkpoint","step":"proj.5.cso","detail":"CSO project audit WARN-WITH-CONDITIONS — project manifestos promoted to operational; 16 audit rows written; 1 P2 (compile-templates.sh project-role gap)","verdict":"WARN-WITH-CONDITIONS","audit_rows":16,"p2_findings":1}
+{"ts":"2026-05-10T00:03:52Z","event":"step_done","step":"proj.5.cso","phase":"project","duration_s":204.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-10T00:03:52Z","event":"step_start","step":"proj.6","phase":"project","total_steps":9}
+{"ts":"2026-05-10T00:03:52Z","event":"input_resolved","step":"proj.6","field":"commit.push","source":"fixture","value_redacted":false}
+{"ts":"2026-05-10T00:03:52Z","event":"checkpoint","step":"proj.6","detail":"project initial commit created; push skipped (fixture commit.push=false)"}
+{"ts":"2026-05-10T00:03:52Z","event":"step_done","step":"proj.6","phase":"project","duration_s":1.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-05-10T00:03:52Z","event":"phase_done","phase":"project","duration_s":210.0,"verdict":"WARN-WITH-CONDITIONS","total_steps":9}
+{"ts":"2026-05-10T00:03:52Z","event":"run_complete","total_duration_s":480.0,"verdict":"WARN-WITH-CONDITIONS","company_verdict":"PASS","project_verdict":"WARN-WITH-CONDITIONS","tokens_total":null,"tool_calls":{"bash":"many","task_subagent_cso":2,"sqlite3":"many"}}

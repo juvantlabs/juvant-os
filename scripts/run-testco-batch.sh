@@ -326,7 +326,7 @@ STREAM_FILE="$TMP_DIR/stream.jsonl"
     --output-format stream-json \
     --verbose \
     --include-hook-events \
-    --max-budget-usd 5.0 \
+    --max-budget-usd 6.5 \
     "$ACTIVATION_PROMPT" 2>&1
 ) | tee "$LOG_FILE" | while IFS= read -r line; do
   # Three sinks:

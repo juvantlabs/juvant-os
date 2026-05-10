@@ -238,10 +238,18 @@ expect:
     - { path: '.juvant/config.json', must_exist: true }
     - { path: '.juvant/state.db', must_exist: true }
     - { path: '.juvant/project-apollo.db', must_exist: true }
-    # Project-scope agent files materialized:
-    - { path: 'agents/projects/apollo/cto.md', must_exist: true }
-    - { path: 'agents/projects/apollo/cpo.md', must_exist: true }
-    - { path: 'agents/projects/apollo/coo.md', must_exist: true }
+    # Project-scope agent files materialized via in-place template
+    # substitution (per JUVANT_OS.md § Project setup Step 4: substitutes
+    # {{PROJECT_NAME}}, {{*_NAME}} into agents/projects/*.md; only
+    # {{ACTIVE_PROJECT}} survives, bound at SessionStart). True multi-
+    # project per-project subdirectories arrive with v0.7.x multi-project
+    # scenario; for single-project the templates are mutated in place.
+    - { path: 'agents/projects/cto.md', must_exist: true }
+    - { path: 'agents/projects/cpo.md', must_exist: true }
+    - { path: 'agents/projects/coo.md', must_exist: true }
+    - { path: 'agents/projects/cto.md', must_contain: 'Pallas' }
+    - { path: 'agents/projects/cpo.md', must_contain: 'Echo' }
+    - { path: 'agents/projects/coo.md', must_contain: 'Tyche' }
 
   pending_orphan_assertions:
     AskUserQuestion: 0
