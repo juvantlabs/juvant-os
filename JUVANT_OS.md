@@ -843,11 +843,12 @@ opt out (`Y/n` per agent):
 | CCO  | `hello@{{COMPANY_DOMAIN}}` (or `sales@…`) | Sales pipeline, prospects, partnerships |
 | CMO  | `press@{{COMPANY_DOMAIN}}`   | Press inquiries, analyst, comment-in-flight |
 
-Other agents (CSO, CA, COO, CoS, CDO, CHRO, CRO, CEthO, CTO, CPO, VPE,
-eng-\*) are NOT mail-enabled by default. The wizard does not offer them
-this binding. If a future role legitimately needs mail-enabled status,
-that's a `tool-matrix-change` decision per `SYSTEM_INVARIANTS.md` §6
-(CA proposes, CSO reviews, CEO approves) — not a wizard knob.
+Other agents (CSO, CTO, eng-platform, CoS, CHRO, CRO, CEthO, VPE,
+PCA, Product Lead, Design Lead, Eng Lead, eng-\*) are NOT mail-enabled by
+default. The wizard does not offer them this binding. If a future role
+legitimately needs mail-enabled status, that's a `tool-matrix-change`
+decision per `SYSTEM_INVARIANTS.md` §6 (CTO proposes, CSO reviews,
+CEO approves) — not a wizard knob.
 
 #### Resulting schema in `.juvant/config.json`
 
@@ -924,7 +925,7 @@ to render `.github/CODEOWNERS` for the per-company repo.
 **Default mapping**: every role resolves to the CEO's GitHub username unless
 the CEO specifies otherwise. For solo-founder companies, all entries
 collapse to the CEO. For larger teams where multiple humans own roles
-(e.g. a real human CTO), the wizard accepts per-role overrides.
+(e.g. a real human PCA), the wizard accepts per-role overrides.
 
 ```json
 {
@@ -938,7 +939,7 @@ collapse to the CEO. For larger teams where multiple humans own roles
     "chro": "<ceo-handle>",
     "cso": "<ceo-handle>",
     "cetho": "<ceo-handle>",
-    "ca": "<ceo-handle>",
+    "cto": "<ceo-handle>",
     "cro": "<ceo-handle>",
     "eng-platform": "<ceo-handle>"
   }
@@ -948,7 +949,7 @@ collapse to the CEO. For larger teams where multiple humans own roles
 Keys are the canonical lowercase role slugs — the same identifier set used
 in `.claude/agents/<role>.md`, `agents/company/<role>.md`, and the
 `agent_tool_matrix.role` column. The full slug list is `ceo, cos, cfo, clo,
-cmo, cco, chro, cso, cetho, ca, cro, eng-platform`. `scripts/compile-templates.sh`
+cmo, cco, chro, cso, cetho, cto, cro, eng-platform`. `scripts/compile-templates.sh`
 reads `.github_user_map[<role-slug>]` to render `{{*_GITHUB}}` placeholders
 in `.github/CODEOWNERS`; do not capitalize the keys or append `_GITHUB`
 suffixes (the script will return empty and CODEOWNERS will render with
@@ -1240,17 +1241,39 @@ Resolve all `{{*_NAME}}` placeholders using SYSTEM_INVARIANTS.md §2 defaults
 unless the CEO overrides during this step. Present the full list:
 
 ```
-Company-scope:
+Company-scope (mandatory):
   CoS    Atlas         CFO   Theos        CLO    Lex
   CMO    Mira          CCO   Clio         CHRO   Sage
-  CSO    Shield        CEthO Vera         CA     Arch
-  CRO    Lumen (optional — enable now? [y/N])
+  CSO    Shield        CEthO Vera         CTO    Arch
 
-Project-scope: defaults are <project>-cto / <project>-cpo / <project>-cdo /
-<project>-coo / <project>-vpe — set per-project at project init.
+Company-scope (optional — enable now?):
+  eng-platform  Hephaestus  [Y/n]   (default ON per ADR 0016 — software-flavored framework;
+                                     toggle OFF only for non-software adopters who run no
+                                     cloud / IaC / canonical-helper publishing surface)
+  CRO           Lumen       [y/N]   (research synthesis with citation discipline)
+  VPE           Helm        [y/N]   (cross-project Eng/* aggregator — only sensible for
+                                     ≥2 active projects; for single-project shops the
+                                     company CTO performs cross-project aggregation directly)
+
+Project-scope: defaults are <project>-pca / <project>-product-lead /
+<project>-design-lead / <project>-eng-lead — set per-project at project init.
+(Project-VPE was removed in v0.8.0 per ADR 0014 §2; the cross-project
+aggregator function moved to the optional company-scope VPE above.)
 
 Override any name? [list / N to accept all]
 ```
+
+Each toggle answer writes into `.juvant/config.json` `feature_toggles.<role>_enabled`
+(boolean). The toggle drives:
+- whether Step 8 seeds the matrix row for that role,
+- whether Step 9 emits a manifesto (and counts toward the bootstrap N),
+- whether the audit-bootstrap-baseline.sh expected-roles list includes
+  the agent.
+
+`feature_toggles.cloud_provider` is also set here when `eng_platform_enabled=true`
+(values: `azure | aws | gcp | none`) — this resolves the abstract `cloud:write`
+MCP entry in eng-platform's matrix row to the concrete provider, or drops it
+if `none` (single-Mac local-only setup).
 
 Whole-token substitution only — no partial matches.
 
@@ -1294,10 +1317,12 @@ bash scripts/compile-templates.sh --scope company --check-only
 
 5. **Runtime registration is implicit.** The OSS template ships with
    `.claude/agents/<role>.md` as relative symlinks to
-   `../../agents/company/<role>.md` for each of the 10 founding company-scope
-   agents. Step 4's in-place substitution updates what Claude Code's Task tool
-   sees at `subagent_type='<role>'` automatically — no separate registration
-   step is required (see ADR 0010).
+   `../../agents/company/<role>.md` for each company-scope agent (9
+   mandatory + the toggle-gated optional symlinks for eng-platform / cro
+   / vpe — those symlinks ship unconditionally; activation is gated by
+   feature_toggles per ADR 0014 §1/§2). Step 4's in-place substitution
+   updates what Claude Code's Task tool sees at `subagent_type='<role>'`
+   automatically — no separate registration step is required (see ADR 0010).
 
 Project-scope agents (`agents/projects/*.md`) are NOT compiled here — they are
 compiled at project init via the same script with `--scope projects` (see
@@ -1407,19 +1432,20 @@ with `version='v0'` and `approved_by='ceo'`.
 
 **HARD-REQUIRED — write the matrix-seed decision row.** Immediately
 after `seed-matrix.sh` exits 0, the Skill MUST insert a `decisions`
-row capturing CA's act of approving the v0 matrix (the CEO's act of
-running the wizard is the v0 approval; CA is the proxy author). This
+row capturing CTO's act of approving the v0 matrix (the CEO's act of
+running the wizard is the v0 approval; CTO is the proxy author). This
 is required for audit-trail coherence with the manifesto-approval
-decisions written in Step 9 (10 rows; the matrix-seed decision brings
-the total to 11). Adopters running drift detection at month 6 expect
-to find this row.
+decisions written in Step 9 (N rows; the matrix-seed decision brings
+the total to N+1, where N is the per-Step-6 toggle-derived count —
+default 10 baseline → 11 total). Adopters running drift detection at
+month 6 expect to find this row.
 
 The exact INSERT (Skill must execute, batch mode and interactive mode
 identical):
 
 ```sql
 INSERT INTO decisions (agent, title, category, status, approved_by, executed_at, rationale)
-VALUES ('ca',
+VALUES ('cto',
         'Seed agent_tool_matrix v0',
         'bootstrap-action',
         'executed',
@@ -1432,8 +1458,8 @@ The Skill MUST emit a `[BATCH] {"event":"checkpoint","step":"8","detail":"matrix
 
 The Skill MUST NOT improvise SQL helpers or Python scripts at this
 step. F-7 (`seed-matrix.sh`) and F-12 (matrix patched at source in
-`agents/company/ca.md`) close the determinism gap. The JSON template
-is the runtime source of truth; the table in `ca.md` is the human
+`agents/company/cto.md`) close the determinism gap. The JSON template
+is the runtime source of truth; the table in `cto.md` is the human
 reference and they MUST stay in lockstep.
 
 If the script fails (config missing, template missing, jq missing,
@@ -1496,31 +1522,49 @@ runs and findings still land in `security_audit_log`).
 
 This is the chicken-and-egg-resolving step. Follow SYSTEM_INVARIANTS.md §1 exactly.
 
-This step records **N=10 manifesto approvals** (one per founding
-company-scope agent). Per the wizard rendering rule clause 2 at
-`## Company setup`, the Skill renders the collection-collapse menu
-**first** — *before* any manifesto draft is shown:
+This step records **N manifesto approvals** (one per founding
+company-scope agent), where N is parameterized per ADR 0014 §1:
 
 ```
-This step records 10 founding-agent manifesto approvals. Choose how to drive it:
+N = (mandatory company)
+  + (eng-platform if feature_toggles.eng_platform_enabled — default true)
+  + (CRO          if feature_toggles.cro_enabled          — default false)
+  + (VPE          if feature_toggles.vpe_enabled          — default false)
+```
+
+Default at v0.8.0 baseline: **N = 10** (9 mandatory + eng-platform on by
+default per ADR 0016 — software-flavored framework). Each optional
+toggle answered "yes" at Step 6 adds 1.
+
+The 9 mandatory founding agents (always counted): cos, cfo, clo, cmo,
+cco, chro, cso, cetho, cto. Optional agents (counted only if their
+toggle is true): eng-platform, cro, vpe.
+
+Per the wizard rendering rule clause 2 at `## Company setup`, the Skill
+renders the collection-collapse menu **first** — *before* any manifesto
+draft is shown:
+
+```
+This step records N founding-agent manifesto approvals (N derived from
+your Step 6 toggle choices). Choose how to drive it:
 
 [1] Accept all defaults (Recommended for sandbox / test)
-    The Skill drafts all 10 manifestos from compiled-template
+    The Skill drafts all N manifestos from compiled-template
     identity + scope + ethical commitments + anti-pattern sections,
-    structurally validates each, and writes all 10 in one
+    structurally validates each, and writes all N in one
     transaction with status=operational_restricted, tier=1,
     tier1_bootstrap=1, precondition_bypassed='bootstrap',
     approved_by=<CEO_NAME>. One bootstrap-action decision per
-    manifesto (10 rows). Then proceed to Step 9.7 (CSO audit).
+    manifesto (N rows). Then proceed to Step 9.7 (CSO audit).
 
 [2] Edit specific
-    Skill drafts all 10 and presents them as a summary index;
+    Skill drafts all N and presents them as a summary index;
     you select which manifesto bodies to view and edit. Approved
     bodies persist; un-edited ones use the verbatim draft.
 
 [3] Walk-through every manifesto
     Skill drafts and presents each of the 10 in sequence
-    (CoS→CFO→CLO→CMO→CCO→CHRO→CSO→CEthO→CA→CRO). For each:
+    (CoS→CFO→CLO→CMO→CCO→CHRO→CSO→CEthO→CTO→CRO). For each:
     Edit / Accept verbatim / Skip (defer to Tier 2). Slowest path
     but exercises the canonical loop and is the production-default
     for first bootstrap of a real company.
@@ -1541,11 +1585,12 @@ read the manifestos before signing).
 After the menu choice, the rest of the procedure runs unchanged
 (SYSTEM_INVARIANTS.md §1 step protocol). The numbered substeps
 below describe what happens **per manifesto** under any path; under
-path [1] all 10 are bulk-applied without inline display, under
+path [1] all N are bulk-applied without inline display, under
 path [3] each is shown then approved, etc.
 
-1. For each of the 19 founding agents (10 company + 9 project — the project agents
-   bootstrap when their first project is initialized; at company init only the 10
+1. For each of the (N + 8) founding agents (N company-scope per Step 6
+   toggles + 8 project-scope per project — the project agents bootstrap
+   when their first project is initialized; at company init only the N
    company-scope agents enter bootstrap), insert one `manifests` row:
 
    ```sql
@@ -1608,7 +1653,7 @@ path [3] each is shown then approved, etc.
            ?, CURRENT_TIMESTAMP, 'juvant-os-skill', CURRENT_TIMESTAMP);
    ```
 
-6. After all 10 company-scope manifestos are accepted, the CSO
+6. After all N company-scope manifestos are accepted, the CSO
    `bootstrap_baseline=1` audit runs **automatically and unconditionally**.
    There is no `[y/N]` prompt, no "skip audit" path, no "fast" path that
    bypasses it. Bootstrap without a CSO audit is not a valid bootstrap
@@ -1731,7 +1776,7 @@ is a visible action (§ "Executing actions with care").
 ### Wizard — Step 10.5: Branch-protection spec
 
 After the initial commit + push (Step 10), the wizard authors a
-`branch-protection-spec` decision queued for COO execution. The spec
+`branch-protection-spec` decision queued for Eng Lead execution. The spec
 implements the rules documented in `docs/branch-protection-spec.md`:
 
 - Require PR before merging (≥ 1 reviewer, CODEOWNERS-required for
@@ -1756,9 +1801,9 @@ Approval is implicit at company init via the bootstrap CEO-only override
 (`SYSTEM_INVARIANTS.md` §1); the post-bootstrap CSO baseline audit
 confirms.
 
-If COO is not yet operational at company init (project-scope COO requires
+If Eng Lead is not yet operational at company init (project-scope Eng Lead requires
 project-init first), the spec sits in `decisions` with `status='approved'`
-until the first project COO is bootstrapped — OR the CEO applies the
+until the first project Eng Lead is bootstrapped — OR the CEO applies the
 rules manually via the GitHub web UI. Either path is accepted; the audit
 checks resulting state, not the application path.
 
@@ -1801,12 +1846,12 @@ every Bash tool call:
   `git push --force` to main, `gh repo delete`, `DROP DATABASE`,
   writes to credential paths, fork-bombs, etc.
 - **Per-agent allow-list**: positive scope. CFO/CLO/CCO/CMO/CHRO/
-  CRO/CEthO have NO Bash by default. CoS/COO/CSO/CA/VPE/eng-* have
+  CRO/CEthO have NO Bash by default. CoS/Eng Lead/CSO/CTO/Eng Lead/eng-* have
   scoped allow-lists.
 
 Adding a binary to an agent's allow-list goes through the standard
-`tool-matrix-change` decision per `SYSTEM_INVARIANTS.md` §6 — CA
-proposes via `decisions` row, CSO reviews, CEO approves, COO
+`tool-matrix-change` decision per `SYSTEM_INVARIANTS.md` §6 — CTO
+proposes via `decisions` row, CSO reviews, CEO approves, Eng Lead
 installs by editing `hooks/bash-policy.json` + commit. Agents
 cannot edit the policy at runtime; the file is in the committed
 template tree.
@@ -1921,7 +1966,7 @@ The helper reads `agent_actions_log` for the window and reports:
 The recommendation honors the structural floor (default values).
 The helper will NOT recommend tightening below default —
 stricter limits require an explicit `tool-matrix-change`
-decision (CA proposes, CSO reviews, CEO approves).
+decision (CTO proposes, CSO reviews, CEO approves).
 
 To apply recommendations:
 
@@ -2011,7 +2056,7 @@ already-bootstrapped company repo.
 - Project name (display).
 - Project description.
 - GitHub repo for project PM artifacts (e.g. `<your-org>/<project-slug>-pm`).
-  Must already exist; create it via COO `pr-spec` / `install-spec` before
+  Must already exist; create it via Eng Lead `pr-spec` / `install-spec` before
   this wizard if not.
 
 **Auto-discovery from `doc_storage`** (when M365 / Google Drive connector
@@ -2032,7 +2077,7 @@ The CEO can:
 
 Per-project document folder is recorded as `projects.<slug>.doc_folder`
 in `.juvant/config.json` (see Step 2 schema below). Project-scope agents
-of that project (CTO, CPO, CDO, COO, VPE, Eng/*) read project-context
+of that project (PCA, Product Lead, Design Lead, Eng Lead, Eng/*) read project-context
 content (research, design assets, project documentation) from this folder
 when resolving roles like `research` or `branding`. Cross-cutting functions
 (legal, finance, ops) continue to resolve at company-level via the same
@@ -2098,8 +2143,8 @@ VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP);
 
 ### Wizard — Step 3: Generate project agent names
 
-Defaults are `<project_id>-<role>`: `hardys-cto`, `hardys-cpo`, `hardys-cdo`,
-`hardys-coo`, `hardys-vpe`. Eng/* are referenced by role identifier (`hardys-eng-api`,
+Defaults are `<project_id>-<role>`: `hardys-pca`, `hardys-product-lead`, `hardys-design-lead`,
+`hardys-eng-lead`, `hardys-eng-lead`. Eng/* are referenced by role identifier (`hardys-eng-api`,
 etc.).
 
 Allow CEO override per role.
@@ -2112,11 +2157,10 @@ Write each chosen name to `.juvant/config.json` under
   "projects": {
     "<project-slug>": {
       "agent_names": {
-        "cto": "Pallas",
-        "cpo": "Echo",
-        "cdo": "Iris",
-        "coo": "Tyche",
-        "vpe": "Praxis",
+        "pca": "Pallas",
+        "product-lead": "Echo",
+        "design-lead": "Iris",
+        "eng-lead": "Tyche",
         "eng-api": "Crispus",
         "eng-backend": "Mark",
         "eng-frontend": "Pliny",
@@ -2143,9 +2187,13 @@ bash scripts/compile-templates.sh --scope projects --project=<slug>
 
 The script iterates `agents/projects/*.md` and substitutes:
 - `{{PROJECT_NAME}}` → `.projects.<slug>.name`
-- `{{*_NAME}}` for project roles (CTO_NAME, CPO_NAME, CDO_NAME, COO_NAME,
-  VPE_NAME, ENG_API_NAME, ENG_BACKEND_NAME, ENG_FRONTEND_NAME, ENG_AI_NAME)
-  → `.projects.<slug>.agent_names.<role>` with `<slug>-<role>` fallback
+- `{{*_NAME}}` for project roles (PCA_NAME, PRODUCT_LEAD_NAME,
+  DESIGN_LEAD_NAME, ENG_LEAD_NAME, ENG_API_NAME, ENG_BACKEND_NAME,
+  ENG_FRONTEND_NAME, ENG_AI_NAME) →
+  `.projects.<slug>.agent_names.<role>` with `<slug>-<role>` fallback
+  (per ADR 0014 §1: project-CTO renamed PCA, CDO renamed Design Lead,
+  CPO renamed Product Lead, COO renamed Eng Lead; project-VPE removed
+  per §2)
 - Peer references back to company-scope agents — already substituted at
   company init, no re-substitution needed
 - `{{COMPANY_NAME}}`, `{{COMPANY_DOMAIN}}`, etc. → company config (same
@@ -2161,12 +2209,12 @@ closes the script gap that pre-v0.7.x runs worked around inline.
 ### Wizard — Step 5: Project-bootstrap analog (§1)
 
 Same as company bootstrap but with `precondition_bypassed='project-bootstrap'`.
-Sequencing per SYSTEM_INVARIANTS.md §1 / cto.md:
+Sequencing per SYSTEM_INVARIANTS.md §1 / pca.md:
 
-1. CHRO + CA approve the new project's CTO manifesto first (these two are already
+1. CHRO + CTO approve the new project's PCA manifesto first (these two are already
    `operational` post-company-bootstrap — they evaluate normally per Tier 1 rules).
-2. Once the project CTO reaches `operational_restricted`, that CTO performs Tier 1
-   on the remaining project-scope agents (CPO, CDO, COO, VPE, Eng/*).
+2. Once the project PCA reaches `operational_restricted`, that PCA performs Tier 1
+   on the remaining project-scope agents (Product Lead, Design Lead, Eng Lead, Eng/*).
 3. CSO performs `bootstrap_baseline=1` audit immediately after, scoped to the project.
    **Same hard-required rule as company bootstrap (Step 9.7):** the audit is
    invoked via `Task(subagent_type='cso', ...)` — the Skill **MUST NOT**
@@ -2179,12 +2227,13 @@ Sequencing per SYSTEM_INVARIANTS.md §1 / cto.md:
    bash scripts/audit-bootstrap-baseline.sh --scope=<project-slug>
    ```
    The script's Layer 5 (Agents) branches on scope: company-scope checks
-   `agents/company/*.md` (10 founding); project-scope checks
-   `agents/projects/*.md` (9 project-scope, allowlist contains only
-   ACTIVE_PROJECT — PROJECT_NAME is now bound). Layers 1-4 are scope-
-   independent. Wizard prose deliberately reuses the same script
-   per ARCH-009 # 42 (juvantlabs/juvant-os-pm) script scope-flag
-   uniformity pattern.
+   `agents/company/*.md` (N founding per feature_toggles, default 10);
+   project-scope checks `agents/projects/*.md` (8 project-scope per
+   project — was 9 in v0.7 with project-VPE; project-VPE removed per
+   ADR 0014 §2; allowlist contains only ACTIVE_PROJECT — PROJECT_NAME is
+   now bound). Layers 1-4 are scope-independent. Wizard prose
+   deliberately reuses the same script per ARCH-009 # 42
+   (juvantlabs/juvant-os-pm) script scope-flag uniformity pattern.
 4. On PASS / WARN-WITH-CONDITIONS, promote project agents to `operational`.
 
 The company-level `master_context.bootstrap_completed_at` remains set; project-bootstrap
@@ -2247,7 +2296,7 @@ loaded fixture at the step's canonical path. The full mapping:
 | Step 1 (GitHub repo) | `inputs.project.github_repo.{mode,org,repo_name,visibility}` | `mode: skip_in_batch` is canonical for CI (no `gh api` call); record an `install-spec` decision row marked `applied=false, reason=skip_in_batch`. |
 | Step 1 (Doc folder auto-discovery) | `inputs.project.doc_folder.{mode,path}` | `mode: skip_auto_discovery` skips the M365/GDrive folder scan; `path` is recorded directly into `projects.<slug>.doc_folder` if non-null. |
 | Step 2 (Project database) | `inputs.project.database.{provider,url,auth_token}` | For local SQLite the canonical url is `file:.juvant/project-<slug>.db`. Run `bash scripts/migrate.sh` against the new DB after writing config. |
-| Step 3 (Agent names) | `inputs.project.agent_names.<role>` | 9 roles: `cto, cpo, cdo, coo, vpe, eng-api, eng-backend, eng-frontend, eng-ai`. Defaults are `<slug>-<role>` (`apollo-cto`, `apollo-cpo`, …); `null` value = use default. |
+| Step 3 (Agent names) | `inputs.project.agent_names.<role>` | 8 roles: `pca, product-lead, design-lead, eng-lead, eng-api, eng-backend, eng-frontend, eng-ai`. Defaults are `<slug>-<role>` (`apollo-pca`, `apollo-product-lead`, …); `null` value = use default. |
 | Step 4 (Compile project templates) | (no fixture inputs) | Runs `compile-templates.sh --scope projects` (or equivalent project-template substitution). Allowlisted `{{ACTIVE_PROJECT}}` survives. |
 | Step 5 (Project-bootstrap §1) | `inputs.project.bootstrap.manifesto_approval_mode` | One of `accept_all_defaults`, `edit_specific`, `walk_through_each`, `skip` (same options as company-init Step 9). |
 | Step 5 (CSO project audit) | (no fixture inputs) | HARD-REQUIRED `Task(subagent_type='cso', ...)` per the wizard prose. Audit_type is `bootstrap_baseline`, scope is the project slug. |
@@ -2479,7 +2528,7 @@ Project-scope agents are NOT booted by default. Boot them when:
 - The CEO opens a project context (`"Switch to hardys"` / opens hardys directory).
 - A project has open work (`inbound_queue` rows for project-scope owners, pending
   manifestos, open spec rows in `decisions`).
-- A spec from a project agent is awaiting COO execution.
+- A spec from a project agent is awaiting Eng Lead execution.
 
 ### Boot Mode resolution
 
@@ -2525,8 +2574,8 @@ HIGH (3)
   - ...
 NORMAL (12)  [show count only unless asked]
 
-Manifestos: 17 operational, 2 [MANIFESTO PENDING]: vpe, eng-ai (Tier 2 due 2026-05-08)
-Productivity (W18): top 3: cfo, cto, vpe — bottom 1: cmo (1 unnecessary escalation)
+Manifestos: 17 operational, 2 [MANIFESTO PENDING]: eng-platform, eng-ai (Tier 2 due 2026-05-08)
+Productivity (W18): top 3: cfo, cto, eng-platform — bottom 1: cmo (1 unnecessary escalation)
 Migration watch: AgentTeams 0/3, CloudRoutines 0/4 (no change)
 Security: 0 open P0/P1 findings.
 ```
@@ -2542,8 +2591,8 @@ Triggered by *"Review manifestos"* or by the boot/status flow surfacing a
 
 ### Tiers
 
-- **Tier 1** (blocking): company-scope = CHRO + CA joint approval; project-scope =
-  CTO sole approval.
+- **Tier 1** (blocking): company-scope = CHRO + CTO joint approval; project-scope =
+  PCA sole approval.
 - **Tier 2** (async, 7-day window): all other agents review and may flag concerns;
   silence after 7 days = pass.
 
@@ -2573,8 +2622,8 @@ Specifically:
 
 - CFO restricted → cannot authorize transactions above `{{HIGH_VALUE_THRESHOLD}}`.
 - CLO restricted → can draft contracts but not finalize disclosure-policy edits.
-- CTO restricted → cannot approve project-scope Tier 1 manifestos (project boots stall).
-- CDO restricted → can mark internal design-system updates, cannot approve external
+- PCA restricted → cannot approve project-scope Tier 1 manifestos (project boots stall).
+- Design Lead restricted → can mark internal design-system updates, cannot approve external
   brand assets.
 - (See per-agent files for the full per-role restriction list.)
 
@@ -2609,21 +2658,21 @@ SYSTEM_INVARIANTS.md §2 is canonical. Defaults:
 | CHRO | Sage |
 | CSO | Shield |
 | CEthO | Vera |
-| CA | Arch |
+| CTO | Arch |
 | CRO | Lumen (optional) |
 
 **Project-scope (5 leadership + 4 Eng/* — compiled at project init):**
 
 | Role | Default name |
 |---|---|
-| CTO | `<project_id>-cto` |
-| CPO | `<project_id>-cpo` |
-| CDO | `<project_id>-cdo` (Chief **Design** Officer — not Data) |
-| COO | `<project_id>-coo` (sole `github:write` bearer per §4) |
-| VPE | `<project_id>-vpe` |
+| PCA | `<project_id>-pca` |
+| Product Lead | `<project_id>-product-lead` |
+| Design Lead | `<project_id>-design-lead` (Chief **Design** Officer — not Data) |
+| Eng Lead | `<project_id>-eng-lead` (sole `github:write` bearer per §4) |
+| Eng Lead | `<project_id>-eng-lead` |
 | eng-api / eng-backend / eng-frontend / eng-ai | role identifier only |
 
-Each project gets its own COO; there is no company-wide COO. The COO single-writer
+Each project gets its own Eng Lead; there is no company-wide Eng Lead. The Eng Lead single-writer
 invariant (§4) applies per project repo.
 
 Substitution rules (§2):
@@ -2632,7 +2681,7 @@ Substitution rules (§2):
 - Substitution happens at company init for company-scope agents and at project init
   for project-scope agents.
 - Re-substitution post-init requires the standard tool-matrix change flow
-  (CA proposes → CEO approves → CA `pr-spec` → COO executes).
+  (CTO proposes → CEO approves → CTO `pr-spec` → Eng Lead executes).
 - Any surviving `{{...}}` in a committed agent file is a CSO Layer 5 finding,
   except for the runtime-bound allowlist in §2 (today: `{{ACTIVE_PROJECT}}`).
 
@@ -2759,10 +2808,10 @@ The CEO may explicitly request a direct session with an agent:
 
 CoS NEVER inserts itself into a direct 1:1 the CEO has explicitly opened.
 
-### Eng/* are owned by VPE
+### Eng/* are owned by Eng Lead
 
 CoS does not talk directly to Eng/* (eng-api, eng-backend, eng-frontend, eng-ai).
-VPE is the broker. Cascading delegations from CoS → VPE → Eng/*.
+Eng Lead is the broker. Cascading delegations from CoS → Eng Lead → Eng/*.
 
 ### Teams channel routing (CoS-managed)
 
@@ -2783,24 +2832,24 @@ triggering a Notification (default `approvals`).
 
 ## Spec-driven single-writer model (§4 + §6)
 
-COO is the sole agent in the system that writes to GitHub repositories. Every other
-agent that needs a GitHub write authors a spec in the `decisions` table; COO reads,
+Eng Lead is the sole agent in the system that writes to GitHub repositories. Every other
+agent that needs a GitHub write authors a spec in the `decisions` table; Eng Lead reads,
 verifies, and executes.
 
 ### Spec classes
 
 | Category | Authorized authors |
 |---|---|
-| `pr-spec` | CA, CTO, CDO, CSO |
-| `gh-issue-spec` | CPO, CTO, CDO, CSO, VPE |
-| `gh-project-update-spec` | CPO, CTO, CDO, VPE |
-| `gh-milestone-spec` | CPO, CTO |
-| `install-spec` | CA |
-| `branch-protection-spec` | CSO, CTO |
-| `release-spec` | VPE, CTO |
-| `deployment-spec` | VPE, CTO |
+| `pr-spec` | CTO, PCA, Design Lead, CSO |
+| `gh-issue-spec` | Product Lead, PCA, Design Lead, CSO, Eng Lead |
+| `gh-project-update-spec` | Product Lead, PCA, Design Lead, Eng Lead |
+| `gh-milestone-spec` | Product Lead, PCA |
+| `install-spec` | CTO |
+| `branch-protection-spec` | CSO, PCA |
+| `release-spec` | Eng Lead, PCA |
+| `deployment-spec` | Eng Lead, PCA |
 | `secret-rotation-spec` | CSO |
-| `gh-pr-review-spec` | VPE (delegated by CTO when architectural) |
+| `gh-pr-review-spec` | Eng Lead (delegated by PCA when architectural) |
 
 ### Authoring a spec
 
@@ -2826,12 +2875,12 @@ UPDATE decisions SET status='approved', approved_by=?, approved_at=CURRENT_TIMES
 ```
 
 Specs scoped purely to project-internal operations may be auto-approved by the
-authoring agent's manifesto authority — but the COO 5-check verification still
+authoring agent's manifesto authority — but the Eng Lead 5-check verification still
 runs before execution.
 
-### COO 5-check verification
+### Eng Lead 5-check verification
 
-Before executing ANY spec, COO verifies:
+Before executing ANY spec, Eng Lead verifies:
 
 1. **Author authorization** — the `agent` field matches the §6 matrix above.
 2. **Approval state** — `status='approved'` (or auto-approved per the spec class
@@ -2853,20 +2902,20 @@ On all 5 checks passing:
 ```sql
 UPDATE decisions
 SET status='executed',
-    executed_by='coo',
+    executed_by='eng-lead',
     executed_at=CURRENT_TIMESTAMP
 WHERE id=?;
 ```
 
-COO then runs the GitHub action (via `github:write` MCP) and records the GitHub
+Eng Lead then runs the GitHub action (via `github:write` MCP) and records the GitHub
 artifact URL back into the same `decisions` row (e.g. `rationale` JSON updated with
 `pr_url`, `issue_number`, etc.).
 
-### Universal Boundaries (CA cannot grant under any rationale)
+### Universal Boundaries (CTO cannot grant under any rationale)
 
 - `bank:write` to any agent except a future ratified `treasury` role.
 - Mail-send capability (FEAT-016 `m365-mail-mcp-server`, v1.1+) to any agent except portal variants in v1.1; autonomous send is never granted.
-- **`github:write` to any agent except COO.** Single-writer is a security invariant
+- **`github:write` to any agent except Eng Lead.** Single-writer is a security invariant
   (§4), not a preference.
 - Both `state.db` read and external-channel send in the same matrix row.
 - `Bash` unrestricted to any external-facing agent (portal/demo variants).
@@ -2886,7 +2935,7 @@ The Skill detects cascade by either:
 - A query against `disclosure_policies WHERE valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL` returning zero rows, OR
 - Turso connection failure / timeout to the company DB.
 
-### Tier 1 — Universal (every agent, including CoS, COO, VPE, Eng/*)
+### Tier 1 — Universal (every agent, including CoS, Eng Lead, Eng/*)
 
 Every agent, on entering fallback:
 
@@ -2930,9 +2979,9 @@ CoS, in addition to Tier 1:
 4. CoS does NOT lift the cascade declaratively. Recovery is structural — the
    re-query must succeed.
 
-### Tier 3 — COO halt-all-writes
+### Tier 3 — Eng Lead halt-all-writes
 
-COO, in addition to Tier 1:
+Eng Lead, in addition to Tier 1:
 
 1. Reject every spec in `decisions WHERE category LIKE '%-spec' AND status='proposed'`
    with rejection reason `cascade-active`. Authors re-submit after recovery.
@@ -2942,12 +2991,12 @@ COO, in addition to Tier 1:
    pause at the next step boundary. Record partial state in a `decisions` row
    category `spec-paused-cascade`.
 4. Resume on cascade recovery is automatic — when CoS records cascade clearance,
-   COO re-evaluates paused rows.
+   Eng Lead re-evaluates paused rows.
 
-### Tier 4 — VPE Eng/* routing
+### Tier 4 — Eng Lead Eng/* routing
 
-Eng/* agents apply Tier 1 BUT route the `inbound_queue` entry to VPE
-(`agent_owner='vpe'`) instead of CoS. VPE aggregates and forwards a single
+Eng/* agents apply Tier 1 BUT route the `inbound_queue` entry to Eng Lead
+(`agent_owner='eng-lead'`) instead of CoS. Eng Lead aggregates and forwards a single
 `inbound_queue` row to CoS:
 
 ```sql
@@ -2958,7 +3007,7 @@ VALUES ('system', 'cos',
         'whitelisted', 'pending', CURRENT_TIMESTAMP);
 ```
 
-VPE additionally holds Eng/* outputs in a buffer:
+Eng Lead additionally holds Eng/* outputs in a buffer:
 
 ```sql
 INSERT INTO decisions (agent, title, category, rationale, status,
@@ -2981,7 +3030,7 @@ After cascade recovery:
    agents affected, recovery mechanism, structural recommendations.
 4. If the cause is reproducible-structural (e.g. credential expiration without a
    rotation runbook), CSO authors a `secret-rotation-spec` or
-   `branch-protection-spec` for COO.
+   `branch-protection-spec` for Eng Lead.
 
 ---
 
@@ -2991,8 +3040,8 @@ After cascade recovery:
 
 | Model | String | Agents |
 |---|---|---|
-| Opus 4.7 | `claude-opus-4-7` | cos, cso, clo, cetho, ca |
-| Sonnet 4.6 | `claude-sonnet-4-6` | cfo, cmo, cco, chro, cro, cto, cpo, cdo, coo, vpe |
+| Opus 4.7 | `claude-opus-4-7` | cos, cso, clo, cetho, cto |
+| Sonnet 4.6 | `claude-sonnet-4-6` | cfo, cmo, cco, chro, cro, vpe, eng-platform, pca, product-lead, design-lead, eng-lead |
 | Haiku 4.5 | `claude-haiku-4-5-20251001` | eng-api, eng-backend, eng-frontend, eng-ai |
 
 Opus 4.7 specifics: do NOT set `temperature`, `top_p`, or `top_k` (returns 400).
@@ -3002,7 +3051,7 @@ agent's template warrants it.
 ### Override authority
 
 - CoS may override the model for any agent on a per-task basis.
-- VPE may override Eng/* models on a per-task basis.
+- Eng Lead may override Eng/* models on a per-task basis.
 - No other override authority exists. CEO direct override is allowed but
   non-routine — log it like any other override.
 
@@ -3119,9 +3168,9 @@ VALUES (?, ?, ?, 'pending', CURRENT_TIMESTAMP);
 Flow: requesting agent → CoS surfaces to CEO → CEO approves → CHRO executes:
 
 1. CHRO authors a tool-matrix extension via `decisions` category `tool-matrix-change`.
-2. CA reviews; on approval, CA authors a `pr-spec` for the new agent template
+2. CTO reviews; on approval, CTO authors a `pr-spec` for the new agent template
    (composed from the closest existing template; respects Universal Boundaries).
-3. COO opens PR; CHRO + CA + CSO + CEthO review.
+3. Eng Lead opens PR; CHRO + CTO + CSO + CEthO review.
 4. On merge, the new agent enters the standard manifesto lifecycle WITH the CSO
    precondition gate enforced (no bootstrap path post-bootstrap).
 5. `hiring_log.status='approved'`, `approved_by=ceo`.
@@ -3134,9 +3183,9 @@ Five-step protocol:
 2. **Handoff** — transfer ongoing relationships (counterparty ownership, knowledge,
    open spec rows) to a designated successor agent. Handoff payload recorded in
    `master_context`.
-3. **Revoke** — CA authors a tool-matrix supersession row that strips the agent's
-   tools; COO executes via `install-spec`.
-4. **Cleanup** — agent definition file removed via COO `pr-spec`; Turso rows
+3. **Revoke** — CTO authors a tool-matrix supersession row that strips the agent's
+   tools; Eng Lead executes via `install-spec`.
+4. **Cleanup** — agent definition file removed via Eng Lead `pr-spec`; Turso rows
    archived (not deleted) — `agents.status='offboarded'` and a tombstone in
    `decisions` category `offboarding-action`.
 5. **Notify** — CHRO records in `hiring_log` (`status='offboarded'`); CSO audits
@@ -3158,13 +3207,13 @@ instances through the agent system, NOT through `git merge` directly. The flow:
 
 3. **CEO approves** — sets `decisions.status='approved'`.
 
-4. **CA designs `pr-spec`** — diff between current and upstream, scoped to the files
+4. **CTO designs `pr-spec`** — diff between current and upstream, scoped to the files
    that should propagate (typically `agents/**/*.md`, `SYSTEM_INVARIANTS.md`,
    `JUVANT_OS.md`, `hooks/*.sh`, `scripts/schema.sql` updates as migrations).
    Per-company customizations (compiled placeholders, project-specific tunables) are
    preserved.
 
-5. **COO executes** — opens PR, runs CHRO + CA + CSO + CEthO review (CEthO required
+5. **Eng Lead executes** — opens PR, runs CHRO + CTO + CSO + CEthO review (CEthO required
    only when §5 Universal CONFIDENTIAL list, §3 cascade, or any disclosure-related
    text changes).
 
@@ -3238,7 +3287,7 @@ The Skill itself enforces these. They are non-negotiable.
    The list is amendable only by joint approval of CEO + CSO + CLO + CEthO and
    triggers a system-wide manifesto re-validation pass.
 
-2. **COO 5-check verification** — never execute any spec without COO running all 5
+2. **Eng Lead 5-check verification** — never execute any spec without Eng Lead running all 5
    checks. No partial execution. Failed verification = REJECT.
 
 3. **Bootstrap Protocol is one-shot** — `master_context.bootstrap_completed_at` is
@@ -3259,7 +3308,7 @@ The Skill itself enforces these. They are non-negotiable.
 7. **Bank is read-only by construction** — `bank:read` is the only scope ever
    granted; `bank:write` is a Universal Boundary refusal.
 
-8. **GitHub writes flow only through COO** — every other agent carries
+8. **GitHub writes flow only through Eng Lead** — every other agent carries
    `github:read` only. Any attempt to bypass this is a P0 security incident.
 
 9. **CMO mail scope is press only** — `.juvant/config.json`
@@ -3270,7 +3319,7 @@ The Skill itself enforces these. They are non-negotiable.
    [ADR 0009](docs/adr/0009-mail-via-ms-graph-on-demand.md).
 
 10. **Disclosure fallback engages structurally** — when `disclosure_policies` is
-    unreachable, every agent applies §3 Tier 1; CoS, COO, VPE apply their tier
+    unreachable, every agent applies §3 Tier 1; CoS, Eng Lead apply their tier
     extensions; recovery is structural (re-query must succeed), never declarative.
 
 ---
@@ -3281,7 +3330,7 @@ At company init, the Skill substitutes (whole-token) in `agents/company/*.md`:
 
 `{{COMPANY_NAME}}`, `{{COMPANY_DOMAIN}}`, `{{CEO_NAME}}`, `{{AGENT_DESCRIPTION}}`,
 `{{COS_NAME}}`, `{{CFO_NAME}}`, `{{CLO_NAME}}`, `{{CMO_NAME}}`, `{{CCO_NAME}}`,
-`{{CHRO_NAME}}`, `{{CSO_NAME}}`, `{{CETHO_NAME}}`, `{{CA_NAME}}`, `{{CRO_NAME}}`,
+`{{CHRO_NAME}}`, `{{CSO_NAME}}`, `{{CETHO_NAME}}`, `{{CTO_NAME}}`, `{{CRO_NAME}}`,
 plus tunables (`{{HIGH_VALUE_THRESHOLD}}`, `{{ACCESSIBILITY_FLOOR}}`,
 `{{RUNBOOK_DRILL_CADENCE}}`, voice modes, ranking weights, tech stack defaults
 per §2).
@@ -3291,8 +3340,8 @@ Mode and at project init respectively — NOT at company init.
 
 At project init, the Skill substitutes in `agents/projects/*.md`:
 
-`{{PROJECT_NAME}}`, `{{PROJECT_NAME_SLUG}}`, `{{CTO_NAME}}`, `{{CPO_NAME}}`,
-`{{CDO_NAME}}`, `{{COO_NAME}}`, `{{VPE_NAME}}`, plus the company-scope name
+`{{PROJECT_NAME}}`, `{{PROJECT_NAME_SLUG}}`, `{{PCA_NAME}}`, `{{PRODUCT_LEAD_NAME}}`,
+`{{DESIGN_LEAD_NAME}}`, `{{ENG_LEAD_NAME}}`, `{{ENG_LEAD_NAME}}`, plus the company-scope name
 references already resolved at company init.
 
 Refuse to write any compiled file with a surviving `{{...}}` token, except for
