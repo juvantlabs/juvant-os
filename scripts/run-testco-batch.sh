@@ -517,9 +517,18 @@ else
 fi
 
 # Project-init phase assertions (only when fixture defines a project block).
-has_project=$(yq -r '.inputs.project // null | type' "$FIXTURE")
-if [[ "$has_project" == "!!map" || "$has_project" == "object" ]]; then
-  expected_projects=$(yq -r '.expect.project_phase.projects_count // 1' "$FIXTURE")
+# v0.8.1+ (multi-project iteration): collect every inputs.project* key in
+# fixture order so multi-project-vpe.yaml + future N-project fixtures
+# exercise per-project assertions for all of them.
+PROJECT_KEYS=()
+for k in $(yq -r '.inputs | keys | .[]' "$FIXTURE" 2>/dev/null); do
+  if [[ "$k" == "project" || "$k" =~ ^project_[0-9]+$ ]]; then
+    PROJECT_KEYS+=("$k")
+  fi
+done
+
+if [[ "${#PROJECT_KEYS[@]}" -gt 0 ]]; then
+  expected_projects=$(yq -r '.expect.project_phase.projects_count // (.expect.project_phase.projects | length // 1)' "$FIXTURE")
   actual_projects=$(sqlite3 "$DB" "SELECT COUNT(*) FROM projects;" 2>/dev/null || echo "0")
   if [[ "$actual_projects" -ge "$expected_projects" ]]; then
     assert_ok "projects_count=$actual_projects (≥$expected_projects)"
@@ -527,36 +536,48 @@ if [[ "$has_project" == "!!map" || "$has_project" == "object" ]]; then
     assert_fail "projects_count=$actual_projects (expected ≥$expected_projects)"
   fi
 
-  proj_slug=$(yq -r '.inputs.project.slug' "$FIXTURE")
-  # v0.8.0 (ADR 0014 §2): default project agent count is 8 (project-VPE
-  # removed; absorbed by eng-lead). Pre-v0.8 fixtures may set 9; the
-  # `//` fallback respects whatever the fixture declares.
-  expected_proj_agents=$(yq -r '.expect.project_phase.project_agents_count // 8' "$FIXTURE")
-  actual_proj_agents=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agents WHERE project_id='$proj_slug';" 2>/dev/null || echo "0")
-  if [[ "$actual_proj_agents" -ge "$expected_proj_agents" ]]; then
-    assert_ok "project_agents_count[$proj_slug]=$actual_proj_agents (≥$expected_proj_agents)"
-  else
-    assert_fail "project_agents_count[$proj_slug]=$actual_proj_agents (expected ≥$expected_proj_agents)"
-  fi
+  # Per-project per-fixture-project loop. Each project's expected agent
+  # count + CSO audit check is asserted independently.
+  for pkey in "${PROJECT_KEYS[@]}"; do
+    proj_slug=$(yq -r ".inputs.${pkey}.slug" "$FIXTURE")
+    # v0.8.0 (ADR 0014 §2): default project agent count is 8 (project-VPE
+    # removed; absorbed by eng-lead). Multi-project fixtures may set a
+    # per-project count via .expect.project_phase.projects[<slug>].agents_count;
+    # single-project fixtures use the legacy flat
+    # .expect.project_phase.project_agents_count key. Both honored.
+    expected_proj_agents=$(yq -r "
+      .expect.project_phase.projects[]?
+        | select(.slug == \"$proj_slug\")
+        | .agents_count
+      // .expect.project_phase.project_agents_count
+      // 8
+    " "$FIXTURE")
+    actual_proj_agents=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agents WHERE project_id='$proj_slug';" 2>/dev/null || echo "0")
+    if [[ "$actual_proj_agents" -ge "$expected_proj_agents" ]]; then
+      assert_ok "project_agents_count[$proj_slug]=$actual_proj_agents (≥$expected_proj_agents)"
+    else
+      assert_fail "project_agents_count[$proj_slug]=$actual_proj_agents (expected ≥$expected_proj_agents)"
+    fi
 
-  # Per F-24 (v0.7.1+), project-scope CSO audits write to the per-project
-  # DB at .juvant/project-<slug>.db, not the company state.db. Query the
-  # right DB; fall back to the company DB for legacy fixtures that wrote
-  # project audits there (pre-F-24).
-  PROJ_DB="$TMP_DIR/.juvant/project-$proj_slug.db"
-  proj_audit=0
-  if [[ -f "$PROJ_DB" ]]; then
-    proj_audit=$(sqlite3 "$PROJ_DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
-  fi
-  if [[ "$proj_audit" -lt 1 ]]; then
-    # Legacy fallback: pre-F-24 fixtures landed project audits in the company DB.
-    proj_audit=$(sqlite3 "$DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
-  fi
-  if [[ "$proj_audit" -ge 1 ]]; then
-    assert_ok "project CSO bootstrap_baseline audit fired ($proj_audit findings)"
-  else
-    assert_fail "project CSO bootstrap_baseline audit absent (scope=$proj_slug)"
-  fi
+    # Per F-24 (v0.7.1+), project-scope CSO audits write to the per-project
+    # DB at .juvant/project-<slug>.db, not the company state.db. Query the
+    # right DB; fall back to the company DB for legacy fixtures that wrote
+    # project audits there (pre-F-24).
+    PROJ_DB="$TMP_DIR/.juvant/project-$proj_slug.db"
+    proj_audit=0
+    if [[ -f "$PROJ_DB" ]]; then
+      proj_audit=$(sqlite3 "$PROJ_DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
+    fi
+    if [[ "$proj_audit" -lt 1 ]]; then
+      # Legacy fallback: pre-F-24 fixtures landed project audits in the company DB.
+      proj_audit=$(sqlite3 "$DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
+    fi
+    if [[ "$proj_audit" -ge 1 ]]; then
+      assert_ok "project CSO bootstrap_baseline audit fired [$proj_slug] ($proj_audit findings)"
+    else
+      assert_fail "project CSO bootstrap_baseline audit absent (scope=$proj_slug)"
+    fi
+  done
 fi
 
 # decisions_count
