@@ -33,13 +33,15 @@ Number your ADRs starting from 0001 (zero-padded to four digits). Use the same
 
 ## Authorship and approval
 
-ADRs in this repo follow the framework's spec-driven single-writer model
-(SYSTEM_INVARIANTS.md §4 + §6). Typical flow:
+ADRs in this repo follow the framework's spec-driven single-writer-per-scope
+model (SYSTEM_INVARIANTS.md §4 + §6, ADR 0014). Typical flow:
 
-1. Proposer drafts (CA for cross-cutting, project CTO for project-scope).
+1. Proposer drafts (CTO for cross-cutting, project PCA for project-scope).
 2. CoS routes to {{CEO_NAME}}; CEO approves.
-3. CA designs `pr-spec` for the doc + ADR file.
-4. COO opens the PR; CSO + CEthO + CHRO + CA review when relevant.
+3. CTO designs `pr-spec` for the doc + ADR file.
+4. The scope's writer opens the PR (`eng-platform` for company repos /
+   project's `eng-lead` for project repos per §4 single-writer-per-scope);
+   CSO + CEthO + CHRO + CTO review when relevant.
 5. After merge, CHRO triggers manifesto re-validation if the ADR touches
    `SYSTEM_INVARIANTS.md` §1, §3, §4, §5, or §6.
 

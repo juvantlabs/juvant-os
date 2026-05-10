@@ -23,8 +23,8 @@ claude
 
 ```
 JUVANT_OS.md            ← The Skill. The orchestrator. The only entry point.
-agents/company/         ← 10 company agents (CoS, CFO, CLO, CMO...) — source of truth
-agents/projects/        ← 9 project agents (CTO, CPO, CDO, Eng/*...) — source of truth
+agents/company/         ← 9 mandatory + 3 toggle-gated company agents (CoS, CFO, CLO, CMO, CCO, CHRO, CSO, CEthO, CTO + eng-platform default-on + optional CRO/VPE) — source of truth
+agents/projects/        ← 8 project agents (PCA, Product Lead, Design Lead, Eng Lead, Eng/*) — source of truth
 .claude/agents/         ← Symlinks into agents/<scope>/ — runtime registration for Task spawn
 hooks/                  ← 7 lifecycle bash scripts
 scripts/schema.sql      ← Turso database schema
@@ -32,6 +32,14 @@ helpers/                ← Scheduled scripts populating Turso queues (FEAT-007)
 plugins/portal-bridge/  ← Channel — bridge between Azure Portal and agent sessions (v1.1)
 plugins/teams-meeting/  ← Channel — Teams meeting bot, CoS silent co-pilot (v1.1)
 ```
+
+Per [ADR 0014](docs/adr/0014-tech-leadership-restructure.md), v0.8.0 renamed
+roles for industry alignment: company `ca` → `cto` (Chief Architect →
+Chief Technology Officer); at project scope `cto`/`coo`/`cdo`/`cpo` →
+`pca`/`eng-lead`/`design-lead`/`product-lead`. Project-VPE was removed
+(absorbed by Eng Lead); VPE returns at company scope as an opt-in
+cross-project aggregator. Adopters on v0.7.x migrate via
+`bash scripts/migrate.sh --from=v0.7 --to=v0.8` (see CHANGELOG v0.8.0).
 
 Agent definitions live under `agents/<scope>/<role>.md` (the documented home,
 where adopters navigate and review changes). Claude Code's Task tool reads
@@ -175,8 +183,9 @@ See [`JUVANT_OS.md`](JUVANT_OS.md) Appendix B for the canonical first-time setup
 
 The OSS template ships `.mcp.json` empty — adopters wire their MCP
 servers explicitly. The github MCP server is the most common addition;
-CSO uses it for branch-protection checks and COO uses it for pr-spec
-execution. To enable:
+CSO uses it for branch-protection checks; eng-platform writes the
+company repo + each project's Eng Lead writes its own project repo per
+§4 single-writer-per-scope (ADR 0014). To enable:
 
 1. Create a GitHub Personal Access Token (PAT) with `repo` + `read:org`
    scope at https://github.com/settings/tokens.
@@ -236,28 +245,38 @@ or invoke `claude` with the explicit flag each time.
 
 ### Company agents
 
+**Mandatory (9):**
+
 | Role | Default name | Model | Domain |
 |---|---|---|---|
 | CoS | Atlas | Opus 4.7 | Orchestration, routing, proxy |
 | CFO | Theos | Sonnet 4.6 | Finance, banking, invoices |
 | CLO | Lex | Opus 4.7 | Legal, contracts, IP, disclosure |
-| CMO | Mira | Sonnet 4.6 | Marketing, brand, communication |
+| CMO | Mira | Sonnet 4.6 | Brand identity, marketing, communication, brand-spec validator/advisory (ADR 0015) |
 | CCO | Clio | Sonnet 4.6 | Sales, partnerships, revenue |
 | CHRO | Sage | Sonnet 4.6 | People, ranking, versioning |
 | CSO | Shield | Opus 4.7 | Cybersecurity, system audit |
 | CEthO | Vera | Opus 4.7 | AI ethics, disclosure ethics |
-| CA | Arch | Opus 4.7 | Cross-project tech standards |
-| CRO | Lumen | Sonnet 4.6 | Research (optional) |
+| CTO | Arch | Opus 4.7 | Agent tool matrix, cross-project tech standards, architectural principles (renamed from `ca` per ADR 0014 §1) |
+
+**Toggle-gated (3, set at company init):**
+
+| Role | Default name | Model | Toggle | Default | Domain |
+|---|---|---|---|---|---|
+| eng-platform | Hephaestus | Sonnet 4.6 | `eng_platform_enabled` | **true** | Company-scope sole writer per §4: company repos + cloud control plane + npm registry for canonical helpers (ADR 0014 §3, ADR 0016) |
+| CRO | Lumen | Sonnet 4.6 | `cro_enabled` | false | Research synthesis with citation discipline |
+| VPE | Helm | Sonnet 4.6 | `vpe_enabled` | false | Cross-project Eng/* aggregator; recommended only for ≥2 active projects (ADR 0014 §2) |
 
 ### Project agents
 
+8 per project (was 9 in v0.7; project-VPE removed per ADR 0014 §2; aggregator function absorbed by Eng Lead).
+
 | Role | Model | Domain |
 |---|---|---|
-| CTO | Sonnet 4.6 | Architecture, tech decisions |
-| CPO | Sonnet 4.6 | Product vision, BRD |
-| CDO | Sonnet 4.6 | UX, design system |
-| COO | Sonnet 4.6 | Ops, GitHub gateway |
-| VPE | Sonnet 4.6 | Engineering coordination |
+| PCA | Sonnet 4.6 | Project Chief Architect; project-scope tech direction + Tier 1 manifesto approval (renamed from project `cto` per ADR 0014 §1) |
+| Product Lead | Sonnet 4.6 | Product direction, PRDs, GitHub spec authoring (renamed from `cpo`) |
+| Design Lead | Sonnet 4.6 | Design system, UX research, accessibility, project visual identity (brand-spec authoring per ADR 0015) (renamed from `cdo`) |
+| Eng Lead | Sonnet 4.6 | Sole GitHub writer at project scope per §4; engineering execution, Eng/* delegation, release/deployment specs, operational ownership (renamed from `coo`, absorbs project-VPE function) |
 | Eng/API | Haiku 4.5 | Endpoints, OpenAPI |
 | Eng/Backend | Haiku 4.5 | Business logic, services |
 | Eng/Frontend | Haiku 4.5 | UI components |
@@ -270,9 +289,12 @@ or invoke `claude` with the explicit flag each time.
 | Milestone | What | Status |
 |---|---|---|
 | **Alpha** | `JUVANT_OS.md` Skill + 7 lifecycle hooks + 19 subagent templates + Bootstrap Protocol §1 | ✅ [v0.4.0](https://github.com/juvantlabs/juvant-os/releases/tag/v0.4.0) (2026-05-02) |
+| **OSS template defaults** | CODEOWNERS, CI lint, branch-protection-spec, MCP_INVENTORY | ✅ [v0.5.0](https://github.com/juvantlabs/juvant-os/releases/tag/v0.5.0) (2026-05-03) |
+| **Batch testco infra** | ADR 0012 batch mode + driver + fixtures + opt-in CI | ✅ v0.6/v0.7 series |
+| **Tech-leadership restructure** | ADR 0014 (ca→cto, project rename, VPE toggle, eng-platform expansion, eng-platform-spec class) + ADR 0015 (brand-spec authority + 3-mode pattern) + ADR 0016 (framework scope position) | ✅ [v0.8.0](https://github.com/juvantlabs/juvant-os/releases/tag/v0.8.0) + [v0.8.1](https://github.com/juvantlabs/juvant-os/releases/tag/v0.8.1) (2026-05-10) |
 | **Beta** | M365 mail channel plugin + Desktop Scheduled Tasks (Morning Brief, bank polls, fiscal deadlines) | Planned |
 | **v1.0** | Test scenarios green (subagent evals + hook tests + integration) | Planned |
-| **v1.1** | External Service Portal + Demo Portal + Teams Meeting Bot | Planned |
+| **v1.1** | External Service Portal + Demo Portal + Teams Meeting Bot + Finom MCP + Aruba e-invoice MCP + Webhook Services + multi-principal governance | Planned |
 
 Tracked work: [`juvantlabs/juvant-os-pm`](https://github.com/juvantlabs/juvant-os-pm/issues).
 

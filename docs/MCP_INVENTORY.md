@@ -14,10 +14,12 @@ inventory triggers a build-fail with a remediation hint.
 | Server | Scope | Owning agent(s) | Distribution | Auth env vars | Status |
 |---|---|---|---|---|---|
 | `turso` | rw | all agents | `turso` CLI / `@libsql/client` | `TURSO_URL`, `TURSO_AUTH_TOKEN` | shipped |
-| `ms-graph` | r | CFO, CLO, CMO, CCO, CDO, CoS, CRO | claude.ai connector (read tools) | OAuth delegated (claude.ai-managed) | shipped (read-only) |
-| `m365-graph` | rw | CFO, CLO, CMO, CCO, CDO, CoS, CRO | [`@juvantlabs/m365-graph-mcp-server@0.1.3`](https://www.npmjs.com/package/@juvantlabs/m365-graph-mcp-server) (FEAT-014) | `M365_CLIENT_ID`, `M365_CLIENT_SECRET`, `M365_TENANT_ID` | shipped |
-| `github:read` | r | CA, CSO, CTO, CPO, CDO, VPE, eng-* | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
-| `github:write` | w | **COO only** (§4) | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
+| `ms-graph` | r | CFO, CLO, CMO, CCO, Design Lead, CoS, CRO | claude.ai connector (read tools) | OAuth delegated (claude.ai-managed) | shipped (read-only) |
+| `m365-graph` | rw | CFO, CLO, CMO, CCO, Design Lead, CoS, CRO | [`@juvantlabs/m365-graph-mcp-server@0.1.3`](https://www.npmjs.com/package/@juvantlabs/m365-graph-mcp-server) (FEAT-014) | `M365_CLIENT_ID`, `M365_CLIENT_SECRET`, `M365_TENANT_ID` | shipped |
+| `github:read` | r | CTO, CSO, PCA, Product Lead, Design Lead, VPE (if enabled), eng-platform, eng-* | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
+| `github:write` | w | **eng-platform** (company repos) + **each project's Eng Lead** (that project's repos) per §4 single-writer-per-scope (ADR 0014) | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
+| `cloud:write` | w | **eng-platform only** — abstract MCP entry resolved at adoption per `feature_toggles.cloud_provider` ∈ {azure, aws, gcp, none}; dropped when `none` | provider-specific (Azure: `azure-platform-mcp-server`; AWS/GCP: TBD) | pending (per-provider FEATs) |
+| `npm:publish` | w | **eng-platform only** — canonical-helper publication (FEAT-024 path) | `npm` CLI + OIDC trusted publishing | shipped |
 | `bank` | r | **CFO only** | provider-specific MCP, abstract-bound at company init (Finom: `juvantlabs/finom-mcp-server`, FEAT-011) | provider-specific (Finom: `FINOM_API_KEY`) | pending FEAT-011 (Finom) |
 | `fattura_elettronica` | r | CFO | provider-specific MCP (Italy: `juvantlabs/aruba-fattura-mcp-server`, FEAT-012) | provider-specific (Aruba: `ARUBA_*`) | pending FEAT-012 (Aruba) |
 | `buffer` | rw | CMO | TBD (third-party SaaS scheduler) | `BUFFER_ACCESS_TOKEN` | not yet specified |
@@ -46,7 +48,7 @@ for the canonical case).
 ## Universal Boundaries (per `SYSTEM_INVARIANTS.md` §4)
 
 The following MCP grants are **forbidden** under any rationale, even at
-CA's discretion. The wizard's Step 8.5 cross-check rejects any matrix
+CTO's discretion. The wizard's Step 8.5 cross-check rejects any matrix
 binding that violates these:
 
 - **`bank:write`** to any agent — would require ratifying a future
@@ -56,7 +58,15 @@ binding that violates these:
   (`cfo-portal`, `clo-portal`, `cco-portal`, `cmo-portal`). Autonomous
   send is never granted; portal variants use two-phase confirmation per
   handbook ADR 0002.
-- **`github:write`** to any agent except COO (single-writer invariant §4).
+- **`github:write`** to any agent except `eng-platform` at company scope
+  (company repos only) and each project's `eng-lead` at that project's
+  scope per §4 single-writer-per-scope (ADR 0014). Cross-scope writes
+  are forbidden — `eng-platform` cannot write to a project repo;
+  `eng-lead` cannot write to a company repo.
+- **`cloud:write`** to any agent except `eng-platform` (per ADR 0014 §3).
+- **`npm:publish`** to any agent except `eng-platform` for the
+  canonical-helper publication path (FEAT-024). Every publish requires
+  CEO approval per the spec routing — autonomous publishing forbidden.
 - **`state.db` read AND external-channel send in the same matrix row** —
   collapses the disclosure boundary. **Exception**: channels of class
   `<channel>:send-ceo-only` (e.g. `telegram:send-ceo-only`) are not
@@ -92,18 +102,19 @@ deliverable):
 1. Update this file with a new row (server, scope, owner, distribution,
    auth env vars, status).
 2. Update `agent_tool_matrix` v0 default seed if the new server affects
-   default tool grants (CA proposes via `tool-matrix-change` decision).
-3. **CA + CSO joint review** — additions to the inventory require both.
+   default tool grants (CTO proposes via `tool-matrix-change` decision).
+3. **CTO + CSO joint review** — additions to the inventory require both.
    CSO checks the security posture of the new server (license, audit
-   status if community-built, dependency tree). CA checks architectural
+   status if community-built, dependency tree). CTO checks architectural
    fit (lean canonical, scope qualifier appropriate, no Universal
    Boundary violation, scope boundaries per
    [handbook ADR 0003](https://github.com/juvantlabs/handbook/blob/main/docs/adr/0003-mcp-server-scope-boundaries.md)
    — one MCP per threat-model boundary; outbound-only notifications go
    through webhooks not MCP).
 4. CEO approves.
-5. COO executes the matrix change via `install-spec` per
-   `SYSTEM_INVARIANTS.md` §6.
+5. `eng-platform` executes the matrix change via `install-spec` at
+   company scope (or each project's `eng-lead` at project scope)
+   per `SYSTEM_INVARIANTS.md` §6 + §4 single-writer-per-scope (ADR 0014).
 
 ## Status legend
 

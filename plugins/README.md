@@ -91,7 +91,7 @@ When contributing a new Channel plugin in this directory:
 3. Register in `.claude/settings.json` `channels` array.
 4. Add a row to `docs/MCP_INVENTORY.md` if the plugin grants new
    capabilities to agents.
-5. CA + CSO joint review (per `SYSTEM_INVARIANTS.md` §4 + §6).
+5. CTO + CSO joint review (per `SYSTEM_INVARIANTS.md` §4 + §6).
 6. Update this README.
 7. Bump `agent_tool_matrix` v0 seed if the plugin affects default tool
-   grants (CA-proposed `tool-matrix-change` decision).
+   grants (CTO-proposed `tool-matrix-change` decision).
