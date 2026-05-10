@@ -1982,19 +1982,22 @@ when resolving roles like `research` or `branding`. Cross-cutting functions
 
 ### Wizard — Step 2: Project database
 
-Same wizard as company setup, Step 2, but for `project-<slug>` DB. Save to
-`.juvant/config.json` under `projects.<slug>`, alongside any `doc_folder`
-captured at Step 1 auto-discovery and the project's display name:
+Same wizard as company setup, Step 2, but for `project-<slug>` DB. Save
+to `.juvant/config.json` under `projects.<slug>`, with the database
+config nested under `.db` (symmetric with the company-level `.db`):
 
 ```json
 {
   "projects": {
     "<project-slug>": {
       "name": "<Display Name>",
-      "provider": "turso",
-      "url": "libsql://project-<project-slug>-<your-org>.turso.io",
-      "auth_token": "<token>",
+      "slug": "<project-slug>",
       "scope": "project",
+      "db": {
+        "provider": "turso",
+        "url": "libsql://project-<project-slug>-<your-org>.turso.io",
+        "auth_token": "<token>"
+      },
       "doc_folder": "/<Company>/04 - Products/<Product Folder>"
     }
   }
@@ -2003,13 +2006,30 @@ captured at Step 1 auto-discovery and the project's display name:
 
 The `name` field is HARD-REQUIRED (read by `scripts/compile-templates.sh
 --scope projects --project=<slug>` to substitute `{{PROJECT_NAME}}` in
-project-scope agent files; F-23 v0.7.x). The `doc_folder` field is
+project-scope agent files; F-23 v0.7.x). The nested `.db` shape is
+HARD-REQUIRED for `scripts/migrate.sh --project=<slug>` to find the
+per-project endpoint (F-24 v0.7.1). The `doc_folder` field is
 optional — present when Step 1 auto-discovery matched an existing folder,
 absent when no folder mapping is configured (project-scope agents fall
 back to company-level `doc_storage.folders` plus their own
 `fallback_chain` resolution).
 
-Run `bash scripts/migrate.sh` against the new DB.
+Run `bash scripts/migrate.sh --project=<slug>` (HARD-REQUIRED) to
+apply `scripts/schema.sql` to the per-project DB:
+
+```bash
+bash scripts/migrate.sh --project=<slug>
+```
+
+The script reads `.projects.<slug>.db.{provider,url,auth_token}`
+from config and applies the schema. For local SQLite, this creates
+the actual `.juvant/project-<slug>.db` file (F-20 strip-`file:`-prefix
+handling included). For cloud providers, the schema lands in the
+named DB endpoint.
+
+Without this invocation, the per-project DB is referenced in the
+projects table but the actual storage backend has no schema —
+agent reads/writes against it will fail at first call.
 
 Insert the project into the company DB:
 

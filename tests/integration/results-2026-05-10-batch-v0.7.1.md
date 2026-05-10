@@ -84,7 +84,7 @@ green except for F-24 below.
 
 **Status**: CLOSED in v0.7.1.
 
-### F-24 — `migrate.sh` missing `--project=<slug>` support (LOGGED)
+### F-24 — `migrate.sh` missing `--project=<slug>` support (CLOSED)
 
 **Surfaced**: single-project iter 13 on 2026-05-10. After F-23 fix
 landed, the run completed cleanly except for one filesystem assertion:
@@ -101,21 +101,39 @@ currently reads only `.db.url` (top-level company DB), not
 `.projects.<slug>.db.url`. Same script gap as F-23 had with
 `compile-templates.sh`, but for migration.
 
-**Proposed fix** (deferred to v0.7.x backlog):
+**Fix** (parallel pattern to F-23, this iteration):
 
 ```bash
 bash scripts/migrate.sh --project=<slug>
 ```
 
-The `--project=<slug>` flag would:
-1. Read `.projects.<slug>.url` from `.juvant/config.json`
-2. Apply the F-20 strip-`file:`-prefix logic
-3. Run `scripts/schema.sql` against the per-project DB
-4. Update wizard prose mandating the flag
+The `--project=<slug>` flag:
+1. Reads `.projects.<slug>.db.{provider,url,auth_token}` from
+   `.juvant/config.json` (canonical schema is nested under `.db`,
+   symmetric with company-level `.db`).
+2. Applies the F-20 strip-`file:`-prefix logic for local provider.
+3. Runs `scripts/schema.sql` against the per-project DB endpoint.
+4. Emits a scope-labeled "Applying schema (project=<slug>): <path>"
+   line so the operator can distinguish company vs project migrations
+   in the run log.
 
-**Status**: LOGGED for v0.7.x. Driver assertion suppressed for
-multi-project scenarios via fixture `expect.project_phase.project_db_file_exists`
-allowlist until F-24 lands.
+JUVANT_OS.md § Project setup Step 2 prose updated: schema example
+now shows the canonical nested `.db` shape, and the migration
+invocation is HARD-REQUIRED `bash scripts/migrate.sh --project=<slug>`.
+
+**Validation**: ran the patched script against the existing
+/tmp/testco-batch-single-project/.juvant/config.json (apollo project
+already INSERTed by single-project iter 13). Output:
+
+```
+Applying schema to local SQLite (project=apollo): .../.juvant/project-apollo.db
+Schema applied successfully.
+```
+
+`.juvant/project-apollo.db` created at 200KB with 23 tables; the
+filesystem assertion that failed in iter 13 would now pass.
+
+**Status**: CLOSED in v0.7.1.
 
 ### F-25 — Bash tool allow-list path-isolation (CLOSED-IN-CONFIG)
 
@@ -233,8 +251,10 @@ in-config).
 
 v0.7.1 is end-to-end validated: F-23 closed, single-project end-to-end
 green at 17/17 assertions on 2026-05-10. F-24 (migrate.sh `--project`
-support) is the remaining v0.7.x work item. F-25 (Bash tool allow-list
-mismatch) was a config-only fix and is closed.
+support) closed in this iteration as a parallel pattern to F-23 —
+schema applied successfully against the existing apollo project DB
+slot. F-25 (Bash tool allow-list mismatch) was a config-only fix and
+is closed.
 
 The framework's CLAUDE.md ships framework-dev shortcuts to fresh
 sessions; adopter instances receive a 3-line per-company stub. The

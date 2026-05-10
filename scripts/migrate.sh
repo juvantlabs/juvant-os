@@ -1,11 +1,31 @@
 #!/usr/bin/env bash
-# migrate.sh — Apply schema.sql to the company state database.
-# Usage: ./scripts/migrate.sh
-# Reads provider + endpoint from .juvant/config.json (db.provider, db.url, db.auth_token).
+# migrate.sh — Apply schema.sql to a Juvant OS state database.
+#
+# Usage:
+#   ./scripts/migrate.sh                       # company DB (default)
+#   ./scripts/migrate.sh --project=<slug>      # per-project DB (F-24, v0.7.1+)
+#
+# Reads provider + endpoint from .juvant/config.json:
+#   --scope company (default): .db.{provider,url,auth_token}
+#   --project=<slug>:          .projects.<slug>.db.{provider,url,auth_token}
+#
 # Cloud providers (turso/azure/aws/gcp) also accept TURSO_URL + TURSO_TOKEN env overrides.
 # Run once per DB: company-<name> and project-<name>.
 
 set -euo pipefail
+
+PROJECT_SLUG=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project) PROJECT_SLUG="$2"; shift 2 ;;
+    --project=*) PROJECT_SLUG="${1#--project=}"; shift ;;
+    -h|--help)
+      sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# *//'
+      exit 0
+      ;;
+    *) echo "ERROR: unknown flag '$1'" >&2; exit 1 ;;
+  esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCHEMA="$SCRIPT_DIR/schema.sql"
@@ -21,11 +41,24 @@ fi
 PROVIDER=""
 DB_URL=""
 DB_TOKEN=""
+SCOPE_LABEL="company"
 
 if [[ -f "$CONFIG" ]]; then
-  PROVIDER=$(jq -r '.db.provider // ""' "$CONFIG")
-  DB_URL=$(jq -r '.db.url // ""' "$CONFIG")
-  DB_TOKEN=$(jq -r '.db.auth_token // ""' "$CONFIG")
+  if [[ -n "$PROJECT_SLUG" ]]; then
+    # F-24: per-project DB. Read from .projects.<slug>.db.{provider,url,auth_token}.
+    SCOPE_LABEL="project=$PROJECT_SLUG"
+    if ! jq -e --arg s "$PROJECT_SLUG" '.projects[$s]' "$CONFIG" >/dev/null 2>&1; then
+      echo "ERROR: project '$PROJECT_SLUG' not found in $CONFIG (.projects.$PROJECT_SLUG missing)." >&2
+      exit 1
+    fi
+    PROVIDER=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.provider // ""' "$CONFIG")
+    DB_URL=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // ""' "$CONFIG")
+    DB_TOKEN=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.auth_token // ""' "$CONFIG")
+  else
+    PROVIDER=$(jq -r '.db.provider // ""' "$CONFIG")
+    DB_URL=$(jq -r '.db.url // ""' "$CONFIG")
+    DB_TOKEN=$(jq -r '.db.auth_token // ""' "$CONFIG")
+  fi
 fi
 
 # Env override for cloud paths.
@@ -66,7 +99,7 @@ case "$PROVIDER" in
     fi
 
     mkdir -p "$(dirname "$DB_PATH")"
-    echo "Applying schema to local SQLite: $DB_PATH"
+    echo "Applying schema to local SQLite ($SCOPE_LABEL): $DB_PATH"
     sqlite3 "$DB_PATH" < "$SCHEMA"
     echo "Schema applied successfully."
     ;;
@@ -83,7 +116,7 @@ case "$PROVIDER" in
       exit 1
     fi
 
-    echo "Applying schema to: $DB_URL"
+    echo "Applying schema to ($SCOPE_LABEL): $DB_URL"
     turso db shell "$DB_URL" < "$SCHEMA"
     echo "Schema applied successfully."
     ;;
