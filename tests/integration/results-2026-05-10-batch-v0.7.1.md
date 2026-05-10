@@ -135,6 +135,61 @@ filesystem assertion that failed in iter 13 would now pass.
 
 **Status**: CLOSED in v0.7.1.
 
+### F-30 — `FIRST_TOKEN` extraction not robust to leading-newline commands (CLOSED, v0.7.4)
+
+**Surfaced**: live during the F-29 validation run on 2026-05-10.
+After F-2/F-10/F-28/F-29 fixes landed, the CSO subagent runs were
+mostly clean — but 1-2 stray denies persisted with malformed
+`deny_reason` text:
+
+```
+binary 'bash
+import
+db
+sid
+n
+for
+line
+if
+r
+if
+...' not in agent 'cso' allow-list (handbook ADR 0004 Track 2). Escalate to CoS for tool-matrix-change.
+```
+
+**Diagnosis**: `pre-tool-use.sh` extracted FIRST_TOKEN via:
+
+```bash
+FIRST_TOKEN=$(echo "$COMMAND" | awk '{print $1}' | sed 's|.*/||')
+```
+
+When `$COMMAND` started with a newline (Skill-emitted heredoc
+patterns where the agent prepends `\n` for readability) or had
+blank leading lines, `awk '{print $1}'` printed `$1` of EVERY line
+because it had no record-limiting filter. Result: FIRST_TOKEN was
+literally `\nbash\nimport\ndb\n...` (all the first words of every
+line concatenated by newlines). Allow-list lookup against this
+multi-line string never matched anything → DENY with the entire
+command leaking into the deny_reason text.
+
+**Fix** (1-line change):
+
+```bash
+FIRST_TOKEN=$(echo "$COMMAND" | awk 'NF>0 {print $1; exit}' | sed 's|.*/||')
+```
+
+Skip leading blank lines via `NF>0`; print $1 of the first non-empty
+line and `exit`. Robust to leading newlines, blank lines, leading
+whitespace.
+
+**Validation**: unit-tested 4 cases (single-line, leading-newline +
+heredoc, multiple leading newlines + compound `cd && ...`, normal
+single command) — all extract the right binary. Cosmetic fix; no
+end-to-end batch run done since the symptom was non-blocking
+(Skill recovered with single-binary commands and the surrounding
+audit/work still completed).
+
+**Status**: CLOSED in v0.7.4.
+
 ### F-2 + F-10 — Subagent role/permission inheritance (CLOSED, v0.7.3)
 
 **Original surfacing**: Echo Corp testco run on 2026-05-09

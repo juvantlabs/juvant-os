@@ -85,7 +85,13 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     if [[ -z "$ROLE" || "$ROLE" == "unknown" || "$ROLE" == "ceo" || "$ROLE" == "operator" ]]; then
       : # operator mode — universal deny already enforced; allow continues
     else
-      FIRST_TOKEN=$(echo "$COMMAND" | awk '{print $1}' | sed 's|.*/||')
+      # F-30 fix (v0.7.4+): when $COMMAND starts with newline(s) (heredoc
+      # patterns, multi-line scripts), `awk '{print $1}'` prints $1 of
+      # EVERY line, producing a multi-line FIRST_TOKEN that always fails
+      # allow-list lookup and emits a malformed deny_reason. Skip leading
+      # blank lines via `NF>0`; extract $1 of the first non-empty line and
+      # exit. Strip any directory prefix (e.g. /opt/homebrew/bin/foo → foo).
+      FIRST_TOKEN=$(echo "$COMMAND" | awk 'NF>0 {print $1; exit}' | sed 's|.*/||')
       # F-28 fix (v0.7.3+): check universal_allow (POSIX shell builtins
       # like cd, pushd, echo — not real binaries, harmless across roles)
       # before falling through to per-role allow-list. Without this,
