@@ -2173,6 +2173,18 @@ Sequencing per SYSTEM_INVARIANTS.md §1 / cto.md:
    synthesize the verdict or write `security_audit_log` rows directly.
    If `subagent_type='cso'` does not resolve, abort the project bootstrap
    with explicit error.
+
+   The CSO subagent MUST invoke (F-31, v0.7.3+):
+   ```bash
+   bash scripts/audit-bootstrap-baseline.sh --scope=<project-slug>
+   ```
+   The script's Layer 5 (Agents) branches on scope: company-scope checks
+   `agents/company/*.md` (10 founding); project-scope checks
+   `agents/projects/*.md` (9 project-scope, allowlist contains only
+   ACTIVE_PROJECT — PROJECT_NAME is now bound). Layers 1-4 are scope-
+   independent. Wizard prose deliberately reuses the same script
+   per ARCH-009 # 42 (juvantlabs/juvant-os-pm) script scope-flag
+   uniformity pattern.
 4. On PASS / WARN-WITH-CONDITIONS, promote project agents to `operational`.
 
 The company-level `master_context.bootstrap_completed_at` remains set; project-bootstrap

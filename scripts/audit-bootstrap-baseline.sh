@@ -59,13 +59,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# v0.6.5 supports `--scope=company` only; project-scope audits land in
-# v0.6.x+ when the project-init wizard's bootstrap analog stabilizes.
-# Reject other scopes explicitly so callers don't silently get a
-# company-shaped audit on a project DB.
+# F-31 (v0.7.3+): project-scope audits supported. SCOPE is either
+# 'company' (default) or a project slug present in
+# .juvant/config.json `.projects.<slug>`. Layers 1-4 are broadly
+# applicable across both scopes; Layer 5 (agents) branches by scope
+# to inspect agents/company/*.md (10 founding) vs agents/projects/*.md
+# (9 project-scope) per ARCH-009 # 42 (juvantlabs/juvant-os-pm) script
+# scope-flag uniformity pattern.
 if [[ "$SCOPE" != "company" ]]; then
-  echo "ERROR: --scope=$SCOPE not yet supported. v0.6.5 ships company-scope audit only; project-scope audit lands in v0.6.x+." >&2
-  exit 1
+  if [[ ! -f "$CONFIG" ]]; then
+    echo "ERROR: --scope=$SCOPE requires $CONFIG (project lookup needs .projects.<slug>.name)." >&2
+    exit 1
+  fi
+  if ! jq -e --arg s "$SCOPE" '.projects[$s]' "$CONFIG" >/dev/null 2>&1; then
+    echo "ERROR: --scope=$SCOPE not a valid project slug in $CONFIG (.projects.$SCOPE missing)." >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -f "$CONFIG" ]]; then
@@ -273,13 +282,36 @@ audit_layer_4_code() {
 # ─────────────────────────────────────────────
 
 audit_layer_5_agents() {
-  local agents_dir="$ROOT/agents/company"
+  local agents_dir
+  local expected_agents
+  local agent_count
+  local agent_set_label
+  local allowlist_csv
+
+  if [[ "$SCOPE" == "company" ]]; then
+    agents_dir="$ROOT/agents/company"
+    expected_agents=(cos cfo clo cmo cco chro cso cetho ca cro)
+    agent_count=10
+    agent_set_label="founding company-scope"
+    # Company-init: PROJECT_NAME may survive (no project bound yet).
+    allowlist_csv="ACTIVE_PROJECT,PROJECT_NAME"
+  else
+    # F-31 (v0.7.3+): project-scope audit. agents/projects/*.md should
+    # have been compiled by `compile-templates.sh --scope projects
+    # --project=<slug>` per F-23. PROJECT_NAME is now bound; only
+    # ACTIVE_PROJECT (runtime-resolved at SessionStart) survives.
+    agents_dir="$ROOT/agents/projects"
+    expected_agents=(cto cpo cdo coo vpe eng-api eng-backend eng-frontend eng-ai)
+    agent_count=9
+    agent_set_label="project-scope ($SCOPE)"
+    allowlist_csv="ACTIVE_PROJECT"
+  fi
+
   if [[ ! -d "$agents_dir" ]]; then
-    emit "agents" "critical" "agents/company/ directory missing." "agents-dir-missing"
+    emit "agents" "critical" "$agents_dir directory missing." "agents-dir-missing"
     return
   fi
 
-  local expected_agents=(cos cfo clo cmo cco chro cso cetho ca cro)
   local missing=()
   for role in "${expected_agents[@]}"; do
     if [[ ! -f "$agents_dir/${role}.md" ]]; then
@@ -289,23 +321,23 @@ audit_layer_5_agents() {
 
   if [[ "${#missing[@]}" == "0" ]]; then
     emit "agents" "info" \
-      "All 10 founding company-scope subagent files present at agents/company/{cos,cfo,clo,cmo,cco,chro,cso,cetho,ca,cro}.md."
+      "All $agent_count $agent_set_label subagent files present at $agents_dir/."
   else
     emit "agents" "high" \
-      "Founding agent files missing: ${missing[*]}" \
+      "$agent_set_label agent files missing: ${missing[*]}" \
       "founding-agents-missing"
   fi
 
-  # Frontmatter validation (allowlisted residue: ACTIVE_PROJECT, PROJECT_NAME).
+  # Frontmatter validation (allowlisted residue varies by scope).
   local survivors_found=0
   while IFS= read -r f; do
     [[ -f "$f" ]] || continue
-    if python3 - "$f" <<'PYEOF' 2>/dev/null; then
+    if python3 - "$f" "$allowlist_csv" <<'PYEOF' 2>/dev/null; then
 import re, sys
 path = sys.argv[1]
+allowlist = set(sys.argv[2].split(","))
 with open(path) as fp:
     content = fp.read()
-allowlist = {"ACTIVE_PROJECT", "PROJECT_NAME"}
 survivors = set(re.findall(r"\{\{([A-Z_][A-Z0-9_]*)\}\}", content))
 disallowed = sorted(s for s in survivors if s not in allowlist)
 if disallowed:
@@ -328,8 +360,8 @@ PYEOF
       "placeholder-residue"
   fi
 
-  # eng-platform presence check (informational; F-13 founding-vs-deferred).
-  if [[ -f "$agents_dir/eng-platform.md" ]]; then
+  # eng-platform presence check (company-scope only; cross-project agent).
+  if [[ "$SCOPE" == "company" && -f "$agents_dir/eng-platform.md" ]]; then
     local eng_platform_in_matrix
     eng_platform_in_matrix=$(juvant_db_query \
       "SELECT COUNT(*) FROM agent_tool_matrix WHERE role='eng-platform' AND superseded_by IS NULL;" | tail -1)
