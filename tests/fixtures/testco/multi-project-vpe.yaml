@@ -223,7 +223,7 @@ expect:
   # Total: 11 + 16 = 27.
   manifests_count: 27
   decisions_count: 14           # 1 CTO matrix-seed + 11 company manifestos + 2 project install-spec (skipped)
-  matrix_rows_count: 20         # company-scope matrix; project init does not add rows
+  matrix_rows_count: 19         # 11 active company-scope (cro filtered, toggle off) + 8 project-scope; cro row is template-shipped but matrix-seed filters per the toggle-coherence design (audit Layer 5)
 
   project_phase:
     projects_count: 2

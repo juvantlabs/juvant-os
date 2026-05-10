@@ -528,7 +528,10 @@ if [[ "$has_project" == "!!map" || "$has_project" == "object" ]]; then
   fi
 
   proj_slug=$(yq -r '.inputs.project.slug' "$FIXTURE")
-  expected_proj_agents=$(yq -r '.expect.project_phase.project_agents_count // 9' "$FIXTURE")
+  # v0.8.0 (ADR 0014 §2): default project agent count is 8 (project-VPE
+  # removed; absorbed by eng-lead). Pre-v0.8 fixtures may set 9; the
+  # `//` fallback respects whatever the fixture declares.
+  expected_proj_agents=$(yq -r '.expect.project_phase.project_agents_count // 8' "$FIXTURE")
   actual_proj_agents=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agents WHERE project_id='$proj_slug';" 2>/dev/null || echo "0")
   if [[ "$actual_proj_agents" -ge "$expected_proj_agents" ]]; then
     assert_ok "project_agents_count[$proj_slug]=$actual_proj_agents (≥$expected_proj_agents)"
