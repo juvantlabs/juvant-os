@@ -240,7 +240,7 @@ at the step's canonical path. The full mapping:
 | Step 4 (Notifications) | `inputs.notifications.{telegram,webhooks}` | Telegram requires `is_operator_personal_channel: true` for the ADR 0011 carve-out. |
 | Step 4.5 (Guardrails) | `inputs.guardrails.{confirmation_token,anomaly_thresholds,audit_log_retention_days}` | All sub-keys required. |
 | Step 5 (Counterparties) | `inputs.counterparties.{mode,entries}` | `mode: skip` → empty entries. |
-| Step 6 (Agent names + CRO) | `inputs.agent_names.<role>`, `inputs.cro_enabled` | All 11 names + boolean. |
+| Step 6 (Agent names + feature_toggles) | `inputs.agent_names.<role>`, `inputs.feature_toggles.{eng_platform_enabled,cro_enabled,vpe_enabled,cloud_provider}` | 12 names (9 mandatory + cto + cro + vpe + eng-platform) + 3 booleans + cloud_provider one of {azure, aws, gcp, none}. v0.8.0 (ADR 0014/0016) — `cro_enabled` flat key replaced by `feature_toggles` object. |
 | Step 7–8.5 (Compile + render + seed + cross-check) | (no fixture inputs) | Deterministic post-input procedures. |
 | Step 9 (Bootstrap protocol) | `inputs.bootstrap.manifesto_approval_mode` | One of `accept_all_defaults`, `edit_specific`, `walk_through_each`, `skip`. |
 | Step 10 (Initial commit) | (no fixture inputs) | Deterministic. |
