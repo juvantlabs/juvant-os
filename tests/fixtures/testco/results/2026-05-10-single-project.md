@@ -1,27 +1,28 @@
 # Batch testco run — single-project (2026-05-10)
 
-- Skill version: `835b236`
+- Skill version: `74d7786`
 - Fixture version: 1
-- Run timestamp (UTC): 2026-05-10T06:26:11Z
+- Run timestamp (UTC): 2026-05-10T08:04:58Z
 - Verdict: `PASS`
-- Assertions: 34 total, 1 failed
+- Assertions: 34 total, 0 failed
 
 ## Run analytics (from stream-json)
 
-- Total cost: $3.8446762499999996
-- API duration: 493408 ms
-- Wall duration: 502042 ms
-- Assistant turns: 74
+- Total cost: $5.183735500000001
+- API duration: 636685 ms
+- Wall duration: 647258 ms
+- Assistant turns: 97
 - Stop reason: end_turn, errors: 0
 
 ### Tool calls
 
 | Tool | Count |
 |------|-------|
-| Bash | 37 |
-| Edit | 1 |
-| Read | 8 |
-| TodoWrite | 3 |
+| Agent | 2 |
+| Bash | 47 |
+| Edit | 2 |
+| Read | 13 |
+| TodoWrite | 4 |
 | ToolSearch | 1 |
 | Write | 1 |
 
@@ -29,15 +30,18 @@
 
 | Event | Count |
 |-------|-------|
-| PostToolUse | 50 |
-| PostToolUseFailure | 1 |
-| PreToolUse | 51 |
+| PostToolUse | 68 |
+| PostToolUseFailure | 2 |
+| PreToolUse | 70 |
 | SessionStart | 1 |
 | Stop | 1 |
+| SubagentStart | 2 |
+| SubagentStop | 2 |
 
 ### Token + cost breakdown by model
 
-- **claude-opus-4-7**: input=50, output=39736, cache_read=3385965, cache_create=185287, cost=$3.8446762499999996
+- **claude-opus-4-7**: input=65, output=35591, cache_read=5105652, cache_create=199516, cost=$4.689901000000001
+- **claude-opus-4-7[1m]**: input=20, output=6565, cache_read=204294, cache_create=36394, cost=$0.4938345
 
 ## Per-step durations + tokens (from [BATCH] event stream)
 
@@ -47,24 +51,26 @@
 | 1.5 | 0.5s | - | - |
 | 1.5b | 0.5s | - | - |
 | 1.6 | 0.5s | - | - |
-| 2 | 0.3s | - | - |
-| 3 | 0.3s | - | - |
-| 4 | 0.3s | - | - |
-| 4.5 | 0.3s | - | - |
-| 5 | 0.3s | - | - |
-| 6 | 0.3s | - | - |
+| 2 | 1.5s | - | - |
+| 3 | 0.4s | - | - |
+| 4 | 0.4s | - | - |
+| 4.5 | 0.4s | - | - |
+| 5 | 1.0s | - | - |
+| 6 | 0.5s | - | - |
 | 7 | 2.0s | - | - |
 | 7.5 | 1.0s | - | - |
 | 7.6 | 1.0s | - | - |
 | 8 | 1.0s | - | - |
 | 8.5 | 0.5s | - | - |
-| 9 | 3.0s | - | - |
-| 10 | 1.0s | - | - |
-| 10.5 | 0.3s | - | - |
-| proj.1 | 0.5s | - | - |
-| proj.2 | 0.3s | - | - |
-| proj.3 | 0.3s | - | - |
-| proj.4 | 1.0s | - | - |
-| proj.5 | 2.0s | - | - |
-| proj.6 | 0.5s | - | - |
+| 9 | 35.0s | - | - |
+| 10 | 2.0s | - | - |
+| 10.5 | 0.5s | - | - |
+| proj.1 | 0.3s | - | - |
+| proj.1.gh | 0.3s | - | - |
+| proj.1.doc | 0.2s | - | - |
+| proj.2 | 1.5s | - | - |
+| proj.3 | 0.4s | - | - |
+| proj.4 | 1.5s | - | - |
+| proj.5 | 58.0s | - | - |
+| proj.6 | 1.0s | - | - |
 

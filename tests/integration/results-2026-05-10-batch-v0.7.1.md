@@ -341,17 +341,38 @@ schema applied successfully against the existing apollo project DB
 slot. F-25 (Bash tool allow-list mismatch) was a config-only fix and
 is closed.
 
-**v0.7.2 amendment** (post-tag, fresh-session shake-out): F-26
-surfaced the day after v0.7.1 tag when a fresh Claude Code session
-exercised the framework-dev `CLAUDE.md` "facciamo e2e test" trigger
-and noticed a malformed `"exit_code":}` event in the live Skill
-emission. JUVANT_OS.md tightened with explicit "valid JSON" rule +
-correct/wrong examples; driver now filters + warns on malformed
-lines in the post-run merge. Plus a CLAUDE.md path-clarification
-fix: the framework-dev CLAUDE.md now explicitly distinguishes the
-LIVE event sinks (`.juvant/batch-events.jsonl`, `stream.jsonl`)
-from the driver's post-run-aggregated `events.jsonl` (which stays
-at 0 bytes during the run and should NOT be tailed for live feed).
+**v0.7.2 amendment** (post-tag, fresh-session shake-out): F-26 +
+F-27 surfaced the day after v0.7.1 tag when a fresh Claude Code
+session exercised the framework-dev `CLAUDE.md` "facciamo e2e test"
+trigger. F-26 noticed a malformed `"exit_code":}` event; F-27 noticed
+`run_complete.events_emitted: 0` while 160 events had landed.
+JUVANT_OS.md tightened with explicit "valid JSON" rule + "derived
+counters HARD-REQUIRED" subsection; driver now filters + warns on
+malformed lines in the post-run merge. CLAUDE.md path-clarification
+fix lands in the same patch: framework-dev CLAUDE.md now explicitly
+distinguishes the LIVE event sinks (`.juvant/batch-events.jsonl`,
+`stream.jsonl`) from the driver's post-run-aggregated `events.jsonl`
+(which stays at 0 bytes during the run and should NOT be tailed for
+live feed).
+
+**v0.7.2 validation** — third fresh-session run on 2026-05-10
+post-`74d7786` (F-26 + F-27 fixes landed):
+
+| Metric | Value |
+|---|---|
+| Verdict | PASS (company + project) |
+| Assertions | 34/34 |
+| Wall duration | 647s (~10:47) |
+| API duration | 637s |
+| Cost | $5.18 (Opus-4-7 $4.69, Opus-4-7[1m] $0.49) |
+| cache_read | 5.1M tokens (healthy hit rate) |
+| Events emitted | 164 (counter matches file line count exactly — F-27 fix held) |
+| Malformed events | 0 (F-26 fix held) |
+| Manifests | 19 (10 company + 9 project) |
+| CSO subagents | 2 (company baseline + apollo audit) |
+| Audit findings | P1=0, P2=0 |
+
+Both v0.7.2 fixes held under live exercise. v0.7.2 ready to tag.
 
 The framework's CLAUDE.md ships framework-dev shortcuts to fresh
 sessions; adopter instances receive a 3-line per-company stub. The
