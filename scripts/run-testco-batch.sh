@@ -48,6 +48,21 @@ KEEP_TMP=0
 DRY_RUN=0
 RENDER=1
 SKILL_VERSION=""
+# Default to Opus 4.7 for batch runs. Sonnet 4.6 was tested
+# 2026-05-10 and does not recognize the JUVANT_OS Skill's batch-mode
+# activation trigger ("Initialize Juvant OS using batch inputs from
+# <path>") — it routes the prompt to a generic "explore codebase and
+# write CLAUDE.md" pattern instead of entering the wizard. The Skill
+# design assumes Opus reasoning capacity for prompt routing, fixture
+# parsing, and step orchestration. Cost optimization via model
+# downshift requires Skill restructuring (smaller modular skill files,
+# tighter activation language, fewer simultaneous instructions) — a
+# v0.8.x architectural concern, not a v0.7.x driver flag flip.
+#
+# Override via --model=<id> per-run for experimentation (e.g.
+# claude-haiku-4-5 for cheapest-possible regression sanity, or future
+# Sonnet versions once the Skill has been refactored).
+MODEL="${JUVANT_BATCH_MODEL:-claude-opus-4-7}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --no-render) RENDER=0; shift ;;
     --skill-version=*) SKILL_VERSION="${1#--skill-version=}"; shift ;;
+    --model=*) MODEL="${1#--model=}"; shift ;;
     -h|--help)
       sed -n '/^# Usage:/,/^# Per/p' "$0" | sed 's/^# *//'
       exit 0
@@ -79,16 +95,11 @@ done
 
 CLAUDE_BIN=""
 if [[ "$DRY_RUN" != "1" ]]; then
-  # Resolve absolute path to claude once. Some run-context wrappers
-  # (Claude Code background tasks, restricted CI shells) strip user
-  # PATH between this script and the spawned subshell, so resolving
-  # ONCE at startup and using the absolute path is more robust.
-  #
-  # Then dereference symlinks via realpath so we exec the actual
-  # binary file (claude is shipped as a npm-bin symlink that points
-  # at ../lib/node_modules/.../claude.exe; some sandboxed subshell
-  # contexts fail to exec via the symlink path even when the
-  # symlink resolves correctly from a foreground shell).
+  # Resolve absolute path to claude once and verify it's exec-able.
+  # We deliberately KEEP the symlink path (do not realpath-dereference)
+  # — some sandboxed exec contexts on macOS allow exec via the
+  # /opt/homebrew/bin/claude symlink but deny exec on the realpath
+  # target /opt/homebrew/lib/node_modules/.../claude.exe directly.
   CLAUDE_BIN=$(command -v claude || true)
   if [[ -z "$CLAUDE_BIN" ]]; then
     for candidate in /opt/homebrew/bin/claude /usr/local/bin/claude /usr/bin/claude; do
@@ -98,22 +109,6 @@ if [[ "$DRY_RUN" != "1" ]]; then
   if [[ -z "$CLAUDE_BIN" ]]; then
     echo "ERROR: claude CLI not found on PATH or at /opt/homebrew/bin, /usr/local/bin, /usr/bin." >&2
     exit 1
-  fi
-  if command -v realpath >/dev/null 2>&1; then
-    CLAUDE_BIN=$(realpath "$CLAUDE_BIN")
-  elif command -v readlink >/dev/null 2>&1; then
-    # macOS readlink -f from coreutils is preferred; fallback handles
-    # the BSD readlink case manually.
-    if readlink -f "$CLAUDE_BIN" >/dev/null 2>&1; then
-      CLAUDE_BIN=$(readlink -f "$CLAUDE_BIN")
-    else
-      target=$(readlink "$CLAUDE_BIN")
-      if [[ "$target" != /* ]]; then
-        CLAUDE_BIN="$(cd "$(dirname "$CLAUDE_BIN")" && cd "$(dirname "$target")" && pwd)/$(basename "$target")"
-      else
-        CLAUDE_BIN="$target"
-      fi
-    fi
   fi
   if [[ ! -x "$CLAUDE_BIN" ]]; then
     echo "ERROR: claude CLI resolved to '$CLAUDE_BIN' but the file is not executable." >&2
@@ -293,7 +288,7 @@ if [[ "$RENDER" == "1" ]] && [[ -t 1 ]]; then
 fi
 
 # ─── spawn claude ──────────────────────────────────────────────────────
-echo "▶ Spawning Skill in batch mode (stream-json + hook events + budget cap)..."
+echo "▶ Spawning Skill in batch mode (model=$MODEL, stream-json + hook events + budget cap)..."
 
 ACTIVATION_PROMPT="Initialize Juvant OS using batch inputs from .juvant/batch-inputs.yaml"
 
@@ -322,6 +317,7 @@ STREAM_FILE="$TMP_DIR/stream.jsonl"
 (
   cd "$TMP_DIR"
   "$CLAUDE_BIN" --print \
+    --model "$MODEL" \
     --permission-mode bypassPermissions \
     --output-format stream-json \
     --verbose \
