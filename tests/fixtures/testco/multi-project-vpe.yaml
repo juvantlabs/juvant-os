@@ -1,0 +1,326 @@
+# Batch testco fixture — multi-project + VPE-enabled scenario (NEW in v0.8.0).
+#
+# The first fixture to exercise feature_toggles.vpe_enabled=true. Builds on
+# single-project.yaml but bootstraps TWO projects (Apollo + Boreas) in
+# sequence, then activates the optional company-scope VPE per ADR 0014 §2.
+# This is the canonical setup for adopters running ≥2 active projects who
+# want the cross-project Eng/* aggregator (weekly engineering health
+# report, cross-project release coordination, cross-project Tier-4
+# disclosure-cascade fallback recipient).
+#
+# Schema reference: docs/adr/0012-batch-testco-mode.md § Schema +
+# docs/adr/0014-tech-leadership-restructure.md § 2 (VPE toggle pattern).
+
+scenario: multi-project-vpe
+fixture_version: 1
+juvant_os_version: 0.8.0
+description: |
+  Two-project shop with company-scope VPE enabled. Solo founder, local
+  SQLite, eng-platform default-on, CRO disabled (different from
+  single-project to confirm CRO and VPE toggles work independently),
+  VPE enabled. Telegram notifications, 4 mail-enabled agents.
+  Counterparties: sample (accountant + legal stub).
+  Two projects bootstrapped in sequence (Apollo first, Boreas second)
+  in the same claude --print run; per-project DBs at
+  .juvant/project-{apollo,boreas}.db. GitHub repo creation skipped in
+  batch.
+
+  This fixture is what gives v0.8.0 confidence on the VPE toggle path —
+  manifesto count = 11 (9 mandatory + eng-platform + vpe; cro off);
+  bootstrap-action decisions count = 12 (matrix-seed + 11 manifestos).
+  The cross-project release coordination + weekly health report
+  protocols don't exercise here (would need post-bootstrap activity);
+  this fixture proves the wizard's company-init path emits the VPE
+  manifesto correctly when the toggle is on.
+
+inputs:
+  identity:
+    company_name: Multi Project VPE Test Corp
+    company_slug: multi-project-vpe-test
+    company_domain: multiprojectvpetest.example
+    ceo_name: Jordan VPE
+    ceo_pronouns: they/them
+    copyright_holder: Multi Project VPE Test Corp
+
+  doc_storage:
+    provider: onedrive
+    mcp_server: ms-graph
+    path_pattern: type-it
+    folders: {}
+    fallback_chain: {}
+
+  mail_enabled_agents:
+    cfo: finance@multiprojectvpetest.example
+    clo: legal@multiprojectvpetest.example
+    cco: hello@multiprojectvpetest.example
+    cmo: press@multiprojectvpetest.example
+
+  github_user_map:
+    ceo: jordan-vpe
+    cos: jordan-vpe
+    cfo: jordan-vpe
+    clo: jordan-vpe
+    cmo: jordan-vpe
+    cco: jordan-vpe
+    chro: jordan-vpe
+    cso: jordan-vpe
+    cetho: jordan-vpe
+    cto: jordan-vpe
+    cro: jordan-vpe
+    vpe: jordan-vpe
+    eng-platform: jordan-vpe
+
+  database:
+    provider: local
+    setup_mode: cli
+    url: file:.juvant/state.db
+    auth_token: null
+
+  bank:
+    provider: other
+    name: multiprojectvpetest-bank
+    mcp_server: 'npm:@multiprojectvpetest/bank-mcp-stub'
+    rationale: |
+      No real bank for the test fixture.
+
+  notifications:
+    telegram:
+      enabled: true
+      bot_token: TEST_TOKEN_PLACEHOLDER
+      chat_id: '777888999'
+      is_operator_personal_channel: true
+      message_time_window: '08:00-22:00 Europe/Rome'
+    webhooks: []
+
+  guardrails:
+    confirmation_token:
+      enabled: true
+      token: TEST_CONFIRM_TOKEN_PLACEHOLDER
+    anomaly_thresholds:
+      cost_p95_multiplier: 3.0
+      tool_call_burst_per_min: 60
+    audit_log_retention_days: 365
+
+  counterparties:
+    mode: sample
+    entries:
+      - { name: Accountant Stub, role: accountant, owner_agent: cfo, contact: accountant@multiprojectvpetest.example }
+      - { name: Legal Stub,      role: legal,      owner_agent: clo, contact: legal-counsel@multiprojectvpetest.example }
+
+  agent_names:
+    cos: Atlas
+    cfo: Theos
+    clo: Lex
+    cmo: Mira
+    cco: Hermes
+    chro: Sage
+    cso: Shield
+    cetho: Vera
+    cto: Arch
+    cro: Lumen
+    vpe: Helm                # the role we're exercising in this fixture
+    eng-platform: Hephaestus
+  feature_toggles:
+    eng_platform_enabled: true   # default ON per ADR 0016
+    cro_enabled: false           # OFF in this fixture — confirms CRO and VPE toggles independent
+    vpe_enabled: true            # the toggle this fixture exercises
+    cloud_provider: none         # local-only setup
+
+  bootstrap:
+    manifesto_approval_mode: accept_all_defaults
+
+  branch_protection:
+    mode: skip_in_batch
+
+  # ──────────────────────────────────────────────────────────────────
+  # Multi-project init: Apollo + Boreas bootstrapped in sequence.
+  # ──────────────────────────────────────────────────────────────────
+  project:
+    slug: apollo
+    name: Apollo
+    description: First project on the multi-project VPE test fixture company.
+
+    github_repo:
+      mode: skip_in_batch
+      org_target: juvantlabs
+      repo_name: apollo-stub
+      visibility: private
+
+    doc_folder:
+      mode: skip_auto_discovery
+      path: null
+
+    database:
+      provider: local
+      url: file:.juvant/project-apollo.db
+      auth_token: null
+
+    agent_names:
+      pca: Pallas
+      product-lead: Echo
+      design-lead: Iris
+      eng-lead: Tyche
+      eng-api: Crispus
+      eng-backend: Mark
+      eng-frontend: Pliny
+      eng-ai: Linus
+
+    bootstrap:
+      manifesto_approval_mode: accept_all_defaults
+
+    commit:
+      push: false
+
+  # Second project. Driver runs project-init phase a second time after
+  # Apollo's bootstrap completes. The driver's per-project loop reads
+  # `inputs.project_2` if present (single project loop reads inputs.project).
+  project_2:
+    slug: boreas
+    name: Boreas
+    description: Second project on the multi-project VPE test fixture company.
+
+    github_repo:
+      mode: skip_in_batch
+      org_target: juvantlabs
+      repo_name: boreas-stub
+      visibility: private
+
+    doc_folder:
+      mode: skip_auto_discovery
+      path: null
+
+    database:
+      provider: local
+      url: file:.juvant/project-boreas.db
+      auth_token: null
+
+    agent_names:
+      pca: Aeolus
+      product-lead: Notos
+      design-lead: Eos
+      eng-lead: Helios
+      eng-api: Castor
+      eng-backend: Pollux
+      eng-frontend: Nyx
+      eng-ai: Selene
+
+    bootstrap:
+      manifesto_approval_mode: accept_all_defaults
+
+    commit:
+      push: false
+
+# ─────────────────────────────────────────────────────────────────────
+# Expectations consumed by the driver's post-run assertions.
+# ─────────────────────────────────────────────────────────────────────
+expect:
+  bootstrap_verdict: WARN-WITH-CONDITIONS
+  bootstrap_verdict_acceptable: [WARN-WITH-CONDITIONS, PASS]
+
+  # Company manifestos: 11 = 9 mandatory + eng-platform + vpe (cro off).
+  # Per-project manifestos: 8 each (pca + product-lead + design-lead +
+  # eng-lead + 4 eng-*). Two projects = 16 project manifestos.
+  # Total: 11 + 16 = 27.
+  manifests_count: 27
+  decisions_count: 14           # 1 CTO matrix-seed + 11 company manifestos + 2 project install-spec (skipped)
+  matrix_rows_count: 20         # company-scope matrix; project init does not add rows
+
+  project_phase:
+    projects_count: 2
+    projects:
+      - slug: apollo
+        status: active
+        maturity: incubation
+        agents_count: 8
+        manifests_count: 8
+        db_file_exists: '.juvant/project-apollo.db'
+      - slug: boreas
+        status: active
+        maturity: incubation
+        agents_count: 8
+        manifests_count: 8
+        db_file_exists: '.juvant/project-boreas.db'
+
+  audit_findings:
+    p0_max: 0
+    p1_max: 0
+    p2_max: 3
+    info_min: 26                # ≥ 10 from company + ≥ 8 each from 2 project audits
+
+  matrix_row_assertions:
+    - { role: cos,          channels_includes: [telegram:send-ceo-only] }
+    - { role: cos,          mcp_servers_includes: [turso, ms-graph, m365-graph] }
+    - { role: cfo,          mcp_servers_includes: [m365-graph, fattura_elettronica, bank:read] }
+    - { role: clo,          mcp_servers_includes: [m365-graph] }
+    - { role: cmo,          mcp_servers_includes: [m365-graph, buffer] }
+    - { role: cco,          mcp_servers_includes: [m365-graph] }
+    - { role: design-lead,  mcp_servers_includes: [m365-graph] }
+    # vpe row present and ACTIVE because vpe_enabled=true.
+    - { role: vpe,          scope: company, mcp_servers: [turso, github:read] }
+    # cro row present in matrix template but inactive (cro_enabled=false).
+    # Driver should verify it's NOT in agents/manifests tables.
+    - { role: eng-platform, scope: company, mcp_servers_includes: [turso, github:write, npm:publish] }
+    - { role: eng-lead,     mcp_servers: [turso, github:write] }
+
+  agent_table_assertions:
+    # Confirm vpe agent ROW is active (toggle drove activation).
+    - { agent: vpe,    scope: company, status_in: [operational, operational_restricted] }
+    # Confirm cro agent is NOT in the agents table (toggle off).
+    - { agent: cro,    scope: company, must_not_exist: true }
+
+  decision_categories:
+    bootstrap-action_min: 27    # 12 (company: matrix + 11 manifestos) + 16 (2 projects × 8 manifestos) − 1 (matrix-seed counted once)
+                                # adjusted: 11 company manifestos + 16 project manifestos = 27 minimum
+    install-spec_min: 2         # 2 projects × github_repo skip_in_batch decision
+
+  filesystem_assertions:
+    - { path: README.md, must_contain: 'Multi Project VPE Test Corp' }
+    - { path: README.md, must_not_contain: 'open-source multi-agent' }
+    - { path: '.github/CODEOWNERS', must_contain: '@jordan-vpe' }
+    - { path: '.juvant/config.json', must_exist: true }
+    - { path: '.juvant/state.db', must_exist: true }
+    - { path: '.juvant/project-apollo.db', must_exist: true }
+    - { path: '.juvant/project-boreas.db', must_exist: true }
+    # Company VPE manifesto file exists at company scope (was at project
+    # scope in v0.7; cross-scope move per ADR 0014 §2).
+    - { path: 'agents/company/vpe.md', must_exist: true }
+    - { path: 'agents/company/vpe.md', must_contain: 'Helm' }
+    # Confirm project-VPE file does NOT exist (removed per §2).
+    - { path: 'agents/projects/vpe.md', must_not_exist: true }
+
+  pending_orphan_assertions:
+    AskUserQuestion: 0
+    Bash_max: 0
+
+  performance_envelope:
+    total_duration_s_max: 1200  # ~2× single-project budget for the second project phase
+    total_tokens_max: 200000
+    step_duration_s_p95: 60
+
+  agent_actions_log:
+    min_rows: 200               # company ~100 + 2 × project ~30 + vpe enable overhead
+    tool_call_distribution:
+      Bash_min: 80
+      Agent_count: 3            # company CSO audit + 2 project CSO audits
+      AskUserQuestion: 0
+
+  phase_events:
+    company_phase_done: true
+    project_phase_started: true
+    project_phase_count: 2
+    run_complete_multi_verdict: true   # run_complete includes company + per-project verdicts
+
+  # v0.8.0-specific assertions: confirm toggle-driven structure.
+  v08_toggle_assertions:
+    feature_toggles_persisted:
+      eng_platform_enabled: true
+      cro_enabled: false
+      vpe_enabled: true
+      cloud_provider: none
+    # Bootstrap-baseline audit Layer 5 should report toggle-coherence
+    # info findings (toggle-on-with-file-and-matrix-row for eng-platform
+    # and vpe; toggle-off-with-no-leak for cro).
+    audit_layer5_optional_role_findings:
+      - { role: eng-platform, expected_severity: info,   pattern: enabled }
+      - { role: vpe,          expected_severity: info,   pattern: enabled }
+      - { role: cro,          expected_severity: none,   pattern: disabled-clean }

@@ -17,13 +17,14 @@
 # Schema reference: docs/adr/0012-batch-testco-mode.md § Schema.
 
 scenario: manifesto-walk-through
-fixture_version: 1
-juvant_os_version: 0.7.0
+fixture_version: 2
+juvant_os_version: 0.8.0
 description: |
-  Same company shape as single-company.yaml but exercises the
-  walk_through_each manifesto-approval mode at Step 9. Validates that
-  the slow-path manifesto rendering produces the same end state as
-  the fast accept_all_defaults path.
+  Same company shape as single-company.yaml (v0.8.0 baseline per
+  ADR 0014/0015) but exercises the walk_through_each manifesto-approval
+  mode at Step 9. Validates that the slow-path manifesto rendering
+  produces the same end state as the fast accept_all_defaults path,
+  with the parameterized N count from feature_toggles.
 
 inputs:
   # Step 1 — Identity.
@@ -62,8 +63,9 @@ inputs:
     chro: riley-walker
     cso: riley-walker
     cetho: riley-walker
-    ca: riley-walker
+    cto: riley-walker
     cro: riley-walker
+    vpe: riley-walker
     eng-platform: riley-walker
 
   # Step 2 — Database.
@@ -80,8 +82,8 @@ inputs:
     mcp_server: 'npm:@solofoundertest/bank-mcp-stub'
     rationale: |
       No real bank for the test fixture. Concrete provider binding
-      records into agent_tool_matrix.notes per ca.md abstraction
-      footnote.
+      records into agent_tool_matrix.notes per cto.md (formerly ca.md
+      pre-v0.8) abstraction footnote.
 
   # Step 4 — Notifications.
   notifications:
@@ -110,7 +112,7 @@ inputs:
       - { name: Accountant Stub, role: accountant, owner_agent: cfo, contact: accountant@walkthroughtest.example }
       - { name: Legal Stub,      role: legal,      owner_agent: clo, contact: legal-counsel@walkthroughtest.example }
 
-  # Step 6 — Agent names + CRO toggle (HARD-REQUIRED Clause 1, identity-critical).
+  # Step 6 — Agent names + feature_toggles (HARD-REQUIRED Clause 1, identity-critical).
   agent_names:
     cos: Atlas
     cfo: Theos
@@ -120,10 +122,15 @@ inputs:
     chro: Sage
     cso: Shield
     cetho: Vera
-    ca: Arch
+    cto: Arch                # was 'ca' pre-v0.8 (ADR 0014 §1)
     cro: Lumen
+    vpe: Helm                # company-scope optional (ADR 0014 §2)
     eng-platform: Hephaestus
-  cro_enabled: true
+  feature_toggles:
+    eng_platform_enabled: true   # default ON per ADR 0016
+    cro_enabled: true            # this fixture exercises CRO
+    vpe_enabled: false           # single-project shop
+    cloud_provider: none         # local-only setup
 
   # Step 7-8.5 are deterministic post-input steps (compile templates,
   # rewrite meta, render CODEOWNERS, seed matrix, cross-check).
@@ -151,9 +158,9 @@ expect:
   # primary scenario. Both are accepted now; tighten to [PASS] when
   # FEAT-011/012 land and remove the status-pending warns.
 
-  manifests_count: 10
-  decisions_count: 11           # 1 CA matrix-seed + 10 manifesto approvals
-  matrix_rows_count: 20         # 11 company-scope + 9 project-scope (post-v0.6.6)
+  manifests_count: 11           # 9 mandatory + eng-platform (toggle on) + cro (toggle on); vpe off
+  decisions_count: 12           # 1 CTO matrix-seed + 11 manifesto approvals
+  matrix_rows_count: 20         # 12 company-scope + 8 project-scope (project-VPE removed per ADR 0014 §2)
 
   audit_findings:
     p0_max: 0
@@ -169,12 +176,13 @@ expect:
     - { role: cmo,          mcp_servers_includes: [m365-graph, buffer] }
     - { role: cco,          mcp_servers_includes: [m365-graph] }
     - { role: cro,          mcp_servers_includes: [m365-graph] }
-    - { role: cdo,          mcp_servers_includes: [m365-graph] }
-    - { role: eng-platform, scope: company, mcp_servers: [turso, github:read] }
-    - { role: coo,          mcp_servers: [turso, github:write] }      # single-writer §4
+    - { role: design-lead,  mcp_servers_includes: [m365-graph] }
+    # eng-platform: cloud:write dropped because cloud_provider=none.
+    - { role: eng-platform, scope: company, mcp_servers_includes: [turso, github:write, npm:publish] }
+    - { role: eng-lead,     mcp_servers: [turso, github:write] }      # single-writer at project scope per ADR 0014 §4
 
   decision_categories:
-    bootstrap-action_min: 11
+    bootstrap-action_min: 12
 
   filesystem_assertions:
     - { path: README.md, must_contain: 'Walkthrough Test Corp' }

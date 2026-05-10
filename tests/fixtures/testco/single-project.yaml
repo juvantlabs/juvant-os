@@ -7,17 +7,20 @@
 # in a single claude --print run (cache reuse across phases).
 
 scenario: single-project
-fixture_version: 1
-juvant_os_version: 0.7.0
+fixture_version: 2
+juvant_os_version: 0.8.0
 description: |
-  Solo founder, local SQLite, CRO enabled, telegram notifications,
-  4 mail-enabled agents — same company shape as single-company.yaml.
-  Plus one project (Apollo) bootstrapped immediately after company
-  bootstrap completes, in the same claude --print invocation.
-  Project DB is per-project local SQLite at .juvant/project-apollo.db.
-  GitHub repo creation is skipped (no gh api call in batch); install-
-  spec decision row recorded with applied=false. Doc folder auto-
-  discovery is skipped; project records doc_folder=null.
+  Solo founder, local SQLite, CRO enabled, eng-platform default-on per
+  ADR 0016, VPE off (single-project shop — CTO performs cross-project
+  aggregation directly), telegram notifications, 4 mail-enabled agents
+  — same company shape as single-company.yaml. Plus one project
+  (Apollo) bootstrapped immediately after company bootstrap completes,
+  in the same claude --print invocation. Project DB is per-project
+  local SQLite at .juvant/project-apollo.db. GitHub repo creation is
+  skipped (no gh api call in batch); install-spec decision row recorded
+  with applied=false. Doc folder auto-discovery is skipped; project
+  records doc_folder=null. Project agents are 8 per ADR 0014 §2
+  (was 9 in v0.7 with project-VPE; project-VPE absorbed by eng-lead).
 
 inputs:
   # Step 1 — Identity (company).
@@ -55,8 +58,9 @@ inputs:
     chro: casey-project
     cso: casey-project
     cetho: casey-project
-    ca: casey-project
+    cto: casey-project
     cro: casey-project
+    vpe: casey-project
     eng-platform: casey-project
 
   # Step 2 — Database.
@@ -101,7 +105,7 @@ inputs:
       - { name: Accountant Stub, role: accountant, owner_agent: cfo, contact: accountant@singleprojecttest.example }
       - { name: Legal Stub,      role: legal,      owner_agent: clo, contact: legal-counsel@singleprojecttest.example }
 
-  # Step 6 — Agent names + CRO toggle.
+  # Step 6 — Agent names + feature_toggles.
   agent_names:
     cos: Atlas
     cfo: Theos
@@ -111,10 +115,15 @@ inputs:
     chro: Sage
     cso: Shield
     cetho: Vera
-    ca: Arch
+    cto: Arch                # was 'ca' pre-v0.8 (ADR 0014 §1)
     cro: Lumen
+    vpe: Helm                # company-scope optional (ADR 0014 §2)
     eng-platform: Hephaestus
-  cro_enabled: true
+  feature_toggles:
+    eng_platform_enabled: true   # default ON per ADR 0016
+    cro_enabled: true            # this fixture exercises CRO
+    vpe_enabled: false           # single-project shop
+    cloud_provider: none         # local-only setup
 
   # Step 9 — Bootstrap protocol manifesto approval mode.
   bootstrap:
@@ -151,12 +160,14 @@ inputs:
       auth_token: null
 
     # proj.3 — Agent names. Defaults are <slug>-<role>; override here.
+    # Project-scope role identifiers per ADR 0014 §1: pca/product-lead/
+    # design-lead/eng-lead (was cto/cpo/cdo/coo); project-VPE removed
+    # per §2 (absorbed by eng-lead).
     agent_names:
-      cto: Pallas
-      cpo: Echo
-      cdo: Iris
-      coo: Tyche
-      vpe: Praxis
+      pca: Pallas
+      product-lead: Echo
+      design-lead: Iris
+      eng-lead: Tyche
       eng-api: Crispus
       eng-backend: Mark
       eng-frontend: Pliny
@@ -180,8 +191,8 @@ expect:
   bootstrap_verdict: WARN-WITH-CONDITIONS
   bootstrap_verdict_acceptable: [WARN-WITH-CONDITIONS, PASS]
 
-  manifests_count: 19           # 10 company + 9 project tier-2 manifestos
-  decisions_count: 12           # 11 company bootstrap-action + 1 project install-spec (skipped)
+  manifests_count: 19           # 11 company (9 mandatory + eng-platform + cro) + 8 project tier-2 manifestos
+  decisions_count: 13           # 12 company bootstrap-action + 1 project install-spec (skipped)
   matrix_rows_count: 20         # matrix is per-company; project init does not add rows
                                 # (no project_id column in agent_tool_matrix per schema)
 
@@ -191,8 +202,8 @@ expect:
     project_slug: apollo
     project_status: active
     project_maturity: incubation
-    project_agents_count: 9     # rows in agents table with project_id='apollo'
-    project_manifests_count: 9  # tier-2 project manifestos
+    project_agents_count: 8     # rows in agents table with project_id='apollo' (project-VPE removed per ADR 0014 §2)
+    project_manifests_count: 8  # tier-2 project manifestos (8: pca + product-lead + design-lead + eng-lead + 4 eng-*)
     project_bootstrap_audit:
       auditor: cso
       audit_type: bootstrap_baseline
@@ -218,12 +229,13 @@ expect:
     - { role: cmo,          mcp_servers_includes: [m365-graph, buffer] }
     - { role: cco,          mcp_servers_includes: [m365-graph] }
     - { role: cro,          mcp_servers_includes: [m365-graph] }
-    - { role: cdo,          mcp_servers_includes: [m365-graph] }
-    - { role: eng-platform, scope: company, mcp_servers: [turso, github:read] }
-    - { role: coo,          mcp_servers: [turso, github:write] }
+    - { role: design-lead,  mcp_servers_includes: [m365-graph] }
+    # eng-platform: cloud:write dropped because cloud_provider=none.
+    - { role: eng-platform, scope: company, mcp_servers_includes: [turso, github:write, npm:publish] }
+    - { role: eng-lead,     mcp_servers: [turso, github:write] }   # single-writer at project scope per ADR 0014 §4
 
   decision_categories:
-    bootstrap-action_min: 19    # 11 (company) + 9 (project bootstrap) - shared category
+    bootstrap-action_min: 19    # 12 (company) + 8 (project bootstrap) - shared category; -1 vs prior since project-VPE removed
     install-spec_min: 1         # project github_repo skip_in_batch decision
 
   filesystem_assertions:
@@ -244,12 +256,12 @@ expect:
     # {{ACTIVE_PROJECT}} survives, bound at SessionStart). True multi-
     # project per-project subdirectories arrive with v0.7.x multi-project
     # scenario; for single-project the templates are mutated in place.
-    - { path: 'agents/projects/cto.md', must_exist: true }
-    - { path: 'agents/projects/cpo.md', must_exist: true }
-    - { path: 'agents/projects/coo.md', must_exist: true }
-    - { path: 'agents/projects/cto.md', must_contain: 'Pallas' }
-    - { path: 'agents/projects/cpo.md', must_contain: 'Echo' }
-    - { path: 'agents/projects/coo.md', must_contain: 'Tyche' }
+    - { path: 'agents/projects/pca.md', must_exist: true }
+    - { path: 'agents/projects/product-lead.md', must_exist: true }
+    - { path: 'agents/projects/eng-lead.md', must_exist: true }
+    - { path: 'agents/projects/pca.md', must_contain: 'Pallas' }
+    - { path: 'agents/projects/product-lead.md', must_contain: 'Echo' }
+    - { path: 'agents/projects/eng-lead.md', must_contain: 'Tyche' }
 
   pending_orphan_assertions:
     AskUserQuestion: 0
