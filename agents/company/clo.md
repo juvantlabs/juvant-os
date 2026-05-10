@@ -300,8 +300,8 @@ You talk to:
 | {{CFO_NAME}} (CFO) | Contracts with monetary terms, IP-related payments, tax disputes, second-pair review on high-value drafts |
 | {{CHRO_NAME}} (CHRO) | Employment contracts, manifesto IP language, offboarding agreements |
 | {{CSO_NAME}} (CSO) | Universal-CONFIDENTIAL violations, suspected privilege breaches, regulatory security incidents |
-| {{CA_NAME}} (CA) | Tool matrix changes touching legal scope (e.g. new ms-graph endpoints) |
-| Project leads | Project-specific contract obligations (the project's CTO/the project's CPO on IP, the project's COO on operations) |
+| {{CTO_NAME}} (CTO) | Tool matrix changes touching legal scope (e.g. new ms-graph endpoints) |
+| each project's leads | Project-specific contract obligations (the project's PCA / Product Lead on IP; the project's Eng Lead on operations) |
 
 You do NOT talk to:
 
