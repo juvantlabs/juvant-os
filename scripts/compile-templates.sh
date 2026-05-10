@@ -423,13 +423,20 @@ export STATE_SERVER STATE_CLIENT FORMS_LIB DATABASE OBSERVABILITY CICD
 #
 # `--rewrite-meta` swaps these at bootstrap (Step 7.6, after substitution
 # but before commit):
-#   README.md            → from scripts/templates/README.md.template
-#   CHANGELOG.md         → from scripts/templates/CHANGELOG.md.template
-#   SECURITY.md          → from scripts/templates/SECURITY.md.template
-#   docs/adr/README.md   → from scripts/templates/docs-adr-README.md.template
-#   docs/adr/0001-*.md   → REMOVED (framework ADRs not part of company repo)
-#   docs/adr/0002-*.md   → REMOVED
-#   ... through docs/adr/0010-*.md
+#   README.md                          → from scripts/templates/README.md.template
+#   CHANGELOG.md                       → from scripts/templates/CHANGELOG.md.template
+#   SECURITY.md                        → from scripts/templates/SECURITY.md.template
+#   docs/adr/README.md                 → from scripts/templates/docs-adr-README.md.template
+#   CLAUDE.md                          → from scripts/templates/CLAUDE.md.template
+#                                        (framework's CLAUDE.md ships with framework-dev
+#                                        instructions; adopters get a 3-line per-company stub)
+#   docs/adr/0001-*.md                 → REMOVED (framework ADRs not part of company repo)
+#   docs/adr/0002-*.md                 → REMOVED
+#   ... through docs/adr/0NNN-*.md
+#   tests/integration/results-*.md     → REMOVED (framework's manual testco audit trail)
+#   tests/fixtures/testco/results/*    → REMOVED (framework's batch run audit trail;
+#                                        the dir itself is preserved so adopters can
+#                                        store their own batch results)
 #
 # Bootstrap metadata (date, audit verdict, DB provider, etc.) is read from
 # .juvant/state.db (master_context table — populated by Step 9.7+) and from
@@ -519,6 +526,12 @@ PYEOF
   render_template "$templates/CHANGELOG.md.template"       "$ROOT/CHANGELOG.md"
   render_template "$templates/SECURITY.md.template"        "$ROOT/SECURITY.md"
   render_template "$templates/docs-adr-README.md.template" "$ROOT/docs/adr/README.md"
+  # CLAUDE.md (Claude Code per-repo auto-loaded context). The framework
+  # ships a CLAUDE.md with framework-development instructions
+  # ("facciamo e2e test" shortcut, architecture pointers, release ceremony,
+  # etc.) — adopters never see that. The template here is a 3-line stub
+  # the adopter can replace with their own per-company guidance over time.
+  render_template "$templates/CLAUDE.md.template"          "$ROOT/CLAUDE.md"
 
   # Remove framework ADRs (0001-NNNN .md files); leave the (now-rewritten)
   # README.md as the company-scope ADR stub.
@@ -529,6 +542,24 @@ PYEOF
       rm -f "$f"
       echo "  removed: $f"
     done
+  fi
+
+  # Remove framework-dev audit-trail artifacts (manual testco results +
+  # batch run results). Test infrastructure (driver, validator, fixtures)
+  # is preserved — adopters can re-use it for their own scenarios. Only
+  # the framework's PAST run reports are removed.
+  echo "removing framework-dev test results (kept upstream)…"
+  if compgen -G "$ROOT/tests/integration/results-*.md" > /dev/null; then
+    for f in "$ROOT/tests/integration/results-"*.md; do
+      [[ -f "$f" ]] || continue
+      rm -f "$f"
+      echo "  removed: $f"
+    done
+  fi
+  if [[ -d "$ROOT/tests/fixtures/testco/results" ]]; then
+    rm -rf "$ROOT/tests/fixtures/testco/results"
+    mkdir -p "$ROOT/tests/fixtures/testco/results"
+    echo "  cleared: tests/fixtures/testco/results/ (kept dir, removed contents)"
   fi
 
   echo "rewrite-meta: complete."
