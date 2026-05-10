@@ -41,7 +41,16 @@ fi
 # Parse event fields (default to safe fallbacks if event shape unexpected)
 TOOL_NAME=$(echo "$EVENT_JSON" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
 SESSION_ID=$(echo "$EVENT_JSON" | jq -r '.session_id // ""' 2>/dev/null || echo "")
-ROLE="${AGENT_ROLE:-unknown}"
+# Resolve role precedence (F-2 fix, v0.7.3+): when the hook fires inside
+# a subagent, Claude Code populates `.agent_type` in the event payload
+# (per https://code.claude.com/docs/en/hooks). Use it as the primary
+# source of truth — env-derived AGENT_ROLE was never set in subagent
+# context (operator mode bypass triggered every CSO tool call as
+# `agent='unknown'`, masked Layer 5 §11 fail-safe predicate (b), and
+# bypassed the per-agent allow-list in bash-policy.json — closing both
+# F-2 and F-10 in one fix).
+ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
+ROLE="${ROLE:-${AGENT_ROLE:-unknown}}"
 
 # Compute SHA-256 of canonical (sorted-keys) JSON of tool_input
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")

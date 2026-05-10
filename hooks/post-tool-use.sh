@@ -28,7 +28,13 @@ fi
 
 TOOL_NAME=$(echo "$EVENT_JSON" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
 SESSION_ID=$(echo "$EVENT_JSON" | jq -r '.session_id // ""' 2>/dev/null || echo "")
-ROLE="${AGENT_ROLE:-unknown}"
+# F-2 fix (v0.7.3+): prefer `.agent_type` from event payload (populated
+# by Claude Code when the hook fires inside a subagent) over env-derived
+# AGENT_ROLE. Same precedence pattern as pre-tool-use.sh — keeps the
+# pre/post pair's match key (session_id, agent, tool_name, args_hash)
+# consistent across the row's lifecycle.
+ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
+ROLE="${ROLE:-${AGENT_ROLE:-unknown}}"
 
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
 ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')

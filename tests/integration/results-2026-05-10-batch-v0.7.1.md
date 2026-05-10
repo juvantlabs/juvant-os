@@ -135,6 +135,77 @@ filesystem assertion that failed in iter 13 would now pass.
 
 **Status**: CLOSED in v0.7.1.
 
+### F-2 + F-10 — Subagent role/permission inheritance (CLOSED, v0.7.3)
+
+**Original surfacing**: Echo Corp testco run on 2026-05-09
+(`tests/integration/results-2026-05-09-echo-testco.md` findings F-2
+and F-10). For 1+ year carried as "HIGH severity, Anthropic Claude-
+Code-side investigation needed".
+
+**Reinvestigation 2026-05-10** during the v0.7.x batch closure pass:
+the symptoms (agent_actions_log shows `agent='unknown'` for all
+subagent-spawned tool calls; per-role allow-list bypass triggers
+operator-mode) were being treated as "wait for Anthropic to fix
+upstream env propagation". A web search of Claude Code hooks docs
+revealed the actual canonical mechanism:
+
+> *"agent_id and agent_type are populated when the hook fires inside
+> a subagent."* — code.claude.com/docs/en/hooks
+
+I.e., Claude Code DOES expose subagent identity to PreToolUse /
+PostToolUse hooks — via the event payload's `.agent_type` field, not
+via env-var propagation. The framework's hooks just weren't reading
+that field. F-2 was a one-line miss in `pre-tool-use.sh` /
+`post-tool-use.sh`, not an Anthropic-side limitation.
+
+**Diagnosis**:
+
+- `pre-tool-use.sh` line 44 (pre-fix) read `ROLE="${AGENT_ROLE:-unknown}"`,
+  ignoring the event JSON's `.agent_type` field. When the hook fired
+  inside a CSO subagent's Bash tool call, `$AGENT_ROLE` was unset (env
+  not propagated by Claude Code), `.agent_type='cso'` was present in
+  the event but unread → ROLE='unknown' → operator-mode bypass →
+  per-role allow-list `agent_allow.cso` (expanded in F-3) never
+  applied → some Bash commands fell through to Claude Code's native
+  permission gate, hence the original "300+ approval prompts during
+  CSO audit" symptom (F-10).
+- `post-tool-use.sh` had the same pattern. The match key `(session_id,
+  agent, tool_name, args_hash)` between the pre- and post-tool-use
+  rows was symmetric (both read `${AGENT_ROLE:-unknown}`), so updates
+  landed correctly — but the audit-log identity stayed `unknown`.
+- F-2 (audit-log identity) and F-10 (per-role allow-list bypass) were
+  the SAME root cause in two different surface symptoms.
+
+**Fix** (this iteration, single 6-line patch across both hooks):
+
+```bash
+# pre-tool-use.sh + post-tool-use.sh (post-fix):
+ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
+ROLE="${ROLE:-${AGENT_ROLE:-unknown}}"
+```
+
+Precedence chain:
+1. `event.agent_type` (set by Claude Code in subagent context).
+2. `$AGENT_ROLE` env var (set by parent Skill at session boot for
+   the parent CEO session).
+3. `unknown` (operator mode for sessions outside both contexts).
+
+**Validation** (planned this run): re-run the single-project batch.
+Expected:
+- `agent_actions_log.agent` shows `cso` (not `unknown`) for the
+  ~50+ Bash/Read/Write tool calls made by the CSO subagent during
+  Step 9.7 + proj.5.7 audits.
+- Layer 5 §11 SQL `tool_name IN ('Task','Agent')` orphan-check
+  predicate (b) — operator-mode CSO audit detection — is now correct
+  (subagent rows have `agent='cso'`, no false-positive cover-up flag).
+- bash-policy.json `agent_allow.cso` (git, gh, gpg, shellcheck, jq,
+  sqlite3, turso, grep, awk, sed, find, ls, cat, head, tail, wc,
+  python3) applies to the subagent's Bash calls.
+- Approval prompts for in-allow-list Bash commands during the CSO
+  audit drop to 0 (vs the original 300+ in pre-F-2/F-10 runs).
+
+**Status**: CLOSED in v0.7.3 (this iteration).
+
 ### F-27 — `run_complete.events_emitted` counter drift (CLOSED)
 
 **Surfaced**: 2026-05-10 second fresh-session run (single-project)
