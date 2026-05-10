@@ -355,6 +355,38 @@ it as the event's `verdict` field. If the bootstrap protocol failed
 to write a verdict (Step 9 failed or did not complete), emit
 `verdict: "FAIL"` with `reason: "no_verdict_recorded"`.
 
+**Derived counters (HARD-REQUIRED, F-27 v0.7.2+).** Counters in the
+`run_complete` payload (`events_emitted`, `tokens_total`,
+`tool_calls`, etc.) **MUST** be derived from authoritative sources
+at emission time, **not** maintained as Skill-managed state through
+the run (manual counters drift — observed live as
+`events_emitted: 0` while 160 events were actually written). The
+canonical derivation:
+
+```bash
+N_EVENTS=$(wc -l < .juvant/batch-events.jsonl | tr -d ' ')
+# (similar pattern for other counters; use sqlite3 / jq against
+#  authoritative sources, never a Skill-side variable)
+```
+
+Then construct the event with `--argjson` so the count lands as a
+JSON number (not a quoted string):
+
+```bash
+jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+       --arg verdict "$VERDICT" \
+       --argjson events_emitted "$N_EVENTS" \
+       '{ts:$ts, event:"run_complete", verdict:$verdict, events_emitted:$events_emitted}' \
+  >> .juvant/batch-events.jsonl
+```
+
+Self-consistency check: by definition the file contains `N_EVENTS`
+lines including the `run_complete` it just appended; the count
+written is therefore `N_EVENTS - 1` (events emitted before the
+final one) OR `N_EVENTS` (events including run_complete) — pick
+the convention and stick to it. Recommended: include run_complete
+in the count (operator sees "all events on disk").
+
 #### Other batch-mode behaviors
 
 - **No `AskUserQuestion` calls.** The wizard is fully unattended.

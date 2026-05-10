@@ -135,6 +135,43 @@ filesystem assertion that failed in iter 13 would now pass.
 
 **Status**: CLOSED in v0.7.1.
 
+### F-27 — `run_complete.events_emitted` counter drift (CLOSED)
+
+**Surfaced**: 2026-05-10 second fresh-session run (single-project)
+on commit `0532a6b` (post-v0.7.1 tag, pre-v0.7.2 fix). The driver
+shipped a clean BATCH RUN PASS (34/34 assertions, both company +
+project phases verdict=PASS, $4.34 cost, 10m49s wall, 19 operational
+manifestos). At post-run inspection, the operator noted:
+
+> *"run_complete event riporta `events_emitted: 0` mentre ne sono
+>  stati emessi 160"*
+
+**Diagnosis**: the Skill maintains a counter through the run as a
+shell variable, increments on each emission, and writes the final
+value into the `run_complete` payload. Counter never updated —
+remained at 0 — while the file accumulated 160 events. Classic
+mutable-state-through-an-LLM-run bug: the LLM doesn't reliably
+maintain Skill-internal counter state across many turns.
+
+**Fix**: tighten JUVANT_OS.md § Batch mode event emission protocol
+with a "Derived counters HARD-REQUIRED" subsection. All counters in
+the `run_complete` payload (events_emitted, tokens_total, tool_calls,
+etc.) MUST be derived from authoritative sources AT EMISSION TIME,
+not maintained as Skill-side state. Canonical recipe:
+
+```bash
+N_EVENTS=$(wc -l < .juvant/batch-events.jsonl | tr -d ' ')
+jq -nc --argjson events_emitted "$N_EVENTS" \
+       '{event:"run_complete", events_emitted:$events_emitted, ...}' \
+  >> .juvant/batch-events.jsonl
+```
+
+Authoritative sources beat Skill-managed counters every time. Also
+plays nice with `--argjson` to keep the value as a JSON number
+(not a quoted string).
+
+**Status**: CLOSED in v0.7.2.
+
 ### F-26 — Skill emits malformed JSON via shell-variable expansion (CLOSED)
 
 **Surfaced**: 2026-05-10 fresh Claude Code session running
