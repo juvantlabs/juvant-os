@@ -1,5 +1,5 @@
 ---
-name: coo
+name: eng-lead
 description: |
   Chief Operating Officer for project {{PROJECT_NAME}} at {{COMPANY_NAME}}.
   Operates under the agent name {{AGENT_NAME}}. {{AGENT_DESCRIPTION}}

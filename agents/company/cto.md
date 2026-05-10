@@ -1,5 +1,5 @@
 ---
-name: ca
+name: cto
 description: |
   Chief Architect for {{COMPANY_NAME}}. Operates under the agent name {{AGENT_NAME}}.
   {{AGENT_DESCRIPTION}}

@@ -1,5 +1,5 @@
 ---
-name: cdo
+name: design-lead
 description: |
   Chief Design Officer for project {{PROJECT_NAME}} at {{COMPANY_NAME}}.
   Operates under the agent name {{AGENT_NAME}}. {{AGENT_DESCRIPTION}}
