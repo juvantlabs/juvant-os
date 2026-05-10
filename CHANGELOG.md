@@ -11,6 +11,83 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-05-10 — v0.8.0 follow-ups (driver iteration, [BATCH] split, F-24 DB routing prose)
+
+Maintenance patch surfacing the four follow-ups identified during
+v0.8.0 validation runs. No breaking changes; no migration required —
+this patch only refines wizard prose + driver assertion logic.
+
+### Changed — `scripts/run-testco-batch.sh` — multi-project assertion iteration
+
+Driver previously read `.inputs.project` (singular) for project-phase
+post-run assertions; multi-project fixtures using `.inputs.project_2`
+(and future `.inputs.project_3`, …) had their per-project agent count
+and CSO audit assertions silently skipped.
+
+Now collects every `.inputs.project*` key in fixture order
+(`project`, `project_2`, `project_3`, …) and iterates each through
+the per-project assertion block:
+
+- Per-project agent count: reads
+  `.expect.project_phase.projects[slug=X].agents_count` when the
+  multi-project array is present; falls back to the flat
+  `.expect.project_phase.project_agents_count` for single-project
+  fixtures; defaults to 8 per ADR 0014 §2 (project-VPE removed).
+- Per-project CSO audit: queries
+  `.juvant/project-<slug>.db.security_audit_log` first (F-24 v0.7.1+
+  per-project DB routing); falls back to company `state.db` for
+  pre-F-24 fixtures.
+
+Closes the gap surfaced by `multi-project-vpe.yaml` testco run on
+2026-05-10 (2 of 3 v0.8.0 assertion failures fell on this gap).
+
+### Changed — `JUVANT_OS.md` — [BATCH] event channel-split clarified (F-26 follow-up)
+
+Skill instruction for batch-mode event emission strengthened with an
+anti-pattern callout: stdout lines get `[BATCH] ` prefix; file appends
+to `.juvant/batch-events.jsonl` get raw JSON (NO prefix). v0.8.0
+single-company testco run surfaced 115 malformed events where the
+Skill double-applied the `[BATCH] ` prefix to file writes; driver
+correctly dropped them with `WARN: dropping malformed [BATCH] event`
+warnings but the noise floor was high enough to obscure real issues.
+New anti-pattern block makes the channel-split unambiguous.
+
+### Changed — `JUVANT_OS.md` — Project-bootstrap DB routing (F-24 follow-up)
+
+Project-init Step 5 (project-bootstrap analog) prose strengthened
+with an explicit HARD-REQUIRED DB-routing block. Per F-24 (v0.7.1+),
+all project-scope rows (manifests, agents, decisions for
+bootstrap-action, security_audit_log) MUST be written to
+`.juvant/project-<slug>.db`, NOT the company `state.db`.
+
+v0.8.0 single-project + multi-project-vpe testco runs surfaced the
+Skill writing project manifestos to company DB despite the F-24 split
+having existed since v0.7.1. The prose now includes an explicit
+anti-pattern WRONG vs CORRECT block + the resolution path
+(`.projects.<slug>.db.url` strip-`file:` → use for project INSERTs).
+
+This is a wizard-prose fix, not a code change — the Skill reads
+JUVANT_OS.md every run and the strengthened instruction reaches the
+runtime decision-making path immediately.
+
+### Filed — ARCH-010 in juvant-os-pm (#43)
+
+Historical "what was renamed and why" reference document for adopters
+arriving from blog posts citing v0.6 / v0.7 vocabulary. Cross-
+references the full rename table (ADR 0014 §1), the migration script,
+and the `role_aliases` table for audit-time joins. ADR 0014's
+"Cross-references" footer already lists this destination; the issue
+is the formal tracking ticket for the document creation.
+
+### Cross-references
+
+- v0.8.0 release: tag v0.8.0 in juvantlabs/juvant-os (commit 77613ca).
+- v0.8.0 validation results:
+  `tests/fixtures/testco/results/2026-05-10-{single-company,single-project,multi-project-vpe}.{md,jsonl}`.
+- juvant-os-pm#43 — ARCH-010 document creation.
+
+---
+
 ## [0.8.0] — 2026-05-10 — Tech leadership restructure + brand-spec authority + framework scope position (ADR 0014/0015/0016)
 
 Major minor release. Three companion ADRs land in lockstep:

@@ -335,6 +335,38 @@ visibility (when not under `--print` buffering); the file gives
 durable visibility under any output mode. The driver reads from the
 file as the canonical event source post-run.
 
+**HARD-REQUIRED — Channel split (F-26 follow-up, v0.8.1+).** Each
+channel uses a DIFFERENT line format:
+
+- **stdout** (agent text output, surfaces to operator + claude `--print`
+  stream): `[BATCH] {json}` — WITH the `[BATCH] ` prefix.
+- **file** (`.juvant/batch-events.jsonl`, parsed by the driver as
+  raw JSONL): `{json}` — WITHOUT the `[BATCH] ` prefix.
+
+The driver parses the file as one JSON object per line and uses
+`jq -e '.event'` to validate. A line that starts with `[BATCH] ` in the
+file is malformed JSON and gets dropped with a `WARN: dropping
+malformed [BATCH] event` warning per line. The Skill MUST NOT add the
+`[BATCH] ` prefix to file appends.
+
+Canonical pattern (do BOTH per event):
+
+```bash
+# stdout line (prefixed) — emitted via the Skill's normal output channel:
+echo '[BATCH] {"ts":"...","event":"step_start","step":"1.5"}'
+
+# file append (NO prefix) — emitted via Bash append to .juvant/batch-events.jsonl:
+echo '{"ts":"...","event":"step_start","step":"1.5"}' >> .juvant/batch-events.jsonl
+```
+
+Anti-pattern (the v0.8.0 regression surfaced 115 malformed events in
+single-company run, all of this shape):
+
+```bash
+# WRONG — file write should be unprefixed JSON, not the stdout-formatted line.
+echo '[BATCH] {"event":"step_start","step":"1.5"}' >> .juvant/batch-events.jsonl
+```
+
 Markdown summary at end-of-run is allowed and useful, but it is **not
 a substitute** for the structured event stream. The summary lives in
 the agent text; events live in the file.
@@ -2211,10 +2243,63 @@ closes the script gap that pre-v0.7.x runs worked around inline.
 Same as company bootstrap but with `precondition_bypassed='project-bootstrap'`.
 Sequencing per SYSTEM_INVARIANTS.md §1 / pca.md:
 
+**HARD-REQUIRED — DB routing (F-24 follow-up, v0.8.1+).** All project-
+scope rows MUST be written to the per-project DB at
+`.juvant/project-<slug>.db`, NOT to the company `state.db`. The
+canonical writes for this step are:
+
+  - `manifests` rows for the 8 project-scope agents (pca, product-lead,
+    design-lead, eng-lead, eng-api, eng-backend, eng-frontend, eng-ai)
+    → `.juvant/project-<slug>.db`.
+  - `agents` rows for the same 8 → `.juvant/project-<slug>.db` (with
+    `scope='project'`, `project_id='<slug>'`).
+  - `decisions` rows category `bootstrap-action` for each manifesto
+    approval → `.juvant/project-<slug>.db`.
+  - `security_audit_log` rows from the project CSO audit
+    (sub-step 3 below) → `.juvant/project-<slug>.db` (this part already
+    works; documented here for completeness).
+
+The company `state.db` keeps a single `projects` table row (id, name,
+db_url, status, created_at) and the project DOES NOT appear in
+`state.db.manifests` or `state.db.agents`. Cross-scope agent
+materialization (read-only from company DB to project DB or vice
+versa) is governed by SYSTEM_INVARIANTS §4 scope boundaries.
+
+Anti-pattern (v0.8.0 regression surfaced this — Skill wrote project
+manifestos to company DB during single-project + multi-project-vpe
+testco runs):
+
+```sql
+-- WRONG — project manifestos to company state.db:
+sqlite3 .juvant/state.db <<SQL
+INSERT INTO manifests (agent, scope, project_id, ...) VALUES
+  ('pca', 'project', '<slug>', ...),
+  ('product-lead', 'project', '<slug>', ...),
+  ...
+SQL
+
+-- CORRECT — project manifestos to per-project DB:
+sqlite3 .juvant/project-<slug>.db <<SQL
+INSERT INTO manifests (agent, scope, project_id, ...) VALUES
+  ('pca', 'project', '<slug>', ...),
+  ('product-lead', 'project', '<slug>', ...),
+  ...
+SQL
+```
+
+Resolution: read `.projects.<slug>.db.url` from `.juvant/config.json`,
+strip leading `file:`, use that path for ALL project-scope INSERT
+statements in this step. For cloud-provider project DBs, use
+`turso db shell "$DB_URL"` per the F-24 split.
+
+Sequencing:
+
 1. CHRO + CTO approve the new project's PCA manifesto first (these two are already
    `operational` post-company-bootstrap — they evaluate normally per Tier 1 rules).
+   The PCA manifesto + agents row are written to `.juvant/project-<slug>.db`.
 2. Once the project PCA reaches `operational_restricted`, that PCA performs Tier 1
    on the remaining project-scope agents (Product Lead, Design Lead, Eng Lead, Eng/*).
+   All 7 remaining manifestos + agents rows are written to `.juvant/project-<slug>.db`.
 3. CSO performs `bootstrap_baseline=1` audit immediately after, scoped to the project.
    **Same hard-required rule as company bootstrap (Step 9.7):** the audit is
    invoked via `Task(subagent_type='cso', ...)` — the Skill **MUST NOT**

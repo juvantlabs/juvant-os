@@ -55,3 +55,7 @@ coverage/
 
 # Claude Code local state
 .claude/local/
+
+# v0.8.1: PyYAML venv created for local YAML fixture validation
+.venv/
+.claude/scheduled_tasks.lock
