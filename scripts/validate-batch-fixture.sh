@@ -112,8 +112,11 @@ require_one_of '.inputs.doc_storage.provider' onedrive sharepoint googledrive dr
 require_string '.inputs.doc_storage.mcp_server'
 
 # ─── inputs.github_user_map ────────────────────────────────────────
+# v0.8.0 (ADR 0014 §1/§2): ca→cto company-scope rename; vpe added as
+# company-scope optional. Required keys: 9 mandatory + cto + cro +
+# vpe + eng-platform.
 require_object '.inputs.github_user_map'
-for role in ceo cos cfo clo cmo cco chro cso cetho ca cro eng-platform; do
+for role in ceo cos cfo clo cmo cco chro cso cetho cto cro vpe eng-platform; do
   require_string ".inputs.github_user_map[\"$role\"]"
 done
 
@@ -144,12 +147,20 @@ fi
 # ─── inputs.guardrails ─────────────────────────────────────────────
 require_object '.inputs.guardrails'
 
-# ─── inputs.agent_names + cro_enabled ──────────────────────────────
+# ─── inputs.agent_names + feature_toggles ──────────────────────────
+# v0.8.0 (ADR 0014 §1/§2): ca→cto company-scope rename; vpe added as
+# company-scope optional. cro_enabled flat key replaced by
+# feature_toggles object containing cro_enabled / vpe_enabled /
+# eng_platform_enabled / cloud_provider per ADR 0014 §1/§6 + ADR 0016.
 require_object '.inputs.agent_names'
-for role in cos cfo clo cmo cco chro cso cetho ca cro eng-platform; do
+for role in cos cfo clo cmo cco chro cso cetho cto cro vpe eng-platform; do
   require_string ".inputs.agent_names[\"$role\"]"
 done
-require_bool '.inputs.cro_enabled'
+require_object '.inputs.feature_toggles'
+require_bool '.inputs.feature_toggles.eng_platform_enabled'
+require_bool '.inputs.feature_toggles.cro_enabled'
+require_bool '.inputs.feature_toggles.vpe_enabled'
+require_one_of '.inputs.feature_toggles.cloud_provider' azure aws gcp none
 
 # ─── inputs.bootstrap ──────────────────────────────────────────────
 require_one_of '.inputs.bootstrap.manifesto_approval_mode' \
@@ -164,7 +175,10 @@ if [[ "$(jq -r '.inputs.project // null | type' <<<"$JSON")" == "object" ]]; the
   require_one_of '.inputs.project.database.provider' local turso azure aws gcp
   require_string '.inputs.project.database.url'
   require_object '.inputs.project.agent_names'
-  for role in cto cpo cdo coo vpe eng-api eng-backend eng-frontend eng-ai; do
+  # v0.8.0 (ADR 0014 §1/§2): project-scope role placeholders renamed.
+  # cto→pca, cpo→product-lead, cdo→design-lead, coo→eng-lead;
+  # project-VPE removed (absorbed by eng-lead per §2).
+  for role in pca product-lead design-lead eng-lead eng-api eng-backend eng-frontend eng-ai; do
     # agent_names accepts null (= use default <slug>-<role>) or string.
     proj_type=$(jq -r ".inputs.project.agent_names[\"$role\"] | type" <<<"$JSON" 2>/dev/null || echo "missing")
     if [[ "$proj_type" != "string" && "$proj_type" != "null" ]]; then
@@ -178,14 +192,27 @@ fi
 # ─── expect block ──────────────────────────────────────────────────
 require_string '.expect.bootstrap_verdict'
 require_one_of '.expect.bootstrap_verdict' PASS WARN-WITH-CONDITIONS FAIL
-# manifests count is mechanical: 10 founding for company-only scenarios,
-# 19 = 10 + 9 for single-project, etc. Acceptable values: 10 (no project),
-# 19 (1 project), 28 (2 projects), … (10 + 9*N).
+# v0.8.0 (ADR 0014 §1/§6): manifests count is parameterized.
+# Company-scope: N = 9 mandatory + (eng_platform_enabled + cro_enabled
+# + vpe_enabled). Project-scope: 8 per project (was 9 in v0.7 with
+# project-VPE; removed per §2).
+# Acceptable totals: N + 8*P where P = project count, N ∈ [9,12].
 mc=$(jq -r '.expect.manifests_count // empty' <<<"$JSON")
-case "$mc" in
-  10|19|28|37|46) ;;
-  *) fail ".expect.manifests_count must be 10 + 9*N where N = project count (got: $mc)" ;;
-esac
+ept=$(jq -r '.inputs.feature_toggles.eng_platform_enabled // false' <<<"$JSON")
+crot=$(jq -r '.inputs.feature_toggles.cro_enabled // false' <<<"$JSON")
+vpet=$(jq -r '.inputs.feature_toggles.vpe_enabled // false' <<<"$JSON")
+expected_n=9
+[[ "$ept"  == "true" ]] && expected_n=$((expected_n + 1))
+[[ "$crot" == "true" ]] && expected_n=$((expected_n + 1))
+[[ "$vpet" == "true" ]] && expected_n=$((expected_n + 1))
+# Project count: presence of inputs.project = +1; +inputs.project_2 = +1
+project_count=0
+[[ "$(jq -r '.inputs.project // null | type' <<<"$JSON")" == "object" ]] && project_count=$((project_count + 1))
+[[ "$(jq -r '.inputs.project_2 // null | type' <<<"$JSON")" == "object" ]] && project_count=$((project_count + 1))
+expected_total=$((expected_n + 8 * project_count))
+if [[ "$mc" != "$expected_total" ]]; then
+  fail ".expect.manifests_count=$mc does not match feature_toggles-derived expected ($expected_n company + 8*$project_count project = $expected_total)"
+fi
 
 # ─── exit ──────────────────────────────────────────────────────────
 if [[ "$errs" -gt 0 ]]; then
