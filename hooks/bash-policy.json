@@ -1,5 +1,17 @@
 {
-  "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow only via tool-matrix-change decision (CA proposes, CSO reviews, CEO approves, COO installs) per SYSTEM_INVARIANTS.md §6.",
+  "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). universal_allow lists POSIX shell builtins + harmless flow-control that pass FIRST_TOKEN check for any role (cd, echo, etc. are not real binaries). agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow only via tool-matrix-change decision (CA proposes, CSO reviews, CEO approves, COO installs) per SYSTEM_INVARIANTS.md §6.",
+
+  "_compound_command_caveat": "FIRST_TOKEN check on per-role allow-list inspects only the first binary in compound commands ('cmd1 && cmd2 || cmd3' → only cmd1 is matched). If cmd1 is in universal_allow (e.g. cd) or in role allow-list, downstream binaries pass UNCHECKED by allow-list. Universal deny-list still applies regex-wide (rm -rf /, force-push, drop table caught regardless of position). v0.8.x candidate: extract every binary from compound commands and validate each.",
+
+  "universal_allow": [
+    "cd", "pushd", "popd",
+    "echo", "printf",
+    "exit", "return",
+    "true", "false", ":",
+    "test", "[", "[[",
+    "command", "type",
+    "set", "unset", "export"
+  ],
 
   "deny_patterns": [
     "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+/(\\s|$)",

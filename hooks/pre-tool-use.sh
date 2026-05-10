@@ -86,12 +86,22 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
       : # operator mode — universal deny already enforced; allow continues
     else
       FIRST_TOKEN=$(echo "$COMMAND" | awk '{print $1}' | sed 's|.*/||')
-      ALLOW_OK=$(jq -r --arg role "$ROLE" --arg bin "$FIRST_TOKEN" \
-        '(.agent_allow[$role] // []) | index($bin) // empty' \
+      # F-28 fix (v0.7.3+): check universal_allow (POSIX shell builtins
+      # like cd, pushd, echo — not real binaries, harmless across roles)
+      # before falling through to per-role allow-list. Without this,
+      # the Skill's `cd /tmp/... && sqlite3 ...` compound commands
+      # got denied on `cd` even though sqlite3 was in cso allow-list.
+      UNIVERSAL_OK=$(jq -r --arg bin "$FIRST_TOKEN" \
+        '(.universal_allow // []) | index($bin) // empty' \
         "$POLICY" 2>/dev/null || echo "")
-      if [[ -z "$ALLOW_OK" ]]; then
-        DECISION="deny"
-        DENY_REASON="binary '$FIRST_TOKEN' not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Escalate to CoS for tool-matrix-change."
+      if [[ -z "$UNIVERSAL_OK" ]]; then
+        ALLOW_OK=$(jq -r --arg role "$ROLE" --arg bin "$FIRST_TOKEN" \
+          '(.agent_allow[$role] // []) | index($bin) // empty' \
+          "$POLICY" 2>/dev/null || echo "")
+        if [[ -z "$ALLOW_OK" ]]; then
+          DECISION="deny"
+          DENY_REASON="binary '$FIRST_TOKEN' not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Escalate to CoS for tool-matrix-change."
+        fi
       fi
     fi
   fi
