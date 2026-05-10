@@ -127,7 +127,13 @@
       "Bash(bash scripts/migrate.sh:*)",
       "Bash(scripts/migrate.sh:*)",
       "Bash(bash scripts/audit-bootstrap-baseline.sh:*)",
-      "Bash(scripts/audit-bootstrap-baseline.sh:*)"
+      "Bash(scripts/audit-bootstrap-baseline.sh:*)",
+      "Bash(bash scripts/seed-matrix.sh:*)",
+      "Bash(scripts/seed-matrix.sh:*)",
+      "Bash(bash scripts/validate-batch-fixture.sh:*)",
+      "Bash(scripts/validate-batch-fixture.sh:*)",
+      "Bash(bash scripts/run-testco-batch.sh:*)",
+      "Bash(scripts/run-testco-batch.sh:*)"
     ],
     "deny": [
       "Edit(**/.env)",

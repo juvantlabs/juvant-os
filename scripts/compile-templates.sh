@@ -227,17 +227,20 @@ CICD=$(tunable CICD "GitHub Actions")
 AGENT_DESCRIPTION="$COMPANY_DESCRIPTION"
 
 # Allowlist of placeholders that may legitimately survive at company init
-# (runtime-bound at SessionStart or project init). Intentionally short.
-# When --scope projects is invoked with a resolved $PROJECT_SLUG, both
-# ACTIVE_PROJECT and PROJECT_NAME ARE substituted (not allowlisted as
-# survivors); the allowlist for that path is just ACTIVE_PROJECT, which
-# the project files use to reference the runtime-bound active project
-# state at SessionStart. For company-scope compilation, PROJECT_NAME
-# survives because no project is bound yet at company init.
+# (runtime-bound at SessionStart, project init, or agent self-binding).
+# Intentionally short:
+# - ACTIVE_PROJECT survives both scopes (runtime-bound at SessionStart).
+# - PROJECT_NAME survives company-scope (project bound later); is
+#   substituted under --scope projects --project=<slug>.
+# - AGENT_DESCRIPTION survives both scopes (agent-self-bound at first
+#   manifesto write — pre-v0.7.x adopters left this placeholder
+#   intentionally; the wizard has no formal per-agent description
+#   schema yet). Listed here so the validator does not fail-loud on
+#   unbound files.
 if [[ "$SCOPE" == "projects" && -n "${PROJECT_NAME:-}" ]]; then
-  ALLOWLIST_REGEX='ACTIVE_PROJECT'
+  ALLOWLIST_REGEX='ACTIVE_PROJECT|AGENT_DESCRIPTION'
 else
-  ALLOWLIST_REGEX='ACTIVE_PROJECT|PROJECT_NAME'
+  ALLOWLIST_REGEX='ACTIVE_PROJECT|PROJECT_NAME|AGENT_DESCRIPTION'
 fi
 
 # ─────────────────────────────────────────────
