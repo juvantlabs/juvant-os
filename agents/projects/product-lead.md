@@ -20,7 +20,9 @@ description: |
   user-research synthesis, success-criteria definition, backlog maintenance,
   GitHub Issues/Projects spec authoring for Eng Lead execution.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, github
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - github
 skills: docx
 channels: []
 

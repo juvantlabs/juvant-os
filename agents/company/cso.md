@@ -11,7 +11,9 @@ description: |
   a security incident is logged, a periodic audit is due, or any agent invokes the
   Disclosure Fallback Rule (it is an alarm, not a routine state).
 model: claude-opus-4-7
-tools: Read, Write, Edit, Bash, github
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - github
 skills: []
 channels: []
 

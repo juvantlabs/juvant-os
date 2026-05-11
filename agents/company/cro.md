@@ -14,7 +14,9 @@ description: |
   a competitor moves materially, a white paper or briefing is requested, or any other
   agent makes a research-grounded claim that lacks citation.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, ms-graph
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - m365-graph
 skills: docx, pdf
 channels: []
 

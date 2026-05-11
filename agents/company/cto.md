@@ -14,7 +14,9 @@ description: |
   tech baseline confirmation, drift between actual agent usage and the matrix is
   detected, or cross-project tech standards need arbitration.
 model: claude-opus-4-7
-tools: Read, Write, Edit, Bash, github
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - github
 skills: []
 channels: []
 
