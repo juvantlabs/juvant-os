@@ -12,37 +12,37 @@
 # handle. For larger teams, per-role overrides at company init bind real
 # humans to specific roles.
 
-# Skill orchestrator + cross-cutting invariants — CEO + CA shared
-/JUVANT_OS.md            @{{CEO_GITHUB}} @{{CA_GITHUB}}
-/SYSTEM_INVARIANTS.md    @{{CEO_GITHUB}} @{{CA_GITHUB}}
+# Skill orchestrator + cross-cutting invariants — CEO + CTO shared
+/JUVANT_OS.md            @{{CEO_GITHUB}} @{{CTO_GITHUB}}
+/SYSTEM_INVARIANTS.md    @{{CEO_GITHUB}} @{{CTO_GITHUB}}
 /CHANGELOG.md            @{{CEO_GITHUB}}
-/README.md               @{{CEO_GITHUB}} @{{CA_GITHUB}}
+/README.md               @{{CEO_GITHUB}} @{{CTO_GITHUB}}
 /LICENSE                 @{{CEO_GITHUB}}
 
-# Architecture decision records — CA owns
-/docs/adr/               @{{CA_GITHUB}}
-/docs/MCP_INVENTORY.md   @{{CA_GITHUB}} @{{CSO_GITHUB}}
-/docs/branch-protection-spec.md  @{{CSO_GITHUB}} @{{CA_GITHUB}}
+# Architecture decision records — CTO owns
+/docs/adr/               @{{CTO_GITHUB}}
+/docs/MCP_INVENTORY.md   @{{CTO_GITHUB}} @{{CSO_GITHUB}}
+/docs/branch-protection-spec.md  @{{CSO_GITHUB}} @{{CTO_GITHUB}}
 
-# Subagent templates — CHRO (lifecycle) + CA (architecture)
-/agents/company/         @{{CHRO_GITHUB}} @{{CA_GITHUB}}
-/agents/projects/        @{{CHRO_GITHUB}} @{{CA_GITHUB}}
+# Subagent templates — CHRO (lifecycle) + CTO (architecture)
+/agents/company/         @{{CHRO_GITHUB}} @{{CTO_GITHUB}}
+/agents/projects/        @{{CHRO_GITHUB}} @{{CTO_GITHUB}}
 
-# Lifecycle hooks + schema — CSO (security) + CA (architecture)
-/hooks/                  @{{CSO_GITHUB}} @{{CA_GITHUB}}
-/scripts/schema.sql      @{{CA_GITHUB}}
-/scripts/migrate.sh      @{{CA_GITHUB}}
-/scripts/                @{{CA_GITHUB}}
+# Lifecycle hooks + schema — CSO (security) + CTO (architecture)
+/hooks/                  @{{CSO_GITHUB}} @{{CTO_GITHUB}}
+/scripts/schema.sql      @{{CTO_GITHUB}}
+/scripts/migrate.sh      @{{CTO_GITHUB}}
+/scripts/                @{{CTO_GITHUB}}
 
-# Plugins — CA reviews
-/plugins/                @{{CA_GITHUB}}
+# Plugins — CTO reviews
+/plugins/                @{{CTO_GITHUB}}
 
-# Infrastructure (Terraform / Bicep — FEAT-015 webhook services) — CSO + CA
-/infra/                  @{{CSO_GITHUB}} @{{CA_GITHUB}}
+# Infrastructure (Terraform / Bicep — FEAT-015 webhook services) — CSO + CTO
+/infra/                  @{{CSO_GITHUB}} @{{CTO_GITHUB}}
 
 # CI workflows + GitHub config — CSO reviews
-/.github/                @{{CSO_GITHUB}} @{{CA_GITHUB}}
-/.github/workflows/      @{{CSO_GITHUB}} @{{CA_GITHUB}}
+/.github/                @{{CSO_GITHUB}} @{{CTO_GITHUB}}
+/.github/workflows/      @{{CSO_GITHUB}} @{{CTO_GITHUB}}
 
 # Default — CEO catches everything else
 *                        @{{CEO_GITHUB}}
