@@ -134,15 +134,19 @@ audit_layer_1_access() {
     expected_n=$((expected_n + 1))
   fi
 
+  # Cloud Turso db shell pads numeric output with column-alignment whitespace
+  # (e.g. "12          "). Strip at assignment so downstream string comparisons
+  # against $expected_n / "0" work correctly. Applies to all 4 count queries
+  # in this layer (manifests, operational, bootstrap_decisions, action_log).
   manifests_count=$(juvant_db_query \
     "SELECT COUNT(*) FROM manifests WHERE tier1_bootstrap=1 AND precondition_bypassed='bootstrap';" \
-    | tail -1)
+    | tail -1 | tr -d '[:space:]')
   operational_count=$(juvant_db_query \
     "SELECT COUNT(*) FROM agents WHERE manifesto_status IN ('operational','operational_restricted') AND tier1_bootstrap=1;" \
-    | tail -1)
+    | tail -1 | tr -d '[:space:]')
   bootstrap_decisions=$(juvant_db_query \
     "SELECT COUNT(*) FROM decisions WHERE category='bootstrap-action' AND status='executed';" \
-    | tail -1)
+    | tail -1 | tr -d '[:space:]')
 
   if [[ "${manifests_count:-0}" == "$expected_n" ]]; then
     emit "access" "info" \
@@ -175,7 +179,7 @@ audit_layer_1_access() {
   # security_audit_log auditor='cso' = cover-up flag. Reported here at audit
   # time so CSO sees its own pre-state.
   local action_log_count
-  action_log_count=$(juvant_db_query "SELECT COUNT(*) FROM agent_actions_log;" | tail -1)
+  action_log_count=$(juvant_db_query "SELECT COUNT(*) FROM agent_actions_log;" | tail -1 | tr -d '[:space:]')
   if [[ "${action_log_count:-0}" == "0" ]]; then
     emit "access" "medium" \
       "agent_actions_log is empty (0 rows) at audit time. v0.6.3+ Local SQLite hooks should populate this on every tool call; an empty log mid-bootstrap suggests Track 3 is not running. Verify hooks/lib/db.sh routing and provider config (v0.6.5 F-20 strip 'file:' prefix)." \
