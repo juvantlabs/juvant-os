@@ -9,7 +9,9 @@ description: |
   Use proactively at every SessionStart and for any cross-agent coordination.
   Acts as the only agent the CEO talks to by default — exceptions require explicit CEO request.
 model: claude-opus-4-7
-tools: Read, Write, Edit, Bash, Task, ms-graph
+tools: Read, Write, Edit, Bash, Task
+mcpServers:
+  - m365-graph
 skills: []
 channels: [telegram]
 

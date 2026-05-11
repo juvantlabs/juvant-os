@@ -22,7 +22,10 @@ description: |
   audits, UX research planning and synthesis, brand-spec authorship at project
   scope, project visual-identity coherence reviews on external-facing artifacts.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, github, ms-graph
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - github
+  - m365-graph
 skills: frontend-design, docx
 channels: []
 

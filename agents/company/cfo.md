@@ -13,7 +13,9 @@ description: |
   Use proactively when the topic touches money, banking, contracts with monetary terms,
   or any counterparty whose role intersects finance (commercialista, banks, suppliers, clients).
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, ms-graph, bank
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - m365-graph
 skills: pdf, docx
 mail_enabled: true
 

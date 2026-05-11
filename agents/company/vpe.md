@@ -26,7 +26,9 @@ description: |
   this role at company init if running a single-project shop — the company
   CTO performs the cross-project aggregation directly when N=1.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, github
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - github
 skills: []
 channels: []
 

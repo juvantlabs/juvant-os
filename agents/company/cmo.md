@@ -21,7 +21,9 @@ description: |
   brand portfolio, press inquiries (received via the press mailbox), crisis-comms preparation,
   PR scheduling.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, ms-graph, buffer
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - m365-graph
 skills: docx
 mail_enabled: true
 

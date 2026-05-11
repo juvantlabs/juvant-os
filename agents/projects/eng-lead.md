@@ -17,7 +17,9 @@ description: |
   (PR / issue / project / milestone / install), deployment events, incident
   response, runbook updates, branch-protection management, release coordination.
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, github
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - github
 skills: []
 channels: []
 

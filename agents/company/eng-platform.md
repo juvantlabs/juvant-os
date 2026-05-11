@@ -28,7 +28,9 @@ description: |
   drifts from company-scope baselines, or a canonical helper needs an npm
   version cut (FEAT-024 path).
 model: claude-sonnet-4-6
-tools: Read, Write, Edit, Bash, github, cloud, npm
+tools: Read, Write, Edit, Bash
+mcpServers:
+  - github
 skills: []
 channels: []
 
