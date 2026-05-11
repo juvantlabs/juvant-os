@@ -287,8 +287,17 @@ run_version_pair_migration() {
   echo "  bootstrap_completed_at: $bootstrap_completed"
 
   # Idempotency: refuse if already migrated.
-  if sqlite3 "$DB_PATH" "SELECT 1 FROM agent_tool_matrix WHERE role='cto' AND scope='company' AND superseded_by IS NULL;" 2>/dev/null | grep -q 1; then
-    if ! sqlite3 "$DB_PATH" "SELECT 1 FROM agent_tool_matrix WHERE role='ca' AND scope='company' AND superseded_by IS NULL;" 2>/dev/null | grep -q 1; then
+  # NOTE: the `agent_tool_matrix` table is scope-less by design (see the
+  # comment at "Update active state: agent_tool_matrix" further down, and
+  # schema.sql lines 199-221). Per F-24 each scope has its own DB, so a
+  # `WHERE role='cto'` query against the company DB unambiguously matches
+  # the company-scope row (and only that row). Earlier versions of this
+  # check included an erroneous `AND scope='company'` predicate that
+  # silently failed (no such column) → grep -q -1 → idempotency check
+  # always falsy → migration would happily re-run on an already-migrated
+  # DB. Dropping the predicate restores the intended idempotency.
+  if sqlite3 "$DB_PATH" "SELECT 1 FROM agent_tool_matrix WHERE role='cto' AND superseded_by IS NULL;" 2>/dev/null | grep -q 1; then
+    if ! sqlite3 "$DB_PATH" "SELECT 1 FROM agent_tool_matrix WHERE role='ca' AND superseded_by IS NULL;" 2>/dev/null | grep -q 1; then
       echo "FAIL: state appears already migrated to v0.8 (active 'cto' company-scope row, no active 'ca'). Refusing to re-run."
       exit 3
     fi
