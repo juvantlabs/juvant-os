@@ -11,6 +11,20 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`.claude/settings.json`** — narrow `.env.*` deny patterns from
+  blanket `Edit/Write(**/.env.*)` to an explicit list of token-bearing
+  variants. The blanket pattern captured `.env.example`, a
+  sample/template file by convention that documents required env var
+  names; adopters got prompted on every edit, defeating the autonomy
+  intent of `defaultMode: acceptEdits`. Explicit list now covers
+  `.env`, `.env.local`, `.env.production`, `.env.development`,
+  `.env.staging`, `.env.test`, `.env.secrets`, `.env.private`,
+  `.env.azure`, `.env.aws`, `.env.gcp` (Edit + Write each).
+  Credentials files (`credentials*`) still denied unchanged.
+  Originally surfaced in `juvantio/juvant` on 2026-05-07.
+
 ## [0.8.2] — 2026-05-10 — Documentation refresh — propagate v0.8 vocabulary to README + docs + adopter templates
 
 Docs-only patch. Surface-level files that describe Juvant OS structure
