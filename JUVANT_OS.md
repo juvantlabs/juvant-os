@@ -59,7 +59,7 @@ written to Turso before SessionEnd. The PreCompact hook enforces this for in-ses
 context limits; the SessionEnd hook enforces it at the conversation boundary.
 
 Everything in `.juvant/config.json` is local-only and gitignored — credentials,
-endpoint URLs, bank provider binding, notification tokens. The repo never carries
+endpoint URLs, notification tokens. The repo never carries
 secrets.
 
 ---
@@ -78,8 +78,7 @@ from collections of like-typed fields.
 
 Steps that collect heterogeneous fields where each value may branch
 the wizard logic, validate independently, or has user-specific
-semantics (Step 1 identity, Step 2 DB provider choice, Step 3 bank
-provider choice, Step 6 CRO enablement, Step 9 manifesto-approval
+semantics (Step 1 identity, Step 2 DB provider choice, Step 6 CRO enablement, Step 9 manifesto-approval
 mode) **MUST** render as **one question at a time, sequentially**,
 waiting for the CEO's reply before proceeding to the next field.
 Batch-mode collection (*"reply with all six fields in one message"*,
@@ -161,7 +160,6 @@ Where `init_state` cycles through:
 "step-1.5b-complete"   → after mailbox bindings
 "step-1.6-complete"    → after GitHub user mapping
 "step-2-complete"      → after DB provider + path
-"step-3-complete"      → after bank binding
 "step-4-complete"      → after notification setup
 "step-4.5-complete"    → after guardrail setup
 "step-5-complete"      → after counterparties intake
@@ -236,7 +234,6 @@ at the step's canonical path. The full mapping:
 | Step 1.5b (Mailboxes) | `inputs.mail_enabled_agents.{cfo,clo,cco,cmo}` | Value `null` → agent not mail-enabled. |
 | Step 1.6 (GitHub map) | `inputs.github_user_map.<role>` | All 12 role slugs (lowercase) per F-21 fix. |
 | Step 2 (Database) | `inputs.database.{provider,setup_mode,url,auth_token}` | `auth_token: null` for local. |
-| Step 3 (Bank) | `inputs.bank.{provider,name,mcp_server,rationale}` | `name`+`mcp_server` required only when `provider=other`. |
 | Step 4 (Notifications) | `inputs.notifications.{telegram,webhooks}` | Telegram requires `is_operator_personal_channel: true` for the ADR 0011 carve-out. |
 | Step 4.5 (Guardrails) | `inputs.guardrails.{confirmation_token,anomaly_thresholds,audit_log_retention_days}` | All sub-keys required. |
 | Step 5 (Counterparties) | `inputs.counterparties.{mode,entries}` | `mode: skip` → empty entries. |
@@ -1062,67 +1059,6 @@ location.
 After config is written, run `bash scripts/migrate.sh` to apply
 `scripts/schema.sql` against the new DB. Verify all 20 tables exist by listing
 `sqlite_master` (or LibSQL equivalent). Abort the wizard if any table is missing.
-
-### Wizard — Step 3: Bank provider binding
-
-The agent_tool_matrix references the abstract `bank` MCP role. Bind it now.
-
-When rendering this prompt, describe each option neutrally — the providers
-listed below are the ones with a known community MCP server, not endorsements.
-Do not mark any provider as a "default" or attribute it to a specific company,
-including the entity that maintains this OSS template.
-
-```
-Which bank provides company accounts?
-  [1] Finom    — Italian SMB-focused EUR provider
-  [2] Mercury  — US-focused USD provider
-  [3] Revolut  — Multi-currency EU/UK provider
-  [4] Wise     — Multi-currency international provider
-  [5] Other    — Specify provider name + MCP server URL/package
-  [6] Skip     — Bind later (CFO operates in restricted mode for banking)
-```
-
-If [1]–[4]: record the canonical provider id (`finom` / `mercury` / `revolut`
-/ `wise`) and the corresponding MCP server reference.
-
-If [5] **Other**: the Skill **MUST** branch into two sub-prompts (one at
-a time, per the wizard rendering rule clause 1):
-
-1. *"Provider name (lowercase slug, e.g. `acmebank`)?"* — recorded as
-   `bank.provider`.
-2. *"MCP server URL or npm package (e.g. `npm:@org/<provider>-mcp-server`
-   or `https://...`)?"* — recorded as `bank.mcp_server`.
-
-The Skill **MUST NOT** record `bank.provider = null, bank.mcp_server = null`
-when [5] Other is selected — that's the F-19 failure mode (Foxtrot Corp
-testco run, 2026-05-09): the Skill treated [5] Other as a "skip" path and
-collapsed both fields to null without prompting. If the CEO genuinely
-wants to defer, they pick [6] Skip explicitly.
-
-If [6] **Skip**: record `bank.provider = null, bank.mcp_server = null,
-bank.scope = read`. CFO operates in restricted mode for banking until
-re-bound via Skill operation `Bind bank provider`.
-
-Validation: if any selection ends with `bank.provider = null` AND
-`bank.mcp_server = null` AND the CEO's last response was NOT [6] Skip,
-re-prompt with the same options (do not silently advance). Same family
-as the F-18 finding (no input validation / no re-prompt on invalid).
-
-Record in `.juvant/config.json`:
-
-```json
-{
-  "bank": {
-    "provider": "finom",
-    "mcp_server": "<server-url-or-package>",
-    "scope": "read"
-  }
-}
-```
-
-The `:read` qualifier is enforced by the MCP server configuration, not by the agent
-file. CFO is the only agent that receives `bank:read` (Universal Boundary, §4 / matrix
-v0). `bank:write` is never granted — only a future ratified `treasury` role may receive it.
 
 ### Wizard — Step 4: Notifications
 
