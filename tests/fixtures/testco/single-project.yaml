@@ -7,7 +7,7 @@
 # in a single claude --print run (cache reuse across phases).
 
 scenario: single-project
-fixture_version: 2
+fixture_version: 3
 juvant_os_version: 0.8.0
 description: |
   Solo founder, local SQLite, CRO enabled, eng-platform default-on per
@@ -28,6 +28,7 @@ inputs:
     company_name: Single Project Test Corp
     company_slug: single-project-test
     company_domain: singleprojecttest.example
+    company_description: A test company for single-project batch testco validation.
     ceo_name: Casey Project
     ceo_pronouns: they/them
     copyright_holder: Single Project Test Corp
@@ -250,18 +251,16 @@ expect:
     - { path: '.juvant/config.json', must_exist: true }
     - { path: '.juvant/state.db', must_exist: true }
     - { path: '.juvant/project-apollo.db', must_exist: true }
-    # Project-scope agent files materialized via in-place template
-    # substitution (per JUVANT_OS.md § Project setup Step 4: substitutes
-    # {{PROJECT_NAME}}, {{*_NAME}} into agents/projects/*.md; only
-    # {{ACTIVE_PROJECT}} survives, bound at SessionStart). True multi-
-    # project per-project subdirectories arrive with v0.7.x multi-project
-    # scenario; for single-project the templates are mutated in place.
-    - { path: 'agents/projects/pca.md', must_exist: true }
-    - { path: 'agents/projects/product-lead.md', must_exist: true }
-    - { path: 'agents/projects/eng-lead.md', must_exist: true }
-    - { path: 'agents/projects/pca.md', must_contain: 'Pallas' }
-    - { path: 'agents/projects/product-lead.md', must_contain: 'Echo' }
-    - { path: 'agents/projects/eng-lead.md', must_contain: 'Tyche' }
+    # Project-scope agent files compiled to agents/projects/<slug>/ (BUG-004 fix,
+    # v0.8.3+). Source templates agents/projects/*.md remain pristine; compiled
+    # output lands in the per-slug subdirectory; .claude/agents/<slug>-<role>.md
+    # symlinks are wired by compile-templates.sh automatically.
+    - { path: 'agents/projects/apollo/pca.md', must_exist: true }
+    - { path: 'agents/projects/apollo/product-lead.md', must_exist: true }
+    - { path: 'agents/projects/apollo/eng-lead.md', must_exist: true }
+    - { path: 'agents/projects/apollo/pca.md', must_contain: 'Pallas' }
+    - { path: 'agents/projects/apollo/product-lead.md', must_contain: 'Echo' }
+    - { path: 'agents/projects/apollo/eng-lead.md', must_contain: 'Tyche' }
 
   pending_orphan_assertions:
     AskUserQuestion: 0

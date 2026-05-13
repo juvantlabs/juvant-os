@@ -9,7 +9,7 @@
 # Schema reference: docs/adr/0012-batch-testco-mode.md § Schema.
 
 scenario: single-company
-fixture_version: 2
+fixture_version: 3
 juvant_os_version: 0.8.0
 description: |
   Closest analog to Golf Corp manual run, updated for the v0.8.0
@@ -28,6 +28,7 @@ inputs:
     company_name: Solo Founder Test Corp
     company_slug: solo-founder-test
     company_domain: solofoundertest.example
+    company_description: A test company for single-company batch testco validation.
     ceo_name: Alex Solo
     ceo_pronouns: they/them
     copyright_holder: Solo Founder Test Corp
