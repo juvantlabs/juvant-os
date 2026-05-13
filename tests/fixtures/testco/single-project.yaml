@@ -192,8 +192,8 @@ expect:
   bootstrap_verdict: WARN-WITH-CONDITIONS
   bootstrap_verdict_acceptable: [WARN-WITH-CONDITIONS, PASS]
 
-  manifests_count: 11           # company manifests in state.db only (9 mandatory + eng-platform + cro); project manifests are in project-apollo.db — validated separately by project_manifests_count below
-  decisions_count: 12           # state.db only: 11 company bootstrap-action + 1 branch-protection-spec; project decisions (8 bootstrap-action) are in project-apollo.db
+  manifests_count: 19           # 11 company (state.db) + 8 project (project-apollo.db); driver sums across all DBs
+  decisions_count: 20           # 12 company (state.db: 11 bootstrap-action + 1 branch-protection-spec) + 8 project bootstrap-action (project-apollo.db); driver sums across all DBs
   matrix_rows_count: 19         # 11 company (vpe excluded: feature_toggles.vpe_enabled=false) + 8 project roles seeded by project init
 
   # ─── Project phase ─────────────────────────────────────────────────
@@ -235,7 +235,7 @@ expect:
     - { role: eng-lead,     mcp_servers: [turso, github:write] }   # single-writer at project scope per ADR 0014 §4
 
   decision_categories:
-    bootstrap-action_min: 11    # state.db only; project bootstrap-action (8) are in project-apollo.db
+    bootstrap-action_min: 19    # 11 company (state.db) + 8 project (project-apollo.db)
 
   filesystem_assertions:
     - { path: README.md, must_contain: 'Single Project Test Corp' }

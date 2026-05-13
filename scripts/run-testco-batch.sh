@@ -507,9 +507,14 @@ else
   assert_fail "bootstrap_verdict=$actual_verdict (expected one of: $expected_verdicts)"
 fi
 
-# manifests_count
+# manifests_count — sum across company state.db + all project DBs
 expected_manifests=$(yq -r '.expect.manifests_count' "$FIXTURE")
 actual_manifests=$(sqlite3 "$DB" "SELECT COUNT(*) FROM manifests;" 2>/dev/null || echo "0")
+for proj_db in "$TMP_DIR"/.juvant/project-*.db; do
+  [[ -f "$proj_db" ]] || continue
+  n=$(sqlite3 "$proj_db" "SELECT COUNT(*) FROM manifests;" 2>/dev/null || echo "0")
+  actual_manifests=$(( actual_manifests + n ))
+done
 if [[ "$actual_manifests" == "$expected_manifests" ]]; then
   assert_ok "manifests_count=$actual_manifests"
 else
@@ -583,6 +588,11 @@ fi
 # decisions_count
 expected_decisions=$(yq -r '.expect.decisions_count' "$FIXTURE")
 actual_decisions=$(sqlite3 "$DB" "SELECT COUNT(*) FROM decisions;" 2>/dev/null || echo "0")
+for proj_db in "$TMP_DIR"/.juvant/project-*.db; do
+  [[ -f "$proj_db" ]] || continue
+  n=$(sqlite3 "$proj_db" "SELECT COUNT(*) FROM decisions;" 2>/dev/null || echo "0")
+  actual_decisions=$(( actual_decisions + n ))
+done
 if [[ "$actual_decisions" -ge "$expected_decisions" ]]; then
   assert_ok "decisions_count=$actual_decisions (≥$expected_decisions)"
 else
