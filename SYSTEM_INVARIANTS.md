@@ -569,6 +569,30 @@ Summary (cited when CTO APPROVE/REJECT/DEFER any change):
 
 ---
 
+## §8 — CoS dispatcher constraint (Claude Code structural limit)
+
+The `Task` tool is available **only to the main thread**. Sub-agents cannot
+spawn nested sub-agents — Claude Code structurally prevents it regardless of
+what a sub-agent's `tools:` frontmatter declares.
+
+Consequence for the CoS dispatcher pattern:
+
+- **CoS as main thread (correct):** The operator opens `claude` in the company
+  directory. CoS is the session identity. `Task(subagent_type='<role>', ...)`
+  works; CoS fans out to specialists normally.
+- **CoS as sub-agent (broken fan-out):** An outer orchestrator calls
+  `Task(subagent_type='cos', ...)` expecting CoS to dispatch further.
+  CoS runs but has no `Task` tool; any attempt to fan-out is silently a
+  no-op. There is no error — CoS simply cannot dispatch.
+
+**Rule:** Never invoke `Task(subagent_type='cos', ...)` from an outer
+orchestrator and expect nested dispatch. CoS MUST be the main thread
+to exercise its dispatcher role. The `Task` declaration was removed from
+`agents/company/cos.md` `tools:` to eliminate the dead-code signal (closes
+issue #21).
+
+---
+
 ## Appendix A — Cross-references in subagent files
 
 Subagent files reference this document at their identity section via a

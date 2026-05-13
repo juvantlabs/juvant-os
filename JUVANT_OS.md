@@ -50,6 +50,14 @@ The CEO opens Claude Code in the company directory. Claude Code loads this Skill
 The CEO speaks. The Skill maps intent to procedure. Procedures read and write Turso
 (persistent memory) and call subagents through the standard `Task` tool.
 
+> **CoS dispatcher constraint (Claude Code structural limit):** The `Task`
+> tool is available only to the main thread — sub-agents cannot spawn
+> nested sub-agents. The CoS dispatcher pattern therefore requires CoS to
+> run as the **main thread** (the default `claude` invocation in the company
+> directory). Invoking `Task(subagent_type='cos', ...)` from an outer
+> orchestrator and expecting CoS to fan-out further will fail silently:
+> CoS runs but has no `Task` tool available. See SYSTEM_INVARIANTS.md §8.
+
 There is no daemon, no background process, no npm package. The system is operational
 when the CEO is operational. This is by design.
 
