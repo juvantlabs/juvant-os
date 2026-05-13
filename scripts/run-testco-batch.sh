@@ -304,13 +304,13 @@ ACTIVATION_PROMPT="Initialize Juvant OS using batch inputs from .juvant/batch-in
 # --include-hook-events: surfaces every PreToolUse/PostToolUse event
 #                        (Track 3 audit log fires visible in real time).
 # --verbose: required by --output-format=stream-json per claude --help.
-# --max-budget-usd: safety cap on a misbehaving Skill loop. $5 covers
-#                   single-company (~$2 observed) AND single-project
-#                   (~$3 observed; the project-init phase adds ~$1 net
-#                   of cache-reuse benefit) with margin. Reduce per-
-#                   scenario in a fork if the budget is too generous;
-#                   keep margin for unexpected Skill recon overhead on
-#                   first-time runs against a new fixture.
+# --max-budget-usd: safety cap on a misbehaving Skill loop. $10 covers
+#                   single-company (~$3 observed) AND single-project
+#                   (~$6-7 observed after v0.8.3 fixture fixes; project-
+#                   init CSO audit + manifests adds ~$3-4 net of cache-
+#                   reuse benefit) with margin. Reduce per-scenario in a
+#                   fork if the budget is too generous; keep margin for
+#                   unexpected Skill recon overhead on cold-cache runs.
 STREAM_FILE="$TMP_DIR/stream.jsonl"
 : > "$STREAM_FILE"
 
@@ -323,7 +323,7 @@ STREAM_FILE="$TMP_DIR/stream.jsonl"
     --verbose \
     --include-hook-events \
     --include-partial-messages \
-    --max-budget-usd 6.5 \
+    --max-budget-usd 10 \
     "$ACTIVATION_PROMPT" 2>&1
 ) | tee "$LOG_FILE" | while IFS= read -r line; do
   # Three sinks:
