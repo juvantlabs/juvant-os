@@ -276,6 +276,7 @@ fi
 # in heredoc/awk for arbitrary text content.
 substitute_file() {
   local file="$1"
+  local out_file="${2:-$1}"
   local file_basename
   file_basename=$(basename "$file")
 
@@ -311,10 +312,11 @@ substitute_file() {
     *)                agent_name_token="" ;;
   esac
 
-  python3 - "$file" "$agent_name_token" "$ALLOWLIST_REGEX" "$CHECK_ONLY" <<'PYEOF'
+  python3 - "$file" "$agent_name_token" "$ALLOWLIST_REGEX" "$CHECK_ONLY" "$out_file" <<'PYEOF'
 import os, re, sys
 
 path, agent_name_token, allowlist_re, check_only = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+out_path = sys.argv[5] if len(sys.argv) > 5 else path
 
 with open(path) as f:
     content = f.read()
@@ -418,13 +420,13 @@ if check_only == "1":
         print(f"OK   {path}")
     sys.exit(0)
 
-with open(path, "w") as f:
+with open(out_path, "w") as f:
     f.write(content)
 
 if survivors:
-    print(f"compiled: {path} (allowlisted survivors: {sorted(survivors)})")
+    print(f"compiled: {out_path} (allowlisted survivors: {sorted(survivors)})")
 else:
-    print(f"compiled: {path}")
+    print(f"compiled: {out_path}")
 PYEOF
 }
 
@@ -629,21 +631,41 @@ else
     exit 1
   fi
 
-  for f in "$TARGET_DIR"/*.md; do
-    [[ -f "$f" ]] || continue
-    # Skip optional company-scope agents when their feature toggle is off.
-    # The wizard's manifesto/activation flow also gates them at runtime, but
-    # the compiled file must not exist in .claude/agents/ for a disabled role.
-    case "$(basename "$f")" in
-      vpe.md)
-        [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping vpe.md (feature_toggles.vpe_enabled=false)"; continue; }
-        ;;
-      cro.md)
-        [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping cro.md (feature_toggles.cro_enabled=false)"; continue; }
-        ;;
-    esac
-    substitute_file "$f"
-  done
+  if [[ "$SCOPE" == "projects" ]]; then
+    # Write compiled output to agents/projects/<slug>/ so source templates
+    # in agents/projects/*.md remain pristine across multi-project compiles.
+    # Wire .claude/agents/<slug>-<role>.md symlinks after each file.
+    local PROJ_OUT_DIR="$ROOT/agents/projects/$PROJECT_SLUG"
+    mkdir -p "$PROJ_OUT_DIR"
+    for f in "$TARGET_DIR"/*.md; do
+      [[ -f "$f" ]] || continue
+      local base out_file stem link_target link_name
+      base=$(basename "$f")
+      out_file="$PROJ_OUT_DIR/$base"
+      substitute_file "$f" "$out_file"
+      stem="${base%.md}"
+      link_target="../../agents/projects/${PROJECT_SLUG}/${base}"
+      link_name="$ROOT/.claude/agents/${PROJECT_SLUG}-${stem}.md"
+      ln -sf "$link_target" "$link_name"
+      echo "  symlinked: .claude/agents/${PROJECT_SLUG}-${stem}.md → ${link_target}"
+    done
+  else
+    for f in "$TARGET_DIR"/*.md; do
+      [[ -f "$f" ]] || continue
+      # Skip optional company-scope agents when their feature toggle is off.
+      # The wizard's manifesto/activation flow also gates them at runtime, but
+      # the compiled file must not exist in .claude/agents/ for a disabled role.
+      case "$(basename "$f")" in
+        vpe.md)
+          [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping vpe.md (feature_toggles.vpe_enabled=false)"; continue; }
+          ;;
+        cro.md)
+          [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping cro.md (feature_toggles.cro_enabled=false)"; continue; }
+          ;;
+      esac
+      substitute_file "$f"
+    done
+  fi
 fi
 
 if [[ "$CHECK_ONLY" == "1" ]]; then

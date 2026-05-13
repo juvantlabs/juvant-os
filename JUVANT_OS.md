@@ -2182,7 +2182,13 @@ runs):
 bash scripts/compile-templates.sh --scope projects --project=<slug>
 ```
 
-The script iterates `agents/projects/*.md` and substitutes:
+The script reads `agents/projects/*.md` (pristine source templates —
+never modified in-place) and writes compiled output to
+`agents/projects/<slug>/`. It then wires `.claude/agents/<slug>-<role>.md`
+symlinks pointing to each compiled file. This means multiple projects can
+be compiled independently without overwriting each other's output (BUG-004).
+
+Substitutions applied:
 - `{{PROJECT_NAME}}` → `.projects.<slug>.name`
 - `{{*_NAME}}` for project roles (PCA_NAME, PRODUCT_LEAD_NAME,
   DESIGN_LEAD_NAME, ENG_LEAD_NAME, ENG_API_NAME, ENG_BACKEND_NAME,
