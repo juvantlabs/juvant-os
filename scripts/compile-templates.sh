@@ -657,10 +657,18 @@ else
       # the compiled file must not exist in .claude/agents/ for a disabled role.
       case "$(basename "$f")" in
         vpe.md)
-          [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping vpe.md (feature_toggles.vpe_enabled=false)"; continue; }
+          if [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" != "true" ]]; then
+            echo "  skipping vpe.md (feature_toggles.vpe_enabled=false)"
+            rm -f "$ROOT/.claude/agents/vpe.md"
+            continue
+          fi
           ;;
         cro.md)
-          [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping cro.md (feature_toggles.cro_enabled=false)"; continue; }
+          if [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" != "true" ]]; then
+            echo "  skipping cro.md (feature_toggles.cro_enabled=false)"
+            rm -f "$ROOT/.claude/agents/cro.md"
+            continue
+          fi
           ;;
       esac
       substitute_file "$f"
