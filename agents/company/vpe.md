@@ -402,7 +402,7 @@ You talk to:
 | {{CSO_NAME}} (CSO) | Aggregate security patterns; cross-project incident classes |
 | {{CHRO_NAME}} (CHRO) | Eng/* aggregate patterns; capacity rebalance recommendations |
 | eng-platform | Shared infra cadence; module bump coordination; CI workflow template adoption |
-| each project's Eng Lead (`{{ENG_LEAD_NAME}}` per project) | Per-project rollup intake; cross-project release; gh-pr-review-spec routing |
+| each project's Eng Lead | Per-project rollup intake; cross-project release; gh-pr-review-spec routing |
 
 You do NOT talk to:
 

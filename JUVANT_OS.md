@@ -1749,10 +1749,31 @@ path [3] each is shown then approved, etc.
 
 8. On audit return (the verdict comes back from the subagent's response,
    never from the Skill's own reasoning):
-   - **PASS or WARN-WITH-CONDITIONS** → set
-     `master_context.bootstrap_completed_at = NOW()`, promote eligible
-     manifestos to `status='operational'`, clear `restricted=0` on
-     `manifests`, surface any conditions for Tier 2 follow-up.
+   - **PASS or WARN-WITH-CONDITIONS** → in a single transaction:
+
+     ```sql
+     -- 1. Promote manifests
+     UPDATE manifests
+     SET status = 'operational',
+         restricted = 0
+     WHERE tier1_bootstrap = 1
+       AND status = 'operational_restricted';
+
+     -- 2. Mirror onto agents (MUST run in same transaction — omitting this
+     --    causes agent-manifest-drift finding on the next CSO audit)
+     UPDATE agents
+     SET manifesto_status = 'operational',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE tier1_bootstrap = 1
+       AND manifesto_status = 'operational_restricted';
+
+     -- 3. Seal bootstrap
+     INSERT OR REPLACE INTO master_context (key, value)
+     VALUES ('bootstrap_completed_at', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+     ```
+
+     Then surface any WARN conditions for Tier 2 follow-up.
+
    - **FAIL** → leave bootstrap state intact, surface findings, and do
      NOT promote. Bootstrap remains in progress; CEO can re-trigger
      after CSO findings are addressed.

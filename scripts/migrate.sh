@@ -302,7 +302,7 @@ run_version_pair_migration() {
       exit 3
     fi
   fi
-  echo "  v0.7 baseline: confirmed (active 'ca' company-scope row present in agent_tool_matrix)"
+  echo "  v0.7 baseline: confirmed (active 'ca' row present in agent_tool_matrix)"
 
   # ────────────────────
   # Backup

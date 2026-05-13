@@ -158,7 +158,9 @@ juvant_db_query() {
       if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
         return 1
       fi
-      turso db shell "$JUVANT_DB_URL" "$sql" 2>/dev/null
+      # turso db shell pads scalar output with whitespace; strip it so
+      # callers can compare COUNT(*) results with == without false mismatches.
+      turso db shell "$JUVANT_DB_URL" "$sql" 2>/dev/null | tr -d ' \t' | grep -v '^$'
       ;;
     *)
       return 1

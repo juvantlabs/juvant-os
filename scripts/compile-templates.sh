@@ -631,6 +631,17 @@ else
 
   for f in "$TARGET_DIR"/*.md; do
     [[ -f "$f" ]] || continue
+    # Skip optional company-scope agents when their feature toggle is off.
+    # The wizard's manifesto/activation flow also gates them at runtime, but
+    # the compiled file must not exist in .claude/agents/ for a disabled role.
+    case "$(basename "$f")" in
+      vpe.md)
+        [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping vpe.md (feature_toggles.vpe_enabled=false)"; continue; }
+        ;;
+      cro.md)
+        [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" == "true" ]] || { echo "  skipping cro.md (feature_toggles.cro_enabled=false)"; continue; }
+        ;;
+    esac
     substitute_file "$f"
   done
 fi
