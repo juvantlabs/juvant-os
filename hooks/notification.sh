@@ -21,8 +21,8 @@ fi
 # Load Telegram credentials
 if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
   if [[ -f "$CONFIG" ]]; then
-    TELEGRAM_BOT_TOKEN=$(jq -r '.telegram_bot_token // ""' "$CONFIG" 2>/dev/null || echo "")
-    TELEGRAM_CHAT_ID=$(jq -r '.telegram_chat_id // ""' "$CONFIG" 2>/dev/null || echo "")
+    TELEGRAM_BOT_TOKEN=$(jq -r '.notifications.telegram_bot_token // ""' "$CONFIG" 2>/dev/null || echo "")
+    TELEGRAM_CHAT_ID=$(jq -r '.notifications.telegram_chat_id // ""' "$CONFIG" 2>/dev/null || echo "")
   fi
 fi
 
@@ -33,7 +33,7 @@ fi
 NOTIFY_CHANNEL="${JUVANT_NOTIFY_CHANNEL:-approvals}"
 TEAMS_WEBHOOK_URL=""
 if [[ -f "$CONFIG" ]] && command -v jq &>/dev/null; then
-  TEAMS_WEBHOOK_URL=$(jq -r --arg ch "$NOTIFY_CHANNEL" '.teams_webhooks[$ch] // ""' "$CONFIG" 2>/dev/null || echo "")
+  TEAMS_WEBHOOK_URL=$(jq -r --arg ch "$NOTIFY_CHANNEL" '.notifications.teams_webhooks[$ch] // ""' "$CONFIG" 2>/dev/null || echo "")
 fi
 
 # Parse message from event JSON
