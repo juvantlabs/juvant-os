@@ -658,15 +658,19 @@ else
       case "$(basename "$f")" in
         vpe.md)
           if [[ "$(jq -r '.feature_toggles.vpe_enabled // false' "$CONFIG")" != "true" ]]; then
-            echo "  skipping vpe.md (feature_toggles.vpe_enabled=false)"
+            # Compile in-place so no {{}} residue remains (CSO Layer 5 scans
+            # agents/company/ directly). Symlink removed so the role is inactive.
+            substitute_file "$f"
             rm -f "$ROOT/.claude/agents/vpe.md"
+            echo "  compiled (disabled): vpe.md — symlink removed, role inactive"
             continue
           fi
           ;;
         cro.md)
           if [[ "$(jq -r '.feature_toggles.cro_enabled // false' "$CONFIG")" != "true" ]]; then
-            echo "  skipping cro.md (feature_toggles.cro_enabled=false)"
+            substitute_file "$f"
             rm -f "$ROOT/.claude/agents/cro.md"
+            echo "  compiled (disabled): cro.md — symlink removed, role inactive"
             continue
           fi
           ;;
