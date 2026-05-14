@@ -194,7 +194,7 @@ expect:
 
   manifests_count: 19           # 11 company (state.db) + 8 project (project-apollo.db); driver sums across all DBs
   decisions_count: 20           # 12 company (state.db: 11 bootstrap-action + 1 branch-protection-spec) + 8 project bootstrap-action (project-apollo.db); driver sums across all DBs
-  matrix_rows_count: 19         # 11 company (vpe excluded: feature_toggles.vpe_enabled=false) + 8 project roles seeded by project init
+  matrix_rows_count: 20         # 12 company (all roles seeded including disabled vpe; symlink removal gates invocation) + 8 project roles
 
   # ─── Project phase ─────────────────────────────────────────────────
   project_phase:
