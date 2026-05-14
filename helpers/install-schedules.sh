@@ -126,41 +126,18 @@ PLIST
 </plist>
 PLIST
 
-        # FEAT-007 Helper 3 — fiscal-deadlines — daily 07:45 local
-        cat > "$LAUNCHD_DIR/${PREFIX}.fiscal-deadlines.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>${PREFIX}.fiscal-deadlines</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/fiscal-deadlines.sh</string>
-  </array>
-  <key>StartCalendarInterval</key>
-  <dict>
-    <key>Hour</key><integer>7</integer>
-    <key>Minute</key><integer>45</integer>
-  </dict>
-  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/fiscal-deadlines.log</string>
-  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/fiscal-deadlines.err</string>
-</dict>
-</plist>
-PLIST
-
         mkdir -p "${REPO_ROOT}/.juvant/logs"
 
-        for label in turso-backup audit-reconcile anomaly-check morning-brief fiscal-deadlines; do
+        for label in turso-backup audit-reconcile anomaly-check morning-brief; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed (5 jobs)."
+        echo "[install-schedules] OK — Mac launchd schedules installed (4 jobs)."
         ;;
 
       uninstall|--uninstall)
-        for label in turso-backup audit-reconcile anomaly-check morning-brief fiscal-deadlines; do
+        for label in turso-backup audit-reconcile anomaly-check morning-brief; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
@@ -188,7 +165,6 @@ PLIST
 0 3 * * 6    /bin/bash ${REPO_ROOT}/helpers/audit-reconcile.sh   >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1    $CRON_TAG
 */15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh     >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1      $CRON_TAG
 0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh     >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1      $CRON_TAG
-45 7 * * *   /bin/bash ${REPO_ROOT}/helpers/fiscal-deadlines.sh  >> ${REPO_ROOT}/.juvant/logs/fiscal-deadlines.log 2>&1   $CRON_TAG
 CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
@@ -230,10 +206,11 @@ If you must stay on Git Bash (no WSL), you can manually create
 Windows Task Scheduler entries pointing at:
   - C:\\path\\to\\Git\\bin\\bash.exe
   - $REPO_ROOT/helpers/<helper>.sh
-For each of the 5 helpers (turso-backup daily 03:00,
+For each of the 4 helpers (turso-backup daily 03:00,
 audit-reconcile weekly Sat 03:00, anomaly-check every 15 min,
-morning-brief daily 08:00, fiscal-deadlines daily 07:45). The hooks
-themselves run independently of these schedules.
+morning-brief daily 08:00). The hooks themselves run independently
+of these schedules. fiscal-deadlines.sh is available as an on-demand
+helper but is not scheduled.
 WINMSG
     exit 1
     ;;
