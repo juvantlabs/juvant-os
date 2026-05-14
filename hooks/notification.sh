@@ -14,7 +14,7 @@ CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
 # Read notification event from stdin
 EVENT_JSON=""
-if [ -p /dev/stdin ]; then
+if [ ! -t 0 ]; then
   EVENT_JSON=$(cat -)
 fi
 
