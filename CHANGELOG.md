@@ -11,19 +11,112 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-05-14 — First stable release
+
+First production-ready release. All seven bugs surfaced during the first
+real-world adopter migration (Juvant Srls, v0.6→v0.8.2) are resolved.
+The multi-project compile path is correct and verified. The batch testco
+single-project scenario passes with `bootstrap_verdict=PASS` and zero
+P0/P1 security findings. The framework is adopter-ready.
+
 ### Fixed
 
-- **`.claude/settings.json`** — narrow `.env.*` deny patterns from
-  blanket `Edit/Write(**/.env.*)` to an explicit list of token-bearing
-  variants. The blanket pattern captured `.env.example`, a
-  sample/template file by convention that documents required env var
-  names; adopters got prompted on every edit, defeating the autonomy
-  intent of `defaultMode: acceptEdits`. Explicit list now covers
-  `.env`, `.env.local`, `.env.production`, `.env.development`,
-  `.env.staging`, `.env.test`, `.env.secrets`, `.env.private`,
-  `.env.azure`, `.env.aws`, `.env.gcp` (Edit + Write each).
-  Credentials files (`credentials*`) still denied unchanged.
-  Originally surfaced in `juvantio/juvant` on 2026-05-07.
+- **BUG-001 — `compile-templates.sh`** — optional agents (`vpe.md`,
+  `cro.md`) were always compiled regardless of `feature_toggles.vpe_enabled`
+  / `feature_toggles.cro_enabled`. Script now checks each toggle before
+  compiling. When an agent is disabled it is still compiled (to resolve all
+  `{{}}` placeholders, keeping the source file clean for CSO Layer 5), but
+  its `.claude/agents/` symlink is removed so the role is inactive at runtime.
+- **BUG-002 — `agents/company/vpe.md`** — unresolvable `{{ENG_LEAD_NAME}}`
+  placeholder survived in documentation prose, causing the compile residue
+  check to fail for any adopter enabling VPE. Placeholder removed; plain text
+  used in its place.
+- **BUG-003 — `.github/CODEOWNERS`** — template used the obsolete
+  `{{CA_GITHUB}}` placeholder (renamed to `{{CTO_GITHUB}}` at v0.8.0).
+  `compile-templates.sh` had `CTO_GITHUB` in its substitution map but the
+  template still referenced the old name, leaving the CODEOWNERS file
+  unresolved after company init.
+- **BUG-004 — `compile-templates.sh --scope projects`** — wrote compiled
+  project-scope agent files in-place to `agents/projects/*.md`. For
+  multi-project adopters, each subsequent project compile overwrote the
+  previous one's output silently. Fixed: compiled output now lands in
+  `agents/projects/<slug>/`; source templates in `agents/projects/*.md`
+  remain pristine and are never modified. After each file, the script wires
+  `.claude/agents/<slug>-<role>.md` symlinks automatically.
+- **BUG-005 — `hooks/lib/db.sh`** — `juvant_db_query` returned scalar
+  results padded with whitespace from the `turso db shell` output. String
+  comparisons (`== "0"`, `COUNT(*) > 0`) silently failed, producing false
+  P1/P2 findings in the CSO bootstrap baseline audit for all Turso adopters.
+  Output is now stripped before returning.
+- **BUG-006 — `JUVANT_OS.md` Step 9.8** — the Bootstrap Protocol promoted
+  agent manifests to `operational` by updating the `manifests` table but
+  omitted the corresponding UPDATE on the `agents` table. The CSO audit
+  subsequently flagged agent-manifest-drift on every subsequent audit run.
+  Both tables are now updated in the same step.
+- **BUG-007 — `scripts/migrate.sh`** — the v0.7→v0.8 migration idempotency
+  check included `AND scope='company'` in its SQL guard. The v0.8
+  `agent_tool_matrix` schema is scope-less by design (scope is encoded by
+  the DB file, per ADR 0014 §4); the column does not exist, causing SQLite
+  errors and silent guard bypass so the migration would re-run on an already-
+  migrated database.
+- **Agent frontmatter — `mcpServers` split from `tools`** — all company-
+  and project-scope agent templates had MCP server identifiers listed inside
+  the `tools:` frontmatter field. Claude Code resolves `mcpServers` from a
+  separate frontmatter key; mixing them caused sub-agents not to see their
+  MCP servers. All agent templates now use `mcpServers:` and `tools:`
+  separately.
+- **`.claude/settings.json`** — narrow `.env.*` deny patterns from a blanket
+  `Edit/Write(**/.env.*)` to an explicit list of token-bearing variants.
+  The blanket pattern captured `.env.example` (a documentation-only template),
+  causing adopters to be prompted on every edit of that file. Explicit deny
+  list now covers `.env`, `.env.local`, `.env.production`, `.env.development`,
+  `.env.staging`, `.env.test`, `.env.secrets`, `.env.private`, `.env.azure`,
+  `.env.aws`, `.env.gcp`. `.env.example` is no longer denied.
+
+### Changed
+
+- **`JUVANT_OS.md` — company-init wizard** — bank provider binding step
+  (Step 3) removed. The two planned banking MCP servers (`finom-mcp-server`,
+  `aruba-fattura-mcp-server`) are deferred to the parking lot: the Finom
+  Partner API is currently closed to new users (no timeline), and the Aruba
+  MCP is blocked on the same infrastructure. Adopters who need banking read
+  access today can wire a provider-specific MCP server manually after init.
+  The `bank:read` entry in the agent tool matrix and `MCP_INVENTORY.md` is
+  retained — it becomes a named slot that adopters fill when a compatible
+  MCP server is available.
+- **`agents/company/cos.md` + `SYSTEM_INVARIANTS.md` §8** — the CoS
+  dispatcher pattern requires CoS to run as the main thread. Claude Code
+  structurally prevents sub-agents from spawning nested sub-agents; the
+  `Task` tool is unavailable to any sub-agent regardless of frontmatter.
+  `Task` removed from `cos.md` tools: (dead-code when CoS is a sub-agent;
+  available by default when CoS is the main thread). New §8 in
+  `SYSTEM_INVARIANTS.md` documents the constraint and the broken invocation
+  pattern. Callout added to `JUVANT_OS.md` § How this Skill works.
+- **`README.md`** — complete rewrite. Adds CI/license/release/Claude badges.
+  Removes all ADR inline references, parking-lot feature mentions, and
+  changelog-style historical language. Roadmap uses sequential version numbers
+  (v1.0, v1.1, v1.2) rather than release-phase labels (Alpha/Beta). Historical
+  detail lives in this CHANGELOG; the README presents the project as it is today.
+
+### Batch testco (internal)
+
+The batch regression driver and single-project fixture received a set of
+corrections as part of validating v1.0.0:
+
+- `company_description` added to all testco fixtures — resolves `AGENT_DESCRIPTION`
+  placeholder that CSO Layer 5 flagged when the field was absent.
+- Fixture filesystem assertions updated from `agents/projects/*.md` to
+  `agents/projects/<slug>/*.md` following the BUG-004 compile-path fix.
+- Batch driver now sums `manifests` and `decisions` counts across the company
+  `state.db` and all per-project databases, not just `state.db`. Combined
+  counts reflect the full bootstrap output.
+- Budget cap raised from $6.5 to $10 for the single-project scenario.
+- `matrix_rows_count` corrected to 20: all 12 company-scope roles are always
+  seeded (including disabled ones), with invocation gated by symlink presence.
+
+**Verdict on commit `ce39b5e`:** `bootstrap_verdict=PASS`, all 19 assertions
+satisfied, zero P0/P1 security findings, project CSO `bootstrap_baseline` audit
+fired and completed.
 
 ## [0.8.2] — 2026-05-10 — Documentation refresh — propagate v0.8 vocabulary to README + docs + adopter templates
 
