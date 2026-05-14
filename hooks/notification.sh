@@ -55,8 +55,8 @@ else
   FULL_MESSAGE="$MESSAGE"
 fi
 
-# Push to Telegram
-if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
+# Push to Telegram (skipped when JUVANT_TEAMS_ONLY=1 — e.g. long markdown briefs)
+if [[ "${JUVANT_TEAMS_ONLY:-0}" != "1" ]] && [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
   curl -s -X POST \
     "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     -d "chat_id=${TELEGRAM_CHAT_ID}" \
