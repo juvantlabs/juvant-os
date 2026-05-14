@@ -1078,20 +1078,21 @@ Collect:
   Critical alerts. Easiest way: open a chat with the new bot, send `/start`, then
   message `@userinfobot` to retrieve the numeric chat_id.
 - **Teams Adaptive Cards webhook URLs — one per channel.** Teams uses bare channel
-  names (no `#` prefix; that is Slack convention). The four canonical channels and
-  their purpose:
+  names (no `#` prefix; that is Slack convention). The three company-scope channels:
 
   | Channel | Purpose | Required |
   |---|---|---|
   | `Approvals` | Decisions awaiting CEO sign-off; Critical Notification routes here by default | Yes |
   | `{{COMPANY_NAME_SLUG}}-ops` | Company ops, Morning Brief digest, routine notices | Yes |
   | `System` | Telemetry, migration-watch deltas, audit findings | Yes |
-  | `{{ACTIVE_PROJECT}}-alerts` | Project-scoped alerts; resolved per project at project-init | Optional at company-init (added when the first project is set up) |
 
   Each channel is created in Teams as an Incoming Webhook (or modern Power Automate
   Workflow webhook), and the resulting URL is stored under `.juvant/config.json` →
-  `teams_webhooks.<channel-key>`. Empty / unset URLs cause the Notification hook to
-  skip Teams for that channel and fall back to Telegram only.
+  `notifications.teams_webhooks.<channel-key>`. Empty / unset URLs cause the
+  Notification hook to skip Teams for that channel.
+
+  Project-scoped `alerts` channels are NOT collected here — each project configures
+  its own alerts webhook at project-init Step 1.notif.
 - **Morning Brief time** (default `08:00 Europe/Rome`). Used to configure the
   Desktop Scheduled Task in Phase 7 (separate setup).
 
@@ -1104,16 +1105,12 @@ Resulting `.juvant/config.json` notifications block:
   "teams_webhooks": {
     "approvals": "https://<tenant>.webhook.office.com/...",
     "ops": "https://<tenant>.webhook.office.com/...",
-    "system": "https://<tenant>.webhook.office.com/...",
-    "alerts": "https://<tenant>.webhook.office.com/..."
+    "system": "https://<tenant>.webhook.office.com/..."
   },
   "morning_brief_time": "08:00",
   "morning_brief_tz": "Europe/Rome"
 }
 ```
-
-The `alerts` key is shared across projects in v1.0; per-project alert webhooks are a
-v1.1 refinement.
 
 ### Wizard — Step 4.5: Agent action guardrails (handbook ADR 0004)
 
@@ -2079,6 +2076,35 @@ content (research, design assets, project documentation) from this folder
 when resolving roles like `research` or `branding`. Cross-cutting functions
 (legal, finance, ops) continue to resolve at company-level via the same
 `resolve_folder` algorithm as Step 1.5.
+
+### Wizard — Step 1.notif: Project alerts channel (optional)
+
+Ask the CEO for the Teams webhook URL for this project's `alerts` channel.
+One question, one field, skip allowed.
+
+```
+Teams alerts webhook for <Project Name>?
+  Paste URL (Power Automate Workflow webhook for the #<slug>-alerts channel)
+  or press Enter to skip (no project-scoped alerts — company system channel used as fallback).
+```
+
+If provided, record under `projects.<slug>.notifications.teams_webhooks.alerts`.
+If skipped, leave the key absent — the Notification hook falls back to the
+company-scope `system` channel for any project alert.
+
+```json
+{
+  "projects": {
+    "<slug>": {
+      "notifications": {
+        "teams_webhooks": {
+          "alerts": "https://<tenant>.webhook.office.com/..."
+        }
+      }
+    }
+  }
+}
+```
 
 ### Wizard — Step 2: Project database
 
