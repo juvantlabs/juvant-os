@@ -635,11 +635,10 @@ else
     # Write compiled output to agents/projects/<slug>/ so source templates
     # in agents/projects/*.md remain pristine across multi-project compiles.
     # Wire .claude/agents/<slug>-<role>.md symlinks after each file.
-    local PROJ_OUT_DIR="$ROOT/agents/projects/$PROJECT_SLUG"
+    PROJ_OUT_DIR="$ROOT/agents/projects/$PROJECT_SLUG"
     mkdir -p "$PROJ_OUT_DIR"
     for f in "$TARGET_DIR"/*.md; do
       [[ -f "$f" ]] || continue
-      local base out_file stem link_target link_name
       base=$(basename "$f")
       out_file="$PROJ_OUT_DIR/$base"
       substitute_file "$f" "$out_file"
