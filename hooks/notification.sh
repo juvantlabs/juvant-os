@@ -73,9 +73,20 @@ if [[ "${JUVANT_TEAMS_ONLY:-0}" != "1" ]] && [[ -n "${TELEGRAM_BOT_TOKEN:-}" && 
     -o /dev/null 2>&1 || echo "[notification] WARN: Telegram push failed." >&2
 fi
 
-# Push to Teams webhook
+# Push to Teams webhook (AdaptiveCard format — Power Automate "Post card" action)
 if [[ -n "${TEAMS_WEBHOOK_URL:-}" ]]; then
-  TEAMS_PAYLOAD="{\"text\": \"${FULL_MESSAGE}\"}"
+  TEAMS_PAYLOAD=$(jq -n --arg msg "$FULL_MESSAGE" '{
+    "type": "AdaptiveCard",
+    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+    "version": "1.4",
+    "body": [
+      {
+        "type": "TextBlock",
+        "text": $msg,
+        "wrap": true
+      }
+    ]
+  }')
   curl -s -X POST \
     "$TEAMS_WEBHOOK_URL" \
     -H "Content-Type: application/json" \
