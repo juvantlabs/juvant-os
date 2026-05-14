@@ -27,13 +27,22 @@ if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
 fi
 
 # Resolve Teams webhook URL by channel key.
-# Channel selection (in order): JUVANT_NOTIFY_CHANNEL env var -> default "approvals".
-# config.json schema:
-#   teams_webhooks: { approvals: <url>, ops: <url>, system: <url>, alerts: <url> }
+# Channel: JUVANT_NOTIFY_CHANNEL (default "approvals").
+# Project routing: JUVANT_NOTIFY_PROJECT=<slug> checks
+#   .projects.<slug>.notifications.teams_webhooks[$ch] first,
+#   then falls back to company-scope .notifications.teams_webhooks[$ch].
 NOTIFY_CHANNEL="${JUVANT_NOTIFY_CHANNEL:-approvals}"
+NOTIFY_PROJECT="${JUVANT_NOTIFY_PROJECT:-}"
 TEAMS_WEBHOOK_URL=""
 if [[ -f "$CONFIG" ]] && command -v jq &>/dev/null; then
-  TEAMS_WEBHOOK_URL=$(jq -r --arg ch "$NOTIFY_CHANNEL" '.notifications.teams_webhooks[$ch] // ""' "$CONFIG" 2>/dev/null || echo "")
+  if [[ -n "$NOTIFY_PROJECT" ]]; then
+    TEAMS_WEBHOOK_URL=$(jq -r --arg slug "$NOTIFY_PROJECT" --arg ch "$NOTIFY_CHANNEL" \
+      '.projects[$slug].notifications.teams_webhooks[$ch] // ""' "$CONFIG" 2>/dev/null || echo "")
+  fi
+  if [[ -z "$TEAMS_WEBHOOK_URL" ]]; then
+    TEAMS_WEBHOOK_URL=$(jq -r --arg ch "$NOTIFY_CHANNEL" \
+      '.notifications.teams_webhooks[$ch] // ""' "$CONFIG" 2>/dev/null || echo "")
+  fi
 fi
 
 # Parse message from event JSON
