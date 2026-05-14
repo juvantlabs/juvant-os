@@ -37,19 +37,23 @@ if [[ -f "$CONFIG" ]] && command -v jq &>/dev/null; then
 fi
 
 # Parse message from event JSON
+ROLE="${AGENT_ROLE:-}"
 MESSAGE=""
-ROLE="${AGENT_ROLE:-cos}"
 if [[ -n "$EVENT_JSON" ]] && command -v jq &>/dev/null; then
   MESSAGE=$(echo "$EVENT_JSON" | jq -r '.message // ""' 2>/dev/null || echo "")
 fi
 
 if [[ -z "$MESSAGE" ]]; then
-  MESSAGE="[Juvant OS] Agent $ROLE is waiting for your input."
+  MESSAGE="[Juvant OS] Agent ${ROLE:-cos} is waiting for your input."
 fi
 
-# Portable uppercase — bash 3.2 (macOS default) doesn't support ${var^^}
-ROLE_UPPER=$(echo "$ROLE" | tr '[:lower:]' '[:upper:]')
-FULL_MESSAGE="[$ROLE_UPPER] $MESSAGE"
+# Only prefix with role when explicitly set — helpers leave AGENT_ROLE unset
+if [[ -n "$ROLE" ]]; then
+  ROLE_UPPER=$(echo "$ROLE" | tr '[:lower:]' '[:upper:]')
+  FULL_MESSAGE="[$ROLE_UPPER] $MESSAGE"
+else
+  FULL_MESSAGE="$MESSAGE"
+fi
 
 # Push to Telegram
 if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then

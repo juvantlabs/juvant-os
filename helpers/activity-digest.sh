@@ -49,7 +49,7 @@ FROM agent_actions_log
 WHERE started_at > '$SINCE'
 GROUP BY agent
 ORDER BY calls DESC;
-" 2>/dev/null || true)
+" 2>/dev/null | awk 'NR > 1' || true)
 
 # Kill switch events (set_at within window or currently active)
 KILL_EVENTS=$(turso db shell "$TURSO_URL" "
@@ -60,7 +60,7 @@ SELECT
 FROM agent_kill_switch
 WHERE id=1
   AND (active=1 OR set_at > '$SINCE');
-" 2>/dev/null || true)
+" 2>/dev/null | awk 'NR > 1' || true)
 
 echo "## Yesterday's agent activity"
 echo ""
@@ -69,13 +69,13 @@ if [[ -z "$PER_AGENT" ]]; then
 else
   echo "| Agent | Calls | OK | Denied | Failed |"
   echo "|---|---:|---:|---:|---:|"
-  while IFS='|' read -r agent calls ok denied failed; do
+  while read -r agent calls ok denied failed; do
     agent=$(echo "$agent" | tr -d ' ')
     calls=$(echo "$calls" | tr -d ' ')
     ok=$(echo "$ok" | tr -d ' ')
     denied=$(echo "$denied" | tr -d ' ')
     failed=$(echo "$failed" | tr -d ' ')
-    [[ -z "$agent" || "$agent" == "agent" ]] && continue
+    [[ -z "$agent" ]] && continue
     printf "| %s | %s | %s | %s | %s |\n" "$agent" "$calls" "$ok" "$denied" "$failed"
   done <<< "$PER_AGENT"
 fi
@@ -85,7 +85,7 @@ echo "### Kill switch"
 if [[ -z "$KILL_EVENTS" ]]; then
   echo "No kill switch events in the last 24 hours; switch currently inactive."
 else
-  while IFS='|' read -r state when reason; do
+  while read -r state when reason; do
     state=$(echo "$state" | tr -d ' ')
     [[ -z "$state" ]] && continue
     echo "- **$state** (set_at: $when, reason: $reason)"
@@ -101,16 +101,16 @@ DENIED_AGENTS=$(turso db shell "$TURSO_URL" "
 SELECT agent, COUNT(*) FROM agent_actions_log
 WHERE status='denied' AND started_at > '$SINCE'
 GROUP BY agent;
-" 2>/dev/null || true)
+" 2>/dev/null | awk 'NR > 1' || true)
 
 if [[ -z "$DENIED_AGENTS" ]]; then
   echo "No denied calls. No reconciliation discrepancies."
 else
   echo "Denied calls by agent:"
-  while IFS='|' read -r agent count; do
+  while read -r agent count; do
     agent=$(echo "$agent" | tr -d ' ')
     count=$(echo "$count" | tr -d ' ')
-    [[ -z "$agent" || "$agent" == "agent" ]] && continue
+    [[ -z "$agent" ]] && continue
     echo "- $agent: $count"
   done <<< "$DENIED_AGENTS"
 fi

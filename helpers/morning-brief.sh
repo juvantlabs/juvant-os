@@ -43,7 +43,7 @@ if [[ -z "$TURSO_URL" ]]; then
   exit 1
 fi
 
-COMPANY=$(jq -r '.company_name // "Juvant OS"' "$CONFIG" 2>/dev/null || echo "Juvant OS")
+COMPANY=$(jq -r '.company.name // .company_name // "Juvant OS"' "$CONFIG" 2>/dev/null || echo "Juvant OS")
 TODAY=$(date -u +%Y-%m-%d)
 SINCE=$(date -u -v-1d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
         || date -u -d "1 day ago" +"%Y-%m-%d %H:%M:%S")
@@ -54,17 +54,17 @@ SELECT category, COUNT(*) FROM decisions
 WHERE created_at > '$SINCE'
 GROUP BY category
 ORDER BY COUNT(*) DESC;
-" 2>/dev/null || true)
+" 2>/dev/null | awk 'NR > 1' || true)
 
 DECISIONS_MD=""
 if [[ -z "$DECISIONS" ]]; then
   DECISIONS_MD="_No decisions logged in the last 24 hours._"
 else
   DECISIONS_MD="| Category | Count |"$'\n'"|---|---:|"$'\n'
-  while IFS='|' read -r cat count; do
+  while read -r cat count; do
     cat=$(echo "$cat" | xargs)
     count=$(echo "$count" | xargs)
-    [[ -z "$cat" || "$cat" == "category" ]] && continue
+    [[ -z "$cat" ]] && continue
     DECISIONS_MD+="| $cat | $count |"$'\n'
   done <<< "$DECISIONS"
 fi
@@ -75,17 +75,17 @@ SELECT agent_owner, COUNT(*) FROM inbound_queue
 WHERE status IN ('pending', 'escalated')
 GROUP BY agent_owner
 ORDER BY COUNT(*) DESC;
-" 2>/dev/null || true)
+" 2>/dev/null | awk 'NR > 1' || true)
 
 QUEUE_MD=""
 if [[ -z "$QUEUE" ]]; then
   QUEUE_MD="_No pending items in any agent's inbound queue._"
 else
   QUEUE_MD="| Agent | Pending |"$'\n'"|---|---:|"$'\n'
-  while IFS='|' read -r agent count; do
+  while read -r agent count; do
     agent=$(echo "$agent" | xargs)
     count=$(echo "$count" | xargs)
-    [[ -z "$agent" || "$agent" == "agent_owner" ]] && continue
+    [[ -z "$agent" ]] && continue
     QUEUE_MD+="| $agent | $count |"$'\n'
   done <<< "$QUEUE"
 fi
