@@ -254,14 +254,27 @@ CREATE TABLE IF NOT EXISTS disclosure_policies (
   level           TEXT NOT NULL,
   -- 'public' | 'restricted' | 'confidential'
   rationale       TEXT,
+  status          TEXT DEFAULT 'draft',
+  -- 'draft' | 'validated' | 'active' | 'retired'
+  validated_by    TEXT,
+  -- CEthO agent name after ethical review
+  validated_at    DATETIME,
   approved_by     TEXT DEFAULT 'ceo',
   -- joint approval required for Universal CONFIDENTIAL edits (§5)
   valid_from      DATETIME DEFAULT CURRENT_TIMESTAMP,
   valid_until     DATETIME,
+  retired_at      DATETIME,
   superseded_by   INTEGER,
   -- immutable rows: supersession only, no in-place edits
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Idempotent column additions for adopters upgrading from pre-BUG-013 schema.
+-- ALTER TABLE ADD COLUMN IF NOT EXISTS requires SQLite ≥ 3.37 / libSQL (Turso).
+ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS status       TEXT DEFAULT 'draft';
+ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS validated_by TEXT;
+ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS validated_at DATETIME;
+ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS retired_at   DATETIME;
 
 -- ─────────────────────────────────────────────
 -- COUNTERPARTIES

@@ -2786,6 +2786,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 | `knowledge_base` | `id, category, title, content, source_project, promoted_by, approved_by, created_at` |
 | `hiring_log` | `id, role, requested_by, rationale, status, approved_by, approved_at, created_at` |
 | `agents` | `id, role, name, scope, project_id, status, session_id, session_path, model, template_version, manifesto_status, manifesto_tier, bash_allow, created_at, updated_at` |
+| `disclosure_policies` | `id, agent, counterparty, category, level, rationale, status, validated_by, validated_at, approved_by, valid_from, valid_until, retired_at, superseded_by, created_at` — `status`: `'draft'\|'validated'\|'active'\|'retired'` |
 
 ### Boot sequence
 
