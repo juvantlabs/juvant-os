@@ -47,7 +47,7 @@ ORPHAN_DECISIONS=$(turso db shell "$TURSO_URL" "
   WHERE d.created_at > '$SINCE'
     AND NOT EXISTS (
       SELECT 1 FROM agent_actions_log a
-      WHERE a.agent = d.proposer_role
+      WHERE a.agent = d.agent
         AND ABS(julianday(a.started_at) - julianday(d.created_at)) * 1440 <= 5
     );
 " 2>/dev/null | tail -1 | tr -d ' ')
