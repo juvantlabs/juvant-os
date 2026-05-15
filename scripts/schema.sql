@@ -259,8 +259,8 @@ CREATE TABLE IF NOT EXISTS disclosure_policies (
   validated_by    TEXT,
   -- CEthO agent name after ethical review
   validated_at    DATETIME,
-  approved_by     TEXT DEFAULT 'ceo',
-  -- joint approval required for Universal CONFIDENTIAL edits (§5)
+  ceo_approved_at DATETIME,
+  -- set when CEO approves; joint approval = both ceo_approved_at AND validated_at non-null
   valid_from      DATETIME DEFAULT CURRENT_TIMESTAMP,
   valid_until     DATETIME,
   retired_at      DATETIME,

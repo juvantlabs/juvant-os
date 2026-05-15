@@ -194,10 +194,11 @@ run_schema_apply() {
 apply_schema_patches_local() {
   local db="$1"
   local patches=(
-    "ALTER TABLE disclosure_policies ADD COLUMN status       TEXT DEFAULT 'draft';"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_by TEXT;"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_at DATETIME;"
-    "ALTER TABLE disclosure_policies ADD COLUMN retired_at   DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN status          TEXT DEFAULT 'draft';"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_by    TEXT;"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
   )
   for sql in "${patches[@]}"; do
     sqlite3 "$db" "$sql" 2>/dev/null || true
@@ -207,10 +208,11 @@ apply_schema_patches_local() {
 apply_schema_patches_turso() {
   local url="$1"
   local patches=(
-    "ALTER TABLE disclosure_policies ADD COLUMN status       TEXT DEFAULT 'draft';"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_by TEXT;"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_at DATETIME;"
-    "ALTER TABLE disclosure_policies ADD COLUMN retired_at   DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN status          TEXT DEFAULT 'draft';"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_by    TEXT;"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
   )
   for sql in "${patches[@]}"; do
     turso db shell "$url" "$sql" 2>/dev/null || true
