@@ -2781,11 +2781,11 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a column; filter via `json_extract(content, '$.category')`** |
-| `decisions` | `id, agent, title, category, rationale, status, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` |
+| `decisions` | `id, agent, title, category, rationale, status, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — there is NO `subject`, `payload`, `scope`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
-| `knowledge_base` | `id, category, title, content, source_project, promoted_by, approved_by, created_at` |
+| `knowledge_base` | `id, category, title, content, source_project, source_ref, promoted_by, approved_by, created_at` — project scope filter = `WHERE source_project='<slug>'` (NOT `scope`); there is NO `tags`, `scope`, or `updated_at` column |
 | `hiring_log` | `id, role, requested_by, rationale, status, approved_by, approved_at, created_at` |
 | `agents` | `id, role, name, scope, project_id, status, session_id, session_path, model, template_version, manifesto_status, manifesto_tier, bash_allow, created_at, updated_at` |
 | `disclosure_policies` | `id, agent, counterparty, category, level, rationale, status, validated_by, validated_at, ceo_approved_at, valid_from, valid_until, retired_at, superseded_by, created_at` — `status`: `'draft'\|'validated'\|'active'\|'retired'`; joint approval = both `ceo_approved_at` AND `validated_at` non-null |
