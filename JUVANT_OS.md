@@ -2545,6 +2545,29 @@ These are enforced at the agent level (see the relevant
 - **CoS** — Morning Brief groups projects by maturity (GA → preview →
   incubation), each with a header indicating expected attention level.
 
+### Skill operation: *"Resync project agents for `<slug>`"*
+
+Recognized phrasings: *"Resync project agents for hardys"*, *"Update project
+agent templates for <slug>"*, *"Re-compile <slug> agents"*.
+
+Keeps `agents/projects/<slug>/*.md` in sync with upstream source templates
+(`agents/projects/*.md`) after a framework update. Safe to run at any time
+because compiled files never contain project-specific customizations (those
+live in `knowledge_base` rows per ARCH-012).
+
+1. **Verify** `<slug>` exists in `.juvant/config.json` under `projects`. Abort
+   with a clear message if not found.
+2. **Run** `bash scripts/compile-templates.sh --scope projects --project=<slug>`.
+3. **Check** for changes via `git diff --name-only agents/projects/<slug>/`.
+   - No changes → report "agents for <slug> already up to date" and stop.
+4. **Summarize** to CEO: list of files changed + one-line semantic description
+   (e.g. "3 files updated: CoS constraint added, mcpServers field split").
+   Wait for CEO confirmation before committing.
+5. **Commit** via `git add agents/projects/<slug>/ .claude/agents/<slug>-*.md`
+   + `git commit -m "chore(<slug>): resync project agents from upstream templates"`.
+6. **Trigger re-Tier-1 manifesto review** for each agent whose file changed:
+   set `manifests.status='pending_review'` and notify CHRO + CTO.
+
 ### Skill operation: *"Project status"*
 
 Recognized phrasings: *"Project status"*, *"Promote project <slug> to
