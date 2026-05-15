@@ -43,6 +43,12 @@ architectural improvements to the Skill.
 - **`helpers/anomaly-check.sh`** — Homebrew PATH fix + header-skip + IFS='|'
   parsing fix.
 - **`helpers/turso-backup.sh`** — Homebrew PATH fix (launchd exit 127).
+- **`helpers/anomaly-check.sh`** + **`helpers/audit-reconcile.sh`** — replaced
+  non-existent `JUVANT_NOTIFY_PRIORITY=critical` env var with
+  `JUVANT_NOTIFY_CHANNEL=system`. The priority variable was silently ignored by
+  `notification.sh`; notifications were routed to the `approvals` channel
+  (incorrect — that channel is for CEO approval queues). System-level security
+  alerts now route to the `system` Teams channel + Telegram.
 
 ### Changed
 

@@ -144,7 +144,7 @@ done
 
 # Fire single Critical notification with all anomalies bundled
 MSG="Anomaly detector: $(IFS=$'\n  • '; echo "  • ${ANOMALIES[*]}")"
-JUVANT_NOTIFY_PRIORITY=critical \
+JUVANT_NOTIFY_CHANNEL=system \
   bash "$SCRIPT_DIR/../hooks/notification.sh" \
   <<< "{\"message\":$(echo -n "$MSG" | jq -R -s '.')}" \
   2>/dev/null || echo "[anomaly-check] WARN: failed to dispatch notification" >&2

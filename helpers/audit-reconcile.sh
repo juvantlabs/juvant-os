@@ -73,7 +73,7 @@ if [[ "$TOTAL_ANOMALIES" -gt 0 ]]; then
   MSG="Audit reconcile: ${ORPHAN_DECISIONS} orphan decisions + ${STUCK_PENDING} stuck pending in last ${WINDOW_DAYS}d"
   echo "[audit-reconcile] ALERT: $MSG" >&2
   # Use existing notification.sh infrastructure
-  JUVANT_NOTIFY_PRIORITY=critical \
+  JUVANT_NOTIFY_CHANNEL=system \
     bash "$SCRIPT_DIR/../hooks/notification.sh" <<< "{\"message\":\"$MSG\"}" \
     || echo "[audit-reconcile] WARN: failed to send notification" >&2
   exit 1
