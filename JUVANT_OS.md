@@ -2545,6 +2545,34 @@ These are enforced at the agent level (see the relevant
 - **CoS** — Morning Brief groups projects by maturity (GA → preview →
   incubation), each with a header indicating expected attention level.
 
+### Skill operation: *"Analyse meeting `<title or date>`"*
+
+Recognized phrasings: *"Analyse yesterday's meeting with Acme"*, *"What were
+the action items from the Hardys call this morning?"*, *"Summarise the Teams
+call on <date>"*, *"Get the transcript of meeting X"*.
+
+Retrieves and analyses a post-meeting Teams transcript using the calendar +
+transcript tools from `@juvantlabs/m365-graph-mcp-server` v0.2.0+.
+
+**Requires** `OnlineMeetingTranscript.Read.All` permission and recording
+enabled by the meeting organizer. If the transcript is unavailable, surface
+a clear reason (no recording, still processing, not a Teams meeting).
+
+1. Use `m365-graph:search_events` or `m365-graph:list_events` to find the
+   meeting by title/date. If ambiguous, surface the candidates and ask CEO
+   to confirm.
+2. Call `m365-graph:list_meeting_transcripts(event_id)`.
+   - Empty list → report reason and stop.
+   - Multiple transcripts → use the most recent (`created_at` DESC).
+3. Call `m365-graph:get_transcript(meeting_id, transcript_id)`.
+4. Analyse the transcript content. Produce:
+   - **Summary** (2–3 sentences)
+   - **Action items** — owner + action, one per line
+   - **Open questions** — unresolved items flagged during the call
+   - **Follow-ups by agent** — route to CFO / CLO / CCO / CRO as appropriate;
+     write relevant items to `inbound_queue` with category and agent_owner.
+5. Present structured output to CEO. Confirm before writing to `inbound_queue`.
+
 ### Skill operation: *"Resync project agents for `<slug>`"*
 
 Recognized phrasings: *"Resync project agents for hardys"*, *"Update project
