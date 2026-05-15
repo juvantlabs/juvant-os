@@ -45,6 +45,13 @@
 
   "agent_allow": {
     "cos":           ["git", "gh", "turso", "jq"],
+    "cfo":           ["git", "gh", "turso", "jq"],
+    "clo":           ["git", "gh", "turso", "jq"],
+    "cmo":           ["git", "gh", "turso", "jq"],
+    "cco":           ["git", "gh", "turso", "jq"],
+    "chro":          ["git", "gh", "turso", "jq"],
+    "cetho":         ["git", "gh", "turso", "jq"],
+    "cro":           ["git", "gh", "turso", "jq"],
     "cto":           ["git", "gh", "jq"],
     "cso":           ["git", "gh", "gpg", "shellcheck", "jq", "sqlite3", "turso", "grep", "awk", "sed", "find", "ls", "cat", "head", "tail", "wc", "python3"],
     "vpe":           ["git", "gh", "turso", "jq"],
