@@ -51,6 +51,19 @@ WHERE started_at > '$SINCE'
 GROUP BY agent ORDER BY calls DESC;
 " 2>/dev/null | awk 'NR > 1' || true)
 
+# ─── Kill switch (only if active)
+KILLSWITCH_RAW=$(turso db shell "$TURSO_URL" "
+SELECT COALESCE(reason,'-'), COALESCE(set_at,'-')
+FROM agent_kill_switch WHERE id=1 AND active=1;
+" 2>/dev/null | awk 'NR > 1' || true)
+
+# ─── Anomalies: denied calls by agent (last 24h)
+ANOMALIES_RAW=$(turso db shell "$TURSO_URL" "
+SELECT agent, COUNT(*) FROM agent_actions_log
+WHERE status='denied' AND started_at > '$SINCE'
+GROUP BY agent ORDER BY COUNT(*) DESC;
+" 2>/dev/null | awk 'NR > 1' || true)
+
 # ─── Build AdaptiveCard body elements
 
 build_facts() {
@@ -125,6 +138,29 @@ else
     --argjson facts "$FACTS" \
     '. + [
       {"type":"TextBlock","text":"Agent activity","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      $facts
+    ]')
+fi
+
+# ─── Kill switch (only when active)
+if [[ -n "$KILLSWITCH_RAW" ]]; then
+  reason=$(echo "$KILLSWITCH_RAW" | awk '{print $1}' | xargs)
+  set_at=$(echo "$KILLSWITCH_RAW" | awk '{print $2}' | xargs)
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    --arg reason "$reason" --arg set_at "$set_at" \
+    '. + [
+      {"type":"TextBlock","text":"🔴 Kill switch ACTIVE","size":"Small","weight":"Bolder","color":"Attention","separator":true,"spacing":"Medium"},
+      {"type":"FactSet","facts":[{"title":"Reason","value":$reason},{"title":"Set at","value":$set_at}]}
+    ]')
+fi
+
+# ─── Anomalies (only when there are denials)
+if [[ -n "$ANOMALIES_RAW" ]]; then
+  FACTS=$(build_facts "$ANOMALIES_RAW" 1 2)
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    --argjson facts "$FACTS" \
+    '. + [
+      {"type":"TextBlock","text":"⚠️ Denied calls","size":"Small","weight":"Bolder","color":"Warning","separator":true,"spacing":"Medium"},
       $facts
     ]')
 fi
