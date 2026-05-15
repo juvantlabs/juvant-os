@@ -68,7 +68,7 @@ GROUP BY agent ORDER BY COUNT(*) DESC;
 
 build_facts() {
   # Reads raw turso output (space-separated rows), emits a JSON FactSet element
-  local raw="$1" title_col="$2" value_col="$3"
+  local raw="$1"
   local facts=""
   while read -r f1 f2 rest; do
     [[ -z "$f1" ]] && continue
@@ -99,7 +99,7 @@ if [[ -z "$DECISIONS_RAW" ]]; then
       {"type":"TextBlock","text":"No decisions in the last 24h","size":"Small","isSubtle":true}
     ]')
 else
-  FACTS=$(build_facts "$DECISIONS_RAW" 1 2)
+  FACTS=$(build_facts "$DECISIONS_RAW")
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     --argjson facts "$FACTS" \
     '. + [
@@ -116,7 +116,7 @@ if [[ -z "$QUEUE_RAW" ]]; then
       {"type":"TextBlock","text":"No pending items","size":"Small","isSubtle":true}
     ]')
 else
-  FACTS=$(build_facts "$QUEUE_RAW" 1 2)
+  FACTS=$(build_facts "$QUEUE_RAW")
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     --argjson facts "$FACTS" \
     '. + [
@@ -133,7 +133,7 @@ if [[ -z "$ACTIVITY_RAW" ]]; then
       {"type":"TextBlock","text":"No agent calls in the last 24h","size":"Small","isSubtle":true}
     ]')
 else
-  FACTS=$(build_facts "$ACTIVITY_RAW" 1 2)
+  FACTS=$(build_facts "$ACTIVITY_RAW")
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     --argjson facts "$FACTS" \
     '. + [
@@ -156,7 +156,7 @@ fi
 
 # ─── Anomalies (only when there are denials)
 if [[ -n "$ANOMALIES_RAW" ]]; then
-  FACTS=$(build_facts "$ANOMALIES_RAW" 1 2)
+  FACTS=$(build_facts "$ANOMALIES_RAW")
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     --argjson facts "$FACTS" \
     '. + [
