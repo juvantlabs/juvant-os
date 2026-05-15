@@ -2596,6 +2596,89 @@ live in `knowledge_base` rows per ARCH-012).
 6. **Trigger re-Tier-1 manifesto review** for each agent whose file changed:
    set `manifests.status='pending_review'` and notify CHRO + CTO.
 
+### Skill operation: *"Sync with framework"*
+
+Recognized phrasings: *"Sync with framework"*, *"Aggiorna con il framework"*,
+*"Check for framework updates"*, *"Sono aggiornato all'upstream?"*.
+
+Evaluates the company instance against `juvantlabs/juvant-os` upstream and
+proposes + executes the sync — replacing the manual
+`git fetch upstream && git checkout upstream/main -- <files>` workflow.
+
+**Preconditions.** The company repo must have an `upstream` remote pointing
+to `juvantlabs/juvant-os`. If absent, surface:
+> "No upstream remote configured. Run: `git remote add upstream https://github.com/juvantlabs/juvant-os.git`"
+> and stop.
+
+**Procedure:**
+
+1. **Fetch** — `git fetch upstream --tags`.
+2. **Version delta** — compare instance HEAD against `upstream/main`.
+   Report: current tag (from `git describe --tags`), latest upstream tag,
+   N commits ahead (instance-specific), M commits behind (framework updates).
+   If M = 0: *"Already up to date with upstream."* and stop.
+3. **Compute diff** — for each file in the **framework whitelist** below,
+   run `git diff HEAD upstream/main -- <file>`. Skip files with no diff.
+4. **Present proposed changes** grouped by category, one group at a time:
+
+   | Category | Files |
+   |---|---|
+   | `hooks/` | Lifecycle bash scripts |
+   | `helpers/` | Scheduled helper scripts |
+   | `scripts/` | compile-templates, migrate, schema, etc. |
+   | `JUVANT_OS.md` | Skill orchestrator |
+   | `SYSTEM_INVARIANTS.md` | Cross-cutting invariants |
+   | `CHANGELOG.md` | Release history |
+   | `docs/` | MCP inventory, branch-protection-spec |
+
+   For each changed file: filename + one-line semantic summary of what changed
+   (read the diff, describe the change in plain language).
+   CEO responds: **approve** / **skip** / **inspect** (show the full diff).
+
+5. **Apply approved files** — `git checkout upstream/main -- <file>` for each
+   approved file.
+6. **Post-apply steps** (auto-executed, no additional CEO input):
+   - Any `helpers/*.sh` or `hooks/*.sh` changed →
+     reload affected launchd plists:
+     `launchctl bootout gui/$(id -u)/io.juvant.guardrails.<label>` then
+     `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.juvant.guardrails.<label>.plist`.
+   - `scripts/compile-templates.sh` changed →
+     re-run `bash scripts/compile-templates.sh --scope company`.
+   - `scripts/migrate.sh` changed → surface reminder:
+     *"migrate.sh changed — run `bash scripts/migrate.sh --check` before the next migration."*
+7. **Commit** — `git add <all applied files>` +
+   `git commit -m "chore: sync framework files to upstream <tag>"`.
+8. **Push** — `git push origin main`.
+9. **Smoke tests** — run `bash helpers/anomaly-check.sh` and
+   `bash helpers/audit-reconcile.sh`. Surface results.
+
+**Framework whitelist** (files the Skill may apply — never touches anything else):
+
+```
+hooks/notification.sh       hooks/lib/db.sh
+hooks/pre-tool-use.sh       hooks/post-tool-use.sh
+hooks/post-tool-use-failure.sh  hooks/session-start.sh
+hooks/session-end.sh        hooks/stop.sh
+hooks/subagent-start.sh     hooks/subagent-stop.sh
+hooks/post-compact.sh       hooks/pre-compact.sh
+helpers/morning-brief.sh    helpers/activity-digest.sh
+helpers/anomaly-check.sh    helpers/audit-reconcile.sh
+helpers/turso-backup.sh     helpers/install-schedules.sh
+helpers/fiscal-deadlines.sh helpers/anomaly-baseline-report.sh
+helpers/kb-coverage.sh      helpers/agent-killswitch.sh
+scripts/compile-templates.sh  scripts/migrate.sh
+scripts/schema.sql          scripts/audit-bootstrap-baseline.sh
+JUVANT_OS.md                SYSTEM_INVARIANTS.md
+CHANGELOG.md                docs/MCP_INVENTORY.md
+docs/branch-protection-spec.md
+```
+
+**Files NEVER touched** (instance-specific — skip regardless of diff):
+`.juvant/config.json`, `agents/company/*.md`, `agents/projects/**/*.md`,
+`.claude/agents/*.md`, `.github/CODEOWNERS`, `CLAUDE.md`, `MANIFESTO.md`,
+`README.md`, `SECURITY.md`, `docs/adr/`, `tests/`, `.mcp.json`,
+`.claude/settings.json`.
+
 ### Skill operation: *"Project status"*
 
 Recognized phrasings: *"Project status"*, *"Promote project <slug> to
