@@ -2770,6 +2770,23 @@ Triggered automatically at the start of every Claude Code session (via the
 SessionStart hook setting `agents.status='active'` in Turso) and explicitly by
 *"Start the system"* / *"Boot the agents"* / *"What's the state?"*.
 
+### Schema quick-reference (canonical column lists)
+
+Use these exact column names when constructing SELECT statements. Do NOT invent
+columns; if uncertain, run `PRAGMA table_info(<table>)` first.
+
+| Table | Columns |
+|---|---|
+| `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
+| `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a column; filter via `json_extract(content, '$.category')`** |
+| `decisions` | `id, agent, title, category, rationale, status, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` |
+| `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
+| `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
+| `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
+| `knowledge_base` | `id, category, title, content, source_project, promoted_by, approved_by, created_at` |
+| `hiring_log` | `id, role, requested_by, rationale, status, approved_by, approved_at, created_at` |
+| `agents` | `id, role, name, scope, project_id, status, session_id, session_path, model, template_version, manifesto_status, manifesto_tier, bash_allow, created_at, updated_at` |
+
 ### Boot sequence
 
 1. **Read all reachable Turso DBs** (company DB + each `projects.db_url`).
@@ -2789,10 +2806,10 @@ SessionStart hook setting `agents.status='active'` in Turso) and explicitly by
    - `decisions WHERE status='proposed'`.
    - `security_audit_log WHERE status='open' AND severity IN ('P0','P1')`.
    - `knowledge_base WHERE project_id IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
-   - If a project is active: `knowledge_base WHERE project_id = '<active_slug>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context).
+   - If a project is active: `knowledge_base WHERE project_id = '<active_project_id>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context). `<active_project_id>` = `master_context.value WHERE key='active_project'` = `projects.id` (the slug, e.g. `'hardys'` — there is no separate `slug` column).
    - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then runs `bash helpers/morning-brief.sh` to send an updated brief to Teams.
 5. **Check for active disclosure fallback** —
-   `inbound_queue WHERE category='disclosure-unavailable' AND status='pending'`.
+   `inbound_queue WHERE json_extract(content, '$.category')='disclosure-unavailable' AND status='pending'`.
    If any: enter Disclosure Fallback Cascade per §3 (see below) BEFORE presenting
    anything else.
 6. **Present unified boot summary to CEO**:
@@ -2871,7 +2888,7 @@ Triggered by *"Status"*, *"What's pending?"*, *"Morning brief"*, or any equivale
   (detect context drift).
 - `productivity WHERE week = ?` (current ISO week) — weekly ranking.
 - `security_audit_log WHERE status='open'` — open security findings.
-- `inbound_queue WHERE category='disclosure-unavailable' AND status='pending'` —
+- `inbound_queue WHERE json_extract(content, '$.category')='disclosure-unavailable' AND status='pending'` —
   active fallback cascade rows.
 
 ### Output format
@@ -3278,7 +3295,7 @@ Every agent, on entering fallback:
 
 CoS, in addition to Tier 1:
 
-1. For every Tier-1 row in `inbound_queue` with `category='disclosure-unavailable'`,
+1. For every Tier-1 row in `inbound_queue` with `json_extract(content, '$.category')='disclosure-unavailable'`,
    start a T+5min escalation timer (recorded in the row's `picked_up_at` + the
    escalation delta computed in memory).
 2. At T+5min, re-query `disclosure_policies`. Still unreachable → escalate:
