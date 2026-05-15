@@ -320,6 +320,33 @@ propose an extension via `tool-matrix-change` decision per
 
 ---
 
+## Process Source Deltas (FEAT-026)
+
+Triggered by CoS when `source_snapshots` has rows with `last_changed_at` newer
+than the last session. CoS passes the list of changed sources as context.
+
+For each changed source:
+
+1. **Fetch current content** via the appropriate tool:
+   - `github_issues` / `github_prs` → read via GitHub MCP or `gh issue list`
+   - `turso_decisions` → query `decisions WHERE created_at > '<since>'`
+   - `onedrive` → read via `m365-graph:search_files` or `m365-graph:download_file`
+2. **Extract entities** — identify: people, contracts, deadlines, decisions,
+   open questions, risks, commitments. One entity = one `knowledge_base` row.
+3. **Write to `knowledge_base`** with:
+   - `category = 'entity'`
+   - `title` = short entity label
+   - `content` = structured summary (who, what, when, status)
+   - `source_ref` = canonical ref from `source_snapshots.source_ref`
+   - `promoted_by = 'cro'`
+4. **Mark source as processed** — update `source_snapshots.delta_summary` to
+   `'processed by CRO at <timestamp>'` after successful extraction.
+5. **After all sources processed** — run `bash helpers/morning-brief.sh` to
+   send an updated Morning Brief to Teams with the newly enriched knowledge.
+
+**Citation rule**: every `knowledge_base` row must have `source_ref`. Do not
+write unsourced entities.
+
 ## Session Start Protocol
 
 The SessionStart hook has already set `agents.status='active'` for you in Turso.

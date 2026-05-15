@@ -333,6 +333,27 @@ CREATE TABLE IF NOT EXISTS adapter_dead_letters (
 -- KNOWLEDGE & PROJECTS
 -- ─────────────────────────────────────────────
 
+-- Source change tracking for FEAT-026 Knowledge Sync Pipeline.
+-- kb-sync.sh (called at SessionStart) writes here; CoS reads at boot
+-- to detect what changed since the last session and offer CRO processing.
+CREATE TABLE IF NOT EXISTS source_snapshots (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_type     TEXT NOT NULL,
+  -- 'onedrive' | 'github_issues' | 'github_prs' | 'turso_decisions' | 'filesystem'
+  source_ref      TEXT NOT NULL,
+  -- canonical pointer: '<org>/<repo>#<num>', '<site>/<path>', 'turso:decisions', etc.
+  content_hash    TEXT NOT NULL,
+  -- SHA-256 of normalised content snapshot
+  delta_summary   TEXT,
+  -- human-readable one-line description of what changed (set on hash mismatch)
+  last_seen_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_changed_at DATETIME,
+  -- NULL on first insert; set when content_hash differs from previous
+  UNIQUE(source_type, source_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_source_snapshots_changed
+  ON source_snapshots(last_changed_at DESC);
+
 CREATE TABLE IF NOT EXISTS knowledge_base (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   category        TEXT NOT NULL,

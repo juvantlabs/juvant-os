@@ -75,4 +75,10 @@ else
     || echo "[session-start] WARN: Failed to update agent status." >&2
 fi
 
+# FEAT-026: run knowledge source snapshot check in background (never blocks).
+if [[ -x "$REPO_ROOT/helpers/kb-sync.sh" ]]; then
+  bash "$REPO_ROOT/helpers/kb-sync.sh" \
+    >> "$REPO_ROOT/.juvant/logs/kb-sync.log" 2>&1 &
+fi
+
 exit 0

@@ -2728,6 +2728,7 @@ SessionStart hook setting `agents.status='active'` in Turso) and explicitly by
    - `security_audit_log WHERE status='open' AND severity IN ('P0','P1')`.
    - `knowledge_base WHERE project_id IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
    - If a project is active: `knowledge_base WHERE project_id = '<active_slug>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context).
+   - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then runs `bash helpers/morning-brief.sh` to send an updated brief to Teams.
 5. **Check for active disclosure fallback** —
    `inbound_queue WHERE category='disclosure-unavailable' AND status='pending'`.
    If any: enter Disclosure Fallback Cascade per §3 (see below) BEFORE presenting
