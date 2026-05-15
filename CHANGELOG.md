@@ -11,6 +11,45 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **BUG-009** `hooks/session-start.sh` — `REPO_ROOT` unbound variable crash at
+  SessionStart. Added `REPO_ROOT="$(dirname "$SCRIPT_DIR")"` after the
+  `SCRIPT_DIR` assignment.
+- **BUG-010** `JUVANT_OS.md` boot sequence — `inbound_queue WHERE category=`
+  references a non-existent column; corrected to
+  `json_extract(content, '$.category')=` (3 occurrences).
+- **BUG-011** `JUVANT_OS.md` boot sequence — `<active_slug>` pseudocode did not
+  clarify it maps to `projects.id`; inline note added.
+- **BUG-012** `JUVANT_OS.md` — agents hallucinated non-existent columns
+  (`messages.subject`, `messages.action_required`, `projects.slug`,
+  `decisions.summary/subject/payload`, `knowledge_base.tags/scope`, etc.).
+  Added **Schema quick-reference** table listing canonical column names for all
+  8 frequently-queried tables, with explicit `NO <col>` warnings for the most
+  common hallucinations.
+- **BUG-013** `scripts/schema.sql` / `scripts/migrate.sh` — `disclosure_policies`
+  missing lifecycle columns (`status`, `validated_by`, `validated_at`,
+  `retired_at`, `ceo_approved_at`). Added columns to schema and idempotent
+  `apply_schema_patches_*` helpers in migrate.sh (Turso does not support
+  `ALTER TABLE ADD COLUMN IF NOT EXISTS`).
+- **BUG-014** `hooks/bash-policy.json` — 7 C-suite agents (`cfo`, `clo`, `cmo`,
+  `cco`, `chro`, `cetho`, `cro`) absent from `agent_allow`; every Bash call was
+  denied, including `turso` and `jq`. Added `["git", "gh", "turso", "jq"]` for
+  all seven.
+- `helpers/kb-sync.sh` — `${REPOS[@]}` on an empty array crashes under `set -u`
+  on bash 3.2 (macOS default). Guarded with `[[ ${#REPOS[@]} -gt 0 ]]`.
+- `scripts/migrate.sh` — `--project=<slug>` now accepts both nested
+  (`.projects.<slug>.db.provider`) and flat (`.projects.<slug>.provider`) config
+  shapes for backward compatibility with instances initialised before the `.db`
+  nesting was introduced.
+- `scripts/migrate.sh` — `projects.maturity_status` added to column-patch list
+  for existing adopter instances created before FEAT-023.
+- `JUVANT_OS.md` framework sync reminder — referenced non-existent `--check`
+  flag; corrected to `schema-apply`.
+- `JUVANT_OS.md` / `hooks/bash-policy.json` / `helpers/kb-sync.sh` added to
+  framework sync whitelist (were absent, causing no-op syncs after BUG-014 and
+  kb-sync guard fixes).
+
 ## [1.1.0] — 2026-05-15 — Meeting transcripts, framework sync, knowledge pipeline
 
 First v1.1 release. Three new Skill operations and the Knowledge Sync
