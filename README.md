@@ -204,6 +204,7 @@ run via `npx` on Node ≥ 20 and are fully cross-platform.
 | **v0.6 / v0.7** | Project initialization, 8 per-project agents, automated batch testco regression driver | ✅ |
 | **v1.0** | Full company + multi-project initialization, stable migration from v0.7, M365 document storage, scheduled Morning Brief and fiscal helpers | ✅ |
 | **v1.1** | Teams meeting transcript analysis, multi-principal governance, Knowledge Sync Pipeline | Planned |
+| **v2.0** | Always-on cloud agents (Azure), External Portal, Webhook Services, Teams Meeting Bot, M365 mail automation | Planned — requires cloud infrastructure |
 
 Roadmap detail and open issues are tracked in the private project management
 repository — reach out via the [discussions](https://github.com/juvantlabs/juvant-os/discussions)
