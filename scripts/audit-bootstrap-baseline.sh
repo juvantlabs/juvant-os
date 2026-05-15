@@ -341,7 +341,7 @@ audit_layer_5_agents() {
     # ACTIVE_PROJECT (runtime-resolved at SessionStart) survives.
     # v0.8.0 (ADR 0014 §1/§2): project-scope agents renamed; project-VPE
     # removed (absorbed by eng-lead).
-    agents_dir="$ROOT/agents/projects"
+    agents_dir="$ROOT/agents/projects/$SCOPE"
     expected_agents=(pca product-lead design-lead eng-lead eng-api eng-backend eng-frontend eng-ai)
     agent_count=8
     agent_set_label="project-scope ($SCOPE)"

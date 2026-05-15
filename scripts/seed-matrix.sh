@@ -40,10 +40,12 @@ TEMPLATE="$SCRIPT_DIR/templates/v0-agent-tool-matrix.json"
 
 CHECK_ONLY=0
 FORCE=0
+PROJECT_SLUG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check-only) CHECK_ONLY=1; shift ;;
     --force) FORCE=1; shift ;;
+    --project=*) PROJECT_SLUG="${1#--project=}"; shift ;;
     -h|--help)
       sed -n '/^# Usage:/,/^$/p' "$0" | sed 's/^# *//'
       exit 0
@@ -71,9 +73,24 @@ fi
 # shellcheck disable=SC1091
 . "$ROOT/hooks/lib/db.sh"
 
-# Refuse to overwrite a populated matrix unless --force. Reads go via
-# juvant_db_query, not juvant_db_exec — the latter pipes stdout to
-# /dev/null (write-fn semantics) and would always see an empty count.
+# When --project=<slug> is given, override DB routing to the project DB
+# and filter template rows to project-scope roles only.
+PROJECT_ROLES=(pca product-lead design-lead eng-lead eng-api eng-backend eng-frontend eng-ai)
+if [[ -n "$PROJECT_SLUG" ]]; then
+  DB_URL=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG")
+  DB_TOKEN=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.auth_token // .projects[$s].auth_token // ""' "$CONFIG")
+  if [[ -z "$DB_URL" ]]; then
+    echo "ERROR: project '$PROJECT_SLUG' not found in $CONFIG." >&2; exit 1
+  fi
+  export TURSO_URL="$DB_URL" TURSO_TOKEN="$DB_TOKEN"
+  ROLE_FILTER=$(printf '%s\n' "${PROJECT_ROLES[@]}" | jq -R . | jq -sc .)
+  EXPECTED=$(jq --argjson roles "$ROLE_FILTER" '[.rows[] | select(.role as $r | $roles | index($r) != null)] | length' "$TEMPLATE")
+else
+  ROLE_FILTER="null"
+  EXPECTED=$(jq '.rows | length' "$TEMPLATE")
+fi
+
+# Refuse to overwrite a populated matrix unless --force.
 existing=$(juvant_db_query "SELECT COUNT(*) FROM agent_tool_matrix;" 2>/dev/null | tail -1)
 existing="${existing:-0}"
 if [[ "$existing" -gt 0 && "$FORCE" != "1" ]]; then
@@ -81,7 +98,6 @@ if [[ "$existing" -gt 0 && "$FORCE" != "1" ]]; then
   exit 2
 fi
 
-EXPECTED=$(jq '.rows | length' "$TEMPLATE")
 if [[ "$EXPECTED" -eq 0 ]]; then
   echo "ERROR: template has 0 rows — refusing to seed empty matrix." >&2
   exit 1
@@ -98,16 +114,24 @@ sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
 SQL_BUFFER=$(mktemp)
 trap 'rm -f "$SQL_BUFFER"' EXIT
 
+# When filtering to project roles, build a filtered array first.
+if [[ -n "$PROJECT_SLUG" ]]; then
+  ROWS_JSON=$(jq --argjson roles "$ROLE_FILTER" '[.rows[] | select(.role as $r | $roles | index($r) != null)]' "$TEMPLATE")
+else
+  ROWS_JSON=$(jq '.rows' "$TEMPLATE")
+fi
+ROW_COUNT=$(echo "$ROWS_JSON" | jq 'length')
+
 {
   echo "BEGIN;"
   if [[ "$FORCE" == "1" ]]; then
     echo "DELETE FROM agent_tool_matrix;"
   fi
-  for i in $(seq 0 $((EXPECTED-1))); do
-    role=$(jq -r ".rows[$i].role" "$TEMPLATE")
-    mcps=$(jq -c ".rows[$i].mcp_servers" "$TEMPLATE")
-    skills=$(jq -c ".rows[$i].skills" "$TEMPLATE")
-    channels=$(jq -c ".rows[$i].channels" "$TEMPLATE")
+  for i in $(seq 0 $((ROW_COUNT-1))); do
+    role=$(echo "$ROWS_JSON" | jq -r ".[$i].role")
+    mcps=$(echo "$ROWS_JSON" | jq -c ".[$i].mcp_servers")
+    skills=$(echo "$ROWS_JSON" | jq -c ".[$i].skills")
+    channels=$(echo "$ROWS_JSON" | jq -c ".[$i].channels")
     role_e=$(sql_escape "$role")
     mcps_e=$(sql_escape "$mcps")
     skills_e=$(sql_escape "$skills")
@@ -128,8 +152,8 @@ juvant_db_exec_stdin < "$SQL_BUFFER"
 
 # Verify row count matches template. Use juvant_db_query for the read.
 ACTUAL=$(juvant_db_query "SELECT COUNT(*) FROM agent_tool_matrix;" | tail -1)
-if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-  echo "ERROR: post-INSERT row count mismatch: template=$EXPECTED, db=$ACTUAL" >&2
+if [[ "$ACTUAL" != "$ROW_COUNT" ]]; then
+  echo "ERROR: post-INSERT row count mismatch: expected=$ROW_COUNT, db=$ACTUAL" >&2
   exit 3
 fi
 
