@@ -34,6 +34,9 @@
 
 set -euo pipefail
 
+# launchd / cron provide a minimal PATH — extend it to find Homebrew tools.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 

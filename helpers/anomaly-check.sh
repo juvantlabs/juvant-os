@@ -23,6 +23,9 @@
 
 set -euo pipefail
 
+# launchd / cron provide a minimal PATH — extend it to find Homebrew tools.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
@@ -88,16 +91,16 @@ SELECT
   s.failed
 FROM last_hour_summary s
 LEFT JOIN baseline b ON b.agent = s.agent;
-" 2>/dev/null)
+" 2>/dev/null | awk 'NR > 1')
 
 if [[ -z "$RESULTS" ]]; then
   echo "[anomaly-check] no agent activity in last hour"
   exit 0
 fi
 
-while IFS='|' read -r agent calls baseline denied failed; do
+while read -r agent calls baseline denied failed; do
   agent=$(echo "$agent" | tr -d ' ')
-  [[ -z "$agent" || "$agent" == "agent" ]] && continue
+  [[ -z "$agent" ]] && continue
   calls=$(echo "$calls" | tr -d ' ' | head -1)
   baseline=$(echo "$baseline" | tr -d ' ')
   denied=$(echo "$denied" | tr -d ' ')
