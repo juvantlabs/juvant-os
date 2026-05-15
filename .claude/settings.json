@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/session-start.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/session-start.sh\" ]] && exec bash \"$r/hooks/session-start.sh\"'"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/session-end.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/session-end.sh\" ]] && exec bash \"$r/hooks/session-end.sh\"'"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/pre-compact.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/pre-compact.sh\" ]] && exec bash \"$r/hooks/pre-compact.sh\"'"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/post-compact.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/post-compact.sh\" ]] && exec bash \"$r/hooks/post-compact.sh\"'"
           }
         ]
       }
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/notification.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/notification.sh\" ]] && exec bash \"$r/hooks/notification.sh\"'"
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/subagent-start.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/subagent-start.sh\" ]] && exec bash \"$r/hooks/subagent-start.sh\"'"
           }
         ]
       }
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/subagent-stop.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/subagent-stop.sh\" ]] && exec bash \"$r/hooks/subagent-stop.sh\"'"
           }
         ]
       }
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/stop.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/stop.sh\" ]] && exec bash \"$r/hooks/stop.sh\"'"
           }
         ]
       }
@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/pre-tool-use.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/pre-tool-use.sh\" ]] && exec bash \"$r/hooks/pre-tool-use.sh\"'"
           }
         ]
       }
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/post-tool-use.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/post-tool-use.sh\" ]] && exec bash \"$r/hooks/post-tool-use.sh\"'"
           }
         ]
       }
@@ -105,7 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash hooks/post-tool-use-failure.sh"
+            "command": "bash -c 'r=$(git rev-parse --show-toplevel 2>/dev/null); [[ -f \"$r/hooks/post-tool-use-failure.sh\" ]] && exec bash \"$r/hooks/post-tool-use-failure.sh\"'"
           }
         ]
       }
