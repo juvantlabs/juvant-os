@@ -63,7 +63,7 @@ upsert_snapshot() {
   elif [[ "$old_hash" != "$new_hash" ]]; then
     # Hash changed — record delta
     local escaped_summary
-    escaped_summary=$(echo "$summary" | sed "s/'/''/g")
+    escaped_summary="${summary//\'/\'\'}"
     turso db shell "$TURSO_URL" \
       "UPDATE source_snapshots
        SET content_hash='$new_hash', last_seen_at='$now',
