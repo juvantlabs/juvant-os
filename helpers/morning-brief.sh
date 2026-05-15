@@ -2,39 +2,13 @@
 # helpers/morning-brief.sh
 # Helper 1 of FEAT-007 (Agent Helpers pattern).
 #
-# Daily 08:00 brief assembled from Turso state + activity digest.
-# Sends to Telegram (Critical-style summary) + Teams ops channel
-# (full markdown).
-#
-# Per ADR 0004 + FEAT-007: this is a SCRIPT, not an agent session.
-# No Claude Code spawn. No spawn of fresh agent CFO / CoS that
-# would risk concurrency with an active interactive session.
-# Pure SQL aggregate + curl (via notification.sh).
-#
-# Sections:
-#   1. Yesterday's decisions  (from `decisions` table)
-#   2. Pending inbound queue  (from `inbound_queue` table — items
-#                              still 'pending' or 'escalated')
-#   3. Imminent fiscal deadlines (re-runs the same logic as
-#                                 helpers/fiscal-deadlines.sh —
-#                                 acceptable redundancy; the brief
-#                                 reader sees them inline)
-#   4. Agent activity (last 24h) — invokes
-#                     helpers/activity-digest.sh as subroutine
-#
-# The bank section (Helper 2 output) lands when FEAT-011 (Finom
-# MCP) ships. Until then, this helper omits the bank line.
-#
-# Schedule: daily 08:00 local time (configured via launchd /
-# cron with morning_brief_time + morning_brief_tz from
-# .juvant/config.json — wizard step 4).
+# Daily 08:00 brief — sends a structured AdaptiveCard to the Teams ops channel.
+# Per ADR 0004 + FEAT-007: pure SQL aggregate + curl, no Claude Code spawn.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
-ACTIVITY_DIGEST="$SCRIPT_DIR/activity-digest.sh"
-NOTIFY="$SCRIPT_DIR/../hooks/notification.sh"
 
 TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
 if [[ -z "$TURSO_URL" ]]; then
@@ -42,83 +16,131 @@ if [[ -z "$TURSO_URL" ]]; then
   exit 1
 fi
 
+TEAMS_URL=$(jq -r '.notifications.teams_webhooks.ops // ""' "$CONFIG" 2>/dev/null || echo "")
+if [[ -z "$TEAMS_URL" ]]; then
+  echo "[morning-brief] WARN: notifications.teams_webhooks.ops not configured — skipping" >&2
+  exit 0
+fi
+
 COMPANY=$(jq -r '.company.name // .company_name // "Juvant OS"' "$CONFIG" 2>/dev/null || echo "Juvant OS")
-TODAY=$(date -u +%Y-%m-%d)
+DATE_DISPLAY=$(date "+%a %d %b %Y")
 SINCE=$(date -u -v-1d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
         || date -u -d "1 day ago" +"%Y-%m-%d %H:%M:%S")
 
-# ─── Section 1: Yesterday's decisions
-DECISIONS=$(turso db shell "$TURSO_URL" "
+# ─── Decisions (last 24h)
+DECISIONS_RAW=$(turso db shell "$TURSO_URL" "
 SELECT category, COUNT(*) FROM decisions
 WHERE created_at > '$SINCE'
-GROUP BY category
-ORDER BY COUNT(*) DESC;
+GROUP BY category ORDER BY COUNT(*) DESC;
 " 2>/dev/null | awk 'NR > 1' || true)
 
-DECISIONS_MD=""
-if [[ -z "$DECISIONS" ]]; then
-  DECISIONS_MD="_No decisions logged in the last 24 hours._"
-else
-  DECISIONS_MD="| Category | Count |"$'\n'"|---|---:|"$'\n'
-  while read -r cat count; do
-    cat=$(echo "$cat" | xargs)
-    count=$(echo "$count" | xargs)
-    [[ -z "$cat" ]] && continue
-    DECISIONS_MD+="| $cat | $count |"$'\n'
-  done <<< "$DECISIONS"
-fi
-
-# ─── Section 2: Pending inbound queue
-QUEUE=$(turso db shell "$TURSO_URL" "
+# ─── Pending queue
+QUEUE_RAW=$(turso db shell "$TURSO_URL" "
 SELECT agent_owner, COUNT(*) FROM inbound_queue
-WHERE status IN ('pending', 'escalated')
-GROUP BY agent_owner
-ORDER BY COUNT(*) DESC;
+WHERE status IN ('pending','escalated')
+GROUP BY agent_owner ORDER BY COUNT(*) DESC;
 " 2>/dev/null | awk 'NR > 1' || true)
 
-QUEUE_MD=""
-if [[ -z "$QUEUE" ]]; then
-  QUEUE_MD="_No pending items in any agent's inbound queue._"
+# ─── Agent activity (last 24h)
+ACTIVITY_RAW=$(turso db shell "$TURSO_URL" "
+SELECT agent, COUNT(*) AS calls,
+  SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok,
+  SUM(CASE WHEN status='denied'  THEN 1 ELSE 0 END) AS denied
+FROM agent_actions_log
+WHERE started_at > '$SINCE'
+GROUP BY agent ORDER BY calls DESC;
+" 2>/dev/null | awk 'NR > 1' || true)
+
+# ─── Build AdaptiveCard body elements
+
+build_facts() {
+  # Reads raw turso output (space-separated rows), emits a JSON FactSet element
+  local raw="$1" title_col="$2" value_col="$3"
+  local facts=""
+  while read -r f1 f2 rest; do
+    [[ -z "$f1" ]] && continue
+    local t v
+    t=$(echo "$f1" | xargs)
+    v=$(echo "$f2" | xargs)
+    facts+=$(jq -n --arg t "$t" --arg v "$v" '{"title":$t,"value":$v}')","
+  done <<< "$raw"
+  facts="${facts%,}"
+  echo "{\"type\":\"FactSet\",\"facts\":[$facts]}"
+}
+
+BODY_ELEMENTS="[]"
+
+# Header
+BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+  --arg company "$COMPANY" --arg date "$DATE_DISPLAY" \
+  '. + [
+    {"type":"TextBlock","text":"Morning Brief","size":"Medium","weight":"Bolder","color":"Accent"},
+    {"type":"TextBlock","text":($company + " · " + $date),"size":"Small","isSubtle":true,"spacing":"None"}
+  ]')
+
+# Decisions section
+if [[ -z "$DECISIONS_RAW" ]]; then
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    '. + [
+      {"type":"TextBlock","text":"Decisions","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      {"type":"TextBlock","text":"No decisions in the last 24h","size":"Small","isSubtle":true}
+    ]')
 else
-  QUEUE_MD="| Agent | Pending |"$'\n'"|---|---:|"$'\n'
-  while read -r agent count; do
-    agent=$(echo "$agent" | xargs)
-    count=$(echo "$count" | xargs)
-    [[ -z "$agent" ]] && continue
-    QUEUE_MD+="| $agent | $count |"$'\n'
-  done <<< "$QUEUE"
+  FACTS=$(build_facts "$DECISIONS_RAW" 1 2)
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    --argjson facts "$FACTS" \
+    '. + [
+      {"type":"TextBlock","text":"Decisions","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      $facts
+    ]')
 fi
 
-# ─── Section 3: Agent activity (last 24h)
-ACTIVITY_MD=""
-if [[ -x "$ACTIVITY_DIGEST" ]]; then
-  ACTIVITY_MD=$(bash "$ACTIVITY_DIGEST" 2>/dev/null || echo "_activity-digest failed_")
+# Queue section
+if [[ -z "$QUEUE_RAW" ]]; then
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    '. + [
+      {"type":"TextBlock","text":"Queue","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      {"type":"TextBlock","text":"No pending items","size":"Small","isSubtle":true}
+    ]')
+else
+  FACTS=$(build_facts "$QUEUE_RAW" 1 2)
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    --argjson facts "$FACTS" \
+    '. + [
+      {"type":"TextBlock","text":"Queue","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      $facts
+    ]')
 fi
 
-# ─── Assemble brief
-BRIEF=$(cat <<EOF
-# Morning Brief — $COMPANY — $TODAY
+# Activity section
+if [[ -z "$ACTIVITY_RAW" ]]; then
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    '. + [
+      {"type":"TextBlock","text":"Agent activity","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      {"type":"TextBlock","text":"No agent calls in the last 24h","size":"Small","isSubtle":true}
+    ]')
+else
+  FACTS=$(build_facts "$ACTIVITY_RAW" 1 2)
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    --argjson facts "$FACTS" \
+    '. + [
+      {"type":"TextBlock","text":"Agent activity","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      $facts
+    ]')
+fi
 
-## Yesterday's decisions
+# ─── Assemble and POST AdaptiveCard
+CARD=$(jq -n --argjson body "$BODY_ELEMENTS" '{
+  "type": "AdaptiveCard",
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "version": "1.4",
+  "body": $body
+}')
 
-$DECISIONS_MD
+curl -s -X POST "$TEAMS_URL" \
+  -H "Content-Type: application/json" \
+  -d "$CARD" \
+  -o /dev/null 2>&1 || echo "[morning-brief] WARN: Teams delivery failed" >&2
 
-## Inbound queue (pending)
-
-$QUEUE_MD
-
-$ACTIVITY_MD
-
----
-_Generated by helpers/morning-brief.sh — Juvant OS_
-EOF
-)
-
-# ─── Dispatch
-JSON_MSG=$(echo -n "$BRIEF" | jq -R -s '.')
-JUVANT_NOTIFY_CHANNEL=ops JUVANT_TEAMS_ONLY=1 \
-  bash "$NOTIFY" <<< "{\"message\":$JSON_MSG}" \
-  || echo "[morning-brief] WARN: notification dispatch failed" >&2
-
-echo "[morning-brief] OK — sent brief for $TODAY"
+echo "[morning-brief] OK — sent brief for $DATE_DISPLAY"
 exit 0
