@@ -2586,7 +2586,8 @@ SessionStart hook setting `agents.status='active'` in Turso) and explicitly by
    - `hiring_log WHERE status='pending'`.
    - `decisions WHERE status='proposed'`.
    - `security_audit_log WHERE status='open' AND severity IN ('P0','P1')`.
-   - `knowledge_base ORDER BY created_at DESC LIMIT 5` (recent additions).
+   - `knowledge_base WHERE project_id IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
+   - If a project is active: `knowledge_base WHERE project_id = '<active_slug>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context).
 5. **Check for active disclosure fallback** —
    `inbound_queue WHERE category='disclosure-unavailable' AND status='pending'`.
    If any: enter Disclosure Fallback Cascade per §3 (see below) BEFORE presenting
@@ -2611,6 +2612,36 @@ Project-scope agents are NOT booted by default. Boot them when:
 - A project has open work (`inbound_queue` rows for project-scope owners, pending
   manifestos, open spec rows in `decisions`).
 - A spec from a project agent is awaiting Eng Lead execution.
+
+**Knowledge injection on dispatch (ARCH-012).** When dispatching a project agent
+via `Task(subagent_type='<slug>-<role>', prompt='...')`, prepend the project's
+knowledge_base context to the prompt:
+
+```sql
+SELECT content FROM knowledge_base
+WHERE project_id = '<active_slug>'
+  AND (agent_role = '<role>' OR agent_role IS NULL)
+ORDER BY created_at DESC;
+```
+
+Each row's `content` is prepended as a `## Project context` block before the task
+prompt. This is how adopters inject project-specific domain knowledge (tech stack,
+conventions, constraints) without editing the compiled agent files.
+
+**Adopter pattern — do not edit compiled agent files.** The compiled files in
+`agents/projects/<slug>/*.md` are generated outputs — editing them directly risks
+losing customizations on the next `compile-templates --scope projects` run.
+All project-specific context belongs in `knowledge_base` rows instead:
+
+```
+CoS: "Add to Eng Lead's knowledge base for Hardys: React Native 0.76,
+      Expo SDK 52, targets iOS 17+ and Android 14+."
+→ knowledge_base INSERT: project_id='hardys', agent_role='eng-lead',
+  content='Tech stack: React Native 0.76, Expo SDK 52...'
+```
+
+The Skill writes the row via standard Turso INSERT. The knowledge is available
+to the Hardys Eng Lead at next dispatch.
 
 ### Boot Mode resolution
 
