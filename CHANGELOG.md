@@ -11,6 +11,67 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-05-15 — Helpers operational + architectural improvements
+
+Patch release. Fixes all scheduled helpers (notification, morning brief,
+audit-reconcile, anomaly-check, turso-backup) for real-world use, plus two
+architectural improvements to the Skill.
+
+### Fixed
+
+- **`hooks/notification.sh`** — three bugs corrected in sequence:
+  (1) credentials read from `.notifications.telegram_*` path (not root-level);
+  (2) stdin detection changed from `[ -p /dev/stdin ]` to `[ ! -t 0 ]` so
+  here-strings from helpers are correctly parsed;
+  (3) Teams payload changed from `{"text":"..."}` to AdaptiveCard JSON —
+  Power Automate "Post card in a chat or channel" requires AdaptiveCard format.
+  Also: `[ROLE]` prefix suppressed when `AGENT_ROLE` is not set (helpers are
+  not agents; prefix was misleading).
+- **`helpers/morning-brief.sh`** — four bugs corrected: company name path
+  (`.company.name` not `.company_name`); turso output header skipping
+  (`awk 'NR > 1'`); space-separated parsing (replaced `IFS='|'` with plain
+  `read`); fiscal deadlines section removed (adopters have an accountant);
+  Morning Brief now posts to Teams ops channel only (`JUVANT_TEAMS_ONLY=1`)
+  as a structured AdaptiveCard with FactSet sections per topic. Kill switch
+  and anomalies sections appear conditionally only when there is something
+  to report.
+- **`helpers/activity-digest.sh`** — same turso header-skip and space-separated
+  parsing fixes as morning-brief.
+- **`helpers/audit-reconcile.sh`** — two bugs: (1) `decisions.proposer_role`
+  column does not exist — correct column is `decisions.agent`; (2) Homebrew
+  PATH missing in launchd environment → `turso` not found (exit 127).
+- **`helpers/anomaly-check.sh`** — Homebrew PATH fix + header-skip + IFS='|'
+  parsing fix.
+- **`helpers/turso-backup.sh`** — Homebrew PATH fix (launchd exit 127).
+
+### Changed
+
+- **`helpers/install-schedules.sh`** — `fiscal-deadlines.sh` removed from
+  scheduled jobs (launchd/cron). The helper remains available on-demand;
+  adopters with an accountant do not need automated fiscal alerts.
+- **`helpers/morning-brief.sh`** — `alerts` channel removed from company-scope
+  `teams_webhooks`; per-project alerts now live under
+  `.projects.<slug>.notifications.teams_webhooks.alerts`.
+
+### Added
+
+- **`hooks/notification.sh`** — `JUVANT_NOTIFY_PROJECT=<slug>` env var for
+  per-project Teams channel routing. Checks
+  `.projects.<slug>.notifications.teams_webhooks[$channel]` first, falls back
+  to company-scope channel. Enables project-specific alert channels (e.g.
+  Hardys alerts → `#hardys-alerts`).
+- **`hooks/notification.sh`** — `JUVANT_TEAMS_ONLY=1` env var to suppress
+  Telegram delivery. Used by Morning Brief (long markdown → Teams only).
+- **`JUVANT_OS.md`** — `proj.1.notif` wizard step: optional per-project Teams
+  alerts webhook URL collected at project init.
+- **`JUVANT_OS.md`** — boot sequence step 4 reads `knowledge_base` project-scoped
+  when a project is active; project agent dispatch injects matching
+  `knowledge_base` rows as `## Project context` prefix (ARCH-012).
+- **`JUVANT_OS.md`** — `"Resync project agents for <slug>"` Skill operation:
+  re-runs `compile-templates.sh --scope projects --project=<slug>`, shows diff,
+  commits, triggers re-Tier-1 manifesto review. Safe because compiled files
+  carry no project customizations post-ARCH-012 (FEAT-021).
+
 ## [1.0.0] — 2026-05-14 — First stable release
 
 First production-ready release. All seven bugs surfaced during the first
