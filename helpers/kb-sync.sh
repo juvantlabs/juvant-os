@@ -99,21 +99,23 @@ if [[ -n "$GH_TOKEN" ]]; then
     [[ -n "$repo" && "$repo" != "null" ]] && REPOS+=("$repo")
   done < <(jq -r '.projects // {} | to_entries[] | .value.github_repo // empty' "$CONFIG" 2>/dev/null)
 
-  for repo in "${REPOS[@]}"; do
-    # Open issues count as hash proxy
-    issue_count=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-      "https://api.github.com/repos/$repo/issues?state=open&per_page=1" \
-      -I 2>/dev/null | grep -i "x-total-count:" | tr -d '\r' | awk '{print $2}')
-    last_issue=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-      "https://api.github.com/repos/$repo/issues?state=open&per_page=1&sort=updated" \
-      2>/dev/null | jq -r '.[0].updated_at // "none"' 2>/dev/null || echo "none")
+  if [[ ${#REPOS[@]} -gt 0 ]]; then
+    for repo in "${REPOS[@]}"; do
+      # Open issues count as hash proxy
+      issue_count=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+        "https://api.github.com/repos/$repo/issues?state=open&per_page=1" \
+        -I 2>/dev/null | grep -i "x-total-count:" | tr -d '\r' | awk '{print $2}')
+      last_issue=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+        "https://api.github.com/repos/$repo/issues?state=open&per_page=1&sort=updated" \
+        2>/dev/null | jq -r '.[0].updated_at // "none"' 2>/dev/null || echo "none")
 
-    if [[ -n "$issue_count" ]]; then
-      hash=$(echo "${issue_count}:${last_issue}" | shasum -a 256 | awk '{print $1}')
-      upsert_snapshot "github_issues" "$repo" "$hash" \
-        "$issue_count open issues (last updated: $last_issue)"
-    fi
-  done
+      if [[ -n "$issue_count" ]]; then
+        hash=$(echo "${issue_count}:${last_issue}" | shasum -a 256 | awk '{print $1}')
+        upsert_snapshot "github_issues" "$repo" "$hash" \
+          "$issue_count open issues (last updated: $last_issue)"
+      fi
+    done
+  fi
 fi
 
 # ─── Turso decisions proxy ────────────────────────────────────────────────────
