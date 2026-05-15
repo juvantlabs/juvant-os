@@ -11,6 +11,54 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-05-15 — Meeting transcripts, framework sync, knowledge pipeline
+
+First v1.1 release. Three new Skill operations and the Knowledge Sync
+Pipeline (FEAT-026). Requires `@juvantlabs/m365-graph-mcp-server@0.2.1`
+for meeting transcript tools.
+
+### Added
+
+- **`m365-graph:list_meeting_transcripts` + `m365-graph:get_transcript`**
+  (FEAT-010) — post-meeting Teams transcript analysis. CEO asks *"analyse
+  the meeting with Sara Parise"*; CoS finds the event, retrieves the
+  transcript, strips VTT markers, and produces a structured summary with
+  action items routed to the owning agents via `inbound_queue`. Requires
+  `@juvantlabs/m365-graph-mcp-server@0.2.1` with two new admin-consented
+  delegated scopes (`OnlineMeetings.Read`, `OnlineMeetingTranscript.Read.All`).
+  Implemented in `JUVANT_OS.md` § Skill operation: Analyse meeting.
+- **`"Sync with framework"` / `"Aggiorna con il framework"`** (FEAT-029)
+  — Skill operation that evaluates the company instance against upstream
+  `juvantlabs/juvant-os`, presents per-category diffs (hooks, helpers,
+  scripts, JUVANT_OS.md, etc.), and applies CEO-approved files via
+  `git checkout upstream/main -- <file>`. Post-apply: reloads launchd agents,
+  re-runs `compile-templates` if scripts changed, commits, pushes, runs
+  smoke tests. **HARD-REQUIRED**: never applies without explicit CEO approve
+  per category — silence = skip.
+- **Knowledge Sync Pipeline** (FEAT-026) — SessionStart-driven source change
+  detection. New `helpers/kb-sync.sh` runs at every session start (background,
+  zero tokens, ~2-3s): hashes GitHub issues and Turso decisions, writes deltas
+  to the new `source_snapshots` Turso table. CoS reads changed sources at boot,
+  shows `delta_summary` per source, and offers CRO routing. If CEO approves,
+  `Task(subagent_type='cro')` processes the deltas, writes structured entities
+  to `knowledge_base`, then re-sends Morning Brief to Teams with enriched content.
+- **`source_snapshots` table** in `scripts/schema.sql` — tracks content hashes
+  per source (type, ref, hash, delta_summary, last_changed_at). Apply via
+  `turso db shell < scripts/schema.sql` on existing instances.
+- **CRO `Process Source Deltas` operation** in `agents/company/cro.md` —
+  fetches changed content, extracts entities (person, contract, deadline,
+  decision), writes to `knowledge_base` with `source_ref`, triggers
+  Morning Brief on completion.
+
+### Fixed
+
+- **`hooks/*.sh` — cwd-independent path resolution** — all hook commands in
+  `.claude/settings.json` now use `git rev-parse --show-toplevel` to find the
+  project root at runtime. Previously, `bash hooks/stop.sh` failed with "No
+  such file or directory" whenever the shell cwd had been changed to a different
+  directory (e.g. `cd ~/Projects/m365-graph-mcp-server`). Now silently succeeds
+  when cwd is outside the project's git tree.
+
 ## [1.0.1] — 2026-05-15 — Helpers operational + architectural improvements
 
 Patch release. Fixes all scheduled helpers (notification, morning brief,
