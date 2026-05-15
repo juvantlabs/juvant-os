@@ -2637,6 +2637,12 @@ to `juvantlabs/juvant-os`. If absent, surface:
 
 5. **Apply approved files** — `git checkout upstream/main -- <file>` for each
    approved file.
+
+   **HARD-REQUIRED:** The Skill **MUST NOT** apply any file change without an
+   explicit CEO `approve` response for that category. Silence, ambiguity, or
+   absence of a response **MUST** be treated as `skip`. This operation touches
+   framework-managed files in a live company instance — no autocommit, no
+   assumptions.
 6. **Post-apply steps** (auto-executed, no additional CEO input):
    - Any `helpers/*.sh` or `hooks/*.sh` changed →
      reload affected launchd plists:
