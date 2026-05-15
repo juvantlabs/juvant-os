@@ -2164,6 +2164,51 @@ INSERT INTO projects (id, name, db_url, status, created_at)
 VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP);
 ```
 
+### Wizard — Step 2.5: Import Claude Code session memory (auto, FEAT-030)
+
+**Automatic — no CEO input required unless multiple memory directories are found.**
+
+After the project DB is created, the Skill checks whether prior Claude Code
+session memory exists for this project's working directory and, if so, imports
+it into `knowledge_base` so it is permanently accessible from any future session.
+
+**Discovery (path-agnostic):**
+
+Check if `<working_dir>/.claude/memory/` exists and contains `.md` files
+(excluding `MEMORY.md`). No path computation, no search — just a direct
+directory check inside the project's own `.claude/` folder.
+
+**Prerequisite:** the `hooks/session-end.sh` hook syncs the global Claude Code
+memory (`~/.claude/projects/<path>/memory/`) into the local project directory
+(`<project>/.claude/memory/`) at every session end. The local directory is
+gitignored. This makes memory travel with the project regardless of absolute
+path changes or machine differences.
+
+**Import (if memory found):**
+
+For each `.md` file, parse YAML frontmatter (`name`, `description`, `type`)
+and body, then INSERT into `knowledge_base`:
+
+- `category` = `memory-<type>` (e.g. `memory-feedback`, `memory-project`)
+- `title` = frontmatter `name`
+- `content` = frontmatter `description` + body
+- `source_ref` = `claude-memory:<basename>/<filename>`
+- `project_id` = project slug
+- `promoted_by` = `ceo`
+
+Use `INSERT OR IGNORE` (idempotent — re-running project init does not duplicate).
+
+**Output:**
+
+```
+[auto] Checking for Claude Code session memory for 'juvant-os'...
+  Found: <working_dir>/.claude/memory/ (33 entries)
+  Importing → knowledge_base...
+  ✓ 33 memory entries imported for project 'juvant-os'.
+```
+
+If nothing found: silent.
+
 ### Wizard — Step 3: Generate project agent names
 
 Defaults are `<project_id>-<role>`: `hardys-pca`, `hardys-product-lead`, `hardys-design-lead`,
