@@ -269,12 +269,10 @@ CREATE TABLE IF NOT EXISTS disclosure_policies (
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Idempotent column additions for adopters upgrading from pre-BUG-013 schema.
--- ALTER TABLE ADD COLUMN IF NOT EXISTS requires SQLite ≥ 3.37 / libSQL (Turso).
-ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS status       TEXT DEFAULT 'draft';
-ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS validated_by TEXT;
-ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS validated_at DATETIME;
-ALTER TABLE disclosure_policies ADD COLUMN IF NOT EXISTS retired_at   DATETIME;
+-- Note: adopters upgrading from a pre-BUG-013 schema (missing status,
+-- validated_by, validated_at, retired_at) should run:
+--   bash scripts/migrate.sh schema-apply
+-- which applies idempotent ALTER TABLE patches after the CREATE TABLE block.
 
 -- ─────────────────────────────────────────────
 -- COUNTERPARTIES

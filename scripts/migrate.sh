@@ -160,6 +160,7 @@ run_schema_apply() {
       mkdir -p "$(dirname "$DB_PATH")"
       echo "Applying schema to local SQLite ($SCOPE_LABEL): $DB_PATH"
       sqlite3 "$DB_PATH" < "$SCHEMA"
+      apply_schema_patches_local "$DB_PATH"
       echo "Schema applied successfully."
       ;;
     turso|azure|aws|gcp)
@@ -175,6 +176,7 @@ run_schema_apply() {
       fi
       echo "Applying schema to ($SCOPE_LABEL): $DB_URL"
       turso db shell "$DB_URL" < "$SCHEMA"
+      apply_schema_patches_turso "$DB_URL"
       echo "Schema applied successfully."
       ;;
     *)
@@ -182,6 +184,37 @@ run_schema_apply() {
       exit 1
       ;;
   esac
+}
+
+# Idempotent column patches — called after schema.sql apply.
+# Turso/libSQL does not support ALTER TABLE ADD COLUMN IF NOT EXISTS,
+# so each statement runs separately with error suppressed (failure = column
+# already exists, which is the correct post-CREATE TABLE state).
+
+apply_schema_patches_local() {
+  local db="$1"
+  local patches=(
+    "ALTER TABLE disclosure_policies ADD COLUMN status       TEXT DEFAULT 'draft';"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_by TEXT;"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_at DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN retired_at   DATETIME;"
+  )
+  for sql in "${patches[@]}"; do
+    sqlite3 "$db" "$sql" 2>/dev/null || true
+  done
+}
+
+apply_schema_patches_turso() {
+  local url="$1"
+  local patches=(
+    "ALTER TABLE disclosure_policies ADD COLUMN status       TEXT DEFAULT 'draft';"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_by TEXT;"
+    "ALTER TABLE disclosure_policies ADD COLUMN validated_at DATETIME;"
+    "ALTER TABLE disclosure_policies ADD COLUMN retired_at   DATETIME;"
+  )
+  for sql in "${patches[@]}"; do
+    turso db shell "$url" "$sql" 2>/dev/null || true
+  done
 }
 
 # ─────────────────────────────────────────────
