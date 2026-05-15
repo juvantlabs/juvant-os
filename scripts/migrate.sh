@@ -118,9 +118,10 @@ run_schema_apply() {
         echo "ERROR: project '$PROJECT_SLUG' not found in $CONFIG (.projects.$PROJECT_SLUG missing)." >&2
         exit 1
       fi
-      PROVIDER=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.provider // ""' "$CONFIG")
-      DB_URL=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // ""' "$CONFIG")
-      DB_TOKEN=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.auth_token // ""' "$CONFIG")
+      # Support both nested (.db.provider) and flat (.provider) config shapes.
+      PROVIDER=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.provider // .projects[$s].provider // ""' "$CONFIG")
+      DB_URL=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG")
+      DB_TOKEN=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.auth_token // .projects[$s].auth_token // ""' "$CONFIG")
     else
       PROVIDER=$(jq -r '.db.provider // ""' "$CONFIG")
       DB_URL=$(jq -r '.db.url // ""' "$CONFIG")

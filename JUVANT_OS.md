@@ -2713,7 +2713,7 @@ to `juvantlabs/juvant-os`. If absent, surface:
    - `scripts/compile-templates.sh` changed →
      re-run `bash scripts/compile-templates.sh --scope company`.
    - `scripts/migrate.sh` changed → surface reminder:
-     *"migrate.sh changed — run `bash scripts/migrate.sh --check` before the next migration."*
+     *"migrate.sh changed — re-run `bash scripts/migrate.sh schema-apply` to apply any new column patches."*
 7. **Commit** — `git add <all applied files>` +
    `git commit -m "chore: sync framework files to upstream <tag>"`.
 8. **Push** — `git push origin main`.
