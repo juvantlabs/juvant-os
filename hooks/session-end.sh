@@ -66,13 +66,4 @@ if [[ -n "$TRANSCRIPT" && -n "$SESSION_ID" && -f "$SCRIPT_DIR/lib/track-tokens.s
     || true
 fi
 
-# FEAT-030: sync global Claude Code memory to local .claude/memory/ so it
-# travels with the project regardless of absolute path changes.
-GLOBAL_MEM="$HOME/.claude/projects/$(echo "$REPO_ROOT" | tr '/' '-')/memory"
-LOCAL_MEM="$REPO_ROOT/.claude/memory"
-if [[ -d "$GLOBAL_MEM" ]]; then
-  mkdir -p "$LOCAL_MEM"
-  rsync -a --delete "$GLOBAL_MEM/" "$LOCAL_MEM/" 2>/dev/null || true
-fi
-
 exit 0

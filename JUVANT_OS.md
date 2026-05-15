@@ -2164,50 +2164,50 @@ INSERT INTO projects (id, name, db_url, status, created_at)
 VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP);
 ```
 
-### Wizard — Step 2.5: Import Claude Code session memory (auto, FEAT-030)
-
-**Automatic — no CEO input required unless multiple memory directories are found.**
+### Wizard — Step 2.5: Import Claude Code session memory (FEAT-030)
 
 After the project DB is created, the Skill checks whether prior Claude Code
-session memory exists for this project's working directory and, if so, imports
-it into `knowledge_base` so it is permanently accessible from any future session.
+session memory exists for this project's working directory and imports it into
+`knowledge_base` so it is permanently accessible from any future session.
 
-**Discovery (path-agnostic):**
+**Discovery:**
 
-Check if `<working_dir>/.claude/memory/` exists and contains `.md` files
-(excluding `MEMORY.md`). No path computation, no search — just a direct
-directory check inside the project's own `.claude/` folder.
+Claude Code stores memory at `~/.claude/projects/<sanitized-path>/memory/`
+where `<sanitized-path>` is the absolute working directory with every `/`
+replaced by `-` (e.g. `/Users/antonio/Projects/juvant-os` →
+`-Users-antonio-Projects-juvant-os`).
 
-**Prerequisite:** the `hooks/session-end.sh` hook syncs the global Claude Code
-memory (`~/.claude/projects/<path>/memory/`) into the local project directory
-(`<project>/.claude/memory/`) at every session end. The local directory is
-gitignored. This makes memory travel with the project regardless of absolute
-path changes or machine differences.
+The Skill computes this path from `working_dir` (collected at Step 1) and
+checks if it exists.
 
-**Import (if memory found):**
+**If memory found — import:**
 
-For each `.md` file, parse YAML frontmatter (`name`, `description`, `type`)
-and body, then INSERT into `knowledge_base`:
+For each `.md` file (skip `MEMORY.md`), parse YAML frontmatter (`name`,
+`description`, `type`) and body, then INSERT OR IGNORE into `knowledge_base`:
 
 - `category` = `memory-<type>` (e.g. `memory-feedback`, `memory-project`)
 - `title` = frontmatter `name`
-- `content` = frontmatter `description` + body
-- `source_ref` = `claude-memory:<basename>/<filename>`
+- `content` = frontmatter `description` + `\n\n` + body
+- `source_ref` = `claude-memory:<slug>/<filename>`
 - `project_id` = project slug
 - `promoted_by` = `ceo`
 
-Use `INSERT OR IGNORE` (idempotent — re-running project init does not duplicate).
-
-**Output:**
+**Output (always surface the result — never silent):**
 
 ```
-[auto] Checking for Claude Code session memory for 'juvant-os'...
-  Found: <working_dir>/.claude/memory/ (33 entries)
-  Importing → knowledge_base...
-  ✓ 33 memory entries imported for project 'juvant-os'.
+[memory] Checking ~/.claude/projects/-Users-antonio-Projects-juvant-os/memory/ ...
+  ✓ Found 33 entries — importing into knowledge_base for project 'juvant-os'...
+  ✓ Done. 33 memory entries available for all future sessions.
 ```
 
-If nothing found: silent.
+or if not found:
+
+```
+[memory] No Claude Code session memory found for project 'juvant-os'
+         at ~/.claude/projects/-Users-antonio-Projects-juvant-os/memory/
+         You can import memory later with:
+         "Import memory for project juvant-os from <absolute-path>"
+```
 
 ### Wizard — Step 3: Generate project agent names
 
@@ -2589,6 +2589,23 @@ These are enforced at the agent level (see the relevant
   analysis isn't polluted by experimental cashflows.
 - **CoS** — Morning Brief groups projects by maturity (GA → preview →
   incubation), each with a header indicating expected attention level.
+
+### Skill operation: *"Import memory for project `<slug>` from `<path>`"*
+
+Recognized phrasings: *"Import memory for project juvant-os from /Users/antonio/Projects/juvant-os"*,
+*"Importa le memorie per il progetto juvant-os dal path /Users/antonio/Projects/juvant-os"*.
+
+Allows the CEO to manually import Claude Code session memory into the project
+`knowledge_base` at any time — useful when the memory was not found at project
+init (path was different) or to re-import after new sessions.
+
+1. Compute memory path: `<path>` → replace each `/` with `-` →
+   `~/.claude/projects/<sanitized>/memory/`
+2. Check that the directory exists and contains `.md` files. If not:
+   surface a clear error with the expected path.
+3. Import each `.md` file (skip `MEMORY.md`) into `knowledge_base` with
+   `project_id='<slug>'` using `INSERT OR IGNORE` (idempotent).
+4. Report: how many entries were imported, how many already existed (skipped).
 
 ### Skill operation: *"Analyse meeting `<title or date>`"*
 
