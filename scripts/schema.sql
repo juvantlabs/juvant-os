@@ -406,8 +406,26 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
   promoted_by     TEXT,
   -- 'chro' | 'ca' | 'cro'
   approved_by     TEXT DEFAULT 'ceo',
+  scope           TEXT DEFAULT 'company',
+  -- 'company' | 'global' — only master companies may write 'global'
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only
+BEFORE INSERT ON knowledge_base
+WHEN NEW.scope = 'global'
+BEGIN
+  SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context')
+  WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master';
+END;
+
+CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd
+BEFORE UPDATE ON knowledge_base
+WHEN NEW.scope = 'global' AND OLD.scope != 'global'
+BEGIN
+  SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context')
+  WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master';
+END;
 
 -- Idempotent migration (existing DBs migrating from pre-source_ref):
 -- SQLite ADD COLUMN is non-idempotent — wrap with || true if scripting.

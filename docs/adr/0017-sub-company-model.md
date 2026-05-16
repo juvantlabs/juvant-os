@@ -51,6 +51,20 @@ read-only token. Sub-companies can only write `scope='company'` decisions.
 | `master_db_url` | libSQL URL or NULL | NULL for single/master |
 | `master_db_token` | read-only token or NULL | NULL for single/master; never write-capable |
 
+### When to use `decisions.scope='global'` vs `knowledge_base.scope='global'`
+
+Both tables support a `scope='global'` concept, but they serve different purposes:
+
+| | `decisions` global | `knowledge_base` global |
+|---|---|---|
+| **What it contains** | Governance actions: approved choices, architectural rules, process mandates | Shared context: strategic briefs, technical standards docs, research, competitive intel |
+| **Typical example** | *"All instances use Turso as DB provider"*, *"ADR 0004 Track 2 is mandatory"* | *"Our positioning vs competitor X"*, *"Architecture rationale for the Turso schema"* |
+| **Approval gate** | CEthO validation + CEO approval (same as Universal-CONFIDENTIAL) | CEO approval only (no CEthO gate — informational, not governance) |
+| **Agent behaviour** | Sub-company agents must not contradict a global decision | Sub-company agents use it as context; no binding obligation |
+| **Immutable** | Yes — supersession only, never in-place edit | No — can be updated in place (it's knowledge, not a record) |
+
+**Rule of thumb**: if the master is *deciding* something that applies to all sub-companies → `decisions`. If the master is *sharing knowledge* that sub-companies should be aware of → `knowledge_base`.
+
 ### `decisions` — one new column
 
 ```sql
@@ -88,6 +102,31 @@ counterparties. Master `global` decisions are surfaced to sub-company agents
 as **read-only context** — they cannot be cited in a sub-company disclosure
 policy as justification for a `global`-scope action (that would require
 promoting to master).
+
+### `knowledge_base` — one new column
+
+```sql
+ALTER TABLE knowledge_base ADD COLUMN scope TEXT DEFAULT 'company';
+-- 'company' | 'global'
+-- Only master companies may write scope='global' entries.
+-- Sub-companies read master's global entries at boot (read-only).
+```
+
+Same enforcement pattern as `decisions`:
+- DB trigger `RAISE(ABORT)` blocks any write of `scope='global'` if
+  `master_context.company_type != 'master'`.
+- Schema `DEFAULT 'company'` as passive fallback.
+- Bash deny-list covers the Bash path.
+
+Sub-company boot reads global KB entries from master after step 4b:
+```sql
+SELECT id, category, title, content, source_ref, created_at
+FROM knowledge_base
+WHERE scope='global'
+ORDER BY created_at DESC
+-- executed against master_db_url with master_db_token (read-only)
+```
+Surfaced in boot summary under **"Global knowledge (from master)"** — informational context for agents.
 
 ---
 

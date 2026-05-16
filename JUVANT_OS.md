@@ -2840,7 +2840,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
-| `knowledge_base` | `id, category, title, content, source_project, source_ref, promoted_by, approved_by, created_at` — project scope filter = `WHERE source_project='<slug>'` (NOT `scope`); there is NO `tags`, `scope`, or `updated_at` column |
+| `knowledge_base` | `id, category, title, content, source_project, source_ref, promoted_by, approved_by, scope, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); project filter = `WHERE source_project='<slug>'`; there is NO `tags` or `updated_at` column |
 | `hiring_log` | `id, role, requested_by, rationale, status, approved_by, approved_at, created_at` |
 | `agents` | `id, role, name, scope, project_id, status, session_id, session_path, model, template_version, manifesto_status, manifesto_tier, bash_allow, created_at, updated_at` |
 | `disclosure_policies` | `id, agent, counterparty, category, level, rationale, status, validated_by, validated_at, ceo_approved_at, valid_from, valid_until, retired_at, superseded_by, created_at` — `status`: `'draft'\|'validated'\|'active'\|'retired'`; joint approval = both `ceo_approved_at` AND `validated_at` non-null |
@@ -2889,8 +2889,18 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
    ```
    Surface in boot summary under **"Global decisions (from master)"** — informational
    only; agents do not act on them without explicit CEO instruction.
+   Then read global KB entries from master:
+   ```sql
+   SELECT id, category, title, content, source_ref, created_at
+   FROM knowledge_base
+   WHERE scope='global'
+   ORDER BY created_at DESC
+   -- executed against master_db_url with master_db_token (read-only)
+   ```
+   Surface under **"Global knowledge (from master)"** — context for agents,
+   no binding obligation.
    If master DB is **unreachable**: proceed with warning
-   *"Master DB unavailable — global decisions not loaded this session."*
+   *"Master DB unavailable — global decisions and knowledge not loaded this session."*
    Also surface any `decisions WHERE upstream_candidate=1` under
    **"Decisions pending upstream proposal"**.
 5. **Check for active disclosure fallback** —
@@ -3544,6 +3554,20 @@ Report: *"This company is now a master. Sub-companies can read global decisions 
 Run the same sub-wizard as company init Step 2.5a–d (master slug → derive URL
 → confirm/override → read-only token → verify connection → store).
 
+#### Decisions vs knowledge_base — when to use global
+
+When the CEO says *"this should be global"*, CoS asks:
+
+> *"Is this a governance rule that sub-companies must follow (→ global decision),
+> or shared context they should be aware of (→ global KB entry)?"*
+
+| Use `decisions.scope='global'` | Use `knowledge_base.scope='global'` |
+|---|---|
+| Approved choices, architectural mandates, process rules | Strategic briefs, technical standards docs, research, competitive intel |
+| Sub-companies **must not contradict** it | Sub-companies use it as **context** — no binding obligation |
+| CEthO + CEO approval gate | CEO approval only |
+| Immutable (supersession only) | Can be updated in place |
+
 #### Make decision #X global (master only)
 
 Requires `company_type='master'`. Immutable-row pattern:
@@ -3554,6 +3578,19 @@ Requires `company_type='master'`. Immutable-row pattern:
 
 If `company_type` is not `'master'`: reject with
 *"Only master companies can create global decisions. Use the upstream proposal flow instead."*
+
+#### Make KB entry #X global (master only)
+
+Requires `company_type='master'`. Unlike decisions, KB entries are not
+immutable — update in place:
+```sql
+UPDATE knowledge_base SET scope='global' WHERE id=<X>;
+```
+CEO approval required; no CEthO gate (informational, not governance).
+Report: *"KB entry #X is now global. Sub-companies will see it at next boot."*
+
+If `company_type` is not `'master'`: reject with
+*"Only master companies can create global KB entries."*
 
 #### Mark decision #X for upstream (sub only)
 
