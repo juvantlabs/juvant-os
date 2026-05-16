@@ -106,8 +106,16 @@ master"*, *"Add a sub-company"*, *"Detach from master"*.
   `master_db_token`. CoS begins reading master global decisions at boot.
 - **Sub → Single** (detach): null out `master_db_url` / `master_db_token`,
   set `company_type='single'`. **Breaks the link with the previous master
-  permanently** — global decisions are no longer fetched, and the former
-  master has no awareness of the detachment.
+  permanently** — global decisions are no longer fetched from the next boot
+  onwards, and the former master has no awareness of the detachment.
+  Detachment is **looking forward only**: global decisions are never written
+  to the sub-company DB (they are fetched at runtime and held in session
+  context only), so there is nothing to clean up and nothing to "take away."
+  If the sub-company wants to carry forward the strategic knowledge
+  accumulated from the master's global decisions, the correct channel is its
+  own `knowledge_base`: CoS or CRO synthesises the relevant global decisions
+  into local KB entries before detaching. Those entries belong to the
+  sub-company and survive detachment as first-class knowledge.
 - **Sub → Master**: not a valid direct transition. A sub-company that wants
   to become a master must first detach (Sub → Single), then promote
   (Single → Master). The detachment step **breaks the link with the
