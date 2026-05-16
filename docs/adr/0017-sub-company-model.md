@@ -168,6 +168,81 @@ master"*, *"Add a sub-company"*.
 - **Sub → Master**: not a valid direct transition. Must detach first
   (Sub → Single via the Detach operation above), then promote (Single → Master).
 
+#### Promote a decision to global (master only)
+
+Recognized phrasings: *"Make decision #X global"*, *"Globalizza la decision
+#X"*, *"Promuovi la decision #X a global"*.
+
+Any existing `scope='company'` decision in the master DB can be promoted to
+`scope='global'` at any time. The promotion follows the standard
+approval gate (CEthO validation + CEO approval) and uses the immutable-row
+pattern: a new row is inserted with `scope='global'` and the original row
+is superseded (`superseded_by = <new_id>`). Sub-companies will see the new
+global row at their next boot.
+
+---
+
+### Upstream proposal — sub to master handoff
+
+A sub-company cannot write to the master DB. When a sub identifies a
+decision that should become global, the flow is:
+
+**Step 1 — Sub marks the decision as upstream candidate**
+
+New column on `decisions`:
+```sql
+ALTER TABLE decisions ADD COLUMN upstream_candidate INTEGER DEFAULT 0;
+-- 1 = CEO has flagged this for proposal to master
+```
+
+Recognized phrasing (sub-company): *"Mark decision #X for upstream"*,
+*"Proponi la decision #X alla master"*.
+
+CoS sets `upstream_candidate=1` on the row and surfaces it in the boot
+summary under *"Decisions pending upstream proposal"*.
+
+**Step 2 — Sub generates handoff document**
+
+Recognized phrasing: *"Genera l'upstream proposal per la decision #X"*,
+*"Prepare upstream handoff for decision #X"*.
+
+CoS produces a structured text block ready to be sent out-of-band
+(email, Teams message) to the master CEO:
+
+```
+UPSTREAM PROPOSAL — <sub-company-name>
+Decision ID : <id> (local to <sub-slug> DB — not portable)
+Date        : <created_at>
+Proposed by : <agent>
+
+Title       : <title>
+Category    : <category>
+Rationale   : <rationale>
+
+Why global  : <one sentence — why this should apply across all sub-companies>
+```
+
+**Step 3 — Master CEO receives and acts**
+
+The master CEO reads the proposal out-of-band and decides independently.
+If approved, the master CEO tells the master CoS:
+*"Crea global decision da questo upstream proposal"*.
+
+CoS creates a new `decisions` row in the master DB:
+- `scope='global'`
+- `rationale` = original rationale + *"Upstream proposal from <sub-slug>
+  decision #<original-id>"*
+- `source_ref` = `upstream:<sub-slug>:<original-id>`
+
+Standard CEthO + CEO approval gate applies before the row is activated.
+
+**Step 4 — Sub clears the candidate flag**
+
+Once the master global decision is live, the sub-company CEO clears the
+flag: *"Clear upstream candidate on decision #X"*. CoS sets
+`upstream_candidate=0`. The sub will read the new global decision at the
+next boot.
+
 ### Flat hierarchy invariant
 
 **The topology is strictly one level deep.** A master company may have

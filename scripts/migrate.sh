@@ -202,6 +202,7 @@ apply_schema_patches_local() {
     "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
     "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
     "ALTER TABLE decisions ADD COLUMN scope                     TEXT DEFAULT 'company';"
+    "ALTER TABLE decisions ADD COLUMN upstream_candidate        INTEGER DEFAULT 0;"
   )
   for sql in "${patches[@]}"; do
     sqlite3 "$db" "$sql" 2>/dev/null || true
@@ -218,6 +219,7 @@ apply_schema_patches_turso() {
     "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
     "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
     "ALTER TABLE decisions ADD COLUMN scope                     TEXT DEFAULT 'company';"
+    "ALTER TABLE decisions ADD COLUMN upstream_candidate        INTEGER DEFAULT 0;"
   )
   for sql in "${patches[@]}"; do
     turso db shell "$url" "$sql" 2>/dev/null || true
