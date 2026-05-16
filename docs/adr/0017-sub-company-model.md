@@ -195,6 +195,30 @@ its own global decisions to new sub-companies, it does so from scratch.
 
 ---
 
+## Single point of connection invariant
+
+**The master DB (via `master_db_url` + `master_db_token`) is the only link
+between master and sub-company.** Every other integration is configured
+independently on each instance:
+
+| Integration | Master | Sub-company |
+|---|---|---|
+| GitHub org / repos | own | own — separate org or repos |
+| M365 tenant / SharePoint | own | own — separate tenant or shared with independent credentials |
+| Turso project DBs | own | own |
+| MCP servers (ms-graph, bank, etc.) | own config | own config |
+| Webhook endpoints | own | own |
+| `.juvant/config.json` | own | own — no inheritance from master |
+
+There is no credential sharing, no config inheritance, no MCP server
+delegation. A sub-company that appears to "use the same GitHub org" as its
+master does so because a human configured it that way — not because the
+framework links the two. This is intentional: it keeps the detachment
+clean (severing `master_db_url` truly severs the only programmatic link)
+and avoids cross-instance privilege escalation.
+
+---
+
 ## Boot sequence impact (sub-company only)
 
 After step 4 (read pending state), CoS adds:
