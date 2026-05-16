@@ -97,12 +97,19 @@ If **[3]**, the wizard runs a sub-wizard to resolve the master DB connection:
 ```
 Step 1.5a — Master company name
   What is the name (slug) of your master company?
-  e.g. "juvant" → derives libsql://company-juvant-<org>.<region>.turso.io
+  e.g. "juvant"
+
+  The wizard derives the master URL by extracting org and region from
+  the sub-company's own db.url and substituting the master slug:
+    own URL:    libsql://company-<own-slug>-<org>.<region>.turso.io
+    master URL: libsql://company-<master-slug>-<org>.<region>.turso.io
+  This assumes both companies share the same Turso org and region group
+  (the common case). Override in step 1.5b if not.
 
 Step 1.5b — Confirm or override DB URL
   Derived URL: libsql://company-<master-slug>-<org>.<region>.turso.io
   Press Enter to confirm, or type a custom URL to override.
-  (Override needed when master uses a non-standard DB name or provider.)
+  (Override needed when master is on a different Turso org, region, or provider.)
 
 Step 1.5c — Read-only auth token
   Provide the read-only auth token for the master DB.
@@ -156,24 +163,10 @@ master"*, *"Add a sub-company"*.
 
 - **Single → Master**: set `company_type='master'` in `master_context`.
   No other changes. Future sub-companies can now point to this instance.
-- **Single → Sub**: set `company_type='sub'`, store `master_db_url` +
-  `master_db_token`. CoS begins reading master global decisions at boot.
-- **Sub → Single** (detach): null out `master_db_url` / `master_db_token`,
-  set `company_type='single'`. **Breaks the link with the previous master
-  permanently** — global decisions are no longer fetched from the next boot
-  onwards, and the former master has no awareness of the detachment.
-  Detachment is **looking forward only**: global decisions are never written
-  to the sub-company DB (they are fetched at runtime and held in session
-  context only), so there is nothing to clean up and nothing to "take away."
-  If the sub-company wants to carry forward the strategic knowledge
-  accumulated from the master's global decisions, the correct channel is its
-  own `knowledge_base`: CoS or CRO synthesises the relevant global decisions
-  into local KB entries before detaching. Those entries belong to the
-  sub-company and survive detachment as first-class knowledge.
-- **Sub → Master**: not a valid direct transition. A sub-company that wants
-  to become a master must first detach (Sub → Single), then promote
-  (Single → Master). The detachment step **breaks the link with the
-  previous master** before the new master role is established.
+- **Single → Sub**: same sub-wizard as company init (steps 1.5a–d above).
+  Sets `company_type='sub'`, stores `master_db_url` + `master_db_token`.
+- **Sub → Master**: not a valid direct transition. Must detach first
+  (Sub → Single via the Detach operation above), then promote (Single → Master).
 
 ### Flat hierarchy invariant
 
@@ -228,6 +221,7 @@ After step 4 (read pending state), CoS adds:
     SELECT id, agent, title, category, rationale, created_at
     FROM decisions
     WHERE scope='global'
+      AND superseded_by IS NULL      -- active rows only; skip superseded
     ORDER BY created_at DESC
     -- executed against master_db_url with master_db_token (read-only)
 ```
@@ -235,6 +229,17 @@ After step 4 (read pending state), CoS adds:
 These are surfaced in the boot summary under a distinct **"Global decisions
 (from master)"** section. They are informational — sub-company agents do not
 act on them without explicit CEO instruction.
+
+If the master DB is **unreachable** (token expired, network, outage): boot
+proceeds with a warning — *"Master DB unavailable — global decisions not
+loaded this session."* The sub-company operates on its own decisions only.
+This is a degraded but valid state; it must not block boot.
+
+**Token rotation**: when the master rotates its read-only token, the
+sub-company CEO must update `master_db_token` via the Skill operation
+*"Update master token"* (recognized phrasing: *"Aggiorna il token della
+master"*). CoS re-runs step 1.5d (verify connection) with the new token
+before storing it.
 
 ---
 
@@ -247,6 +252,21 @@ an **additional** approval gate, not a shortcut.
 
 The sub-company's CLO is responsible for ensuring that no sub-company policy
 references a global decision as if the sub-company had authority over it.
+
+---
+
+## Master has no registry of its sub-companies
+
+This is **intentional**. The master does not know who is pointing at it.
+A sub-company can connect to a master without the master's knowledge or
+consent — the read-only token is the only gate, and that token is generated
+by the master owner and handed to the sub deliberately. The absence of a
+registry keeps the master simple and avoids a dependency inversion where
+the master must maintain state about its dependents.
+
+If a master owner wants to track their sub-companies, they can do so with
+a `knowledge_base` entry or a `decisions` row — both are outside the
+framework's purview.
 
 ---
 

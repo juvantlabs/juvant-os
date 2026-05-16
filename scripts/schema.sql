@@ -122,6 +122,8 @@ CREATE TABLE IF NOT EXISTS decisions (
   rationale       TEXT,
   status          TEXT DEFAULT 'proposed',
   -- 'proposed' | 'approved' | 'rejected' | 'executed'
+  scope           TEXT DEFAULT 'company',
+  -- 'company' | 'global' — only master companies may write 'global'
   held_for_fallback INTEGER DEFAULT 0,
   -- 1 = held in VPE buffer during Disclosure Fallback Cascade Tier 4 (§3)
   approved_by     TEXT,
