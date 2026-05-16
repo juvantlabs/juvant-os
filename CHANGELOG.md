@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.1.3] — 2026-05-16 — Bug fixes: project-scope audit, seed-matrix, and boot sequence
+
 ### Fixed
 
 - **BUG-009** `hooks/session-start.sh` — `REPO_ROOT` unbound variable crash at
