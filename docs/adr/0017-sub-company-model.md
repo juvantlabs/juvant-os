@@ -105,9 +105,31 @@ master"*, *"Add a sub-company"*, *"Detach from master"*.
 - **Single → Sub**: set `company_type='sub'`, store `master_db_url` +
   `master_db_token`. CoS begins reading master global decisions at boot.
 - **Sub → Single** (detach): null out `master_db_url` / `master_db_token`,
-  set `company_type='single'`. Master global decisions are no longer fetched.
-  Previously-read global decisions remain in the sub-company's local context
-  (they were never written to the sub DB — they are fetched at runtime only).
+  set `company_type='single'`. **Breaks the link with the previous master
+  permanently** — global decisions are no longer fetched, and the former
+  master has no awareness of the detachment.
+- **Sub → Master**: not a valid direct transition. A sub-company that wants
+  to become a master must first detach (Sub → Single), then promote
+  (Single → Master). The detachment step **breaks the link with the
+  previous master** before the new master role is established.
+
+### Flat hierarchy invariant
+
+**The topology is strictly one level deep.** A master company may have
+sub-companies; those sub-companies may not themselves have sub-companies
+while remaining subs. Concretely:
+
+- A `sub` instance cannot set `master_db_url` pointing to another `sub`.
+  The wizard and the promotion Skill operation both validate that the target
+  `company_type` in the pointed-to DB is `master` — if it is `sub` or
+  `single`, the operation is rejected with an explicit error.
+- There is no grandparent, no chain, no DAG. Depth = 1 max.
+
+**Consequence of promoting a sub to master**: the moment a sub-company
+transitions to `single` or `master`, the link to its former master is
+severed. The former master's `decisions WHERE scope='global'` are no longer
+fetched. There is no cascading re-link. If the now-master wants to expose
+its own global decisions to new sub-companies, it does so from scratch.
 
 ---
 
