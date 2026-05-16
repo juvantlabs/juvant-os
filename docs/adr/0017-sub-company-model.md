@@ -95,10 +95,41 @@ Step 1.5 — Company topology
            These are stored in master_context as master_db_url / master_db_token.
 ```
 
-### Promotion during operation (new Skill operation)
+### Topology transitions (new Skill operations)
+
+#### Detach from master (Sub → Single)
+
+Recognized phrasings: *"Detach from master"*, *"Diventa company singola"*,
+*"Staccati dalla master"*.
+
+**Step-by-step flow** (CoS executes, CEO confirms each gate):
+
+1. **Confirm intent** — CoS presents the consequence: "This will permanently
+   break the link with the master. Global decisions will no longer be
+   available from the next boot. Proceed?"
+2. **Knowledge snapshot offer** — CoS asks: *"Do you want to absorb the
+   master's current global decisions into your local knowledge base before
+   detaching?"*
+   - If **yes**: CoS fetches all `decisions WHERE scope='global'` from the
+     master DB, then for each row CRO synthesises a `knowledge_base` entry
+     (`category='strategic'`, `source_ref='master-global:<decision_id>'`,
+     `promoted_by='cos'`). CEO confirms the KB entries before proceeding.
+   - If **no**: skip. Global decisions remain accessible only for the
+     remainder of the current session.
+3. **Sever link** — CoS executes:
+   ```sql
+   UPDATE master_context SET value='single'  WHERE key='company_type';
+   UPDATE master_context SET value=''        WHERE key='master_db_url';
+   UPDATE master_context SET value=''        WHERE key='master_db_token';
+   ```
+4. **Confirm detachment** — CoS reports: "Link severed. This company is now
+   single. It can be promoted to master at any time via *'Promote to master
+   company'*."
+
+#### Other transitions
 
 Recognized phrasings: *"Promote to master company"*, *"This company is now a
-master"*, *"Add a sub-company"*, *"Detach from master"*.
+master"*, *"Add a sub-company"*.
 
 - **Single → Master**: set `company_type='master'` in `master_context`.
   No other changes. Future sub-companies can now point to this instance.
