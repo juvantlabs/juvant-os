@@ -242,6 +242,7 @@ at the step's canonical path. The full mapping:
 | Step 1.5b (Mailboxes) | `inputs.mail_enabled_agents.{cfo,clo,cco,cmo}` | Value `null` → agent not mail-enabled. |
 | Step 1.6 (GitHub map) | `inputs.github_user_map.<role>` | All 12 role slugs (lowercase) per F-21 fix. |
 | Step 2 (Database) | `inputs.database.{provider,setup_mode,url,auth_token}` | `auth_token: null` for local. |
+| Step 2.5 (Topology) | `inputs.topology.{company_type,master_slug,master_db_url,master_db_token}` | `company_type`: `'single'`\|`'master'`\|`'sub'`. Fields after `company_type` are `null` unless `company_type='sub'`. |
 | Step 4 (Notifications) | `inputs.notifications.{telegram,webhooks}` | Telegram requires `is_operator_personal_channel: true` for the ADR 0011 carve-out. |
 | Step 4.5 (Guardrails) | `inputs.guardrails.{confirmation_token,anomaly_thresholds,audit_log_retention_days}` | All sub-keys required. |
 | Step 5 (Counterparties) | `inputs.counterparties.{mode,entries}` | `mode: skip` → empty entries. |
@@ -1067,6 +1068,60 @@ location.
 After config is written, run `bash scripts/migrate.sh` to apply
 `scripts/schema.sql` against the new DB. Verify all 20 tables exist by listing
 `sqlite_master` (or LibSQL equivalent). Abort the wizard if any table is missing.
+
+### Wizard — Step 2.5: Company topology (ADR 0017)
+
+Ask:
+
+```
+Is this company a:
+  [1] Single company (default — standalone, no master/sub relationship)
+  [2] Master company (other Juvant OS instances will read global decisions from this DB)
+  [3] Sub-company (reads global decisions from a master company)
+```
+
+If **[1] or [2]**: write `company_type` to `master_context` and proceed.
+```sql
+INSERT OR REPLACE INTO master_context (key, value) VALUES ('company_type', 'single'); -- or 'master'
+INSERT OR REPLACE INTO master_context (key, value) VALUES ('master_db_url', '');
+INSERT OR REPLACE INTO master_context (key, value) VALUES ('master_db_token', '');
+```
+
+If **[3]**, run the sub-wizard:
+
+**Step 2.5a — Master company name**
+Ask: *"What is the slug of your master company?"* (e.g. `juvant`)
+
+Derive master DB URL from the sub-company's own `db.url` by substituting the slug:
+```
+own URL:    libsql://company-<own-slug>-<org>.<region>.turso.io
+master URL: libsql://company-<master-slug>-<org>.<region>.turso.io
+```
+Both share the same Turso org and region (the common case). Override in next step if not.
+
+**Step 2.5b — Confirm or override master DB URL**
+Show derived URL, ask to confirm or provide a custom URL.
+
+**Step 2.5c — Read-only auth token**
+Ask: *"Provide the read-only token for the master DB."*
+(Master owner generates it via: `turso db tokens create company-<master-slug> --read-only`)
+Store in `master_context.master_db_token`. Never log.
+
+**Step 2.5d — Verify connection**
+```sql
+SELECT value FROM master_context WHERE key='company_type';
+-- executed against master_db_url with master_db_token
+```
+- Result `'master'` → confirmed. Store `master_db_url` + `master_db_token`.
+- Result `'sub'` → **reject** — flat hierarchy violated (max one level, ADR 0017).
+- Result `'single'` or unreachable → warn, ask CEO to confirm intent before proceeding.
+
+Write to `master_context`:
+```sql
+INSERT OR REPLACE INTO master_context (key, value) VALUES ('company_type',    'sub');
+INSERT OR REPLACE INTO master_context (key, value) VALUES ('master_db_url',   '<verified-url>');
+INSERT OR REPLACE INTO master_context (key, value) VALUES ('master_db_token', '<token>');
+```
 
 ### Wizard — Step 4: Notifications
 
@@ -2781,7 +2836,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a column; filter via `json_extract(content, '$.category')`** |
-| `decisions` | `id, agent, title, category, rationale, status, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — there is NO `subject`, `payload`, `scope`, or `summary` column |
+| `decisions` | `id, agent, title, category, rationale, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
@@ -2789,6 +2844,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 | `hiring_log` | `id, role, requested_by, rationale, status, approved_by, approved_at, created_at` |
 | `agents` | `id, role, name, scope, project_id, status, session_id, session_path, model, template_version, manifesto_status, manifesto_tier, bash_allow, created_at, updated_at` |
 | `disclosure_policies` | `id, agent, counterparty, category, level, rationale, status, validated_by, validated_at, ceo_approved_at, valid_from, valid_until, retired_at, superseded_by, created_at` — `status`: `'draft'\|'validated'\|'active'\|'retired'`; joint approval = both `ceo_approved_at` AND `validated_at` non-null |
+| `master_context` (topology keys) | `company_type` (`'single'\|'master'\|'sub'`), `master_db_url` (libSQL URL or empty), `master_db_token` (read-only token or empty) — company DB only; queried via `SELECT value FROM master_context WHERE key='<key>'` |
 
 ### Boot sequence
 
@@ -2811,6 +2867,20 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
    - `knowledge_base WHERE project_id IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
    - If a project is active: `knowledge_base WHERE project_id = '<active_project_id>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context). `<active_project_id>` = `master_context.value WHERE key='active_project'` = `projects.id` (the slug, e.g. `'hardys'` — there is no separate `slug` column).
    - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then runs `bash helpers/morning-brief.sh` to send an updated brief to Teams.
+4b. **If `company_type='sub'`: read global decisions from master** (ADR 0017)
+   ```sql
+   SELECT id, agent, title, category, rationale, created_at
+   FROM decisions
+   WHERE scope='global' AND superseded_by IS NULL
+   ORDER BY created_at DESC
+   -- executed against master_db_url with master_db_token (read-only)
+   ```
+   Surface in boot summary under **"Global decisions (from master)"** — informational
+   only; agents do not act on them without explicit CEO instruction.
+   If master DB is **unreachable**: proceed with warning
+   *"Master DB unavailable — global decisions not loaded this session."*
+   Also surface any `decisions WHERE upstream_candidate=1` under
+   **"Decisions pending upstream proposal"**.
 5. **Check for active disclosure fallback** —
    `inbound_queue WHERE json_extract(content, '$.category')='disclosure-unavailable' AND status='pending'`.
    If any: enter Disclosure Fallback Cascade per §3 (see below) BEFORE presenting
@@ -3414,6 +3484,100 @@ usage into `agent_token_usage` via the Stop / SessionEnd / SubagentStop
 hooks (FEAT-024). Cost is denormalized at write-time using the active
 row in `model_pricing`, so historical reports are stable across pricing
 updates.
+
+### Skill operation: *"Company topology"* (ADR 0017)
+
+Recognized phrasings: *"Detach from master"*, *"Staccati dalla master"*,
+*"Promote to master company"*, *"This company is now a master"*,
+*"Make decision #X global"*, *"Globalizza la decision #X"*,
+*"Mark decision #X for upstream"*, *"Proponi la decision #X alla master"*,
+*"Prepare upstream handoff for decision #X"*, *"Update master token"*,
+*"Aggiorna il token della master"*, *"What topology is this company?"*.
+
+#### Query current topology
+
+CoS reads `master_context WHERE key IN ('company_type','master_db_url')` and
+reports: *"This company is \<single|master|sub\>."* For sub: shows master DB URL.
+
+#### Detach from master (Sub → Single)
+
+4-step flow, CEO confirms each gate:
+
+1. **Confirm intent** — *"This will permanently break the link with the master.
+   Global decisions will no longer be available from the next boot. Proceed?"*
+2. **Knowledge snapshot offer** — *"Do you want to absorb the master's current
+   global decisions into your local knowledge base before detaching?"*
+   - **Yes**: fetch `decisions WHERE scope='global' AND superseded_by IS NULL`
+     from master DB. For each row, write a `knowledge_base` entry:
+     `category='strategic'`, `source_ref='master-global:<id>'`, `promoted_by='cos'`.
+     CEO confirms KB entries before proceeding.
+   - **No**: skip.
+3. **Sever link**:
+   ```sql
+   UPDATE master_context SET value='single' WHERE key='company_type';
+   UPDATE master_context SET value=''       WHERE key='master_db_url';
+   UPDATE master_context SET value=''       WHERE key='master_db_token';
+   ```
+4. **Confirm**: *"Link severed. This company is now single."*
+
+#### Promote to master (Single → Master)
+
+```sql
+UPDATE master_context SET value='master' WHERE key='company_type';
+```
+Report: *"This company is now a master. Sub-companies can read global decisions from it."*
+
+#### Join as sub-company (Single → Sub)
+
+Run the same sub-wizard as company init Step 2.5a–d (master slug → derive URL
+→ confirm/override → read-only token → verify connection → store).
+
+#### Make decision #X global (master only)
+
+Requires `company_type='master'`. Immutable-row pattern:
+1. Fetch decision #X. Validate `scope='company'` and `status='approved'`.
+2. CEthO validation + CEO approval gate (same as Universal-CONFIDENTIAL edits).
+3. Insert new row with `scope='global'`, set `superseded_by=<new_id>` on original.
+4. Report: *"Decision #X promoted to global. Sub-companies will see it at next boot."*
+
+If `company_type` is not `'master'`: reject with
+*"Only master companies can create global decisions. Use the upstream proposal flow instead."*
+
+#### Mark decision #X for upstream (sub only)
+
+```sql
+UPDATE decisions SET upstream_candidate=1 WHERE id=<X>;
+```
+Report: *"Decision #X marked as upstream candidate. Surface it in boot summary
+and use 'Prepare upstream handoff for decision #X' to generate the handoff doc."*
+
+#### Prepare upstream handoff for decision #X
+
+Fetch decision #X from local DB. Generate handoff document:
+
+```
+UPSTREAM PROPOSAL — <company_name>
+Decision ID : <id> (local to <company_slug> DB — not portable)
+Date        : <created_at>
+Proposed by : <agent>
+
+Title       : <title>
+Category    : <category>
+Rationale   : <rationale>
+
+Why global  : <ask CEO for one sentence — why should this apply to all sub-companies>
+```
+
+Copy-ready for email or Teams message to master CEO.
+
+#### Update master token
+
+Run Step 2.5d (verify connection) with new token, then:
+```sql
+UPDATE master_context SET value='<new-token>' WHERE key='master_db_token';
+```
+
+---
 
 ### Skill operation: *"Cost report"*
 

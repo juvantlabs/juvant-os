@@ -40,7 +40,8 @@
     "(^|[^a-zA-Z])reboot([[:space:]]|$)",
     "(^|[^a-zA-Z])halt([[:space:]]|$)",
     "(^|[^a-zA-Z])kill[[:space:]]+-9[[:space:]]+1(\\s|$)",
-    "npm[[:space:]]+unpublish"
+    "npm[[:space:]]+unpublish",
+    "scope[[:space:]]*=[[:space:]]*'global'"
   ],
 
   "agent_allow": {
