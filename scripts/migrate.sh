@@ -161,7 +161,7 @@ run_schema_apply() {
       mkdir -p "$(dirname "$DB_PATH")"
       echo "Applying schema to local SQLite ($SCOPE_LABEL): $DB_PATH"
       sqlite3 "$DB_PATH" < "$SCHEMA"
-      apply_schema_patches_local "$DB_PATH"
+      apply_schema_patches_local "$DB_PATH" "$PROJECT_SLUG"
       echo "Schema applied successfully."
       ;;
     turso|azure|aws|gcp)
@@ -177,7 +177,7 @@ run_schema_apply() {
       fi
       echo "Applying schema to ($SCOPE_LABEL): $DB_URL"
       turso db shell "$DB_URL" < "$SCHEMA"
-      apply_schema_patches_turso "$DB_URL"
+      apply_schema_patches_turso "$DB_URL" "$PROJECT_SLUG"
       echo "Schema applied successfully."
       ;;
     *)
@@ -193,37 +193,53 @@ run_schema_apply() {
 # already exists, which is the correct post-CREATE TABLE state).
 
 apply_schema_patches_local() {
-  local db="$1"
-  local patches=(
+  local db="$1" project_slug="${2:-}"
+  # Patches that apply to ALL DBs (company + project)
+  local common_patches=(
     "ALTER TABLE disclosure_policies ADD COLUMN status          TEXT DEFAULT 'draft';"
     "ALTER TABLE disclosure_policies ADD COLUMN validated_by    TEXT;"
     "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
+  )
+  # Patches that apply to COMPANY DB only (not project DBs)
+  local company_patches=(
     "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
     "ALTER TABLE decisions ADD COLUMN scope                     TEXT DEFAULT 'company';"
     "ALTER TABLE decisions ADD COLUMN upstream_candidate        INTEGER DEFAULT 0;"
   )
-  for sql in "${patches[@]}"; do
+  for sql in "${common_patches[@]}"; do
     sqlite3 "$db" "$sql" 2>/dev/null || true
   done
+  if [[ -z "$project_slug" ]]; then
+    for sql in "${company_patches[@]}"; do
+      sqlite3 "$db" "$sql" 2>/dev/null || true
+    done
+  fi
 }
 
 apply_schema_patches_turso() {
-  local url="$1"
-  local patches=(
+  local url="$1" project_slug="${2:-}"
+  local common_patches=(
     "ALTER TABLE disclosure_policies ADD COLUMN status          TEXT DEFAULT 'draft';"
     "ALTER TABLE disclosure_policies ADD COLUMN validated_by    TEXT;"
     "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
+  )
+  local company_patches=(
     "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
     "ALTER TABLE decisions ADD COLUMN scope                     TEXT DEFAULT 'company';"
     "ALTER TABLE decisions ADD COLUMN upstream_candidate        INTEGER DEFAULT 0;"
   )
-  for sql in "${patches[@]}"; do
+  for sql in "${common_patches[@]}"; do
     turso db shell "$url" "$sql" 2>/dev/null || true
   done
+  if [[ -z "$project_slug" ]]; then
+    for sql in "${company_patches[@]}"; do
+      turso db shell "$url" "$sql" 2>/dev/null || true
+    done
+  fi
 }
 
 # ─────────────────────────────────────────────
