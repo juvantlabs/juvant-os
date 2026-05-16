@@ -136,6 +136,24 @@ CREATE TABLE IF NOT EXISTS decisions (
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Enforce: only master companies may write scope='global'.
+-- Catches all write paths (Bash, MCP, direct API) — deny-list alone is insufficient.
+CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only
+BEFORE INSERT ON decisions
+WHEN NEW.scope = 'global'
+BEGIN
+  SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context')
+  WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master';
+END;
+
+CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only_upd
+BEFORE UPDATE ON decisions
+WHEN NEW.scope = 'global' AND OLD.scope != 'global'
+BEGIN
+  SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context')
+  WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master';
+END;
+
 CREATE TABLE IF NOT EXISTS hiring_log (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   role            TEXT NOT NULL,
