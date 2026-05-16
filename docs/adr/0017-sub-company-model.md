@@ -90,9 +90,32 @@ Step 1.5 — Company topology
     [1] Single company (default — no master/sub relationship)
     [2] Master company (will have sub-companies reading its global decisions)
     [3] Sub-company (reads global decisions from a master)
+```
 
-  If [3]: provide master DB URL and read-only auth token.
-           These are stored in master_context as master_db_url / master_db_token.
+If **[3]**, the wizard runs a sub-wizard to resolve the master DB connection:
+
+```
+Step 1.5a — Master company name
+  What is the name (slug) of your master company?
+  e.g. "juvant" → derives libsql://company-juvant-<org>.<region>.turso.io
+
+Step 1.5b — Confirm or override DB URL
+  Derived URL: libsql://company-<master-slug>-<org>.<region>.turso.io
+  Press Enter to confirm, or type a custom URL to override.
+  (Override needed when master uses a non-standard DB name or provider.)
+
+Step 1.5c — Read-only auth token
+  Provide the read-only auth token for the master DB.
+  (The master company owner generates this via: turso db tokens create
+   company-<master-slug> --read-only)
+  Token is stored in master_context.master_db_token and never logged.
+
+Step 1.5d — Verify connection
+  CoS runs: SELECT value FROM master_context WHERE key='company_type'
+  against the master DB with the provided token.
+  - If result is 'master': confirmed. Store master_db_url + master_db_token.
+  - If result is 'sub': rejected — flat hierarchy violated (max one level).
+  - If result is 'single' or unreachable: warn + ask CEO to confirm intent.
 ```
 
 ### Topology transitions (new Skill operations)
