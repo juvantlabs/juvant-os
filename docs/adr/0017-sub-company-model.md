@@ -60,9 +60,20 @@ ALTER TABLE decisions ADD COLUMN scope TEXT DEFAULT 'company';
 -- Sub-companies read master's global rows; cannot write them.
 ```
 
-Enforcement: `pre-tool-use.sh` deny-list blocks any agent in a sub-company
-instance from writing `scope='global'` to `decisions` (pattern:
-`INSERT.*decisions.*scope.*global` when `company_type=sub`).
+**Sub-company decisions are always `scope='company'`.** A sub-company
+has no authority to produce global decisions — that authority belongs
+exclusively to master companies. This is both a governance rule and a
+technical invariant:
+
+- The `decisions` table in a sub-company DB will never contain a row
+  with `scope='global'`. If a sub-company agent wants a decision to
+  become global, it uses the upstream proposal flow (see below).
+- Enforcement: `pre-tool-use.sh` deny-list blocks any agent in a
+  sub-company instance from writing `scope='global'` to `decisions`
+  (pattern: `INSERT.*decisions.*scope.*global` when `company_type=sub`).
+- The column default `scope='company'` provides a second layer: even if
+  the deny-list were bypassed, omitting the scope field produces a
+  company-scoped row, never a global one.
 
 ### Disclosure policy alignment
 
