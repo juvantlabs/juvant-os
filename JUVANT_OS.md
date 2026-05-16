@@ -2853,6 +2853,18 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
    - `SELECT value FROM master_context WHERE key='bootstrap_completed_at'`.
    - If NULL → company is mid-bootstrap; redirect to the Bootstrap Protocol, do not
      proceed to normal boot.
+2b. **Check company topology** (ADR 0017):
+   - `SELECT value FROM master_context WHERE key='company_type'`.
+   - If the row is **missing** (pre-FEAT-031 instance): ask the CEO:
+     *"This company has not been assigned a topology yet. Is it:*
+     *[1] Single company (standalone)*
+     *[2] Master company (sub-companies will read global decisions from this DB)*
+     *[3] Sub-company (reads global decisions from a master)*"*
+     - If [1] or [2]: write `company_type` + empty `master_db_url`/`master_db_token`
+       to `master_context` and continue boot.
+     - If [3]: run the sub-wizard (Step 2.5a–d from the company init wizard)
+       before continuing boot.
+   - If the row exists: read the value and proceed silently.
 3. **Resolve session continuity** (3-level redundancy — see "Context resume"):
    - Try Agent SDK session resume via `agents.session_id`.
    - Else load latest `session_snapshots` row per agent.
