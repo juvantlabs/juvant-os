@@ -27,7 +27,7 @@ in this file; recognize the intent and run the matching section.
 | "Boot the agents" / "Start the system" | Starting agents |
 | "Review manifestos" / "Approve manifesto for X" | Manifesto review |
 | "Hire <role>" / "Offboard <role>" | Hiring / offboarding |
-| "Sync from upstream" / "What changed in juvantlabs?" | Upstream sync |
+| "Sync from upstream" / "What changed in juvantlabs?" / "Sync with framework" / "Aggiorna con il framework" / "Check for framework updates" | Upstream sync |
 | "Run migration watch" | Migration watch |
 | "Launch agents on P0 issues" / "Start work on \<project\> P0s" | dispatch-from-issues |
 | "What's actionable now on \<project\>?" | dispatch-from-issues |
@@ -2720,97 +2720,6 @@ live in `knowledge_base` rows per ARCH-012).
 6. **Trigger re-Tier-1 manifesto review** for each agent whose file changed:
    set `manifests.status='pending_review'` and notify CHRO + CTO.
 
-### Skill operation: *"Sync with framework"*
-
-Recognized phrasings: *"Sync with framework"*, *"Aggiorna con il framework"*,
-*"Check for framework updates"*, *"Sono aggiornato all'upstream?"*.
-
-Evaluates the company instance against `juvantlabs/juvant-os` upstream and
-proposes + executes the sync — replacing the manual
-`git fetch upstream && git checkout upstream/main -- <files>` workflow.
-
-**Preconditions.** The company repo must have an `upstream` remote pointing
-to `juvantlabs/juvant-os`. If absent, surface:
-> "No upstream remote configured. Run: `git remote add upstream https://github.com/juvantlabs/juvant-os.git`"
-> and stop.
-
-**Procedure:**
-
-1. **Fetch** — `git fetch upstream --tags`.
-2. **Version delta** — compare instance HEAD against `upstream/main`.
-   Report: current tag (from `git describe --tags`), latest upstream tag,
-   N commits ahead (instance-specific), M commits behind (framework updates).
-   If M = 0: *"Already up to date with upstream."* and stop.
-3. **Compute diff** — for each file in the **framework whitelist** below,
-   run `git diff HEAD upstream/main -- <file>`. Skip files with no diff.
-4. **Present proposed changes** grouped by category, one group at a time:
-
-   | Category | Files |
-   |---|---|
-   | `hooks/` | Lifecycle bash scripts |
-   | `helpers/` | Scheduled helper scripts |
-   | `scripts/` | compile-templates, migrate, schema, etc. |
-   | `JUVANT_OS.md` | Skill orchestrator |
-   | `SYSTEM_INVARIANTS.md` | Cross-cutting invariants |
-   | `CHANGELOG.md` | Release history |
-   | `docs/` | MCP inventory, branch-protection-spec |
-
-   For each changed file: filename + one-line semantic summary of what changed
-   (read the diff, describe the change in plain language).
-   CEO responds: **approve** / **skip** / **inspect** (show the full diff).
-
-5. **Apply approved files** — `git checkout upstream/main -- <file>` for each
-   approved file.
-
-   **HARD-REQUIRED:** The Skill **MUST NOT** apply any file change without an
-   explicit CEO `approve` response for that category. Silence, ambiguity, or
-   absence of a response **MUST** be treated as `skip`. This operation touches
-   framework-managed files in a live company instance — no autocommit, no
-   assumptions.
-6. **Post-apply steps** (auto-executed, no additional CEO input):
-   - Any `helpers/*.sh` or `hooks/*.sh` changed →
-     reload affected launchd plists:
-     `launchctl bootout gui/$(id -u)/io.juvant.guardrails.<label>` then
-     `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.juvant.guardrails.<label>.plist`.
-   - `scripts/compile-templates.sh` changed →
-     re-run `bash scripts/compile-templates.sh --scope company`.
-   - `scripts/migrate.sh` changed → surface reminder:
-     *"migrate.sh changed — re-run `bash scripts/migrate.sh schema-apply` to apply any new column patches."*
-7. **Commit** — `git add <all applied files>` +
-   `git commit -m "chore: sync framework files to upstream <tag>"`.
-8. **Push** — `git push origin main`.
-9. **Smoke tests** — run `bash helpers/anomaly-check.sh` and
-   `bash helpers/audit-reconcile.sh`. Surface results.
-
-**Framework whitelist** (files the Skill may apply — never touches anything else):
-
-```
-hooks/notification.sh       hooks/lib/db.sh
-hooks/pre-tool-use.sh       hooks/post-tool-use.sh
-hooks/post-tool-use-failure.sh  hooks/session-start.sh
-hooks/session-end.sh        hooks/stop.sh
-hooks/subagent-start.sh     hooks/subagent-stop.sh
-hooks/post-compact.sh       hooks/pre-compact.sh
-helpers/morning-brief.sh    helpers/activity-digest.sh
-helpers/anomaly-check.sh    helpers/audit-reconcile.sh
-helpers/turso-backup.sh     helpers/install-schedules.sh
-helpers/fiscal-deadlines.sh helpers/anomaly-baseline-report.sh
-helpers/kb-coverage.sh      helpers/agent-killswitch.sh
-helpers/kb-sync.sh
-hooks/bash-policy.json
-scripts/compile-templates.sh  scripts/migrate.sh
-scripts/schema.sql          scripts/audit-bootstrap-baseline.sh
-JUVANT_OS.md                SYSTEM_INVARIANTS.md
-CHANGELOG.md                docs/MCP_INVENTORY.md
-docs/branch-protection-spec.md
-```
-
-**Files NEVER touched** (instance-specific — skip regardless of diff):
-`.juvant/config.json`, `agents/company/*.md`, `agents/projects/**/*.md`,
-`.claude/agents/*.md`, `.github/CODEOWNERS`, `CLAUDE.md`, `MANIFESTO.md`,
-`README.md`, `SECURITY.md`, `docs/adr/`, `tests/`, `.mcp.json`,
-`.claude/settings.json`.
-
 ### Skill operation: *"Project status"*
 
 Recognized phrasings: *"Project status"*, *"Promote project <slug> to
@@ -3986,38 +3895,141 @@ Five-step protocol:
 
 ## Upstream sync
 
-When `juvantlabs/juvant-os` ships updates, those updates propagate to per-company
-instances through the agent system, NOT through `git merge` directly. The flow:
+Triggered by *"Sync from upstream"*, *"What changed in juvantlabs?"*,
+*"Sync with framework"*, *"Aggiorna con il framework"*,
+*"Check for framework updates"*, *"Sono aggiornato all'upstream?"*.
 
-1. **CHRO detects drift** — periodically, CHRO compares the per-company instance's
-   `manifests.version` and template hashes against `juvantlabs/juvant-os@main`.
-   On drift, CHRO drafts an upgrade proposal in `decisions` category
-   `upstream-sync-proposal`.
+Evaluates the company instance against `juvantlabs/juvant-os` upstream and
+applies approved framework updates in the current session. Full Turso audit
+trail. **Company-scope agents only** — no project agents involved.
 
-2. **CoS surfaces to CEO** — proposal goes to `messages` with `notify_ceo=1`.
+**Precondition.** The company repo must have an `upstream` remote pointing to
+`juvantlabs/juvant-os`. If absent, surface:
+> "No upstream remote configured. Run: `git remote add upstream https://github.com/juvantlabs/juvant-os.git`"
+> and stop.
 
-3. **CEO approves** — sets `decisions.status='approved'`.
+**Procedure:**
 
-4. **CTO designs `pr-spec`** — diff between current and upstream, scoped to the files
-   that should propagate (typically `agents/**/*.md`, `SYSTEM_INVARIANTS.md`,
-   `JUVANT_OS.md`, `hooks/*.sh`, `scripts/schema.sql` updates as migrations).
-   Per-company customizations (compiled placeholders, project-specific tunables) are
-   preserved.
+1. **Fetch** — `git fetch upstream --tags`.
 
-5. **Eng Lead executes** — opens PR, runs CHRO + CTO + CSO + CEthO review (CEthO required
-   only when §5 Universal CONFIDENTIAL list, §3 cascade, or any disclosure-related
-   text changes).
+2. **Version delta** — compare instance HEAD against `upstream/main`.
+   Report: current tag (from `git describe --tags`), latest upstream tag,
+   N commits ahead (instance-specific), M commits behind (framework updates).
+   If M = 0: *"Already up to date with upstream."* and stop.
 
-6. **CHRO records version transition** — `manifests.version` updated; if the upstream
-   bump touches §1, §3, §4, §5, or §6 of SYSTEM_INVARIANTS.md, CHRO triggers a
-   system-wide manifesto re-validation pass.
+3. **Open decisions row** — INSERT into the company `decisions` table:
 
-The per-company repo's `upstream` remote points at `juvantlabs/juvant-os`; a direct
-`git fetch upstream && git merge upstream/main` is for emergencies only and must be
-followed by a full CSO post-incident audit.
+   ```sql
+   INSERT INTO decisions (agent, title, category, rationale, status, scope)
+   VALUES ('cos', 'Upstream sync to <upstream-tag>',
+           'upstream-sync-proposal',
+           'Framework at <current-tag>; upstream at <upstream-tag>; M commits behind.',
+           'proposed', 'company');
+   ```
 
-Per-company instances are mirror-pushed standalone repos (e.g. `<your-org>/<company-slug>`),
-NOT GitHub forks. The "Sync fork" UI is not used.
+   Surface to CEO for approval. If CEO declines: `UPDATE decisions SET status='rejected'` and stop.
+
+4. **Record CEO approval** —
+
+   ```sql
+   UPDATE decisions
+   SET status='approved', approved_by='ceo', approved_at=CURRENT_TIMESTAMP
+   WHERE id=<row_id>;
+   ```
+
+5. **Compute diff** — for each file in the **framework whitelist** below,
+   run `git diff HEAD upstream/main -- <file>`. Skip files with no diff.
+
+6. **Present proposed changes** grouped by category, one group at a time:
+
+   | Category | Files |
+   |---|---|
+   | `hooks/` | Lifecycle bash scripts |
+   | `helpers/` | Scheduled helper scripts |
+   | `scripts/` | compile-templates, migrate, schema, etc. |
+   | `JUVANT_OS.md` | Skill orchestrator |
+   | `SYSTEM_INVARIANTS.md` | Cross-cutting invariants |
+   | `CHANGELOG.md` | Release history |
+   | `docs/` | MCP inventory, branch-protection-spec |
+
+   For each changed file: filename + one-line semantic summary of what changed
+   (read the diff, describe in plain language).
+   CEO responds: **approve** / **skip** / **inspect** (show the full diff).
+
+   **HARD-REQUIRED:** The Skill **MUST NOT** apply any file change without an
+   explicit CEO `approve` response for that category. Silence, ambiguity, or
+   absence of a response **MUST** be treated as `skip`. This operation touches
+   framework-managed files in a live company instance — no autocommit, no
+   assumptions.
+
+7. **Apply approved files** — `git checkout upstream/main -- <file>` for each
+   approved file.
+
+8. **Post-apply steps** (auto-executed, no additional CEO input):
+   - Any `helpers/*.sh` or `hooks/*.sh` changed →
+     reload affected launchd plists:
+     `launchctl bootout gui/$(id -u)/io.juvant.guardrails.<label>` then
+     `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.juvant.guardrails.<label>.plist`.
+   - `scripts/compile-templates.sh` changed →
+     re-run `bash scripts/compile-templates.sh --scope company`.
+   - `scripts/migrate.sh` changed → surface reminder:
+     *"migrate.sh changed — re-run `bash scripts/migrate.sh schema-apply` to apply any new column patches."*
+
+9. **Commit** — `git add <all applied files>` +
+   `git commit -m "chore: sync framework files to upstream <tag>"`.
+
+10. **Push** — `git push origin main`.
+
+11. **Smoke tests** — run `bash helpers/anomaly-check.sh` and
+    `bash helpers/audit-reconcile.sh`. Surface results to CEO.
+
+12. **Record completion + CHRO re-validation**:
+    - ```sql
+      UPDATE decisions
+      SET status='executed', executed_by='cos', executed_at=CURRENT_TIMESTAMP
+      WHERE id=<row_id>;
+      ```
+    - CHRO updates `manifests.version` for all company-scope agents to reflect
+      the new upstream tag.
+    - If the sync touched §1, §3, §4, §4b, §5, or §6 of
+      `SYSTEM_INVARIANTS.md`: CHRO triggers a system-wide manifesto
+      re-validation pass (Tier 2 async review for all active agents).
+    - If the sync touched `scripts/schema.sql`: CSO logs a post-sync note in
+      `security_audit_log`.
+
+**Framework whitelist** (files the Skill may apply — never touches anything else):
+
+```
+hooks/notification.sh         hooks/lib/db.sh
+hooks/pre-tool-use.sh         hooks/post-tool-use.sh
+hooks/post-tool-use-failure.sh    hooks/session-start.sh
+hooks/session-end.sh          hooks/stop.sh
+hooks/subagent-start.sh       hooks/subagent-stop.sh
+hooks/post-compact.sh         hooks/pre-compact.sh
+helpers/morning-brief.sh      helpers/activity-digest.sh
+helpers/anomaly-check.sh      helpers/audit-reconcile.sh
+helpers/turso-backup.sh       helpers/install-schedules.sh
+helpers/fiscal-deadlines.sh   helpers/anomaly-baseline-report.sh
+helpers/kb-coverage.sh        helpers/agent-killswitch.sh
+helpers/kb-sync.sh
+hooks/bash-policy.json
+scripts/compile-templates.sh  scripts/migrate.sh
+scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
+JUVANT_OS.md                  SYSTEM_INVARIANTS.md
+CHANGELOG.md                  docs/MCP_INVENTORY.md
+docs/branch-protection-spec.md
+```
+
+**Files NEVER touched** (instance-specific — skip regardless of diff):
+`.juvant/config.json`, `agents/company/*.md`, `agents/projects/**/*.md`,
+`.claude/agents/*.md`, `.github/CODEOWNERS`, `CLAUDE.md`, `MANIFESTO.md`,
+`README.md`, `SECURITY.md`, `docs/adr/`, `tests/`, `.mcp.json`,
+`.claude/settings.json`.
+
+**Emergency note.** A direct `git fetch upstream && git merge upstream/main`
+is for emergencies only and must be followed by a full CSO post-incident audit.
+Per-company instances are mirror-pushed standalone repos — the GitHub
+"Sync fork" UI is not used.
 
 ---
 
