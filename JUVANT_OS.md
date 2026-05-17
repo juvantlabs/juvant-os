@@ -2934,7 +2934,7 @@ knowledge_base context to the prompt:
 
 ```sql
 SELECT content FROM knowledge_base
-WHERE project_id = '<active_slug>'
+WHERE project_id = '<active_project_id>'  -- projects.id IS the slug (e.g. 'hardys'); no separate slug column
   AND (agent_role = '<role>' OR agent_role IS NULL)
 ORDER BY created_at DESC;
 ```
