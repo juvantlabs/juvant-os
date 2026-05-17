@@ -34,7 +34,16 @@ SESSION_ID=$(echo "$EVENT_JSON" | jq -r '.session_id // ""' 2>/dev/null || echo 
 # pre/post pair's match key (session_id, agent, tool_name, args_hash)
 # consistent across the row's lifecycle.
 ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
-ROLE="${ROLE:-${AGENT_ROLE:-unknown}}"
+ROLE="${ROLE:-${AGENT_ROLE:-}}"
+if [[ -z "$ROLE" ]]; then
+  # Main thread in a Juvant OS instance = CoS operating as orchestrator.
+  # Fallback to 'unknown' only outside a Juvant OS instance.
+  if [[ -f "$SCRIPT_DIR/../.juvant/config.json" ]]; then
+    ROLE="cos"
+  else
+    ROLE="unknown"
+  fi
+fi
 
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
 ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')

@@ -42,23 +42,35 @@ SINCE=$(date -u -v-${WINDOW_DAYS}d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
 
 # Anomaly 1: decisions rows with no matching agent_actions_log in same
 # session within ±5 minutes. Tolerance accounts for hook-write delay.
+# BUG-026 fix: main-thread CoS writes are logged as agent='unknown'
+# (no agent_type in operator context). Accept 'unknown' as a valid
+# antecedent for decisions.agent='cos' so legitimate CoS decisions do
+# not trigger false-positive fabrication alerts.
 ORPHAN_DECISIONS=$(turso db shell "$TURSO_URL" "
   SELECT COUNT(*) FROM decisions d
   WHERE d.created_at > '$SINCE'
     AND NOT EXISTS (
       SELECT 1 FROM agent_actions_log a
-      WHERE a.agent = d.agent
+      WHERE (a.agent = d.agent OR (d.agent = 'cos' AND a.agent = 'unknown'))
         AND ABS(julianday(a.started_at) - julianday(d.created_at)) * 1440 <= 5
     );
 " 2>/dev/null | tail -1 | tr -d ' ')
 
-# Anomaly 2: pending rows older than 1 hour (hooks should always
-# have fired post-tool-use within seconds; long-pending = stuck).
+# Anomaly 2: pending rows older than 1 hour that belong to sessions
+# with mixed status (at least one completed row). This distinguishes
+# crash pattern (some success/failure + some stuck pending) from
+# background subagent pattern (ALL rows pending — post-tool-use hook
+# never reaches background subagent process context, BUG-025).
 STUCK_PENDING=$(turso db shell "$TURSO_URL" "
   SELECT COUNT(*) FROM agent_actions_log
   WHERE status = 'pending'
     AND started_at > '$SINCE'
-    AND julianday(CURRENT_TIMESTAMP) - julianday(started_at) > (1.0/24);
+    AND julianday(CURRENT_TIMESTAMP) - julianday(started_at) > (1.0/24)
+    AND session_id IN (
+      SELECT DISTINCT session_id FROM agent_actions_log
+      WHERE status IN ('success', 'failure', 'denied')
+        AND started_at > '$SINCE'
+    );
 " 2>/dev/null | tail -1 | tr -d ' ')
 
 ORPHAN_DECISIONS=${ORPHAN_DECISIONS:-0}

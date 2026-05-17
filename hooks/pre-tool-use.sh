@@ -50,7 +50,16 @@ SESSION_ID=$(echo "$EVENT_JSON" | jq -r '.session_id // ""' 2>/dev/null || echo 
 # bypassed the per-agent allow-list in bash-policy.json — closing both
 # F-2 and F-10 in one fix).
 ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
-ROLE="${ROLE:-${AGENT_ROLE:-unknown}}"
+ROLE="${ROLE:-${AGENT_ROLE:-}}"
+if [[ -z "$ROLE" ]]; then
+  # Main thread in a Juvant OS instance = CoS operating as orchestrator.
+  # Fallback to 'unknown' only outside a Juvant OS instance.
+  if [[ -f "$SCRIPT_DIR/../.juvant/config.json" ]]; then
+    ROLE="cos"
+  else
+    ROLE="unknown"
+  fi
+fi
 
 # Compute SHA-256 of canonical (sorted-keys) JSON of tool_input
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
