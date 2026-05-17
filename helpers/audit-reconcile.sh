@@ -30,6 +30,18 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
+# BUG-027: run-ID stamp + prune log to last 7 runs.
+_LOG="$SCRIPT_DIR/../.juvant/logs/audit-reconcile.log"
+if [[ -f "$_LOG" ]]; then
+  _total=$(grep -c '^=== RUN ' "$_LOG" 2>/dev/null || true)
+  if [[ "${_total:-0}" -gt 7 ]]; then
+    _skip=$(( _total - 7 ))
+    awk -v skip="$_skip" '/^=== RUN /{n++} n>skip{print}' \
+      "$_LOG" > "${_LOG}.tmp" && mv "${_LOG}.tmp" "$_LOG"
+  fi
+fi
+echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_LOG"
+
 TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
 if [[ -z "$TURSO_URL" ]]; then
   echo "[audit-reconcile] FATAL: turso_url missing from $CONFIG" >&2

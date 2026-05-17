@@ -77,9 +77,21 @@ else
 fi
 
 # FEAT-026: run knowledge source snapshot check in background (never blocks).
+# BUG-027: stamp run-ID + prune log to last 7 runs before launching so
+# stale error entries from prior runs are never re-surfaced as current bugs.
 if [[ -x "$REPO_ROOT/helpers/kb-sync.sh" ]]; then
-  bash "$REPO_ROOT/helpers/kb-sync.sh" \
-    >> "$REPO_ROOT/.juvant/logs/kb-sync.log" 2>&1 &
+  _KBLOG="$REPO_ROOT/.juvant/logs/kb-sync.log"
+  mkdir -p "$(dirname "$_KBLOG")"
+  if [[ -f "$_KBLOG" ]]; then
+    _total=$(grep -c '^=== RUN ' "$_KBLOG" 2>/dev/null || true)
+    if [[ "${_total:-0}" -gt 7 ]]; then
+      _skip=$(( _total - 7 ))
+      awk -v skip="$_skip" '/^=== RUN /{n++} n>skip{print}' \
+        "$_KBLOG" > "${_KBLOG}.tmp" && mv "${_KBLOG}.tmp" "$_KBLOG"
+    fi
+  fi
+  echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_KBLOG"
+  bash "$REPO_ROOT/helpers/kb-sync.sh" >> "$_KBLOG" 2>&1 &
 fi
 
 exit 0
