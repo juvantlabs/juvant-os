@@ -121,7 +121,11 @@ CREATE TABLE IF NOT EXISTS decisions (
   -- | 'secret-rotation-spec' | 'eng-output-held' | 'disclosure-unavailable'
   rationale       TEXT,
   status          TEXT DEFAULT 'proposed',
-  -- 'proposed' | 'approved' | 'rejected' | 'executed'
+  -- 'proposed' | 'approved' | 'rejected' | 'executed' | 'superseded'
+  -- superseded: decision was valid at approval time but replaced by a successor.
+  --   Record the successor decisions.id in the rationale field.
+  --   Distinct from 'rejected': the original decision was correct given the
+  --   information available at the time.
   scope              TEXT DEFAULT 'company',
   -- 'company' | 'global' — only master companies may write 'global'
   upstream_candidate INTEGER DEFAULT 0,

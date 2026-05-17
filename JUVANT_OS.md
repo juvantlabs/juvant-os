@@ -2347,10 +2347,10 @@ closes the script gap that pre-v0.7.x runs worked around inline.
 Same as company bootstrap but with `precondition_bypassed='project-bootstrap'`.
 Sequencing per SYSTEM_INVARIANTS.md §1 / pca.md:
 
-**HARD-REQUIRED — DB routing (F-24 follow-up, v0.8.1+).** All project-
-scope rows MUST be written to the per-project DB at
-`.juvant/project-<slug>.db`, NOT to the company `state.db`. The
-canonical writes for this step are:
+**HARD-REQUIRED — DB routing (F-24 follow-up, v0.8.1+; write boundary per
+SYSTEM_INVARIANTS §4b).** All project-scope rows MUST be written to the
+per-project DB at `.juvant/project-<slug>.db`, NOT to the company `state.db`.
+The canonical writes for this step are:
 
   - `manifests` rows for the 8 project-scope agents (pca, product-lead,
     design-lead, eng-lead, eng-api, eng-backend, eng-frontend, eng-ai)
@@ -2367,7 +2367,7 @@ The company `state.db` keeps a single `projects` table row (id, name,
 db_url, status, created_at) and the project DOES NOT appear in
 `state.db.manifests` or `state.db.agents`. Cross-scope agent
 materialization (read-only from company DB to project DB or vice
-versa) is governed by SYSTEM_INVARIANTS §4 scope boundaries.
+versa) is governed by SYSTEM_INVARIANTS §4 and §4b scope boundaries.
 
 Anti-pattern (v0.8.0 regression surfaced this — Skill wrote project
 manifestos to company DB during single-project + multi-project-vpe
@@ -2843,7 +2843,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a column; filter via `json_extract(content, '$.category')`** |
-| `decisions` | `id, agent, title, category, rationale, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
+| `decisions` | `id, agent, title, category, rationale, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |

@@ -468,6 +468,41 @@ step boundary (independently per scope: an active cascade affecting
 project-A's eng-lead does not halt project-B's eng-lead or
 eng-platform). Resume on cascade recovery is per-scope analogously.
 
+### §4b — Project DB Write Boundary
+
+The Turso project DB (`project-<slug>.db`) is written by **project-scope
+agents only**: `pca`, `product-lead`, `design-lead`, `eng-lead`, `eng-api`,
+`eng-backend`, `eng-frontend`, `eng-ai`.
+
+**Exception 1 — Bootstrap phase only.** During the project bootstrap window
+(from project init to `bootstrap_completed_at` for the project being
+initialized), the following company-scope agents may write to the project DB:
+
+- `chro` and `cos`: `manifests` and `agents` rows (manifesto approval flow).
+- `cso`: one `security_audit_log` row with `bootstrap_baseline=1` immediately
+  after bootstrap completes (mandatory CSO project audit).
+
+**Exception 2 — Never permitted post-bootstrap.** Company-scope agents (`cto`,
+`cos`, `cfo`, `clo`, `cmo`, `cco`, `cro`, `cso`, `chro`, `eng-platform`, `vpe`)
+may **not** write `decisions`, `knowledge_base`, `inbound_queue`, or `messages`
+rows to a project DB after the bootstrap window closes.
+
+If a company-scope agent has a project-scope finding or recommendation, it
+routes through the relevant project agent, who authors the row:
+
+- Architectural findings → `pca` authors the `decisions` row.
+- Product findings → `product-lead` authors the row.
+- All other project-scope writes → the appropriate project-scope agent.
+
+**Rationale.** The project DB is the canonical state of the project.
+Company-scope agents writing directly bypass project governance and create
+authorship ambiguity — as observed when `cto`-authored `decisions` rows
+appeared in `project-juvant-web` and should have been authored by `pca`.
+
+**Historical rows.** Rows written by company-scope agents during bootstrap or
+early operations (pre-amendment, 2026-05-17) are accepted as-is. This boundary
+is enforced going forward from the date of this amendment.
+
 ---
 
 ## §5 — Universal CONFIDENTIAL List
