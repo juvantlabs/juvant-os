@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS agents (
   -- 'claude-opus-4-7' | 'claude-sonnet-4-6' | 'claude-haiku-4-5-20251001'
   template_version    TEXT,
   manifesto_status    TEXT DEFAULT 'pending',
-  -- 'pending' | 'approved'
+  -- 'pending' | 'approved' | 'operational_restricted' | 'operational'
+  -- mirrors manifests.status lifecycle (SYSTEM_INVARIANTS §1)
   manifesto_tier      INTEGER DEFAULT 2,
   -- 1 = blocking | 2 = async
   manifesto_deadline  DATETIME,
@@ -96,7 +97,9 @@ CREATE TABLE IF NOT EXISTS manifests (
   content                 TEXT NOT NULL,
   version                 TEXT DEFAULT '1.0',
   status                  TEXT DEFAULT 'pending',
-  -- 'pending' | 'approved' | 'rejected'
+  -- 'pending' | 'approved' | 'rejected' | 'operational_restricted' | 'operational'
+  -- operational_restricted: CEO-approved, Tier 2 async review in progress (SYSTEM_INVARIANTS §1)
+  -- operational: fully cleared post-audit; normal operating state
   tier                    INTEGER DEFAULT 2,
   deadline                DATETIME,
   approved_by             TEXT,
@@ -119,6 +122,8 @@ CREATE TABLE IF NOT EXISTS decisions (
   -- | 'gh-project-update-spec' | 'gh-milestone-spec' | 'install-spec'
   -- | 'branch-protection-spec' | 'release-spec' | 'deployment-spec'
   -- | 'secret-rotation-spec' | 'eng-output-held' | 'disclosure-unavailable'
+  -- | 'bootstrap-action' | 'cascade-escalation' | 'cascade-postmortem'
+  -- | 'skill-gap' | 'migration-watch' | 'upstream-sync-proposal'
   rationale       TEXT,
   status          TEXT DEFAULT 'proposed',
   -- 'proposed' | 'approved' | 'rejected' | 'executed' | 'superseded'

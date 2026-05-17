@@ -1753,8 +1753,7 @@ path [3] each is shown then approved, etc.
      ```sql
      -- 1. Promote manifests
      UPDATE manifests
-     SET status = 'operational',
-         restricted = 0
+     SET status = 'operational'
      WHERE tier1_bootstrap = 1
        AND status = 'operational_restricted';
 
@@ -1898,7 +1897,7 @@ every Bash tool call:
   `git push --force` to main, `gh repo delete`, `DROP DATABASE`,
   writes to credential paths, fork-bombs, etc.
 - **Per-agent allow-list**: positive scope. CFO/CLO/CCO/CMO/CHRO/
-  CRO/CEthO have NO Bash by default. CoS/Eng Lead/CSO/CTO/Eng Lead/eng-* have
+  CRO/CEthO have NO Bash by default. CoS/Eng Lead/CSO/CTO/eng-* have
   scoped allow-lists.
 
 Adding a binary to an agent's allow-list goes through the standard
@@ -2623,6 +2622,11 @@ On every transition:
    is lower than the previous.
 3. Mirror to `.juvant/config.json` `projects.<slug>.status` and
    `status_changed_at`; commit + push.
+   **Note**: `config.json projects.<slug>.status` holds the **maturity tier**
+   (= `DB projects.maturity_status` — values: `incubation|preview|general_availability`),
+   NOT the operational lifecycle (`DB projects.status` — values: `active|archived`).
+   When reading config to write back to DB, always write to `projects.maturity_status`,
+   never to `projects.status`.
 4. Write to the action audit log.
 5. CoS surfaces the transition in the next Morning Brief, flagged
    prominently if `demotion=1`.
@@ -2751,8 +2755,8 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 | Table | Columns |
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
-| `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a column; filter via `json_extract(content, '$.category')`** |
-| `decisions` | `id, agent, title, category, rationale, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
+| `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a top-level column: never use `WHERE category=` or `SELECT category`. For filtering: `json_extract(content, '$.category')`. For inserting: include as a key inside `json_object('category', '...')`** |
+| `decisions` | `id, agent, title, category, rationale, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'`; `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
@@ -3248,7 +3252,6 @@ SYSTEM_INVARIANTS.md §2 is canonical. Defaults:
 | Product Lead | `<project_id>-product-lead` |
 | Design Lead | `<project_id>-design-lead` (Chief **Design** Officer — not Data) |
 | Eng Lead | `<project_id>-eng-lead` (sole `github:write` bearer per §4) |
-| Eng Lead | `<project_id>-eng-lead` |
 | eng-api / eng-backend / eng-frontend / eng-ai | role identifier only |
 
 Each project gets its own Eng Lead; there is no company-wide Eng Lead. The Eng Lead single-writer
