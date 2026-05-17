@@ -29,6 +29,9 @@ in this file; recognize the intent and run the matching section.
 | "Hire <role>" / "Offboard <role>" | Hiring / offboarding |
 | "Sync from upstream" / "What changed in juvantlabs?" | Upstream sync |
 | "Run migration watch" | Migration watch |
+| "Launch agents on P0 issues" / "Start work on \<project\> P0s" | dispatch-from-issues |
+| "What's actionable now on \<project\>?" | dispatch-from-issues |
+| "Launch wave 2" / "\<ISSUE\> is done, unblock" | dispatch-from-issues |
 | (CEO addresses an agent directly) | CoS proxy model |
 | (any spec proposal: pr-spec, install-spec, etc.) | Spec-driven single-writer model |
 
@@ -2179,7 +2182,8 @@ config nested under `.db` (symmetric with the company-level `.db`):
         "url": "libsql://project-<project-slug>-<your-org>.turso.io",
         "auth_token": "<token>"
       },
-      "doc_folder": "/<Company>/04 - Products/<Product Folder>"
+      "doc_folder": "/<Company>/04 - Products/<Product Folder>",
+      "github_project_number": 1
     }
   }
 }
@@ -2193,7 +2197,10 @@ per-project endpoint (F-24 v0.7.1). The `doc_folder` field is
 optional — present when Step 1 auto-discovery matched an existing folder,
 absent when no folder mapping is configured (project-scope agents fall
 back to company-level `doc_storage.folders` plus their own
-`fallback_chain` resolution).
+`fallback_chain` resolution). The `github_project_number` field is
+optional but REQUIRED for `dispatch-from-issues` — it is the integer ID
+of the GitHub Project board (visible in the board URL as `/projects/<N>`)
+used to resolve the Priority field when filtering issues by P0/P1/P2.
 
 Run `bash scripts/migrate.sh --project=<slug>` (HARD-REQUIRED) to
 apply `scripts/schema.sql` to the per-project DB:
@@ -2965,6 +2972,241 @@ to the Hardys Eng Lead at next dispatch.
 - >1 active projects, CEO message does not name one → ask:
   `"All mode (cross-project unified view) or single project? Active: [list]."`
 - All mode → aggregate cross-scope queries; cite scope on every claim.
+
+---
+
+## dispatch-from-issues
+
+Triggered by *"Launch agents on P0 issues"*, *"Start work on \<project\> P0s"*,
+*"What's actionable now on \<project\>?"*, *"Launch wave N"*, or
+*"\<ISSUE\> is done, unblock"*.
+
+**Hard prerequisite — GitHub required.** This skill relies entirely on `gh` CLI,
+GitHub Projects, GitHub GraphQL (`issueDependenciesSummary`), and GitHub issue
+labels. If the adopter's instance does not use GitHub as SCM, refuse at preflight:
+
+> "dispatch-from-issues requires GitHub. This instance does not use GitHub. Aborting."
+
+### Read-only mode
+
+When the CEO asks *"What's actionable now on \<project\>?"*, run Steps 1–2 only,
+surface the actionable/blocked summary table, and stop — do not write to
+`inbound_queue` and do not dispatch.
+
+### Preflight (HARD-REQUIRED — run before any write)
+
+Run all checks in order. On any blocking failure: halt, surface to CEO, go manual.
+
+**Check 0 (secondary)** — GitHub CLI authenticated.
+
+```bash
+gh auth status
+```
+
+If not authenticated: STOP. Surface: "GitHub CLI not authenticated — run `gh auth login` first."
+
+**Check 1** — `agent:*` labels defined on the repo.
+
+```bash
+gh label list --repo <org>/<project>-pm --json name \
+  --jq '[.[] | select(.name | startswith("agent:"))] | length'
+```
+
+If result is 0: STOP. Surface: "No `agent:*` labels found on `<repo>`. Define agent labels before dispatch."
+
+**Check 2** — every actionable issue carries at least one `agent:*` label.
+Evaluated after Step 1 (dependency graph built). If any actionable issue has no
+`agent:*` label: stop on THAT issue, continue others, surface gap to CEO.
+
+**Check 3** — Turso project DB reachable.
+Verify connection to the `project-<slug>` Turso DB. If unreachable: STOP.
+
+**Check 4** — no duplicate in-flight dispatch.
+
+```sql
+SELECT counterparty_id, agent_owner FROM inbound_queue
+WHERE counterparty_id LIKE '<org>/<project>-pm#%'
+  AND status IN ('pending', 'processing');
+```
+
+If any row matches an (issue, agent) pair in the current dispatch set: skip that
+pair (idempotent), surface to CEO as "Already in-flight: #N → \<agent\>."
+
+**Check 5** — all target agents registered in this instance.
+For each `agent:*` label in the actionable set, verify the role appears in
+`.juvant/config.json → agents[]`. If an agent is not registered: STOP on that
+issue, surface: "Agent \<role\> not registered in this instance. Resolve manually."
+
+### Step 1 — Read issue graph
+
+```bash
+gh issue list --repo <org>/<project>-pm \
+  --json number,title,labels,state \
+  --jq '[.[] | select(.state=="OPEN")]'
+```
+
+For each open issue, read blocked-by state via GraphQL:
+
+```graphql
+{
+  repository(owner: "<org>", name: "<project>-pm") {
+    issue(number: N) {
+      issueDependenciesSummary { blockedBy blocking }
+    }
+  }
+}
+```
+
+Build an in-memory dependency graph. An issue is **actionable** iff:
+- `state = OPEN`
+- `issueDependenciesSummary.blockedBy == 0`
+- Carries at least one `agent:*` label (verified in Check 2)
+
+### Step 2 — Filter by priority
+
+Apply the CEO-requested priority filter (default: P0). An issue matches if it
+carries the label `P0` **or** the GitHub Project board Priority field equals `P0`.
+
+Project board number is read from `.juvant/config.json →
+projects.<slug>.github_project_number`. If the CEO does not specify a project,
+use the active project from session context; ask for clarification if ambiguous.
+
+Surface to CEO before any write:
+
+```
+Actionable P0 issues (Wave N):
+  #3 OP-001 — GDPR CLO deliverables → agent:clo
+  #5 ARCH-002 — Vant Function SSE → agent:pca, agent:eng-api
+
+Blocked (not dispatching):
+  #6 FEAT-003 — blocked by #5 ARCH-002
+  #8 ARCH-003 — blocked by #5 ARCH-002
+
+Confirm dispatch? [y/N]
+```
+
+Wait for explicit CEO confirmation (`y`) before proceeding to Step 3.
+
+### Step 3 — Write inbound_queue rows
+
+For each (issue, agent) pair in the confirmed actionable set, INSERT one row per
+agent. All inserts are a single logical unit — if any INSERT fails, roll back all
+of them for this wave and surface the failure to CEO.
+
+```sql
+INSERT INTO inbound_queue (
+  counterparty_id, agent_owner, content, confidence, status
+) VALUES (
+  '<org>/<project>-pm#<number>',
+  '<agent-role>',
+  json_object(
+    'category',     'gh-issue',
+    'issue_number',  <number>,
+    'issue_title',   '<title>',
+    'repo',          '<org>/<project>-pm',
+    'priority',      'P0',
+    'wave',          <wave_number>,
+    'blocked_by',    json_array(),
+    'notify_ceo',    0
+  ),
+  1.0,
+  'pending'
+);
+```
+
+`counterparty_id` format: `<org>/<repo>#<number>` (e.g. `juvantio/juvant-web-pm#5`).
+
+**Wave number** is provided by the CEO at dispatch time — it is conversational
+context, not computed from DB state. For the first wave the CEO initiates, use
+`wave: 1`. For subsequent waves the CEO explicitly triggers ("Launch wave 2"),
+use the number they name.
+
+### Step 4 — Apply agent:* labels
+
+After successful `inbound_queue` INSERT and before `Task` invocation:
+
+```bash
+gh issue edit <number> --repo <org>/<project>-pm --add-label "agent:<role>"
+```
+
+(`--add-label` is idempotent.) **Rollback caveat**: if `Task` invocation later
+fails, Turso rows can be rolled back but GitHub labels cannot be programmatically
+removed as part of the same rollback. Remove the label manually via
+`gh issue edit --remove-label` and notify the CEO of the recovery step.
+
+### Step 5 — Dispatch agents from main thread
+
+**CRITICAL (SYSTEM_INVARIANTS §8)**: fan-out MUST happen from the CEO/main thread.
+CoS dispatched as a subagent has no `Task` tool. Never route dispatch through CoS.
+
+If multiple agents are assigned to the same issue (`agent:pca` + `agent:eng-api`),
+dispatch sequentially with PCA first (PCA coordinates). Otherwise dispatch in
+parallel.
+
+```
+Task(
+  subagent_type = '<agent-role>',
+  prompt = """
+    You have been assigned issue #<number> on <repo>.
+    Title: <title>
+    Priority: P0 | Wave: <wave_number>
+    inbound_queue row id: <queue_id>
+
+    ## Project knowledge context
+    <knowledge_base rows for this agent role, injected per ARCH-012>
+
+    ## Your task
+    <issue_body>
+
+    Work on this issue. When you need CEO approval or hit a blocker,
+    INSERT a row in inbound_queue with agent_owner='cos',
+    json notify_ceo=1, priority='high'. Never block waiting —
+    surface and continue where possible.
+  """
+)
+```
+
+### Step 6 — Monitor and surface blockers
+
+After dispatch, Atlas polls at SessionStart and on-demand:
+
+```sql
+SELECT * FROM inbound_queue
+WHERE agent_owner = 'cos'
+  AND status = 'pending'
+  AND json_extract(content, '$.notify_ceo') = 1;
+```
+
+Each row surfaces to CEO as an approval card. On CEO decision:
+
+- **Approved** → Atlas updates the queue row, re-dispatches or unblocks the agent.
+- **Rejected** → Atlas surfaces the rejection rationale to the agent via a new
+  `inbound_queue` row addressed to the agent's `agent_owner`.
+
+### Step 7 — Wave completion and unblocking
+
+When an issue queue row reaches `status='done'`:
+
+1. Re-evaluate the blocked-by graph (re-run the GraphQL query for all previously
+   blocked issues).
+2. Any issue whose `blockedBy` drops to 0 AND carries `agent:*` labels AND matches
+   the active priority filter → surface to CEO:
+   "#N \<title\> is now unblocked. Launch Wave N+1? [y/N]"
+3. On CEO confirmation → CEO names the new wave number → repeat from Step 3.
+
+Note: wave re-evaluation is triggered by queue row state (`status='done'`),
+independently of whether the Eng Lead has closed the GitHub issue.
+
+### Edge cases
+
+| Case | Behavior |
+|---|---|
+| Instance not GitHub-backed | STOP at preflight, surface hard prerequisite message |
+| Agent registered in `agent:*` label but not in `config.json → agents[]` | STOP on that issue (Check 5) |
+| Issue has multiple blockers, only some resolved | Remains blocked until ALL resolved (`blockedBy == 0`) |
+| CEO says "launch" but no P0 issues are actionable | Surface: "No actionable P0 issues — all blocked or in-flight." |
+| Dispatch partially fails (some INSERTs fail) | Roll back all Turso inserts for this wave; manually remove any labels applied before failure |
+| `github_project_number` missing from config | Skip Priority-field filter, match on label only; surface warning to CEO |
 
 ---
 
