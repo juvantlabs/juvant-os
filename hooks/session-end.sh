@@ -66,4 +66,35 @@ if [[ -n "$TRANSCRIPT" && -n "$SESSION_ID" && -f "$SCRIPT_DIR/lib/track-tokens.s
     || true
 fi
 
+# FEAT-035 — wrap-up check: query Turso for observable unsaved-work
+# indicators. If any found, write a session-wrap-reminder messages row
+# so session-start.sh surfaces it at next boot.
+if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
+  _count() { turso db shell "$JUVANT_DB_URL" "$1" 2>/dev/null | tail -1 | tr -d ' \r'; }
+
+  PENDING_QUEUE=$(_count \
+    "SELECT COUNT(*) FROM inbound_queue WHERE agent_owner='cos' AND status='pending';")
+  PROPOSED_DECISIONS=$(_count \
+    "SELECT COUNT(*) FROM decisions WHERE status='proposed'
+     AND created_at > datetime('now','-24 hours');")
+  UNREAD_CEO=$(_count \
+    "SELECT COUNT(*) FROM messages WHERE notify_ceo=1 AND status='unread';")
+
+  PENDING_QUEUE=${PENDING_QUEUE:-0}
+  PROPOSED_DECISIONS=${PROPOSED_DECISIONS:-0}
+  UNREAD_CEO=${UNREAD_CEO:-0}
+
+  WRAP_TOTAL=$((PENDING_QUEUE + PROPOSED_DECISIONS + UNREAD_CEO))
+  if [[ "$WRAP_TOTAL" -gt 0 ]]; then
+    SESSION_ESC=$(printf '%s' "${SESSION_ID:-}" | sed "s/'/''/g")
+    CONTENT=$(printf '{"pending_queue":%s,"proposed_decisions":%s,"unread_ceo_messages":%s,"session_id":"%s"}' \
+      "$PENDING_QUEUE" "$PROPOSED_DECISIONS" "$UNREAD_CEO" "$SESSION_ESC")
+    juvant_db_exec \
+      "INSERT INTO messages (from_agent, to_agent, type, content, priority, notify_ceo)
+       VALUES ('cos','cos','session-wrap-reminder','$CONTENT','high',1);" \
+      || echo "[session-end] WARN: failed to write wrap-up reminder" >&2
+    echo "[session-end] wrap-up reminder written: queue=$PENDING_QUEUE decisions=$PROPOSED_DECISIONS unread=$UNREAD_CEO"
+  fi
+fi
+
 exit 0

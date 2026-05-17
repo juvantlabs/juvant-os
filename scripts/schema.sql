@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS messages (
   type            TEXT NOT NULL,
   -- 'task' | 'deliverable' | 'escalation' | 'ceo_approval' | 'policy_update'
   -- | 'meeting_transcript' | 'meeting_mention' | 'model_override_request'
+  -- | 'session-wrap-reminder'
   content         TEXT NOT NULL,
   priority        TEXT DEFAULT 'normal',
   -- 'critical' | 'high' | 'normal' | 'low'

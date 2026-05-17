@@ -29,6 +29,8 @@ in this file; recognize the intent and run the matching section.
 | "Hire <role>" / "Offboard <role>" | Hiring / offboarding |
 | "Sync from upstream" / "What changed in juvantlabs?" / "Sync with framework" / "Aggiorna con il framework" / "Check for framework updates" | Upstream sync |
 | "Run migration watch" | Migration watch |
+| "Chiudiamo" / "Wrap up" / "Fine sessione" / "Prima di chiudere" | Wrap up session |
+| "Is there anything unsaved?" / "Fai un giro prima di chiudere" | Wrap up session |
 | "Launch agents on P0 issues" / "Start work on \<project\> P0s" | dispatch-from-issues |
 | "What's actionable now on \<project\>?" | dispatch-from-issues |
 | "Launch wave 2" / "\<ISSUE\> is done, unblock" | dispatch-from-issues |
@@ -3120,6 +3122,84 @@ independently of whether the Eng Lead has closed the GitHub issue.
 | CEO says "launch" but no P0 issues are actionable | Surface: "No actionable P0 issues — all blocked or in-flight." |
 | Dispatch partially fails (some INSERTs fail) | Roll back all Turso inserts for this wave; manually remove any labels applied before failure |
 | `github_project_number` missing from config | Skip Priority-field filter, match on label only; surface warning to CEO |
+
+---
+
+## Wrap up session
+
+Triggered by *"Chiudiamo"*, *"Wrap up"*, *"Fine sessione"*, *"Prima di chiudere"*,
+*"Is there anything unsaved?"*, *"Fai un giro prima di chiudere"*.
+
+Run before ending any session that involved significant work. Combines a
+data-driven Turso check with a conversational retrospective to ensure nothing
+is lost at the session boundary.
+
+### Step 1 — Turso checks
+
+Query the company DB for observable unsaved-work indicators:
+
+```sql
+-- Pending queue items CoS was supposed to action
+SELECT COUNT(*) FROM inbound_queue
+WHERE agent_owner = 'cos' AND status = 'pending';
+
+-- Decisions proposed this session but never approved or executed
+SELECT COUNT(*) FROM decisions
+WHERE status = 'proposed'
+  AND created_at > datetime('now', '-24 hours');
+
+-- CEO messages never read
+SELECT COUNT(*) FROM messages
+WHERE notify_ceo = 1 AND status = 'unread';
+```
+
+Surface counts to CEO. For each non-zero count, list the specific rows
+(title/content) so the CEO can decide action vs defer.
+
+### Step 2 — Conversational retrospective
+
+Review the session and surface any of the following that were discussed
+but not persisted:
+
+- **`decisions` rows** — verbal decisions or approvals made during the session
+  that were not written to Turso
+- **`knowledge_base` entries** — domain knowledge, constraints, or conventions
+  that emerged and should be preserved for future agents
+- **GitHub issues** — bugs, features, or open points mentioned but not filed
+- **Memory entries** — user preferences, project facts, or feedback corrections
+  that should be saved to the auto-memory system
+- **Uncommitted code / file changes** — edits made but not committed to git
+
+### Step 3 — Surface checklist
+
+Present a categorized list. Mark already-done items explicitly:
+
+```
+Session wrap-up:
+
+  Turso:
+    □ N decisions in 'proposed' — approve or defer?
+    □ N unread CEO messages — read now or defer?
+
+  Conversational (unsaved):
+    □ KB entry: <topic> — not yet inserted
+    □ Memory: <file> — needs update
+    □ Issue: <title> — not yet filed
+    ✓ <item> — already saved
+
+  Nothing else detected.
+```
+
+### Step 4 — CEO action
+
+For each open item: CEO approves (Atlas executes in-session) / skips /
+defers (Atlas writes a `messages` row with `type='session-wrap-reminder'`
+so next session picks it up).
+
+**Note**: the `session-end.sh` hook (FEAT-035) runs the Turso checks
+automatically after every session and writes a `session-wrap-reminder`
+row if any indicator is non-zero. This skill provides the cognitive layer
+that the hook cannot.
 
 ---
 
