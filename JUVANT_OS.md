@@ -79,8 +79,8 @@ secrets.
 
 ## Company setup
 
-Triggered by the CEO saying *"Initialize Juvant OS"* (or any equivalent phrasing) in
-a freshly-cloned per-company repo.
+Triggered by `/juv-init-company`, or the CEO saying *"Initialize Juvant OS"*
+(or any equivalent phrasing) in a freshly-cloned per-company repo.
 
 ### Wizard rendering rule (HARD-REQUIRED — applies to every step below)
 
@@ -2098,8 +2098,8 @@ the workflow is:
 
 ## Project setup
 
-Triggered by *"Add project <name>"* or *"Initialize project hardys"* in an
-already-bootstrapped company repo.
+Triggered by `/juv-add-project`, *"Add project <name>"*, or
+*"Initialize project hardys"* in an already-bootstrapped company repo.
 
 > **Wizard rendering rule applies here too.** Every step that collects
 > multiple fields renders one question at a time, sequentially. No
@@ -4128,9 +4128,13 @@ scripts/sync-project-globs.sh
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md
+scripts/templates/commands/juv-init-company.md
+scripts/templates/commands/juv-add-project.md
 .claude/commands/juv-boot-sequence.md
 .claude/commands/juv-upstream-sync.md
 .claude/commands/juv-wrap-up.md
+.claude/commands/juv-init-company.md
+.claude/commands/juv-add-project.md
 JUVANT_OS.md                  SYSTEM_INVARIANTS.md
 CHANGELOG.md                  docs/MCP_INVENTORY.md
 docs/branch-protection-spec.md
