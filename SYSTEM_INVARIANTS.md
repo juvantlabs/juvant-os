@@ -503,6 +503,29 @@ appeared in `project-juvant-web` and should have been authored by `pca`.
 early operations (pre-amendment, 2026-05-17) are accepted as-is. This boundary
 is enforced going forward from the date of this amendment.
 
+### §4c — Company DB Write Boundary (symmetric to §4b)
+
+`company-<adopter>` is written by **company-scope agents only**: `cos`, `cfo`,
+`clo`, `cmo`, `cco`, `chro`, `cso`, `cetho`, `cto`, `ca`, `cro`,
+`eng-platform`, `vpe`.
+
+Project agents (`pca`, `product-lead`, `design-lead`, `eng-lead`, `eng-api`,
+`eng-backend`, `eng-frontend`, `eng-ai`) **MUST NOT** INSERT/UPDATE/DELETE rows
+in `company-<adopter>.decisions`, `knowledge_base`, `inbound_queue`, or
+`messages` under any rationale.
+
+**Spec execution pattern.** If a project agent executes a spec that originated
+in the company DB (e.g. a CSO security-consult, a CTO eng-platform-spec), the
+execution-confirmation row is written to the **project DB**
+(`scope='company'` preserved to indicate originating spec scope; physical row
+lives in `project-<slug>.decisions`). The originating company-scope agent reads
+project DBs to find confirmation rows about its specs.
+
+**Rationale.** Symmetric enforcement with §4b. Prevents project agents from
+writing to company DB via self-declaration when an originating spec lives there.
+Observed breach: decisions#72 and #77 in company-juvant authored by
+eng-lead/Ship and product-lead/Traction (2026-05-18).
+
 ---
 
 ## §5 — Universal CONFIDENTIAL List

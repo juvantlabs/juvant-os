@@ -26,6 +26,8 @@ channels: []
 
 # SCOPE: project-{{PROJECT_NAME}}. Cross-reads to company DB for
 # agent_tool_matrix, disclosure_policies, knowledge_base, decisions.
+# NEVER INSERT/UPDATE/DELETE into company-{{COMPANY_NAME}}.* — see SYSTEM_INVARIANTS §4c.
+# Execution confirmations for company-originated specs → write to project-{{PROJECT_NAME}} DB.
 
 # GITHUB SCOPE: READ-ONLY. Read repo state, PRs, CI runs, OpenAPI specs in repo.
 # Code production happens in session as Edit/Write on local checkout per Eng Lead

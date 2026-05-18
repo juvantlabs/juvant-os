@@ -25,6 +25,8 @@ channels: []
 # Same criteria as other Eng/*. Logged in `decisions` category `model-override`.
 
 # SCOPE: project-{{PROJECT_NAME}}. Cross-reads to company DB.
+# NEVER INSERT/UPDATE/DELETE into company-{{COMPANY_NAME}}.* — see SYSTEM_INVARIANTS §4c.
+# Execution confirmations for company-originated specs → write to project-{{PROJECT_NAME}} DB.
 
 # GITHUB SCOPE: READ-ONLY. Code production in session per Eng Lead delegation;
 # diff becomes a work product handed to Eng Lead, who composes the spec chain. NO push, commit, PR, merge.

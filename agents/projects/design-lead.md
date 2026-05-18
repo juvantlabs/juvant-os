@@ -34,6 +34,8 @@ channels: []
 # Override logged in Turso: agent, task_id, original_model, override_model, reason.
 
 # SCOPE: This is a project-scope agent. Primary DB: project-{{PROJECT_NAME}}.
+# NEVER INSERT/UPDATE/DELETE into company-{{COMPANY_NAME}}.* — see SYSTEM_INVARIANTS §4c.
+# Execution confirmations for company-originated specs → write to project-{{PROJECT_NAME}} DB.
 # Cross-reads to company-{{COMPANY_NAME}} for:
 #   - agent_tool_matrix (read-only; CTO owns)
 #   - disclosure_policies (read-only)
