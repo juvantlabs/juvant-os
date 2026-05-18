@@ -133,7 +133,9 @@
       "Bash(bash scripts/validate-batch-fixture.sh:*)",
       "Bash(scripts/validate-batch-fixture.sh:*)",
       "Bash(bash scripts/run-testco-batch.sh:*)",
-      "Bash(scripts/run-testco-batch.sh:*)"
+      "Bash(scripts/run-testco-batch.sh:*)",
+      "Bash(bash scripts/sync-project-globs.sh:*)",
+      "Bash(scripts/sync-project-globs.sh:*)"
     ],
     "_deny_comment": "Deny on token-bearing dotenv files (explicit list — narrower than blanket .env.* which captured .env.example, a sample/template file by convention that documents required env var names). Covers standard names + common ad-hoc secret-bearing variants (secrets, private, cloud-prefixes). To extend: add patterns explicitly here, never re-broaden to .env.* or the .env.example regression returns.",
     "deny": [

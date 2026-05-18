@@ -2184,7 +2184,8 @@ config nested under `.db` (symmetric with the company-level `.db`):
         "auth_token": "<token>"
       },
       "doc_folder": "/<Company>/04 - Products/<Product Folder>",
-      "github_project_number": 1
+      "github_project_number": 1,
+      "working_tree": "/Users/<user>/Projects/<project-slug>"
     }
   }
 }
@@ -2202,12 +2203,24 @@ back to company-level `doc_storage.folders` plus their own
 optional but REQUIRED for `dispatch-from-issues` — it is the integer ID
 of the GitHub Project board (visible in the board URL as `/projects/<N>`)
 used to resolve the Priority field when filtering issues by P0/P1/P2.
+The `working_tree` field is optional but REQUIRED for
+`scripts/sync-project-globs.sh` to extend `.claude/settings.json` with
+absolute-path `Read`/`Grep`/`Glob` permission globs for the project's local
+working tree. Without it, subagents operating on the project's sibling
+directory are denied at the permission layer. Value is the absolute path to
+the local git working tree (local-filesystem only — not stored in Turso
+`projects` table).
 
 Run `bash scripts/migrate.sh --project=<slug>` (HARD-REQUIRED) to
-apply `scripts/schema.sql` to the per-project DB:
+apply `scripts/schema.sql` to the per-project DB, then run
+`bash scripts/sync-project-globs.sh` (HARD-REQUIRED) to extend
+`.claude/settings.json` with `Read`/`Grep`/`Glob` globs for the new
+project's `working_tree` (FEAT-039). Without this step, subagents
+dispatched to the project working tree are denied at the permission layer:
 
 ```bash
 bash scripts/migrate.sh --project=<slug>
+bash scripts/sync-project-globs.sh
 ```
 
 The script reads `.projects.<slug>.db.{provider,url,auth_token}`
@@ -4099,6 +4112,7 @@ helpers/kb-sync.sh
 hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
+scripts/sync-project-globs.sh
 JUVANT_OS.md                  SYSTEM_INVARIANTS.md
 CHANGELOG.md                  docs/MCP_INVENTORY.md
 docs/branch-protection-spec.md
