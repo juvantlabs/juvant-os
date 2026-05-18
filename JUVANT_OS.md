@@ -1361,8 +1361,16 @@ Project-scope agents (`agents/projects/*.md`) are NOT compiled here — they are
 compiled at project init via the same script with `--scope projects` (see
 "Project setup" below). At project init, the wizard creates
 `.claude/agents/<project>-<role>.md` symlinks pointing to
-`agents/projects/<role>.md` so that `Task(subagent_type='<project>-<role>', ...)`
-resolves through the same mechanism.
+`agents/projects/<project>/<role>.md` so that
+`Task(subagent_type='<project>-<role>', ...)` resolves through the same mechanism.
+
+**`name:` field is the canonical lookup key — symlink filename is informational
+only.** Claude Code resolves `subagent_type` via the YAML `name:` field in the
+compiled agent file, not the symlink filename. Project-scope compiled files carry
+`name: <slug>-<role>` (e.g. `name: hardys-eng-lead`) so each project's agents
+resolve uniquely. On instances with ≥2 projects, unqualified `name: <role>`
+values cause non-deterministic resolution — whichever file `readdir()` enumerates
+last wins. BUG-029 — fixed in v0.8.3+.
 
 ### Wizard — Step 7.5: Render infrastructure files
 

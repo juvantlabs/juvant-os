@@ -1,5 +1,5 @@
 ---
-name: eng-frontend
+name: {{PROJECT_NAME_SLUG}}-eng-frontend
 description: |
   Frontend engineer for project {{PROJECT_NAME}} at {{COMPANY_NAME}}.
   Operates under the agent name {{AGENT_NAME}}. {{AGENT_DESCRIPTION}}

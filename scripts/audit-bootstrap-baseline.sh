@@ -401,6 +401,21 @@ PYEOF
       "placeholder-residue"
   fi
 
+  # BUG-029: detect duplicate name: values across .claude/agents/ — multi-project
+  # collision where two compiled project-agent files share the same unqualified
+  # name: field (e.g. both resolve to name: design-lead). Non-deterministic
+  # subagent_type resolution; surfaces silently when ≥2 projects are active.
+  local dup_names
+  dup_names=$(grep -rh '^name:' "$agents_dir"/*.md 2>/dev/null | sort | uniq -d | tr -d ' ' | sed 's/^name://' | tr '\n' ' ')
+  if [[ -n "$dup_names" ]]; then
+    emit "agents" "high" \
+      "Duplicate agent name: field detected across .claude/agents/ — non-deterministic subagent_type resolution for: ${dup_names}. Re-run compile-templates.sh --scope projects for each slug (BUG-029)." \
+      "duplicate-agent-name"
+  else
+    emit "agents" "info" \
+      "No duplicate name: fields in compiled agent files — subagent_type resolution is deterministic."
+  fi
+
   # eng-platform / vpe / cro toggle-coherence checks (company-scope only).
   # v0.8.0 (ADR 0014 §1/§2): for each optional role, confirm the file
   # presence + agent_tool_matrix row state matches the toggle.
