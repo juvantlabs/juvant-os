@@ -13,9 +13,20 @@
 # Edit/Write are NOT added here — defaultMode:acceptEdits already covers
 # them, and write security lives in hooks/bash-policy.json + agent_tool_matrix.
 #
-# Idempotent — safe to run multiple times. Preserves all non-absolute-path
-# entries (WebFetch, Bash, relative globs). Strips and rebuilds only the
-# auto-generated absolute-path block on each run.
+# Idempotent — safe to run multiple times.
+#
+# Sentinel-comment approach (BUG-032):
+# The script manages ONLY the content between two sentinel comment lines:
+#   // [sync-project-globs:start]
+#   ...auto-generated entries...
+#   // [sync-project-globs:end]
+# Entries outside the sentinels are never touched. Manually-curated paths,
+# PM repos, and any other absolute-path entries added by hand are preserved.
+#
+# First run on an existing instance (no sentinels present): strips the old
+# absolute-path block (Read/Grep/Glob starting with /) and inserts the
+# sentinel-wrapped block. Any manually-added absolute entries will need to
+# be re-added once after this migration; subsequent runs preserve them.
 #
 # Usage:
 #   bash scripts/sync-project-globs.sh [--dry-run]
@@ -54,6 +65,7 @@ fi
 
 # Collect working_tree values for all registered projects.
 # A project is eligible if it has a non-empty working_tree field.
+# Uses while-read loop for bash 3.2 compatibility (BUG-031).
 WORKING_TREES=()
 while IFS= read -r line; do
   WORKING_TREES+=("$line")
@@ -86,31 +98,76 @@ for wt in "${WORKING_TREES[@]}"; do
   )
 done
 
-# Rebuild permissions.allow:
-#   keep entries that are NOT absolute-path Read/Grep/Glob
-#   (identified by matching Read(/...), Grep(/...), Glob(/...))
-#   then append the freshly generated absolute entries.
-UPDATED_SETTINGS=$(jq \
-  --argjson new_globs "$NEW_GLOBS_JSON" \
-  '
-    .permissions.allow = (
-      [
-        .permissions.allow[]
-        | select(
-            test("^(Read|Grep|Glob)\\(/") | not
-          )
-      ]
-      + $new_globs
-    )
-  ' "$SETTINGS")
-
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "[sync-project-globs] DRY RUN — would write:"
-  echo "$UPDATED_SETTINGS" | jq '.permissions.allow'
+  echo "[sync-project-globs] DRY RUN — would manage sentinel block with:"
+  echo "$NEW_GLOBS_JSON" | jq -r '.[]' | sed 's/^/  /'
   exit 0
 fi
 
+# Apply sentinel-aware text surgery via Python (bash 3.2-safe, no extra deps).
+#
+# Sentinel mode (block already present): replace only the content between
+# // [sync-project-globs:start] and // [sync-project-globs:end].
+#
+# First-run migration mode (no sentinels): strip the old absolute-path
+# Read/Grep/Glob entries, re-serialize, and append the sentinel block.
+UPDATED_SETTINGS=$(python3 - "$SETTINGS" "$NEW_GLOBS_JSON" <<'PYEOF'
+import json, re, sys
+
+path    = sys.argv[1]
+entries = json.loads(sys.argv[2])
+
+START = "// [sync-project-globs:start]"
+END   = "// [sync-project-globs:end]"
+
+ENTRY_INDENT = "      "  # 6 spaces: 2-space jq indent × 3 levels
+
+def build_block(entries, indent=ENTRY_INDENT):
+    lines = [f"{indent}{START}"]
+    for e in entries:
+        lines.append(f'{indent}"{e}",')
+    lines.append(f"{indent}{END}")
+    return "\n".join(lines)
+
+text = open(path).read()
+
+if START in text and END in text:
+    # Sentinel block present — replace only its contents, preserve indent.
+    idx    = text.index(START)
+    lstart = text.rfind('\n', 0, idx) + 1
+    indent = text[lstart:idx]
+    pat = re.compile(
+        re.escape(indent) + re.escape(START) + r'.*?' + re.escape(indent) + re.escape(END),
+        re.DOTALL
+    )
+    result = pat.sub(build_block(entries, indent), text)
+else:
+    # First-run migration: parse as clean JSON, strip old auto-absolute entries,
+    # re-serialize, splice in sentinel block.
+    data  = json.loads(text)
+    allow = data.get("permissions", {}).get("allow", [])
+    kept  = [e for e in allow if not re.match(r'^(Read|Grep|Glob)\(/', str(e))]
+    data.setdefault("permissions", {})["allow"] = kept
+    base  = json.dumps(data, indent=2)
+
+    new_block = build_block(entries, ENTRY_INDENT)
+
+    if kept:
+        # Insert ",\n<block>" before the closing "    ]" of allow array.
+        result = re.sub(r'(\n    \])', ',\n' + new_block + r'\1', base, count=1)
+    else:
+        # Empty allow array: replace [] with [\n<block>\n    ].
+        result = re.sub(
+            r'"allow":\s*\[\s*\]',
+            '"allow": [\n' + new_block + '\n    ]',
+            base, count=1
+        )
+
+print(result, end="")
+PYEOF
+)
+
 echo "$UPDATED_SETTINGS" > "$SETTINGS"
-echo "[sync-project-globs] updated $SETTINGS with ${#WORKING_TREES[@]} working tree(s)"
-echo "[sync-project-globs] added entries:"
+echo "[sync-project-globs] updated $SETTINGS (sentinel block replaced)"
+echo "[sync-project-globs] managed entries:"
 echo "$NEW_GLOBS_JSON" | jq -r '.[]' | sed 's/^/  /'
