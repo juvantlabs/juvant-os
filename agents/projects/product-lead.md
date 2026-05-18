@@ -1,5 +1,5 @@
 ---
-name: {{PROJECT_NAME_SLUG}}-product-lead
+name: "{{PROJECT_NAME_SLUG}}-product-lead"
 description: |
   Product Lead for project {{PROJECT_NAME}} at {{COMPANY_NAME}}.
   Operates under the agent name {{AGENT_NAME}}. {{AGENT_DESCRIPTION}}
