@@ -54,7 +54,10 @@ fi
 
 # Collect working_tree values for all registered projects.
 # A project is eligible if it has a non-empty working_tree field.
-mapfile -t WORKING_TREES < <(
+WORKING_TREES=()
+while IFS= read -r line; do
+  WORKING_TREES+=("$line")
+done < <(
   jq -r '
     .projects
     | to_entries[]
