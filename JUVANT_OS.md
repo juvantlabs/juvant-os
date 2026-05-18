@@ -2783,6 +2783,8 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 
 ### Boot sequence
 
+Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
+
 1. **Read all reachable Turso DBs** (company DB + each `projects.db_url`).
 2. **Check bootstrap state**:
    - `SELECT value FROM master_context WHERE key='bootstrap_completed_at'`.
@@ -3141,8 +3143,9 @@ independently of whether the Eng Lead has closed the GitHub issue.
 
 ## Wrap up session
 
-Triggered by *"Chiudiamo"*, *"Wrap up"*, *"Fine sessione"*, *"Prima di chiudere"*,
-*"Is there anything unsaved?"*, *"Fai un giro prima di chiudere"*.
+Triggered by `/juv-wrap-up`, *"Chiudiamo"*, *"Wrap up"*, *"Fine sessione"*,
+*"Prima di chiudere"*, *"Is there anything unsaved?"*,
+*"Fai un giro prima di chiudere"*.
 
 Run before ending any session that involved significant work. Combines a
 data-driven Turso check with a conversational retrospective to ensure nothing
@@ -3992,9 +3995,10 @@ Five-step protocol:
 
 ## Upstream sync
 
-Triggered by *"Sync from upstream"*, *"What changed in juvantlabs?"*,
-*"Sync with framework"*, *"Aggiorna con il framework"*,
-*"Check for framework updates"*, *"Sono aggiornato all'upstream?"*.
+Triggered by `/juv-upstream-sync`, *"Sync from upstream"*,
+*"What changed in juvantlabs?"*, *"Sync with framework"*,
+*"Aggiorna con il framework"*, *"Check for framework updates"*,
+*"Sono aggiornato all'upstream?"*.
 
 Evaluates the company instance against `juvantlabs/juvant-os` upstream and
 applies approved framework updates in the current session. Full Turso audit
@@ -4113,6 +4117,12 @@ hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
 scripts/sync-project-globs.sh
+scripts/templates/commands/juv-boot-sequence.md
+scripts/templates/commands/juv-upstream-sync.md
+scripts/templates/commands/juv-wrap-up.md
+.claude/commands/juv-boot-sequence.md
+.claude/commands/juv-upstream-sync.md
+.claude/commands/juv-wrap-up.md
 JUVANT_OS.md                  SYSTEM_INVARIANTS.md
 CHANGELOG.md                  docs/MCP_INVENTORY.md
 docs/branch-protection-spec.md

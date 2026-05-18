@@ -676,6 +676,16 @@ else
       esac
       substitute_file "$f"
     done
+
+    # Install CEO-invocable slash commands into .claude/commands/
+    if [[ -d "$ROOT/scripts/templates/commands" ]]; then
+      mkdir -p "$ROOT/.claude/commands"
+      for cmd in "$ROOT/scripts/templates/commands"/*.md; do
+        [[ -f "$cmd" ]] || continue
+        cp "$cmd" "$ROOT/.claude/commands/$(basename "$cmd")"
+        echo "  installed: .claude/commands/$(basename "$cmd")"
+      done
+    fi
   fi
 fi
 
