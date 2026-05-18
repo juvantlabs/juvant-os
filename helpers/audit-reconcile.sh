@@ -64,9 +64,10 @@ ORPHAN_DECISIONS=$(turso db shell "$TURSO_URL" "
     AND NOT EXISTS (
       SELECT 1 FROM agent_actions_log a
       WHERE (a.agent = d.agent OR (d.agent = 'cos' AND a.agent = 'unknown'))
+        AND a.session_id = d.session_id
         AND ABS(julianday(a.started_at) - julianday(d.created_at)) * 1440 <= 5
     );
-" 2>/dev/null | tail -1 | tr -d ' ')
+" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 | tr -d ' ')
 
 # Anomaly 2: pending rows older than 1 hour that belong to sessions
 # with mixed status (at least one completed row). This distinguishes
@@ -83,18 +84,29 @@ STUCK_PENDING=$(turso db shell "$TURSO_URL" "
       WHERE status IN ('success', 'failure', 'denied')
         AND started_at > '$SINCE'
     );
-" 2>/dev/null | tail -1 | tr -d ' ')
+" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 | tr -d ' ')
+
+# Anomaly 3: §4c violations — project-scope agent wrote to company DB
+# (FEAT-042 / SYSTEM_INVARIANTS §4c, 2026-05-18)
+_PROJECT_AGENTS="'pca','product-lead','design-lead','eng-lead','eng-api','eng-backend','eng-frontend','eng-ai'"
+SCOPE_VIOLATIONS=$(turso db shell "$TURSO_URL" "
+  SELECT COUNT(*) FROM decisions
+  WHERE created_at > '$SINCE'
+    AND agent IN ($_PROJECT_AGENTS);
+" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 | tr -d ' ')
 
 ORPHAN_DECISIONS=${ORPHAN_DECISIONS:-0}
 STUCK_PENDING=${STUCK_PENDING:-0}
-TOTAL_ANOMALIES=$((ORPHAN_DECISIONS + STUCK_PENDING))
+SCOPE_VIOLATIONS=${SCOPE_VIOLATIONS:-0}
+TOTAL_ANOMALIES=$((ORPHAN_DECISIONS + STUCK_PENDING + SCOPE_VIOLATIONS))
 
 echo "[audit-reconcile] window: last ${WINDOW_DAYS} days"
-echo "[audit-reconcile] orphan decisions (possible fabrication): $ORPHAN_DECISIONS"
-echo "[audit-reconcile] stuck pending (possible hook failure):    $STUCK_PENDING"
+echo "[audit-reconcile] orphan decisions (possible fabrication):  $ORPHAN_DECISIONS"
+echo "[audit-reconcile] stuck pending (possible hook failure):     $STUCK_PENDING"
+echo "[audit-reconcile] scope-boundary violations §4c (proj→co):  $SCOPE_VIOLATIONS"
 
 if [[ "$TOTAL_ANOMALIES" -gt 0 ]]; then
-  MSG="Audit reconcile: ${ORPHAN_DECISIONS} orphan decisions + ${STUCK_PENDING} stuck pending in last ${WINDOW_DAYS}d"
+  MSG="Audit reconcile: ${ORPHAN_DECISIONS} orphan + ${STUCK_PENDING} stuck-pending + ${SCOPE_VIOLATIONS} scope-violations in last ${WINDOW_DAYS}d"
   echo "[audit-reconcile] ALERT: $MSG" >&2
   # Use existing notification.sh infrastructure
   JUVANT_NOTIFY_CHANNEL=system \

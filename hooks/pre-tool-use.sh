@@ -123,6 +123,68 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
 fi
 
 # ─────────────────────────────────────────────
+# Track 2b — Scope boundary guard (SYSTEM_INVARIANTS §4b / §4c)
+# ─────────────────────────────────────────────
+# Bidirectional block: project-scope agent → company DB (§4c hard-fail)
+# and company-scope agent → project DB post-bootstrap (§4b hard-fail).
+# Conservative whole-word token match on full command string.
+# False positives acceptable; false negatives caught by Layer 3 drift audit.
+if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
+  _T2B_CMD=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""')
+
+  # Detect write tokens (whole-word, case-insensitive)
+  if echo "$_T2B_CMD" | grep -qiE \
+      '\b(INSERT|UPDATE|DELETE|REPLACE)\b|CREATE[[:space:]]+TABLE|ALTER[[:space:]]+TABLE|DROP[[:space:]]+TABLE'; then
+
+    _CFG="$SCRIPT_DIR/../.juvant/config.json"
+    _COMPANY_URL=$(jq -r '.turso_url // ""' "$_CFG" 2>/dev/null || echo "")
+
+    # Classify DB target
+    _T2B_COMPANY=false
+    _T2B_PROJECT=false
+    if [[ -n "$_COMPANY_URL" && "$_T2B_CMD" == *"$_COMPANY_URL"* ]]; then
+      _T2B_COMPANY=true
+    else
+      while IFS= read -r _PU; do
+        [[ -z "$_PU" || "$_PU" == "null" ]] && continue
+        if [[ "$_T2B_CMD" == *"$_PU"* ]]; then _T2B_PROJECT=true; break; fi
+      done < <(jq -r '.projects | to_entries[].value.db_url // empty' "$_CFG" 2>/dev/null)
+    fi
+
+    # Classify agent scope
+    _COMPANY_ROLES=" cos cfo clo cmo cco cso cto chro cetho cro eng-platform vpe ca "
+    _T2B_IS_CO=false
+    _T2B_IS_PROJ=false
+    if [[ -n "$ROLE" && "$ROLE" != "unknown" && "$ROLE" != "ceo" && "$ROLE" != "operator" ]]; then
+      if echo "$_COMPANY_ROLES" | grep -q " $ROLE "; then
+        _T2B_IS_CO=true
+      else
+        _T2B_IS_PROJ=true
+      fi
+    fi
+
+    # Case a — §4c: project agent → company DB
+    if [[ "$_T2B_IS_PROJ" == "true" && "$_T2B_COMPANY" == "true" ]]; then
+      DECISION="deny"
+      DENY_REASON="SCOPE BOUNDARY VIOLATION §4c (SYSTEM_INVARIANTS): project-scope agent '$ROLE' may not write to company DB. Write to project DB or route spec to company agent via CoS. Refs: FEAT-042 juvantlabs/juvant-os-pm#90"
+
+    # Case b — §4b: company agent → project DB (post-bootstrap, with exceptions)
+    elif [[ "$_T2B_IS_CO" == "true" && "$_T2B_PROJECT" == "true" ]]; then
+      _BW=$(jq -r '.bootstrap_window // "0"' "$_CFG" 2>/dev/null || echo "0")
+      _EXEMPT=false
+      if [[ "$_BW" == "1" ]] && \
+         [[ "$ROLE" == "chro" || "$ROLE" == "cos" || "$ROLE" == "cso" ]]; then
+        _EXEMPT=true
+      fi
+      if [[ "$_EXEMPT" == "false" ]]; then
+        DECISION="deny"
+        DENY_REASON="SCOPE BOUNDARY VIOLATION §4b (SYSTEM_INVARIANTS): company-scope agent '$ROLE' may not write to project DB post-bootstrap. Refs: FEAT-042 juvantlabs/juvant-os-pm#90"
+      fi
+    fi
+  fi
+fi
+
+# ─────────────────────────────────────────────
 # Track 3 — append-only audit log
 # ─────────────────────────────────────────────
 # Routes via hooks/lib/db.sh so Local SQLite adopters get audit-log
