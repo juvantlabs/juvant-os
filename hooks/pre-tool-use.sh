@@ -137,18 +137,41 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
       '\b(INSERT|UPDATE|DELETE|REPLACE)\b|CREATE[[:space:]]+TABLE|ALTER[[:space:]]+TABLE|DROP[[:space:]]+TABLE'; then
 
     _CFG="$SCRIPT_DIR/../.juvant/config.json"
-    _COMPANY_URL=$(jq -r '.turso_url // ""' "$_CFG" 2>/dev/null || echo "")
+    _COMPANY_URL=$(jq -r '.turso_url // ""'      "$_CFG" 2>/dev/null || echo "")
+    _COMPANY_DB=$(jq -r '.turso_db_name // ""'   "$_CFG" 2>/dev/null || echo "")
 
-    # Classify DB target
+    # Classify DB target.
+    # Match both libsql URL form AND short DB-name form (`turso db shell <name>`).
+    # DB-name uses whole-word grep: "company-juvant" matches but
+    # "company-juvant-external" does not. False positives acceptable per
+    # Track 2b design; this fix closes the false negatives (BUG-033).
     _T2B_COMPANY=false
     _T2B_PROJECT=false
+    _T2B_HIT=false
     if [[ -n "$_COMPANY_URL" && "$_T2B_CMD" == *"$_COMPANY_URL"* ]]; then
+      _T2B_HIT=true
+    elif [[ -n "$_COMPANY_DB" ]] && \
+         echo "$_T2B_CMD" | grep -qE "(^|[^[:alnum:]_-])${_COMPANY_DB}([^[:alnum:]_-]|$)"; then
+      _T2B_HIT=true
+    fi
+    if [[ "$_T2B_HIT" == "true" ]]; then
       _T2B_COMPANY=true
     else
+      # Bug 1 fix: field is .value.url not .value.db_url
       while IFS= read -r _PU; do
         [[ -z "$_PU" || "$_PU" == "null" ]] && continue
         if [[ "$_T2B_CMD" == *"$_PU"* ]]; then _T2B_PROJECT=true; break; fi
-      done < <(jq -r '.projects | to_entries[].value.db_url // empty' "$_CFG" 2>/dev/null)
+      done < <(jq -r '.projects | to_entries[].value.url // empty' "$_CFG" 2>/dev/null)
+      # Bug 2 fix: also match short DB-name form per project
+      if [[ "$_T2B_PROJECT" == "false" ]]; then
+        while IFS= read -r _PN; do
+          [[ -z "$_PN" || "$_PN" == "null" ]] && continue
+          if echo "$_T2B_CMD" | \
+             grep -qE "(^|[^[:alnum:]_-])${_PN}([^[:alnum:]_-]|$)"; then
+            _T2B_PROJECT=true; break
+          fi
+        done < <(jq -r '.projects | to_entries[].value.turso_db_name // empty' "$_CFG" 2>/dev/null)
+      fi
     fi
 
     # Classify agent scope

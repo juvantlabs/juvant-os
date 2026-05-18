@@ -23,8 +23,13 @@ cat >"$CFG_DIR/.juvant/config.json" <<JSON
   "turso_url": "$COMPANY_URL",
   "turso_token": "stub",
   "bootstrap_window": "0",
+  "turso_db_name": "company-test",
   "projects": {
-    "test-proj": { "db_url": "$PROJECT_URL", "db_token": "stub" }
+    "test-proj": {
+      "url": "$PROJECT_URL",
+      "turso_db_name": "project-test",
+      "db_token": "stub"
+    }
   }
 }
 JSON
@@ -59,17 +64,25 @@ make_event() {
 }
 
 CO_WRITE="turso db shell $COMPANY_URL \"INSERT INTO decisions (agent) VALUES ('eng-lead')\""
+CO_WRITE_SHORT='turso db shell company-test "INSERT INTO decisions (agent) VALUES ('"'"'eng-lead'"'"')"'
 CO_SELECT="turso db shell $COMPANY_URL \"SELECT * FROM decisions\""
 PROJ_WRITE="turso db shell $PROJECT_URL \"INSERT INTO decisions (agent) VALUES ('eng-lead')\""
+PROJ_WRITE_SHORT='turso db shell project-test "INSERT INTO decisions (agent) VALUES ('"'"'eng-lead'"'"')"'
 HEREDOC_WRITE="turso db shell $COMPANY_URL <<SQL
 INSERT INTO decisions (agent) VALUES ('eng-lead');
 SQL"
 MULTI_STMT="turso db shell $COMPANY_URL \"SELECT 1; INSERT INTO decisions (agent) VALUES ('x')\""
+# Token-boundary: suffix-collision names must NOT trigger guard against base name
+CO_WRITE_COLLISION='turso db shell company-test-external "INSERT INTO decisions (agent) VALUES ('"'"'x'"'"')"'
+PROJ_WRITE_COLLISION='turso db shell project-test-mirror "INSERT INTO decisions (agent) VALUES ('"'"'x'"'"')"'
 
 # ── Case a: project-scope agent → company DB ─────────────────────────────────
 echo "Case a — §4c: project-scope agent + company DB write"
-run_test "direct INSERT, eng-lead → company DB" \
+run_test "direct INSERT via URL, eng-lead → company DB" \
   "$(make_event eng-lead "$CO_WRITE")" "deny"
+
+run_test "short-form INSERT, eng-lead → company-test (BUG-033 Bug 2)" \
+  "$(make_event eng-lead "$CO_WRITE_SHORT")" "deny"
 
 run_test "heredoc INSERT, product-lead → company DB" \
   "$(make_event product-lead "$HEREDOC_WRITE")" "deny"
@@ -80,13 +93,19 @@ run_test "multi-statement with INSERT, pca → company DB" \
 run_test "SELECT only (no write), eng-lead → company DB — must ALLOW" \
   "$(make_event eng-lead "$CO_SELECT")" "allow"
 
-run_test "INSERT to project DB, eng-lead → project DB — must ALLOW" \
+run_test "INSERT to project DB via URL, eng-lead → must ALLOW" \
   "$(make_event eng-lead "$PROJ_WRITE")" "allow"
+
+run_test "short-form INSERT, eng-lead → project-test — must ALLOW" \
+  "$(make_event eng-lead "$PROJ_WRITE_SHORT")" "allow"
 
 # ── Case b: company-scope agent → project DB ─────────────────────────────────
 echo "Case b — §4b: company-scope agent + project DB write (post-bootstrap)"
-run_test "cto INSERT to project DB — must DENY" \
+run_test "cto INSERT via URL → project DB — must DENY" \
   "$(make_event cto "$PROJ_WRITE")" "deny"
+
+run_test "cto short-form INSERT → project-test — must DENY (BUG-033 Bug 1+2)" \
+  "$(make_event cto "$PROJ_WRITE_SHORT")" "deny"
 
 run_test "cfo INSERT to project DB — must DENY" \
   "$(make_event cfo "$PROJ_WRITE")" "deny"
@@ -120,6 +139,14 @@ run_test "unknown role → company DB write — must ALLOW (operator mode)" \
 
 run_test "ceo role → company DB write — must ALLOW" \
   "$(make_event ceo "$CO_WRITE")" "allow"
+
+# ── Token-boundary: suffix-collision names must NOT trigger guard ─────────────
+echo "Token-boundary — suffix-collision names"
+run_test "company-test-external must NOT match company-test guard" \
+  "$(make_event eng-lead "$CO_WRITE_COLLISION")" "allow"
+
+run_test "project-test-mirror must NOT match project-test guard (cto)" \
+  "$(make_event cto "$PROJ_WRITE_COLLISION")" "allow"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
