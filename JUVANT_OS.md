@@ -63,6 +63,18 @@ The CEO speaks. The Skill maps intent to procedure. Procedures read and write Tu
 > orchestrator and expecting CoS to fan-out further will fail silently:
 > CoS runs but has no `Task` tool available. See SYSTEM_INVARIANTS.md §8.
 
+**Orchestrator contract (HARD-REQUIRED — applies to every interaction).**
+The main thread is a coordinator, not an implementer. Before using any tool,
+run this check:
+
+> 1. **Read** → always allowed.
+> 2. **Bash** for Turso query, `git status/log/diff`, config inspection → allowed.
+> 3. **`Task()`** dispatch → correct path.
+> 4. **Write/Edit** on `.juvant/`, `.claude/`, `*.md`, framework config → allowed.
+> 5. **Anything else → STOP.** Identify the right specialist agent and call `Task()`.
+>    Not even "just this one small thing". Not even in the same session.
+>    The specialist agents exist precisely for this. See SYSTEM_INVARIANTS.md §9.
+
 There is no daemon, no background process, no npm package. The system is operational
 when the CEO is operational. This is by design.
 
