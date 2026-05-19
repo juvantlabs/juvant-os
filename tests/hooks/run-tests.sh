@@ -17,7 +17,7 @@ FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 # Setup: temp SQLite + fake-turso on PATH
 # ─────────────────────────────────────────────
 TMPROOT=$(mktemp -d /tmp/juvant-hook-tests-XXXXXX)
-trap "rm -rf $TMPROOT" EXIT
+trap 'rm -rf "$TMPROOT"' EXIT
 
 TEST_DB="$TMPROOT/test.db"
 sqlite3 "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"

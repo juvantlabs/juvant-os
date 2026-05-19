@@ -388,7 +388,7 @@ sys.exit(0)
 PYEOF
       :
     else
-      survivors_found+=1
+      (( survivors_found += 1 ))
     fi
   done < <(find "$agents_dir" -name "*.md" -type f 2>/dev/null)
 

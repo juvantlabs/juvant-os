@@ -51,6 +51,7 @@ juvant_db_resolve() {
 
   # Env override (cloud paths only).
   if [[ -n "${TURSO_URL:-}" ]]; then JUVANT_DB_URL="$TURSO_URL"; fi
+  # shellcheck disable=SC2034  # JUVANT_DB_TOKEN read by juvant_db_exec in same file
   if [[ -n "${TURSO_TOKEN:-}" ]]; then JUVANT_DB_TOKEN="$TURSO_TOKEN"; fi
 
   # Default provider for env-only invocations.
