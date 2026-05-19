@@ -2904,6 +2904,74 @@ CoS: "Add to Eng Lead's knowledge base for Hardys: React Native 0.76,
 The Skill writes the row via standard Turso INSERT. The knowledge is available
 to the Hardys Eng Lead at next dispatch.
 
+**Task Brief Assembly on dispatch (ARCH-013).** Extends ARCH-012.
+Before calling ANY `Task()` — for any agent, company-scope or
+project-scope — the main thread MUST assemble a full Task Brief and
+prepend it to the prompt. **HARD-REQUIRED. No `Task()` without this step.**
+
+**Step 1 — Query open approved specs for the target role:**
+
+```sql
+-- Company-scope agent: execute against company-<adopter>.decisions
+-- Project-scope agent: execute against project-<slug>.decisions
+SELECT id, title, category, rationale, approved_at
+FROM decisions
+WHERE agent  = '<role>'
+  AND status = 'approved'
+  AND executed_at IS NULL
+ORDER BY created_at ASC;
+```
+
+**Step 2 — Merge KB context** from ARCH-012 into the brief.
+
+**Step 3 — Add GH / queue context** if the dispatch originates from a
+GitHub issue or an `inbound_queue` row: include the full content of that
+item.
+
+**Step 4 — Construct the `## Task Brief` block and prepend to the prompt:**
+
+```
+## Task Brief (assembled by main thread — read before any tool use)
+
+### Open specs
+Spec #<id> [<category>] — <title>  (approved: <approved_at>)
+<rationale>
+===
+```
+*(Repeat for each open spec. If none: write "No open approved specs for
+this role." — never omit this section silently.)*
+
+```
+### Project / company context (KB)
+<knowledge_base rows per ARCH-012>
+
+### Referenced issue / queue item
+<inbound_queue content or GH issue body — omit section if not applicable>
+```
+
+**An agent that receives its Task Brief cannot claim it did not know its
+governing spec.** The main thread is responsible for completeness; the
+agent is responsible for reading what it received.
+
+### Universal agent opening protocol (ARCH-013 — HARD-REQUIRED)
+
+Every agent dispatched via `Task()` MUST execute the following before
+using any tool. This protocol is defined here — not in individual agent
+templates — so it applies universally to all current and future agents
+without requiring template recompilation.
+
+1. **Confirm the governing spec** — state *"Working from spec #\<id\>:
+   \<title\>"* or *"No spec in brief — confirming scope with main thread
+   before proceeding."*
+2. **State 3 key constraints** from the spec `rationale` before any
+   implementation begins.
+3. **No spec → pause** — if the task requires a spec-class action
+   (code write, architectural change, any `*-spec` category) and the
+   brief contains no approved spec: surface to the main thread and stop.
+   Do not self-authorize.
+4. **After execution** — mark `status='executed'` on the spec row
+   immediately. Never leave an executed spec as `approved`.
+
 ### Boot Mode resolution
 
 - 1 active project → Single mode, project context auto-loaded.
