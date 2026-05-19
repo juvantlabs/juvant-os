@@ -526,6 +526,50 @@ writing to company DB via self-declaration when an originating spec lives there.
 Observed breach: decisions#72 and #77 in company-juvant authored by
 eng-lead/Ship and product-lead/Traction (2026-05-18).
 
+### §4d — Project-Scoped Decision Authorship
+
+The **author** of a `decisions` row is determined by the scope of the
+*content*, not by which agent performed the analysis or consultation.
+
+**Rule.** If a finding, recommendation, or decision pertains to a specific
+project (its code, architecture, security posture, or product), the
+`decisions` row MUST be authored by the appropriate project-scope agent
+in the **project DB** — regardless of which company-scope agent generated
+the underlying analysis.
+
+Company-scope agents acting as consultants (CSO, CTO, CLO, etc.) MUST:
+
+1. Return findings to the requesting project agent as a response (via
+   `inbound_queue` row or direct Task reply).
+2. **NOT** author a `decisions` row about the finding in any DB.
+3. The project agent reads the finding, decides whether it warrants a
+   decision row, and authors it in the project DB if so.
+
+**Authorship map for common consultation flows:**
+
+| Consultation request | Analyst | Decision author |
+|---|---|---|
+| Security / secret validation | CSO | PCA (architectural) or Eng Lead |
+| Architectural review | CTO | PCA |
+| Legal / compliance check | CLO | Product Lead or PCA |
+| Tool-matrix / install check | CTO | PCA (via `eng-platform-spec`) |
+| Branch protection review | CSO | Eng Lead (via `branch-protection-spec`) |
+
+**Exception — company-wide scope.** If a finding has implications that
+transcend a specific project (e.g. a vulnerability pattern affecting all
+projects, a company-wide policy change), the company-scope agent MAY author
+a row in `company.decisions` with `scope='company'`. The rationale MUST
+include the token `company-wide` explicitly — this is the override signal
+recognised by the Track 2b semantic content check (§4d runtime enforcement).
+
+**Rationale.** Authorship determines accountability, audit trail, and
+governance chain. A CSO-authored row in `company.decisions` about a
+project asset creates ambiguity: is it a company policy or a project
+decision? Who owns remediation? Who executes it? The authorship rule
+makes the chain unambiguous. Observed breach: CSO wrote
+`secret-rotation-spec` in `company-juvant.decisions` referencing
+`juvantio/juvant-web` (2026-05-19).
+
 ---
 
 ## §5 — Universal CONFIDENTIAL List

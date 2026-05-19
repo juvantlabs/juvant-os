@@ -2972,6 +2972,42 @@ without requiring template recompilation.
 4. **After execution** — mark `status='executed'` on the spec row
    immediately. Never leave an executed spec as `approved`.
 
+### Consultation routing (§4d — HARD-REQUIRED)
+
+When a project agent requests a consultation from a company-scope agent
+(security review, architectural check, legal/compliance), the canonical
+flow is:
+
+```
+Project agent (PCA / Eng Lead / Product Lead)
+  → requests consultation from company agent (CSO / CTO / CLO)
+  → company agent performs analysis
+  → company agent returns finding via inbound_queue row or Task reply
+     addressed to the requesting project agent
+  → project agent reads the finding
+  → project agent decides whether it warrants a decisions row
+  → if yes: INSERT into project-<slug>.decisions, agent = '<project-role>'
+  → company agent: NO decisions INSERT in any DB for this finding
+```
+
+**Anti-pattern (§4d violation — will be denied by Track 2b semantic
+check, FEAT-046):**
+
+```
+PCA requests CSO security validation
+→ CSO finds an issue
+→ CSO writes INSERT INTO company.decisions (agent='cso', ...)  ← WRONG
+   — even though CSO is technically authorised to write to company DB,
+   the content is project-scoped; CSO is the analyst, not the author.
+→ Correct: CSO replies to PCA with findings via inbound_queue;
+   PCA authors the row in project DB.
+```
+
+**Exception (§4d company-wide override):** if the finding has company-wide
+implications, the company-scope agent MAY author a row in `company.decisions`
+provided the title or rationale contains the literal token `company-wide`.
+This must be genuine — the Track 2b hook enforces it.
+
 ### Boot Mode resolution
 
 - 1 active project → Single mode, project context auto-loaded.
