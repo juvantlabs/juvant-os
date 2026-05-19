@@ -179,7 +179,48 @@ run_test "cso INSERT decisions + 'company-wide' token → must ALLOW (§4d excep
 run_test "cso INSERT decisions + no project ref → must ALLOW" \
   "$(make_event cso "$_SEC_WRITE_NOPROJ")" "allow"
 
+# ── Track 2c — Orchestrator boundary ─────────────────────────────────────────
+# Reset config with a working_tree entry
+_WT="$CFG_DIR/projects/test-proj"
+mkdir -p "$_WT"
+cat >"$CFG_DIR/.juvant/config.json" <<JSON
+{
+  "turso_url": "$COMPANY_URL",
+  "turso_token": "stub",
+  "turso_db_name": "company-test",
+  "bootstrap_window": "0",
+  "projects": {
+    "test-proj": {
+      "url": "$PROJECT_URL",
+      "turso_db_name": "project-test",
+      "db_token": "stub",
+      "working_tree": "$_WT"
+    }
+  }
+}
+JSON
+echo "Track 2c — Orchestrator boundary (§9)"
+_PROJ_SRC_WRITE="$(make_event cos "")"  # placeholder — use jq below
+
+_ev_proj_write=$(jq -n \
+  --arg wt "$_WT/src/App.tsx" \
+  '{session_id:"test",tool_name:"Edit",agent_type:"cos",tool_input:{file_path:$wt}}')
+_ev_company_write=$(jq -n \
+  '{session_id:"test",tool_name:"Edit",agent_type:"cos",tool_input:{file_path:"/repo/JUVANT_OS.md"}}')
+_ev_proj_write_engl=$(jq -n \
+  --arg wt "$_WT/src/App.tsx" \
+  '{session_id:"test",tool_name:"Edit",agent_type:"eng-lead",tool_input:{file_path:$wt}}')
+
+run_test "cos Edit file inside project working_tree → must DENY (§9)" \
+  "$_ev_proj_write" "deny"
+
+run_test "cos Edit company-level file (JUVANT_OS.md) → must ALLOW" \
+  "$_ev_company_write" "allow"
+
+run_test "eng-lead Edit file inside project working_tree → must ALLOW" \
+  "$_ev_proj_write_engl" "allow"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
-echo "Track 2b: $PASS passed, $FAIL failed"
+echo "Track 2b/2c: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] && exit 0 || exit 1

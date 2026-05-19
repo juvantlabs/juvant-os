@@ -237,6 +237,34 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
 fi
 
 # ─────────────────────────────────────────────
+# Track 2c — Orchestrator boundary (SYSTEM_INVARIANTS §9)
+# ─────────────────────────────────────────────
+# Deny Write/Edit for ROLE='cos' (main thread) on files inside a
+# project working tree. CoS is an orchestrator; it must dispatch to
+# the appropriate project agent instead of editing project files directly.
+# Company-level files (.juvant/, .claude/, *.md, hooks/, scripts/) are
+# outside project working trees and remain fully accessible.
+# Git and Bash operations (upstream sync, compile-templates, Turso
+# queries) are unaffected — they go through Bash, not Write/Edit.
+if [[ "$ROLE" == "cos" && "$DECISION" == "allow" ]]; then
+  if [[ "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Edit" ]]; then
+    _T2C_PATH=$(echo "$EVENT_JSON" | \
+      jq -r '.tool_input.path // .tool_input.file_path // ""' 2>/dev/null || echo "")
+    if [[ -n "$_T2C_PATH" ]]; then
+      _CFG_T2C="$SCRIPT_DIR/../.juvant/config.json"
+      while IFS= read -r _wt; do
+        [[ -z "$_wt" || "$_wt" == "null" ]] && continue
+        if [[ "$_T2C_PATH" == "$_wt"/* || "$_T2C_PATH" == "$_wt" ]]; then
+          DECISION="deny"
+          DENY_REASON="ORCHESTRATOR BOUNDARY (SYSTEM_INVARIANTS §9): main thread may not directly edit files in project working tree '${_wt}'. Identify the correct agent (Eng Lead, PCA, Product Lead, etc.) and dispatch via Task(). Refs: FEAT-047 juvantlabs/juvant-os-pm#100"
+          break
+        fi
+      done < <(jq -r '.projects[].working_tree // empty' "$_CFG_T2C" 2>/dev/null || true)
+    fi
+  fi
+fi
+
+# ─────────────────────────────────────────────
 # Track 3 — append-only audit log
 # ─────────────────────────────────────────────
 # Routes via hooks/lib/db.sh so Local SQLite adopters get audit-log
