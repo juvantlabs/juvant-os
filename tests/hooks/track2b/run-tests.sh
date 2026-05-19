@@ -148,6 +148,37 @@ run_test "company-test-external must NOT match company-test guard" \
 run_test "project-test-mirror must NOT match project-test guard (cto)" \
   "$(make_event cto "$PROJ_WRITE_COLLISION")" "allow"
 
+# ── Case c — §4d: company agent + project ref in decisions INSERT ─────────────
+# Reset config to bootstrap_window=0 with a project slug entry
+cat >"$CFG_DIR/.juvant/config.json" <<JSON
+{
+  "turso_url": "$COMPANY_URL",
+  "turso_token": "stub",
+  "turso_db_name": "company-test",
+  "bootstrap_window": "0",
+  "projects": {
+    "test-proj": {
+      "url": "$PROJECT_URL",
+      "turso_db_name": "project-test",
+      "db_token": "stub"
+    }
+  }
+}
+JSON
+echo "Case c — §4d: company agent inserting project-scoped content into company DB"
+_SEC_WRITE_PROJ='turso db shell '"$COMPANY_URL"' "INSERT INTO decisions (agent,title,rationale) VALUES ('"'"'cso'"'"','"'"'rotate test-proj secret'"'"','"'"'juvantio/test-proj needs rotation'"'"')"'
+_SEC_WRITE_CWSCOPE='turso db shell '"$COMPANY_URL"' "INSERT INTO decisions (agent,title,rationale) VALUES ('"'"'cso'"'"','"'"'company-wide secret rotation'"'"','"'"'all projects including test-proj'"'"')"'
+_SEC_WRITE_NOPROJ='turso db shell '"$COMPANY_URL"' "INSERT INTO decisions (agent,title,rationale) VALUES ('"'"'cso'"'"','"'"'rotate infra key'"'"','"'"'shared AWS key rotation'"'"')"'
+
+run_test "cso INSERT decisions + project ref in SQL → must DENY (§4d)" \
+  "$(make_event cso "$_SEC_WRITE_PROJ")" "deny"
+
+run_test "cso INSERT decisions + 'company-wide' token → must ALLOW (§4d exception)" \
+  "$(make_event cso "$_SEC_WRITE_CWSCOPE")" "allow"
+
+run_test "cso INSERT decisions + no project ref → must ALLOW" \
+  "$(make_event cso "$_SEC_WRITE_NOPROJ")" "allow"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Track 2b: $PASS passed, $FAIL failed"

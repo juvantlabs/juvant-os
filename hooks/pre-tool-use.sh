@@ -204,6 +204,35 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
         DENY_REASON="SCOPE BOUNDARY VIOLATION §4b (SYSTEM_INVARIANTS): company-scope agent '$ROLE' may not write to project DB post-bootstrap. Refs: FEAT-042 juvantlabs/juvant-os-pm#90"
       fi
     fi
+
+    # Case c — §4d: company agent inserting project-scoped content into company DB
+    # Fires when: company agent + INSERT decisions + company DB + project ref in SQL.
+    # Override: SQL contains 'company-wide' token → genuine company-scope exception.
+    # False positives acceptable per Track 2b design; false negatives caught by Layer 3.
+    if [[ "$_T2B_IS_CO" == "true" && "$_T2B_COMPANY" == "true" && \
+          "$DECISION" == "allow" ]]; then
+      if echo "$_T2B_CMD" | grep -qiE '\bINSERT\b.*\bdecisions\b|\bdecisions\b.*\bINSERT\b'; then
+        if ! echo "$_T2B_CMD" | grep -qiE '\bcompany-wide\b'; then
+          # Load project identifiers: slugs + optional repos[] array
+          _T2B_PROJ_REFS=()
+          while IFS= read -r _ref; do
+            [[ -n "$_ref" && "$_ref" != "null" ]] && _T2B_PROJ_REFS+=("$_ref")
+          done < <(jq -r '
+            .projects | to_entries[] |
+            .key,
+            (.value.repos[]? // empty)
+          ' "$_CFG" 2>/dev/null || true)
+          for _ref in "${_T2B_PROJ_REFS[@]}"; do
+            if echo "$_T2B_CMD" | \
+               grep -qE "(^|[^[:alnum:]_/-])${_ref}([^[:alnum:]_/-]|$)"; then
+              DECISION="deny"
+              DENY_REASON="§4d AUTHORSHIP VIOLATION (SYSTEM_INVARIANTS): company-scope agent '$ROLE' is inserting a decisions row into company DB with content referencing project '${_ref}'. Return the finding to the project agent (PCA/Eng Lead); they author the row in project-${_ref} DB. Exception: include literal token 'company-wide' in title or rationale and re-issue. Refs: FEAT-045 FEAT-046 juvantlabs/juvant-os-pm#98"
+              break
+            fi
+          done
+        fi
+      fi
+    fi
   fi
 fi
 
