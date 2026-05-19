@@ -693,6 +693,41 @@ to exercise its dispatcher role. The `Task` declaration was removed from
 `agents/company/cos.md` `tools:` to eliminate the dead-code signal (closes
 issue #21).
 
+## §9 — Orchestrator Boundary
+
+The main thread and CoS are **coordinators only**. They read state,
+assemble context, dispatch specialists, and surface results to the CEO.
+They are never the implementers.
+
+**Permitted for main thread / CoS:**
+
+| Tool / operation | Allowed form |
+|---|---|
+| `Read` | Any file — for context and state |
+| `Bash` | Turso queries, `git status/log/diff/fetch/checkout/add/commit/push`, `jq` on config, `compile-templates.sh`, `launchd` management |
+| `Task()` | Dispatch any agent |
+| `Write` / `Edit` | `.juvant/` config, `.claude/` settings, `*.md` documentation, framework config files |
+
+**Forbidden for main thread / CoS:**
+
+- `Write` or `Edit` on source code in any project working tree
+- `Bash` for build, test, lint, deploy, install, or package-management commands (`npm`, `cargo`, `pip`, `make`, `docker`, etc.) on project code
+- Authoring `decisions` rows that belong to a project agent (§4d)
+- Executing specs that are assigned to a project agent
+
+**Self-check (run before every non-read action):**
+> 1. Am I dispatching via `Task()`? → correct.
+> 2. Is this a Turso / git / config operation via Bash? → allowed.
+> 3. Is this `Write`/`Edit` on `.juvant/`, `.claude/`, or a `*.md` doc? → allowed.
+> 4. Anything else → **STOP**. Identify the right specialist agent and dispatch.
+>    Never "just do it quickly". The specialist agents exist for this reason.
+
+**Runtime enforcement:** Track 2c in `hooks/pre-tool-use.sh` hard-denies
+`Write`/`Edit` for `ROLE='cos'` on any file inside a project working tree
+(`config.json projects[*].working_tree`). All git and Bash operations
+used in normal orchestration (upstream sync, compile-templates, Turso
+queries) are unaffected — they go through Bash, not Write/Edit.
+
 ---
 
 ## Appendix A — Cross-references in subagent files
