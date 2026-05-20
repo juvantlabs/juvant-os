@@ -2283,7 +2283,9 @@ For each `.md` file (skip `MEMORY.md`), parse YAML frontmatter (`name`,
 
 - `category` = `memory-<type>` (e.g. `memory-feedback`, `memory-project`)
 - `title` = frontmatter `name`
-- `content` = frontmatter `description` + `\n\n` + body
+- `content` = frontmatter `description` + `
+
+` + body
 - `source_ref` = `claude-memory:<slug>/<filename>`
 - `project_id` = project slug
 - `promoted_by` = `ceo`
@@ -2836,7 +2838,8 @@ Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
    - `knowledge_base WHERE project_id IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
    - If a project is active: `knowledge_base WHERE project_id = '<active_project_id>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context). `<active_project_id>` = `master_context.value WHERE key='active_project'` = `projects.id` (the slug, e.g. `'hardys'` — there is no separate `slug` column).
    - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then runs `bash helpers/morning-brief.sh` to send an updated brief to Teams.
-   - **Log file reading policy** (BUG-027): `.juvant/logs/*.log` files accumulate output across runs. When reading them for health assessment, **always filter to the most recent run** by finding the last `=== RUN <RUN_ID> ===` boundary. Never surface entries from prior runs as current issues — doing so re-reports already-fixed bugs as active. To read only the last run: `awk '/^=== RUN /{run=1; buf=""} run{buf=buf"\n"$0} END{print buf}' .juvant/logs/<helper>.log`
+   - **Log file reading policy** (BUG-027): `.juvant/logs/*.log` files accumulate output across runs. When reading them for health assessment, **always filter to the most recent run** by finding the last `=== RUN <RUN_ID> ===` boundary. Never surface entries from prior runs as current issues — doing so re-reports already-fixed bugs as active. To read only the last run: `awk '/^=== RUN /{run=1; buf=""} run{buf=buf"
+"$0} END{print buf}' .juvant/logs/<helper>.log`
 4b. **If `company_type='sub'`: read global decisions from master** (ADR 0017)
    ```sql
    SELECT id, agent, title, category, rationale, created_at
@@ -4254,10 +4257,11 @@ scripts/templates/commands/juv-add-project.md
 JUVANT_OS.md                  SYSTEM_INVARIANTS.md
 CHANGELOG.md                  docs/MCP_INVENTORY.md
 docs/branch-protection-spec.md
+agents/projects/*.md
 ```
 
 **Files NEVER touched** (instance-specific — skip regardless of diff):
-`.juvant/config.json`, `agents/company/*.md`, `agents/projects/**/*.md`,
+`.juvant/config.json`, `agents/company/*.md`, `agents/projects/*/`,
 `.claude/agents/*.md`, `.github/CODEOWNERS`, `CLAUDE.md`, `MANIFESTO.md`,
 `README.md`, `SECURITY.md`, `docs/adr/`, `tests/`, `.mcp.json`,
 `.claude/settings.json`.
