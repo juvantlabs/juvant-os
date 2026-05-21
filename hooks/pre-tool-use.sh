@@ -147,9 +147,17 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
         '(.universal_allow // []) | index($bin) // empty' \
         "$POLICY" 2>/dev/null || echo "")
       if [[ -z "$UNIVERSAL_OK" ]]; then
-        ALLOW_OK=$(jq -r --arg role "$ROLE" --arg bin "$FIRST_TOKEN" \
-          '(.agent_allow[$role] // []) | index($bin) // empty' \
-          "$POLICY" 2>/dev/null || echo "")
+        ALLOW_OK=$(jq -r --arg role "$ROLE" --arg bin "$FIRST_TOKEN" '
+          . as $doc |
+          [
+            ($doc.agent_allow[$role] // [])[] |
+            if startswith("@") then
+              ($doc.tiers[ltrimstr("@")] // [])[]
+            else
+              .
+            end
+          ] | index($bin) // empty
+        ' "$POLICY" 2>/dev/null || echo "")
         if [[ -z "$ALLOW_OK" ]]; then
           DECISION="deny"
           DENY_REASON="binary '$FIRST_TOKEN' not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Escalate to CoS for tool-matrix-change."

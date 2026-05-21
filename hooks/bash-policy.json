@@ -1,5 +1,5 @@
 {
-  "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). universal_allow lists POSIX shell builtins + harmless flow-control that pass FIRST_TOKEN check for any role (cd, echo, etc. are not real binaries). agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow only via tool-matrix-change decision (cto proposes at company scope / pca proposes at project scope, cso reviews, CEO approves, eng-platform installs at company scope / project's eng-lead installs at project scope) per SYSTEM_INVARIANTS.md §6 + ADR 0014 §4 single-writer-per-scope.",
+  "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). universal_allow lists POSIX shell builtins + harmless flow-control that pass FIRST_TOKEN check for any role. tiers are named shared binary sets; agent_allow entries starting with '@' are resolved to the matching tier at lookup time by pre-tool-use.sh. agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow or tiers only via tool-matrix-change decision (cto proposes at company scope / pca proposes at project scope, cso reviews, CEO approves, eng-platform installs at company scope / project's eng-lead installs at project scope) per SYSTEM_INVARIANTS.md §6 + ADR 0014 §4 single-writer-per-scope.",
 
   "_compound_command_caveat": "FIRST_TOKEN check on per-role allow-list inspects only the first binary in compound commands ('cmd1 && cmd2 || cmd3' → only cmd1 is matched). If cmd1 is in universal_allow (e.g. cd) or in role allow-list, downstream binaries pass UNCHECKED by allow-list. Universal deny-list still applies regex-wide (rm -rf /, force-push, drop table caught regardless of position). v0.8.x candidate: extract every binary from compound commands and validate each.",
 
@@ -44,30 +44,35 @@
     "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
   ],
 
+  "tiers": {
+    "read_utils": ["grep", "find", "ls", "cat", "head", "tail", "awk", "sed", "wc", "sort", "uniq", "cut", "tr", "jq"],
+    "infra_cli":  ["az", "aws", "gcloud"]
+  },
+
   "agent_allow": {
-    "cos":           ["git", "gh", "turso", "jq"],
-    "cfo":           ["git", "gh", "turso", "jq"],
-    "clo":           ["git", "gh", "turso", "jq"],
-    "cmo":           ["git", "gh", "turso", "jq"],
-    "cco":           ["git", "gh", "turso", "jq"],
-    "chro":          ["git", "gh", "turso", "jq"],
-    "cetho":         ["git", "gh", "turso", "jq"],
-    "cro":           ["git", "gh", "turso", "jq"],
-    "cto":           ["git", "gh", "jq"],
-    "cso":           ["git", "gh", "gpg", "shellcheck", "jq", "sqlite3", "turso", "grep", "awk", "sed", "find", "ls", "cat", "head", "tail", "wc", "python3"],
-    "vpe":           ["git", "gh", "turso", "jq"],
-    "eng-platform":  ["git", "gh", "turso", "jq", "terraform", "tflint", "checkov", "az", "aws", "gcloud", "shellcheck", "npm", "npx", "node"],
+    "cos":          ["git", "gh", "turso", "@read_utils", "@infra_cli"],
+    "cfo":          ["git", "gh", "turso", "@read_utils"],
+    "clo":          ["git", "gh", "turso", "@read_utils"],
+    "cmo":          ["git", "gh", "turso", "@read_utils"],
+    "cco":          ["git", "gh", "turso", "@read_utils"],
+    "chro":         ["git", "gh", "turso", "@read_utils"],
+    "cetho":        ["git", "gh", "turso", "@read_utils"],
+    "cro":          ["git", "gh", "turso", "@read_utils"],
+    "cto":          ["git", "gh", "@read_utils", "@infra_cli"],
+    "cso":          ["git", "gh", "gpg", "shellcheck", "sqlite3", "turso", "python3", "@read_utils"],
+    "vpe":          ["git", "gh", "turso", "@read_utils"],
+    "eng-platform": ["git", "gh", "turso", "terraform", "tflint", "checkov", "shellcheck", "npm", "npx", "node", "@read_utils", "@infra_cli"],
 
-    "Explore":       ["git", "grep", "find", "ls", "head", "tail", "cat", "awk", "sed", "jq", "wc", "sort", "uniq"],
+    "Explore":      ["git", "@read_utils"],
 
-    "pca":           ["git", "gh", "node", "turso", "jq"],
-    "product-lead":  ["git", "gh", "turso", "jq"],
-    "design-lead":   ["git", "gh", "node", "npm", "jq"],
-    "eng-lead":      ["git", "gh", "npm", "npx", "node", "turso", "jq"],
+    "pca":          ["git", "gh", "node", "turso", "@read_utils"],
+    "product-lead": ["git", "gh", "turso", "@read_utils"],
+    "design-lead":  ["git", "gh", "node", "npm", "@read_utils"],
+    "eng-lead":     ["git", "gh", "npm", "npx", "node", "turso", "@read_utils", "@infra_cli"],
 
-    "eng-api":       ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
-    "eng-backend":   ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "jq"],
-    "eng-frontend":  ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "jq"],
-    "eng-ai":        ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "jq"]
+    "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "@read_utils"],
+    "eng-backend":  ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "@read_utils"],
+    "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "@read_utils"],
+    "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "@read_utils"]
   }
 }
