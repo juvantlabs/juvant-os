@@ -94,13 +94,50 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     if [[ -z "$ROLE" || "$ROLE" == "unknown" || "$ROLE" == "ceo" || "$ROLE" == "operator" ]]; then
       : # operator mode — universal deny already enforced; allow continues
     else
-      # F-30 fix (v0.7.4+): when $COMMAND starts with newline(s) (heredoc
-      # patterns, multi-line scripts), `awk '{print $1}'` prints $1 of
-      # EVERY line, producing a multi-line FIRST_TOKEN that always fails
-      # allow-list lookup and emits a malformed deny_reason. Skip leading
-      # blank lines via `NF>0`; extract $1 of the first non-empty line and
-      # exit. Strip any directory prefix (e.g. /opt/homebrew/bin/foo → foo).
-      FIRST_TOKEN=$(echo "$COMMAND" | awk 'NF>0 {print $1; exit}' | sed 's|.*/||')
+      # F-30 fix (v0.7.4+): skip leading blank lines.
+      # F-37 fix (v0.8.3+): also skip comment lines (#), shell keywords
+      # (for/while/if/…), and variable-assignment lines (VAR=…). All three
+      # produced false-positive denials: '#', 'WHITELIST=(', 'content=$(gh'
+      # were extracted as the "binary" instead of the real command.
+      # For variable assignments that embed a command substitution
+      # (VAR=$(cmd …)), salvage the cmd as the binary to check.
+      FIRST_TOKEN=""
+      _ft_in_array=0
+      while IFS= read -r _ft_line; do
+        # strip leading whitespace — pure bash, no subshell
+        while [[ "${_ft_line:0:1}" == " " || "${_ft_line:0:1}" == $'\t' ]]; do
+          _ft_line="${_ft_line:1}"
+        done
+        [[ -z "$_ft_line" ]] && continue
+        # skip lines inside a multi-line array definition (VAR=(\n…\n))
+        if [[ "$_ft_in_array" == "1" ]]; then
+          [[ "$_ft_line" == *")" ]] && _ft_in_array=0
+          continue
+        fi
+        [[ "$_ft_line" == \#* ]] && continue
+        _ft_tok="${_ft_line%% *}"
+        _ft_tok="${_ft_tok##*/}"   # strip path prefix (e.g. /opt/homebrew/bin/git → git)
+        case "$_ft_tok" in
+          for|while|until|if|case|do|then|else|elif|fi|done|esac|\
+          function|local|declare|readonly|typeset) continue ;;
+        esac
+        # Variable assignment (token contains '='): skip, but:
+        # • If it opens a multi-line array (VAR=( with no ) on same line),
+        #   enter array-skip mode so element lines aren't treated as commands.
+        # • If it embeds $(cmd …), salvage cmd as the binary to check.
+        if [[ "$_ft_tok" == *=* ]]; then
+          if [[ "$_ft_line" == *"("* && "$_ft_line" != *")"* ]]; then
+            _ft_in_array=1
+          fi
+          if [[ "$_ft_line" =~ \$\(([^[:space:]\|\&\;\)]+) ]]; then
+            FIRST_TOKEN="${BASH_REMATCH[1]##*/}"
+            break
+          fi
+          continue
+        fi
+        FIRST_TOKEN="$_ft_tok"
+        break
+      done <<< "$COMMAND"
       # F-28 fix (v0.7.3+): check universal_allow (POSIX shell builtins
       # like cd, pushd, echo — not real binaries, harmless across roles)
       # before falling through to per-role allow-list. Without this,
