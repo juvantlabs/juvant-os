@@ -118,8 +118,8 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
         _ft_tok="${_ft_line%% *}"
         _ft_tok="${_ft_tok##*/}"   # strip path prefix (e.g. /opt/homebrew/bin/git → git)
         case "$_ft_tok" in
-          for|while|until|if|case|do|then|else|elif|fi|done|esac|\
-          function|local|declare|readonly|typeset) continue ;;
+          for|while|until|if|case|do|then|else|elif|\
+          fi|done|function|local|declare|readonly|typeset|esac) continue ;;
         esac
         # Variable assignment (token contains '='): skip, but:
         # • If it opens a multi-line array (VAR=( with no ) on same line),
