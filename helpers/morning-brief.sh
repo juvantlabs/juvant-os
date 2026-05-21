@@ -4,6 +4,14 @@
 #
 # Daily 08:00 brief — sends a structured AdaptiveCard to the Teams ops channel.
 # Per ADR 0004 + FEAT-007: pure SQL aggregate + curl, no Claude Code spawn.
+#
+# Sections:
+#   Decisions    — titles + status; rationale snippet for 'proposed' items only
+#   Queue        — pending/escalated inbound_queue items
+#   System health — calls + ok% + friction count per agent (last 24h)
+#   Kill switch  — only when active
+#   Scope violations — Type B denials only (scope boundary, authorship, orchestrator)
+#                      allow-list friction is folded into System health as 'friction'
 
 set -euo pipefail
 
@@ -44,11 +52,13 @@ DATE_DISPLAY=$(date "+%a %d %b %Y")
 SINCE=$(date -u -v-1d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
         || date -u -d "1 day ago" +"%Y-%m-%d %H:%M:%S")
 
-# ─── Decisions (last 24h)
+# ─── Decisions (last 24h) — title | status | rationale snippet (proposed only)
 DECISIONS_RAW=$(turso db shell "$TURSO_URL" "
-SELECT category, COUNT(*) FROM decisions
+SELECT title || '|' || status || '|' ||
+  COALESCE(CASE WHEN status='proposed' THEN substr(rationale,1,100) ELSE '' END,'')
+FROM decisions
 WHERE created_at > '$SINCE'
-GROUP BY category ORDER BY COUNT(*) DESC;
+ORDER BY created_at DESC LIMIT 8;
 " 2>/dev/null | awk 'NR > 1' || true)
 
 # ─── Pending queue
@@ -58,14 +68,14 @@ WHERE status IN ('pending','escalated')
 GROUP BY agent_owner ORDER BY COUNT(*) DESC;
 " 2>/dev/null | awk 'NR > 1' || true)
 
-# ─── Agent activity (last 24h)
-ACTIVITY_RAW=$(turso db shell "$TURSO_URL" "
-SELECT agent, COUNT(*) AS calls,
-  SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok,
-  SUM(CASE WHEN status='denied'  THEN 1 ELSE 0 END) AS denied
+# ─── System health: calls | ok | denied per agent (last 24h)
+HEALTH_RAW=$(turso db shell "$TURSO_URL" "
+SELECT agent || '|' || COUNT(*) || '|' ||
+  SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) || '|' ||
+  SUM(CASE WHEN status='denied'  THEN 1 ELSE 0 END)
 FROM agent_actions_log
 WHERE started_at > '$SINCE'
-GROUP BY agent ORDER BY calls DESC;
+GROUP BY agent ORDER BY COUNT(*) DESC;
 " 2>/dev/null | awk 'NR > 1' || true)
 
 # ─── Kill switch (only if active)
@@ -74,29 +84,41 @@ SELECT COALESCE(reason,'-'), COALESCE(set_at,'-')
 FROM agent_kill_switch WHERE id=1 AND active=1;
 " 2>/dev/null | awk 'NR > 1' || true)
 
-# ─── Anomalies: denied calls by agent (last 24h)
-ANOMALIES_RAW=$(turso db shell "$TURSO_URL" "
-SELECT agent, COUNT(*) FROM agent_actions_log
+# ─── Scope violations: Type B denials only — not allow-list friction
+VIOLATIONS_RAW=$(turso db shell "$TURSO_URL" "
+SELECT agent || '|' || deny_reason || '|' || COUNT(*)
+FROM agent_actions_log
 WHERE status='denied' AND started_at > '$SINCE'
-GROUP BY agent ORDER BY COUNT(*) DESC;
+  AND deny_reason NOT LIKE '%not in agent%allow-list%'
+GROUP BY agent, deny_reason ORDER BY COUNT(*) DESC;
 " 2>/dev/null | awk 'NR > 1' || true)
 
-# ─── Build AdaptiveCard body elements
+# ─── Helpers
 
+trim() { echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
+
+shorten_violation() {
+  local r="$1"
+  if   [[ "$r" == *"SCOPE BOUNDARY"* ]];       then echo "Scope boundary"
+  elif [[ "$r" == *"AUTHORSHIP VIOLATION"* ]];  then echo "Authorship §4d"
+  elif [[ "$r" == *"ORCHESTRATOR BOUNDARY"* ]]; then echo "Orchestrator §9"
+  else echo "${r:0:55}"
+  fi
+}
+
+# Reads 2-column space-padded turso output, emits a JSON FactSet element.
 build_facts() {
-  # Reads raw turso output (space-separated rows), emits a JSON FactSet element
-  local raw="$1"
-  local facts=""
+  local raw="$1" facts="" f1 f2 rest
   while read -r f1 f2 rest; do
     [[ -z "$f1" ]] && continue
-    local t v
-    t=$(echo "$f1" | xargs)
-    v=$(echo "$f2" | xargs)
-    facts+=$(jq -n --arg t "$t" --arg v "$v" '{"title":$t,"value":$v}')","
+    facts+=$(jq -n --arg t "$(trim "$f1")" --arg v "$(trim "$f2")" \
+      '{"title":$t,"value":$v}'),
   done <<< "$raw"
   facts="${facts%,}"
   echo "{\"type\":\"FactSet\",\"facts\":[$facts]}"
 }
+
+# ─── Build AdaptiveCard body elements
 
 BODY_ELEMENTS="[]"
 
@@ -108,7 +130,7 @@ BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     {"type":"TextBlock","text":($company + " · " + $date),"size":"Small","isSubtle":true,"spacing":"None"}
   ]')
 
-# Decisions section
+# ─── Decisions section
 if [[ -z "$DECISIONS_RAW" ]]; then
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     '. + [
@@ -116,16 +138,29 @@ if [[ -z "$DECISIONS_RAW" ]]; then
       {"type":"TextBlock","text":"No decisions in the last 24h","size":"Small","isSubtle":true}
     ]')
 else
-  FACTS=$(build_facts "$DECISIONS_RAW")
+  _facts=""
+  while IFS='|' read -r _title _status _rationale; do
+    _title=$(trim "$_title")
+    _status=$(trim "$_status")
+    _rationale=$(trim "$_rationale")
+    [[ -z "$_title" ]] && continue
+    if [[ "$_status" == "proposed" && -n "$_rationale" ]]; then
+      _value="proposed — ${_rationale}…"
+    else
+      _value="$_status"
+    fi
+    _facts+=$(jq -n --arg t "$_title" --arg v "$_value" '{"title":$t,"value":$v}'),
+  done <<< "$DECISIONS_RAW"
+  _facts="${_facts%,}"
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
-    --argjson facts "$FACTS" \
+    --argjson facts "{\"type\":\"FactSet\",\"facts\":[$_facts]}" \
     '. + [
       {"type":"TextBlock","text":"Decisions","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
       $facts
     ]')
 fi
 
-# Queue section
+# ─── Queue section
 if [[ -z "$QUEUE_RAW" ]]; then
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     '. + [
@@ -142,19 +177,39 @@ else
     ]')
 fi
 
-# Activity section
-if [[ -z "$ACTIVITY_RAW" ]]; then
+# ─── System health section
+if [[ -z "$HEALTH_RAW" ]]; then
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     '. + [
-      {"type":"TextBlock","text":"Agent activity","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      {"type":"TextBlock","text":"System health","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
       {"type":"TextBlock","text":"No agent calls in the last 24h","size":"Small","isSubtle":true}
     ]')
 else
-  FACTS=$(build_facts "$ACTIVITY_RAW")
+  _facts=""
+  while IFS='|' read -r _agent _calls _ok _denied; do
+    _agent=$(trim "$_agent")
+    _calls=$(trim "$_calls" | tr -d ' ')
+    _ok=$(trim "$_ok" | tr -d ' ')
+    _denied=$(trim "$_denied" | tr -d ' ')
+    [[ -z "$_agent" ]] && continue
+    [[ ! "$_calls" =~ ^[0-9]+$ || "$_calls" -eq 0 ]] && continue
+    [[ ! "$_ok"    =~ ^[0-9]+$ ]] && _ok=0
+    [[ ! "$_denied" =~ ^[0-9]+$ ]] && _denied=0
+    _ok_pct=$(( _ok * 100 / _calls ))
+    _value="${_calls} calls · ${_ok_pct}% ok"
+    if [[ "$_denied" -gt 0 ]]; then
+      _value="${_value} · ${_denied} friction"
+    fi
+    if [[ "$_ok_pct" -lt 85 ]]; then
+      _value="⚠️ ${_value}"
+    fi
+    _facts+=$(jq -n --arg t "$_agent" --arg v "$_value" '{"title":$t,"value":$v}'),
+  done <<< "$HEALTH_RAW"
+  _facts="${_facts%,}"
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
-    --argjson facts "$FACTS" \
+    --argjson facts "{\"type\":\"FactSet\",\"facts\":[$_facts]}" \
     '. + [
-      {"type":"TextBlock","text":"Agent activity","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
+      {"type":"TextBlock","text":"System health","size":"Small","weight":"Bolder","separator":true,"spacing":"Medium"},
       $facts
     ]')
 fi
@@ -171,13 +226,22 @@ if [[ -n "$KILLSWITCH_RAW" ]]; then
     ]')
 fi
 
-# ─── Anomalies (only when there are denials)
-if [[ -n "$ANOMALIES_RAW" ]]; then
-  FACTS=$(build_facts "$ANOMALIES_RAW")
+# ─── Scope violations (only when Type B denials exist)
+if [[ -n "$VIOLATIONS_RAW" ]]; then
+  _facts=""
+  while IFS='|' read -r _agent _reason _cnt; do
+    _agent=$(trim "$_agent")
+    _cnt=$(trim "$_cnt" | tr -d ' ')
+    [[ -z "$_agent" ]] && continue
+    _label=$(shorten_violation "$(trim "$_reason")")
+    _facts+=$(jq -n --arg t "${_agent}: ${_label}" --arg v "${_cnt}×" \
+      '{"title":$t,"value":$v}'),
+  done <<< "$VIOLATIONS_RAW"
+  _facts="${_facts%,}"
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
-    --argjson facts "$FACTS" \
+    --argjson facts "{\"type\":\"FactSet\",\"facts\":[$_facts]}" \
     '. + [
-      {"type":"TextBlock","text":"⚠️ Denied calls","size":"Small","weight":"Bolder","color":"Warning","separator":true,"spacing":"Medium"},
+      {"type":"TextBlock","text":"⚠️ Scope violations","size":"Small","weight":"Bolder","color":"Warning","separator":true,"spacing":"Medium"},
       $facts
     ]')
 fi
