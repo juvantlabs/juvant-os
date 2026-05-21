@@ -58,6 +58,8 @@
     "vpe":           ["git", "gh", "turso", "jq"],
     "eng-platform":  ["git", "gh", "turso", "jq", "terraform", "tflint", "checkov", "az", "aws", "gcloud", "shellcheck", "npm", "npx", "node"],
 
+    "Explore":       ["git", "grep", "find", "ls", "head", "tail", "cat", "awk", "sed", "jq", "wc", "sort", "uniq"],
+
     "pca":           ["git", "gh", "node", "turso", "jq"],
     "product-lead":  ["git", "gh", "turso", "jq"],
     "design-lead":   ["git", "gh", "node", "npm", "jq"],
