@@ -37,6 +37,13 @@ case "$OS" in
       install|--install)
         mkdir -p "$LAUNCHD_DIR"
 
+        # Capture installer's PATH + HOME so launchd (which uses a minimal
+        # /usr/bin:/bin:/usr/sbin:/sbin environment) can find Homebrew tools
+        # like turso and jq. Baked in at install time; re-run this script
+        # after changing your PATH if tools move.
+        _PLIST_PATH="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
+        _PLIST_HOME="${HOME}"
+
         # turso-backup — daily 03:00
         cat > "$LAUNCHD_DIR/${PREFIX}.turso-backup.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,6 +56,11 @@ case "$OS" in
     <string>/bin/bash</string>
     <string>${REPO_ROOT}/helpers/turso-backup.sh</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key><integer>3</integer>
@@ -72,6 +84,11 @@ PLIST
     <string>/bin/bash</string>
     <string>${REPO_ROOT}/helpers/audit-reconcile.sh</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Weekday</key><integer>7</integer>
@@ -96,6 +113,11 @@ PLIST
     <string>/bin/bash</string>
     <string>${REPO_ROOT}/helpers/anomaly-check.sh</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
   <key>StartInterval</key><integer>900</integer>
   <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/anomaly-check.log</string>
   <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/anomaly-check.err</string>
@@ -115,6 +137,11 @@ PLIST
     <string>/bin/bash</string>
     <string>${REPO_ROOT}/helpers/morning-brief.sh</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key><integer>8</integer>

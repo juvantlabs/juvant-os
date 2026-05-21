@@ -22,6 +22,11 @@ if [[ -f "$_LOG" ]]; then
 fi
 echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_LOG"
 
+if ! command -v turso &>/dev/null; then
+  echo "[morning-brief] FATAL: turso not on PATH — re-run helpers/install-schedules.sh so the LaunchAgent EnvironmentVariables includes the correct PATH" >&2
+  exit 1
+fi
+
 TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
 if [[ -z "$TURSO_URL" ]]; then
   echo "[morning-brief] FATAL: turso_url missing from $CONFIG" >&2
