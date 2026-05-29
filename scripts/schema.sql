@@ -126,6 +126,11 @@ CREATE TABLE IF NOT EXISTS decisions (
   -- | 'bootstrap-action' | 'cascade-escalation' | 'cascade-postmortem'
   -- | 'skill-gap' | 'migration-watch' | 'upstream-sync-proposal'
   rationale       TEXT,
+  source_ref      TEXT,
+  -- canonical pointer to the GitHub artifact spawned by this decision:
+  -- '<org>/<repo>#<N>' for gh-issue-spec / pr-spec.
+  -- NULL until the decision is executed (set in the same transaction as
+  -- the GitHub write, after Eng Lead 5-check verification passes).
   status          TEXT DEFAULT 'proposed',
   -- 'proposed' | 'approved' | 'rejected' | 'executed' | 'superseded'
   -- superseded: decision was valid at approval time but replaced by a successor.
@@ -163,6 +168,10 @@ BEGIN
   SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context')
   WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master';
 END;
+
+-- Idempotent migration (existing DBs upgrading from pre-FEAT-039 schema):
+-- SQLite ADD COLUMN is non-idempotent — wrap with || true if scripting.
+--   ALTER TABLE decisions ADD COLUMN source_ref TEXT;
 
 CREATE TABLE IF NOT EXISTS hiring_log (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,

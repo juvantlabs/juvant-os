@@ -94,18 +94,36 @@ SCOPE_VIOLATIONS=$(turso db shell "$TURSO_URL" "
     AND agent IN ($_PROJECT_AGENTS);
 " 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ')
 
+# Anomaly 4 (FEAT-039): stale gh-issue-spec / pr-spec decisions — approved or
+# proposed but never executed after STALE_DAYS days. Surfaces the write-path gap
+# where Eng Lead created the GH artifact but skipped the source_ref / status
+# UPDATE. Threshold is 3 days to tolerate decisions pending CEO approval over a
+# weekend.
+STALE_DAYS=3
+STALE_SINCE=$(date -u -v-${STALE_DAYS}d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
+              || date -u -d "${STALE_DAYS} days ago" +"%Y-%m-%d %H:%M:%S")
+
+STALE_SPECS=$(turso db shell "$TURSO_URL" "
+  SELECT COUNT(*) FROM decisions
+  WHERE category IN ('gh-issue-spec', 'pr-spec')
+    AND status IN ('proposed', 'approved')
+    AND created_at < '$STALE_SINCE';
+" 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ')
+
 ORPHAN_DECISIONS=${ORPHAN_DECISIONS:-0}
 STUCK_PENDING=${STUCK_PENDING:-0}
 SCOPE_VIOLATIONS=${SCOPE_VIOLATIONS:-0}
-TOTAL_ANOMALIES=$((ORPHAN_DECISIONS + STUCK_PENDING + SCOPE_VIOLATIONS))
+STALE_SPECS=${STALE_SPECS:-0}
+TOTAL_ANOMALIES=$((ORPHAN_DECISIONS + STUCK_PENDING + SCOPE_VIOLATIONS + STALE_SPECS))
 
 echo "[audit-reconcile] window: last ${WINDOW_DAYS} days"
 echo "[audit-reconcile] orphan decisions (possible fabrication):  $ORPHAN_DECISIONS"
 echo "[audit-reconcile] stuck pending (possible hook failure):     $STUCK_PENDING"
 echo "[audit-reconcile] scope-boundary violations §4c (proj→co):  $SCOPE_VIOLATIONS"
+echo "[audit-reconcile] stale gh-issue/pr specs (>3d unexecuted): $STALE_SPECS"
 
 if [[ "$TOTAL_ANOMALIES" -gt 0 ]]; then
-  MSG="Audit reconcile: ${ORPHAN_DECISIONS} orphan + ${STUCK_PENDING} stuck-pending + ${SCOPE_VIOLATIONS} scope-violations in last ${WINDOW_DAYS}d"
+  MSG="Audit reconcile: ${ORPHAN_DECISIONS} orphan + ${STUCK_PENDING} stuck-pending + ${SCOPE_VIOLATIONS} scope-violations + ${STALE_SPECS} stale-specs in last ${WINDOW_DAYS}d"
   echo "[audit-reconcile] ALERT: $MSG" >&2
   # Use existing notification.sh infrastructure
   JUVANT_NOTIFY_CHANNEL=system \

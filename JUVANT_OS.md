@@ -2462,6 +2462,22 @@ Sequencing:
 The company-level `master_context.bootstrap_completed_at` remains set; project-bootstrap
 does NOT re-open it.
 
+### Wizard — Step 5.labels: Create juvant:decision label
+
+Create the `juvant:decision` label on the project PM repo. This label is added by
+Eng Lead to every GH issue or PR spawned from a spec-class `decisions` row, enabling
+bidirectional traceability (FEAT-039).
+
+```bash
+gh label create "juvant:decision" \
+  --repo <org>/<project-slug>-pm \
+  --color "0075ca" \
+  --description "Created by Juvant OS agent via spec decision" \
+  2>/dev/null || echo "[label] juvant:decision already exists — skipping"
+```
+
+(`2>/dev/null || echo` makes the call idempotent — safe to re-run.)
+
 ### Wizard — Step 6: Initial commit
 
 ```bash
@@ -2791,7 +2807,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a top-level column: never use `WHERE category=` or `SELECT category`. For filtering: `json_extract(content, '$.category')`. For inserting: include as a key inside `json_object('category', '...')`** |
-| `decisions` | `id, agent, title, category, rationale, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'`; `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
+| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'`; `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
@@ -3702,6 +3718,8 @@ Any failure → REJECT to author. No partial execution.
 
 On all 5 checks passing:
 
+1. Mark executed (before the GitHub write):
+
 ```sql
 UPDATE decisions
 SET status='executed',
@@ -3710,9 +3728,27 @@ SET status='executed',
 WHERE id=?;
 ```
 
-Eng Lead then runs the GitHub action (via `github:write` MCP) and records the GitHub
-artifact URL back into the same `decisions` row (e.g. `rationale` JSON updated with
-`pr_url`, `issue_number`, etc.).
+2. Run the GitHub action (via `github:write` MCP).
+
+3. Record the artifact reference in `source_ref` (canonical format `<org>/<repo>#<N>`):
+
+```sql
+UPDATE decisions
+SET source_ref='<org>/<repo>#<N>'
+WHERE id=?;
+```
+
+4. For `gh-issue-spec` and `pr-spec`: add the `juvant:decision` label to the newly
+   created issue or PR (label is created at project-init Step 5.labels):
+
+```bash
+gh issue edit <N> --repo <org>/<repo> --add-label "juvant:decision"
+```
+
+This label marks the issue as agent-created via spec, enabling bidirectional
+reconciliation (FEAT-039): issues carrying `juvant:decision` with no matching
+`executed` decision row signal a write-path failure; decisions with `source_ref`
+but no open issue signal stale / already-closed work.
 
 ### Universal Boundaries (CTO cannot grant under any rationale)
 

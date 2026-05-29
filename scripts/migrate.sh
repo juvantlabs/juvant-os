@@ -201,6 +201,7 @@ apply_schema_patches_local() {
     "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
+    "ALTER TABLE decisions ADD COLUMN source_ref               TEXT;"
   )
   # Patches that apply to COMPANY DB only (not project DBs)
   local company_patches=(
@@ -231,6 +232,7 @@ apply_schema_patches_turso() {
     "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
     "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
+    "ALTER TABLE decisions ADD COLUMN source_ref               TEXT;"
   )
   local company_patches=(
     "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
