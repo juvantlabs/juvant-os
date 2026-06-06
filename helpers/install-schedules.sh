@@ -101,6 +101,38 @@ PLIST
 </plist>
 PLIST
 
+        # governance-backfill — monthly, first Saturday 04:00 (dry-run, all DBs)
+        cat > "$LAUNCHD_DIR/${PREFIX}.governance-backfill.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.governance-backfill</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${REPO_ROOT}/scripts/governance-backfill.sh</string>
+    <string>--dry-run</string>
+    <string>--all</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>7</integer>
+    <key>Day</key><integer>1</integer>
+    <key>Hour</key><integer>4</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/governance-backfill.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/governance-backfill.err</string>
+</dict>
+</plist>
+PLIST
+
         # anomaly-check — every 15 minutes
         cat > "$LAUNCHD_DIR/${PREFIX}.anomaly-check.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

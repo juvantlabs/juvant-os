@@ -125,6 +125,11 @@ CREATE TABLE IF NOT EXISTS decisions (
   -- | 'secret-rotation-spec' | 'eng-output-held' | 'disclosure-unavailable'
   -- | 'bootstrap-action' | 'cascade-escalation' | 'cascade-postmortem'
   -- | 'skill-gap' | 'migration-watch' | 'upstream-sync-proposal'
+  -- | 'eng-platform-spec'
+  -- Extended canonical (FEAT-040):
+  -- | 'arch-decision'        — architectural decision, durable rationale, no GH action
+  -- | 'operational-violation'— CHRO enforcement record; status vocab: 'open'|'closed'
+  -- | 'kb-orphan-review'     — CRO review outcome for orphaned KB entries
   rationale       TEXT,
   source_ref      TEXT,
   -- canonical pointer to the GitHub artifact spawned by this decision:
