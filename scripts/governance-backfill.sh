@@ -227,16 +227,16 @@ phase_0b() {
 
   local n_checked=0 n_executed=0 n_open=0
 
-  while IFS='|' read -r id src_ref category; do
+  while IFS='|' read -r id src_ref _cat; do
     [[ -z "$id" || "$id" =~ ^[[:space:]]*$ || "$id" == "ID" ]] && continue
     id=$(echo "$id" | xargs)
     src_ref=$(echo "$src_ref" | xargs)
     [[ -z "$src_ref" ]] && continue
 
-    # Parse org/repo#N
+    # Parse org/repo#N  (source_ref format: '<org>/<repo>#<N>')
     local repo issue_num
-    repo=$(echo "$src_ref" | sed 's/#[0-9]*$//')
-    issue_num=$(echo "$src_ref" | grep -o '#[0-9]*$' | tr -d '#')
+    repo="${src_ref%%#*}"
+    issue_num="${src_ref##*#}"
     [[ -z "$repo" || -z "$issue_num" ]] && continue
 
     n_checked=$((n_checked + 1))
