@@ -189,7 +189,8 @@ BEGIN
     'secret-rotation-spec','eng-output-held','disclosure-unavailable',
     'bootstrap-action','cascade-escalation','cascade-postmortem',
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
-    'arch-decision','operational-violation','kb-orphan-review'
+    'arch-decision','operational-violation','kb-orphan-review',
+    'legal','product','business'
   );
 END;
 
@@ -206,7 +207,8 @@ BEGIN
     'secret-rotation-spec','eng-output-held','disclosure-unavailable',
     'bootstrap-action','cascade-escalation','cascade-postmortem',
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
-    'arch-decision','operational-violation','kb-orphan-review'
+    'arch-decision','operational-violation','kb-orphan-review',
+    'legal','product','business'
   );
 END;
 
