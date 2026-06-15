@@ -177,9 +177,9 @@ END;
 -- ── FEAT-040 Layer 1: structural governance enforcement ──────────────────────
 
 -- 1a: Category allowlist — INSERT
--- NOTE: no IF NOT EXISTS — migrate.sh drops and recreates these two triggers
--- on every schema-apply so the allowlist stays current as new categories ship.
-CREATE TRIGGER decisions_category_check_ins
+-- IF NOT EXISTS here ensures idempotency on new instances.
+-- Existing instances get the updated allowlist via the DROP+CREATE in migrate.sh patches.
+CREATE TRIGGER IF NOT EXISTS decisions_category_check_ins
 BEFORE INSERT ON decisions
 WHEN NEW.category IS NOT NULL
 BEGIN
@@ -197,7 +197,7 @@ BEGIN
 END;
 
 -- 1a: Category allowlist — UPDATE
-CREATE TRIGGER decisions_category_check_upd
+CREATE TRIGGER IF NOT EXISTS decisions_category_check_upd
 BEFORE UPDATE ON decisions
 WHEN NEW.category IS NOT NULL AND NEW.category != OLD.category
 BEGIN
