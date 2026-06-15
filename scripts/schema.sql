@@ -219,10 +219,11 @@ BEGIN
   WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL;
 END;
 
--- 1b: approved requires approved_by + approved_at — UPDATE
+-- 1b: approved requires approved_by + approved_at — UPDATE (transition only)
+-- Fires only when status changes TO 'approved', not on updates to already-approved rows.
 CREATE TRIGGER IF NOT EXISTS decisions_approved_requires_approver_upd
 BEFORE UPDATE ON decisions
-WHEN NEW.status = 'approved'
+WHEN NEW.status = 'approved' AND OLD.status != 'approved'
 BEGIN
   SELECT RAISE(ABORT, 'decisions status=approved requires approved_by and approved_at')
   WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL;
@@ -230,6 +231,8 @@ END;
 
 -- 1c: executed requires executed_by + executed_at + source_ref (spec categories only)
 -- Non-spec categories (arch-decision, bootstrap-action, etc.) do not require source_ref.
+-- UPDATE fires on transition only — avoids blocking historical executed rows with NULL
+-- source_ref (pre-FEAT-039 debt) on unrelated column updates.
 CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_ins
 BEFORE INSERT ON decisions
 WHEN NEW.status = 'executed'
@@ -244,7 +247,7 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_upd
 BEFORE UPDATE ON decisions
-WHEN NEW.status = 'executed'
+WHEN NEW.status = 'executed' AND OLD.status != 'executed'
   AND NEW.category IN (
     'pr-spec','gh-issue-spec','deployment-spec','install-spec',
     'eng-platform-spec','branch-protection-spec','release-spec','secret-rotation-spec'
