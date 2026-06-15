@@ -79,7 +79,7 @@ query_sql() {
 
 count_sql() {
   turso db shell "$_current_db_url" "$1" 2>/dev/null \
-    | grep -E '^[0-9]+$' | tail -1 | tr -d ' ' || echo "0"
+    | tr -d ' \r' | { grep -E '^[0-9]+$' || true; } | tail -1 || echo "0"
 }
 
 # ─── Category mapping (bash 3.2 compatible — case instead of declare -A) ─────
@@ -100,10 +100,12 @@ map_category() {
     direct-session|policy-promotion|system-audit|\
     security-consult|ethical-validation|spec-rejected|milestone)
       echo "bootstrap-action" ;;
-    tech-standard|convention)
+    tech-standard|convention|technical)
       echo "tool-matrix-change" ;;
     architecture)
       echo "arch-decision" ;;
+    manifesto-ceo-approval|manifesto-tier1|manifesto-tier2)
+      echo "bootstrap-action" ;;
     *)
       echo "" ;;
   esac
