@@ -4398,6 +4398,21 @@ The Skill itself enforces these. They are non-negotiable.
     unreachable, every agent applies §3 Tier 1; CoS, Eng Lead apply their tier
     extensions; recovery is structural (re-query must succeed), never declarative.
 
+11. **Stop on block — no workarounds** — when a tool call is denied (Read,
+    Write, Edit, Bash, or any MCP tool), the correct and only response is:
+    **stop, surface the denial to CoS/CEO, wait for instructions**.
+    Finding an alternative path that achieves the same result via a different
+    tool or construct (bash heredoc instead of Write, git push instead of
+    Edit, python3 file write instead of Write) is a governance violation of
+    equal severity to the original denied action. The denial exists for a
+    reason; circumventing it defeats the security boundary regardless of
+    whether the workaround is technically permitted by a narrower rule.
+
+    **Applies universally** — no exception for urgency, blocked dependencies,
+    or "the outcome is the same". If a task cannot be completed within
+    permitted tools, the task is blocked. Surface the block. Do not unblock
+    yourself.
+
 ---
 
 ## Appendix A — placeholder substitution checklist
