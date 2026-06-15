@@ -329,6 +329,35 @@ if [[ "$ROLE" == "cos" && "$DECISION" == "allow" ]]; then
 fi
 
 # ─────────────────────────────────────────────
+# Track 2d — Single-writer git gate (FEAT-047)
+# ─────────────────────────────────────────────
+# Only eng-lead (project scope) and eng-platform (company scope) may
+# commit, push, or merge. Any other subagent attempting a git write
+# operation is denied unconditionally — it must author a pr-spec and
+# delegate to eng-lead via Task(). SYSTEM_INVARIANTS §4.
+#
+# CEO direct bypass: agent_type absent from hook event = main operator
+# thread. Same bypass pattern as Track 4 (FEAT-040 Q2 design decision).
+#
+# Read-only git ops (pull, fetch, log, diff, status, show, clone) are
+# not gated. git commit --amend and git push --force are already caught
+# by the universal deny-list (Track 2).
+if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
+  if [[ "$COMMAND" =~ git[[:space:]]+(push|commit|merge) ]]; then
+    _T2D_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
+    if [[ -n "$_T2D_AGENT_TYPE" ]]; then
+      case "$ROLE" in
+        *-eng-lead|eng-lead|eng-platform) ;;
+        *)
+          DECISION="deny"
+          DENY_REASON="SINGLE-WRITER §4 (Track 2d / FEAT-047): only eng-lead may commit, push, or merge on project repos. Agent '$ROLE' must author a pr-spec and delegate git writes to eng-lead via Task()."
+          ;;
+      esac
+    fi
+  fi
+fi
+
+# ─────────────────────────────────────────────
 # Track 4 — Spec-lookup gate (FEAT-040 Layer 3)
 # ─────────────────────────────────────────────
 # For high-risk Bash action classes defined in bash-policy.json
