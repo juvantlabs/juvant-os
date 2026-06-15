@@ -188,16 +188,16 @@ PLIST
 
         mkdir -p "${REPO_ROOT}/.juvant/logs"
 
-        for label in turso-backup audit-reconcile anomaly-check morning-brief; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed (4 jobs)."
+        echo "[install-schedules] OK — Mac launchd schedules installed (5 jobs)."
         ;;
 
       uninstall|--uninstall)
-        for label in turso-backup audit-reconcile anomaly-check morning-brief; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
@@ -221,10 +221,11 @@ PLIST
         TMP=$(mktemp)
         crontab -l 2>/dev/null | grep -v "$CRON_TAG" > "$TMP" || true
         cat >> "$TMP" <<CRON
-0 3 * * *    /bin/bash ${REPO_ROOT}/helpers/turso-backup.sh      >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1       $CRON_TAG
-0 3 * * 6    /bin/bash ${REPO_ROOT}/helpers/audit-reconcile.sh   >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1    $CRON_TAG
-*/15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh     >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1      $CRON_TAG
-0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh     >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1      $CRON_TAG
+0 3 * * *    /bin/bash ${REPO_ROOT}/helpers/turso-backup.sh         >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1          $CRON_TAG
+0 3 * * 6    /bin/bash ${REPO_ROOT}/helpers/audit-reconcile.sh    >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1       $CRON_TAG
+0 4 1 * *    /bin/bash ${REPO_ROOT}/scripts/governance-backfill.sh --dry-run --all >> ${REPO_ROOT}/.juvant/logs/governance-backfill.log 2>&1 $CRON_TAG
+*/15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh      >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1         $CRON_TAG
+0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh      >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1         $CRON_TAG
 CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
