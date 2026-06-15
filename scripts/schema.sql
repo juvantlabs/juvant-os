@@ -177,7 +177,9 @@ END;
 -- ── FEAT-040 Layer 1: structural governance enforcement ──────────────────────
 
 -- 1a: Category allowlist — INSERT
-CREATE TRIGGER IF NOT EXISTS decisions_category_check_ins
+-- NOTE: no IF NOT EXISTS — migrate.sh drops and recreates these two triggers
+-- on every schema-apply so the allowlist stays current as new categories ship.
+CREATE TRIGGER decisions_category_check_ins
 BEFORE INSERT ON decisions
 WHEN NEW.category IS NOT NULL
 BEGIN
@@ -189,12 +191,13 @@ BEGIN
     'secret-rotation-spec','eng-output-held','disclosure-unavailable',
     'bootstrap-action','cascade-escalation','cascade-postmortem',
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
-    'arch-decision','operational-violation','kb-orphan-review'
+    'arch-decision','operational-violation','kb-orphan-review',
+    'legal','product','business'
   );
 END;
 
 -- 1a: Category allowlist — UPDATE
-CREATE TRIGGER IF NOT EXISTS decisions_category_check_upd
+CREATE TRIGGER decisions_category_check_upd
 BEFORE UPDATE ON decisions
 WHEN NEW.category IS NOT NULL AND NEW.category != OLD.category
 BEGIN
@@ -206,7 +209,8 @@ BEGIN
     'secret-rotation-spec','eng-output-held','disclosure-unavailable',
     'bootstrap-action','cascade-escalation','cascade-postmortem',
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
-    'arch-decision','operational-violation','kb-orphan-review'
+    'arch-decision','operational-violation','kb-orphan-review',
+    'legal','product','business'
   );
 END;
 
