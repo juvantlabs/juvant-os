@@ -19,6 +19,7 @@
 #   --db-url=<url>     Override DB URL (for testing)
 #
 # Requires: turso CLI, gh CLI (for phase 0b), jq
+# Compatible: bash 3.2+ (macOS default)
 #
 # Output: .juvant/logs/governance-backfill-<date>.md (human-readable report)
 
@@ -54,9 +55,12 @@ done
 mkdir -p "$LOG_DIR"
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
-_report_lines=()
-report() { echo "[backfill] $*"; _report_lines+=("$*"); }
-report_raw() { _report_lines+=("$*"); }
+_report_lines=""
+report() {
+  echo "[backfill] $*"
+  _report_lines="${_report_lines}
+$*"
+}
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
 _current_db_url=""
@@ -65,79 +69,73 @@ set_db() { _current_db_url="$1"; }
 
 run_sql() {
   local sql="$1"
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    return 0
-  fi
+  [[ "$DRY_RUN" -eq 1 ]] && return 0
   turso db shell "$_current_db_url" "$sql" 2>/dev/null || true
 }
 
 query_sql() {
-  local sql="$1"
-  turso db shell "$_current_db_url" "$sql" 2>/dev/null || true
+  turso db shell "$_current_db_url" "$1" 2>/dev/null || true
 }
 
 count_sql() {
-  local sql="$1"
-  turso db shell "$_current_db_url" "$sql" 2>/dev/null \
+  turso db shell "$_current_db_url" "$1" 2>/dev/null \
     | grep -E '^[0-9]+$' | tail -1 | tr -d ' ' || echo "0"
 }
 
-# ─── Category mapping tables ──────────────────────────────────────────────────
-# AUTO_MAP: non-canonical → canonical (high-confidence semantic equivalence)
-declare -A AUTO_MAP
-AUTO_MAP=(
-  ["gh-execution-confirmed"]="gh-issue-spec"
-  ["gh-issue-spec-execution-confirmed"]="gh-issue-spec"
-  ["infra-spec"]="eng-platform-spec"
-  ["infra"]="eng-platform-spec"
-  ["infra-config"]="eng-platform-spec"
-  ["deployment"]="deployment-spec"
-  ["security-remediation"]="eng-platform-spec"
-  ["gh-project-spec"]="gh-project-update-spec"
-  ["review-scheduled"]="migration-watch"
-  ["versioning"]="bootstrap-action"
-  ["manifesto"]="bootstrap-action"
-  ["manifesto-review"]="bootstrap-action"
-  ["manifesto-update"]="bootstrap-action"
-  ["direct-session"]="bootstrap-action"
-  ["policy-promotion"]="bootstrap-action"
-  ["tech-standard"]="tool-matrix-change"
-  ["convention"]="tool-matrix-change"
-  ["system-audit"]="bootstrap-action"
-  ["security-consult"]="bootstrap-action"
-  ["ethical-validation"]="bootstrap-action"
-  ["spec-rejected"]="bootstrap-action"
-  ["milestone"]="bootstrap-action"
-  ["architecture"]="arch-decision"
-)
+# ─── Category mapping (bash 3.2 compatible — case instead of declare -A) ─────
+# Returns the canonical target for a non-canonical category, or empty string.
+map_category() {
+  case "$1" in
+    gh-execution-confirmed|gh-issue-spec-execution-confirmed)
+      echo "gh-issue-spec" ;;
+    infra-spec|infra|infra-config|security-remediation)
+      echo "eng-platform-spec" ;;
+    deployment)
+      echo "deployment-spec" ;;
+    gh-project-spec)
+      echo "gh-project-update-spec" ;;
+    review-scheduled)
+      echo "migration-watch" ;;
+    versioning|manifesto|manifesto-review|manifesto-update|\
+    direct-session|policy-promotion|system-audit|\
+    security-consult|ethical-validation|spec-rejected|milestone)
+      echo "bootstrap-action" ;;
+    tech-standard|convention)
+      echo "tool-matrix-change" ;;
+    architecture)
+      echo "arch-decision" ;;
+    *)
+      echo "" ;;
+  esac
+}
 
-# PROMOTE_TO_KB: content is knowledge, not a spec action → move to knowledge_base
-PROMOTE_TO_KB=(
-  "product-decision"
-  "product"
-  "legal"
-  "legal-decision"
-  "business"
-  "plan-validation"
-  "plan-approval"
-  "prd-published"
-  "context-update"
-  "design-sign-off"
-)
+# Categories whose rows should move to knowledge_base (content is durable
+# knowledge, not a spec action).
+is_promote_to_kb() {
+  case "$1" in
+    product-decision|product|legal|legal-decision|business|\
+    plan-validation|plan-approval|prd-published|context-update|design-sign-off)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-# ALREADY_CANONICAL (new, added by FEAT-040 — no action needed, just verify)
-ALREADY_CANONICAL=(
-  "arch-decision"
-  "operational-violation"
-  "kb-orphan-review"
-)
+# Categories that need manual CEO review before any action.
+is_flag_for_review() {
+  case "$1" in
+    brand-spec) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-# FLAG_FOR_REVIEW: ambiguous — surface to CEO, no auto-write
-FLAG_FOR_REVIEW=(
-  "brand-spec"
-  "plan-approval"
-  "prd-published"
-)
+# The full canonical list (for the NOT IN query).
+CANONICAL_LIST="'model-override','tool-matrix-change','pr-spec','gh-issue-spec',
+'gh-project-update-spec','gh-milestone-spec','install-spec',
+'branch-protection-spec','release-spec','deployment-spec',
+'secret-rotation-spec','eng-output-held','disclosure-unavailable',
+'bootstrap-action','cascade-escalation','cascade-postmortem',
+'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
+'arch-decision','operational-violation','kb-orphan-review'"
 
 # ─── Phase 0a: Category normalization ────────────────────────────────────────
 phase_0a() {
@@ -145,70 +143,68 @@ phase_0a() {
   report ""
   report "=== Phase 0a: Category normalization ($db_label) ==="
 
-  local total_non_canonical=0
+  local total=0
 
-  # Auto-map
-  for src in "${!AUTO_MAP[@]}"; do
-    local dst="${AUTO_MAP[$src]}"
-    local n
-    n=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category='$src';")
-    if [[ "${n:-0}" -gt 0 ]]; then
-      report "  auto-map: '$src' → '$dst'  ($n rows)"
-      report_raw "  - auto-map \`$src\` → \`$dst\` ($n rows)"
-      run_sql "UPDATE decisions SET category='$dst',
-                 rationale=coalesce(rationale,'')||' [backfill: category mapped from $src, FEAT-040]'
-               WHERE category='$src';"
-      total_non_canonical=$((total_non_canonical + n))
+  # Get all distinct non-canonical categories present in this DB
+  local non_canonical_raw
+  non_canonical_raw=$(query_sql "SELECT DISTINCT category FROM decisions
+    WHERE category NOT IN ($CANONICAL_LIST)
+      AND category IS NOT NULL
+    ORDER BY category;")
+
+  while IFS= read -r cat; do
+    # Skip header row and blank lines from turso output
+    cat=$(echo "$cat" | tr -d '[:space:]')
+    [[ -z "$cat" || "$cat" == "CATEGORY" || "$cat" == "category" ]] && continue
+
+    local dst
+    dst=$(map_category "$cat")
+
+    if [[ -n "$dst" ]]; then
+      local n
+      n=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category='$cat';")
+      n=${n:-0}
+      report "  auto-map: '$cat' → '$dst'  ($n rows)"
+      run_sql "UPDATE decisions
+               SET category='$dst',
+                   rationale=coalesce(rationale,'')||' [backfill: mapped from $cat, FEAT-040]'
+               WHERE category='$cat';"
+      total=$((total + n))
+
+    elif is_promote_to_kb "$cat"; then
+      local n
+      n=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category='$cat' AND status!='superseded';")
+      n=${n:-0}
+      report "  promote-kb: '$cat' → knowledge_base  ($n rows)"
+      run_sql "INSERT OR IGNORE INTO knowledge_base
+                 (category, title, content, source_ref, promoted_by, scope, created_at)
+               SELECT 'decision-archive', title,
+                      'Original category: '||category||char(10)||char(10)||coalesce(rationale,''),
+                      'decisions#'||id, 'governance-backfill', scope, CURRENT_TIMESTAMP
+               FROM decisions
+               WHERE category='$cat' AND status!='superseded';"
+      run_sql "UPDATE decisions
+               SET status='superseded',
+                   rationale=coalesce(rationale,'')||' [backfill: promoted to KB, FEAT-040]'
+               WHERE category='$cat' AND status!='superseded';"
+      total=$((total + n))
+
+    elif is_flag_for_review "$cat"; then
+      local n
+      n=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category='$cat';")
+      n=${n:-0}
+      report "  flag-review: '$cat'  ($n rows) — requires CEO input"
+
+    else
+      local n
+      n=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category='$cat';")
+      n=${n:-0}
+      report "  unknown: '$cat'  ($n rows) — no mapping defined, flagged for review"
     fi
-  done
 
-  # Promote to KB
-  local promote_in
-  promote_in=$(printf "'%s'," "${PROMOTE_TO_KB[@]}")
-  promote_in="${promote_in%,}"
+  done <<< "$non_canonical_raw"
 
-  local n_promote
-  n_promote=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category IN ($promote_in) AND status != 'superseded';")
-  if [[ "${n_promote:-0}" -gt 0 ]]; then
-    report "  promote-kb: categories ($promote_in) → knowledge_base  ($n_promote rows)"
-    report_raw "  - promote to KB: $n_promote decisions → \`knowledge_base\` (category=\`decision-archive\`)"
-    run_sql "INSERT OR IGNORE INTO knowledge_base (category, title, content, source_ref, promoted_by, scope, created_at)
-             SELECT 'decision-archive',
-                    title,
-                    'Original decision category: ' || category || char(10) || char(10) || coalesce(rationale,''),
-                    'decisions#' || id,
-                    'governance-backfill',
-                    scope,
-                    CURRENT_TIMESTAMP
-             FROM decisions
-             WHERE category IN ($promote_in) AND status != 'superseded';"
-    run_sql "UPDATE decisions
-             SET status='superseded',
-                 rationale=coalesce(rationale,'')||' [backfill: promoted to knowledge_base, FEAT-040]'
-             WHERE category IN ($promote_in) AND status != 'superseded';"
-    total_non_canonical=$((total_non_canonical + n_promote))
-  fi
-
-  # Flag for manual review (report only, never auto-write)
-  for cat in "${FLAG_FOR_REVIEW[@]}"; do
-    local n_flag
-    n_flag=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category='$cat';")
-    if [[ "${n_flag:-0}" -gt 0 ]]; then
-      report "  flag-review: '$cat'  ($n_flag rows) — requires CEO input"
-      report_raw "  - **MANUAL REVIEW NEEDED**: \`$cat\` ($n_flag rows)"
-    fi
-  done
-
-  # Verify already-canonical new categories
-  for cat in "${ALREADY_CANONICAL[@]}"; do
-    local n_ok
-    n_ok=$(count_sql "SELECT COUNT(*) FROM decisions WHERE category='$cat';")
-    if [[ "${n_ok:-0}" -gt 0 ]]; then
-      report "  canonical-ok: '$cat'  ($n_ok rows — now in canonical list)"
-    fi
-  done
-
-  report "  total non-canonical processed: $total_non_canonical rows"
+  report "  total rows processed in 0a: $total"
 }
 
 # ─── Phase 0b: Lifecycle reconciliation ──────────────────────────────────────
@@ -217,31 +213,33 @@ phase_0b() {
   report ""
   report "=== Phase 0b: Lifecycle reconciliation ($db_label) ==="
 
-  local gh_token
-  gh_token=$(jq -r '.github_token // ""' "$CONFIG" 2>/dev/null || echo "")
-
-  # Decisions with source_ref → check GH API
-  local with_ref
-  with_ref=$(query_sql "SELECT id, source_ref, category FROM decisions
-    WHERE status IN ('approved','proposed') AND source_ref IS NOT NULL AND source_ref != '';")
+  local gh_token=""
+  gh_token=$(jq -r '.github_token // ""' "$CONFIG" 2>/dev/null || true)
 
   local n_checked=0 n_executed=0 n_open=0
 
-  while IFS='|' read -r id src_ref _cat; do
-    [[ -z "$id" || "$id" =~ ^[[:space:]]*$ || "$id" == "ID" ]] && continue
-    id=$(echo "$id" | xargs)
-    src_ref=$(echo "$src_ref" | xargs)
-    [[ -z "$src_ref" ]] && continue
+  local rows
+  rows=$(query_sql "SELECT id||'|'||source_ref FROM decisions
+    WHERE status IN ('approved','proposed')
+      AND source_ref IS NOT NULL AND source_ref != ''
+    ORDER BY id;")
 
-    # Parse org/repo#N  (source_ref format: '<org>/<repo>#<N>')
-    local repo issue_num
+  while IFS= read -r row; do
+    row=$(echo "$row" | tr -d '[:space:]')
+    [[ -z "$row" || "$row" =~ ^id\| ]] && continue
+
+    local id src_ref repo issue_num
+    id="${row%%|*}"
+    src_ref="${row#*|}"
+    [[ -z "$id" || -z "$src_ref" ]] && continue
+
     repo="${src_ref%%#*}"
     issue_num="${src_ref##*#}"
-    [[ -z "$repo" || -z "$issue_num" ]] && continue
+    [[ -z "$repo" || -z "$issue_num" || "$repo" == "$src_ref" ]] && continue
 
     n_checked=$((n_checked + 1))
 
-    local gh_state closed_at
+    local gh_state="" closed_at=""
     if [[ -n "$gh_token" ]]; then
       local api_resp
       api_resp=$(curl -sf -H "Authorization: Bearer $gh_token" \
@@ -255,56 +253,59 @@ phase_0b() {
 
     if [[ "$gh_state" == "closed" ]]; then
       report "  executed: decisions#${id} → ${src_ref} (closed on GH)"
+      local exec_at="${closed_at:-CURRENT_TIMESTAMP}"
       run_sql "UPDATE decisions
-               SET status='executed',
-                   executed_by='governance-backfill',
-                   executed_at=coalesce('$closed_at', CURRENT_TIMESTAMP)
+               SET status='executed', executed_by='governance-backfill',
+                   executed_at='$exec_at'
                WHERE id=${id};"
       n_executed=$((n_executed + 1))
     else
-      report "  pending:  decisions#${id} → ${src_ref} (GH state: ${gh_state})"
+      report "  pending:  decisions#${id} → ${src_ref} (GH: ${gh_state})"
       n_open=$((n_open + 1))
     fi
-  done <<< "$with_ref"
+  done <<< "$rows"
 
-  report "  with source_ref: checked=$n_checked  executed=$n_executed  still-open=$n_open"
+  report "  with source_ref: checked=$n_checked  executed=$n_executed  open=$n_open"
 
-  # Decisions without source_ref, approved, older than 30 days → supersede
+  # Auto-supersede: approved/proposed, no source_ref, older than 30 days
   local stale_count
   stale_count=$(count_sql "SELECT COUNT(*) FROM decisions
     WHERE status IN ('approved','proposed')
-      AND (source_ref IS NULL OR source_ref = '')
+      AND (source_ref IS NULL OR source_ref='')
       AND julianday('now') - julianday(created_at) > 30;")
+  stale_count=${stale_count:-0}
 
-  if [[ "${stale_count:-0}" -gt 0 ]]; then
-    report "  auto-supersede: $stale_count decisions (approved/proposed, no source_ref, >30d)"
-    report_raw "  - $stale_count stale decisions (>30d, no GH match) → \`superseded\`"
+  if [[ "$stale_count" -gt 0 ]]; then
+    report "  auto-supersede: $stale_count decisions (>30d, no source_ref)"
     run_sql "UPDATE decisions
              SET status='superseded',
-                 rationale=coalesce(rationale,'')||' [backfill: no GH artifact found after 30+ days, FEAT-040]'
+                 rationale=coalesce(rationale,'')||' [backfill: no GH artifact after 30+ days, FEAT-040]'
              WHERE status IN ('approved','proposed')
-               AND (source_ref IS NULL OR source_ref = '')
+               AND (source_ref IS NULL OR source_ref='')
                AND julianday('now') - julianday(created_at) > 30;"
   fi
 
-  # Remaining approved without source_ref, <30 days → surface as genuinely pending
+  # Surface genuinely pending (recent, no source_ref)
   local pending_count
   pending_count=$(count_sql "SELECT COUNT(*) FROM decisions
     WHERE status IN ('approved','proposed')
-      AND (source_ref IS NULL OR source_ref = '')
+      AND (source_ref IS NULL OR source_ref='')
       AND julianday('now') - julianday(created_at) <= 30;")
+  pending_count=${pending_count:-0}
 
-  if [[ "${pending_count:-0}" -gt 0 ]]; then
-    report "  genuinely-pending: $pending_count decisions (<30d, no source_ref) — review manually"
-    report_raw "  - **CEO REVIEW**: $pending_count decisions still open and recent (listed below)"
-    query_sql "SELECT id, agent, category, created_at, substr(title,1,70) as title
-               FROM decisions
-               WHERE status IN ('approved','proposed')
-                 AND (source_ref IS NULL OR source_ref = '')
-                 AND julianday('now') - julianday(created_at) <= 30
-               ORDER BY created_at ASC;" | while read -r line; do
-      report_raw "    $line"
-    done
+  if [[ "$pending_count" -gt 0 ]]; then
+    report "  genuinely-pending: $pending_count decisions (<30d) — review manually"
+    local pending_rows
+    pending_rows=$(query_sql "SELECT id, agent, category, created_at, substr(title,1,60) as title
+      FROM decisions
+      WHERE status IN ('approved','proposed')
+        AND (source_ref IS NULL OR source_ref='')
+        AND julianday('now') - julianday(created_at) <= 30
+      ORDER BY created_at ASC;")
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      report "    $line"
+    done <<< "$pending_rows"
   fi
 }
 
@@ -314,9 +315,9 @@ phase_0d() {
   report ""
   report "=== Phase 0d: input_summary stamp ($db_label) ==="
 
-  # Check if input_summary column exists
   local col_check
-  col_check=$(query_sql "SELECT COUNT(*) FROM pragma_table_info('agent_actions_log') WHERE name='input_summary';" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 | tr -d ' ' || echo "0")
+  col_check=$(query_sql "SELECT COUNT(*) FROM pragma_table_info('agent_actions_log')
+    WHERE name='input_summary';" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 | tr -d ' ' || echo "0")
 
   if [[ "${col_check:-0}" -eq 0 ]]; then
     report "  SKIP: input_summary column not present in this DB"
@@ -327,10 +328,10 @@ phase_0d() {
   n_null=$(count_sql "SELECT COUNT(*) FROM agent_actions_log
     WHERE status IN ('denied','failure')
       AND (input_summary IS NULL OR trim(input_summary)='');")
+  n_null=${n_null:-0}
 
-  if [[ "${n_null:-0}" -gt 0 ]]; then
+  if [[ "$n_null" -gt 0 ]]; then
     report "  [REDACTED] stamp: $n_null rows (pre-FEAT-040 audit gap)"
-    report_raw "  - $n_null denied/failure rows stamped \`[REDACTED — pre-FEAT-040 audit gap]\`"
     run_sql "UPDATE agent_actions_log
              SET input_summary='[REDACTED — pre-FEAT-040 audit gap]'
              WHERE status IN ('denied','failure')
@@ -343,49 +344,53 @@ phase_0d() {
 # ─── Run against one DB ───────────────────────────────────────────────────────
 run_against_db() {
   local db_url="$1" db_label="$2"
-
   set_db "$db_url"
   report ""
   report "━━━ DB: $db_label ($db_url) ━━━"
-
   [[ "$PHASE" == "all" || "$PHASE" == "0a" ]] && phase_0a "$db_label"
   [[ "$PHASE" == "all" || "$PHASE" == "0b" ]] && phase_0b "$db_label"
   [[ "$PHASE" == "all" || "$PHASE" == "0d" ]] && phase_0d "$db_label"
 }
 
 # ─── Collect DB targets ───────────────────────────────────────────────────────
-declare -a DB_TARGETS_URLS DB_TARGETS_LABELS
+DB_TARGETS_URLS=""
+DB_TARGETS_LABELS=""
+
+add_target() {
+  if [[ -z "$DB_TARGETS_URLS" ]]; then
+    DB_TARGETS_URLS="$1"
+    DB_TARGETS_LABELS="$2"
+  else
+    DB_TARGETS_URLS="${DB_TARGETS_URLS}|$1"
+    DB_TARGETS_LABELS="${DB_TARGETS_LABELS}|$2"
+  fi
+}
 
 if [[ -n "$DB_URL_OVERRIDE" ]]; then
-  DB_TARGETS_URLS=("$DB_URL_OVERRIDE")
-  DB_TARGETS_LABELS=("override")
+  add_target "$DB_URL_OVERRIDE" "override"
 elif [[ -n "$PROJECT_SLUG" ]]; then
-  pdb=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG" 2>/dev/null)
+  pdb=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG" 2>/dev/null || true)
   if [[ -z "$pdb" || "$pdb" == "null" ]]; then
     echo "[backfill] ERROR: project '$PROJECT_SLUG' not found in config" >&2
     exit 1
   fi
-  DB_TARGETS_URLS=("$pdb")
-  DB_TARGETS_LABELS=("project=$PROJECT_SLUG")
+  add_target "$pdb" "project=$PROJECT_SLUG"
 else
-  # Company DB always first
-  company_db=$(jq -r '.db.url // ""' "$CONFIG" 2>/dev/null)
+  company_db=$(jq -r '.db.url // ""' "$CONFIG" 2>/dev/null || true)
   if [[ -n "$company_db" && "$company_db" != "null" ]]; then
-    DB_TARGETS_URLS=("$company_db")
-    DB_TARGETS_LABELS=("company")
+    add_target "$company_db" "company"
   fi
   if [[ "$RUN_ALL" -eq 1 ]]; then
     while IFS= read -r slug; do
       [[ -z "$slug" || "$slug" == "null" ]] && continue
-      pdb=$(jq -r --arg s "$slug" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG" 2>/dev/null)
+      pdb=$(jq -r --arg s "$slug" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG" 2>/dev/null || true)
       [[ -z "$pdb" || "$pdb" == "null" ]] && continue
-      DB_TARGETS_URLS+=("$pdb")
-      DB_TARGETS_LABELS+=("project=$slug")
-    done < <(jq -r '.projects // {} | keys[]' "$CONFIG" 2>/dev/null)
+      add_target "$pdb" "project=$slug"
+    done < <(jq -r '.projects // {} | keys[]' "$CONFIG" 2>/dev/null || true)
   fi
 fi
 
-if [[ ${#DB_TARGETS_URLS[@]} -eq 0 ]]; then
+if [[ -z "$DB_TARGETS_URLS" ]]; then
   echo "[backfill] ERROR: no DB targets found. Check .juvant/config.json" >&2
   exit 1
 fi
@@ -397,11 +402,13 @@ mode_label="DRY RUN (report only)"
 report "governance-backfill — FEAT-040 Layer 0"
 report "mode:    $mode_label"
 report "phase:   $PHASE"
-report "targets: ${DB_TARGETS_LABELS[*]}"
 report "date:    $DATE"
 
-for i in "${!DB_TARGETS_URLS[@]}"; do
-  run_against_db "${DB_TARGETS_URLS[$i]}" "${DB_TARGETS_LABELS[$i]}"
+IFS='|' read -ra _urls   <<< "$DB_TARGETS_URLS"
+IFS='|' read -ra _labels <<< "$DB_TARGETS_LABELS"
+
+for i in "${!_urls[@]}"; do
+  run_against_db "${_urls[$i]}" "${_labels[$i]}"
 done
 
 report ""
@@ -418,11 +425,8 @@ fi
   echo ""
   echo "**Mode**: $mode_label  "
   echo "**Phase**: $PHASE  "
-  echo "**Targets**: ${DB_TARGETS_LABELS[*]}  "
   echo ""
-  for line in "${_report_lines[@]}"; do
-    echo "$line"
-  done
+  echo "$_report_lines"
 } > "$REPORT_FILE"
 
 echo "[backfill] Report saved: $REPORT_FILE"
