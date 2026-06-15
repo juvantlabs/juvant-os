@@ -65,6 +65,25 @@ fi
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
 ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')
 
+# Build input_summary — human-readable, max 200 chars (FEAT-040 Layer 1d)
+case "$TOOL_NAME" in
+  Bash)
+    _RAW=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
+    INPUT_SUMMARY=$(printf '%.200s' "$_RAW") ;;
+  Edit)
+    _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
+    _OLD=$(echo "$EVENT_JSON" | jq -r '.tool_input.old_string // ""' 2>/dev/null | head -c 80 || echo "")
+    INPUT_SUMMARY=$(printf '%.200s' "Edit $_FILE: $_OLD") ;;
+  Write)
+    _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
+    INPUT_SUMMARY=$(printf '%.200s' "Write $_FILE") ;;
+  Read)
+    _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
+    INPUT_SUMMARY=$(printf '%.200s' "Read $_FILE") ;;
+  *)
+    INPUT_SUMMARY=$(printf '%.200s' "$ARGS_JSON") ;;
+esac
+
 # Default: allow
 DECISION="allow"
 DENY_REASON=""
@@ -337,11 +356,12 @@ fi
 SESSION_ESC=$(sql_escape "$SESSION_ID")
 ROLE_ESC=$(sql_escape "$ROLE")
 TOOL_ESC=$(sql_escape "$TOOL_NAME")
+INPUT_SUMMARY_ESC=$(sql_escape "$INPUT_SUMMARY")
 
 juvant_db_exec "INSERT INTO agent_actions_log
-  (session_id, agent, tool_name, args_hash, status, deny_reason)
+  (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary)
   VALUES
-  ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL);" \
+  ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL, '$INPUT_SUMMARY_ESC');" \
   || echo "[pre-tool-use] WARN: failed to write agent_actions_log row" >&2
 
 # ─────────────────────────────────────────────

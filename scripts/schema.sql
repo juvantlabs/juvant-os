@@ -620,9 +620,23 @@ CREATE TABLE IF NOT EXISTS agent_actions_log (
   deny_reason   TEXT,
   -- non-NULL when status='denied' (Track 2 deny-list match,
   -- per-agent allow-list miss, or other PreToolUse veto).
+  input_summary TEXT,
+  -- Human-readable summary of what the agent attempted (max 200 chars).
+  -- Mandatory for status='denied' (FEAT-040 Layer 1d).
+  -- Set at INSERT time by pre-tool-use.sh for all rows so that
+  -- rows later updated to 'failure' already carry the summary.
   started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   ended_at      DATETIME
 );
+
+-- FEAT-040 Layer 1d: denied rows must carry input_summary for forensic value.
+CREATE TRIGGER IF NOT EXISTS action_log_denied_requires_summary
+BEFORE INSERT ON agent_actions_log
+WHEN NEW.status = 'denied'
+BEGIN
+  SELECT RAISE(ABORT, 'agent_actions_log denied rows require input_summary — set it in pre-tool-use.sh')
+  WHERE NEW.input_summary IS NULL OR trim(NEW.input_summary) = '';
+END;
 
 CREATE INDEX IF NOT EXISTS idx_actions_log_session
   ON agent_actions_log(session_id, started_at);
