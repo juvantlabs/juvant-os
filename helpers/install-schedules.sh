@@ -101,7 +101,9 @@ PLIST
 </plist>
 PLIST
 
-        # governance-backfill — monthly, first Saturday 04:00 (dry-run, all DBs)
+        # governance-backfill — monthly, 1st of month 04:00 (dry-run, all DBs)
+        # Note: launchd does not support "first Saturday of month" natively;
+        # Day=1 (1st of month) is the closest idiomatic equivalent.
         cat > "$LAUNCHD_DIR/${PREFIX}.governance-backfill.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -122,7 +124,6 @@ PLIST
   </dict>
   <key>StartCalendarInterval</key>
   <dict>
-    <key>Weekday</key><integer>7</integer>
     <key>Day</key><integer>1</integer>
     <key>Hour</key><integer>4</integer>
     <key>Minute</key><integer>0</integer>
