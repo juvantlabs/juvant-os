@@ -329,6 +329,65 @@ if [[ "$ROLE" == "cos" && "$DECISION" == "allow" ]]; then
 fi
 
 # ─────────────────────────────────────────────
+# Track 4 — Spec-lookup gate (FEAT-040 Layer 3)
+# ─────────────────────────────────────────────
+# For high-risk Bash action classes defined in bash-policy.json
+# (gated_action_classes[]), requires an approved spec in the company
+# decisions table before allowing. Classes currently gated:
+#   infra-change     → deployment-spec | eng-platform-spec
+#   db-schema-change → install-spec    | eng-platform-spec
+#
+# Bypass: agent_type absent from hook event = main operator thread
+# (CEO direct session). Allowed unconditionally but INPUT_SUMMARY is
+# prefixed with [CEO-BYPASS: <class>] so morning-brief can surface it
+# as a retroactive spec obligation (FEAT-040 Q2 design decision).
+if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
+  _T4_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
+  _T4_CEO_DIRECT=0
+  [[ -z "$_T4_AGENT_TYPE" ]] && _T4_CEO_DIRECT=1
+
+  _T4_CMD=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
+  _T4_MATCHED_CLASS=""
+  _T4_REQUIRED_CATS=""
+
+  _T4_N=$(jq -r '.gated_action_classes | length' "$POLICY" 2>/dev/null || echo "0")
+  _T4_I=0
+  while [[ "$_T4_I" -lt "$_T4_N" && -z "$_T4_MATCHED_CLASS" ]]; do
+    _T4_CLASS=$(jq -r ".gated_action_classes[$_T4_I].class" "$POLICY" 2>/dev/null || echo "")
+    _T4_CATS=$(jq -r ".gated_action_classes[$_T4_I].required_spec_categories | join(\",\")" "$POLICY" 2>/dev/null || echo "")
+    _T4_NP=$(jq -r ".gated_action_classes[$_T4_I].patterns | length" "$POLICY" 2>/dev/null || echo "0")
+    _T4_J=0
+    while [[ "$_T4_J" -lt "$_T4_NP" && -z "$_T4_MATCHED_CLASS" ]]; do
+      _T4_PAT=$(jq -r ".gated_action_classes[$_T4_I].patterns[$_T4_J]" "$POLICY" 2>/dev/null || echo "")
+      if [[ -n "$_T4_PAT" && "$_T4_CMD" =~ $_T4_PAT ]]; then
+        _T4_MATCHED_CLASS="$_T4_CLASS"
+        _T4_REQUIRED_CATS="$_T4_CATS"
+      fi
+      _T4_J=$(( _T4_J + 1 ))
+    done
+    _T4_I=$(( _T4_I + 1 ))
+  done
+
+  if [[ -n "$_T4_MATCHED_CLASS" ]]; then
+    if [[ "$_T4_CEO_DIRECT" -eq 1 ]]; then
+      INPUT_SUMMARY="[CEO-BYPASS: $_T4_MATCHED_CLASS] $INPUT_SUMMARY"
+    else
+      # Subagent: look up approved spec in Turso
+      # shellcheck disable=SC1091
+      . "$SCRIPT_DIR/lib/db.sh"
+      _T4_CAT_SQL=$(echo "$_T4_REQUIRED_CATS" | tr ',' '\n' | sed "s/.*/'&'/" | tr '\n' ',' | sed 's/,$//')
+      _T4_SPEC_ID=$(juvant_db_query \
+        "SELECT id FROM decisions WHERE category IN ($_T4_CAT_SQL) AND status='approved' AND created_at > datetime('now','-7 days') LIMIT 1;" \
+        2>/dev/null | grep -E '^[0-9]+$' | head -1 || echo "")
+      if [[ -z "$_T4_SPEC_ID" ]]; then
+        DECISION="deny"
+        DENY_REASON="SPEC GATE (FEAT-040 Layer 3): action class '$_T4_MATCHED_CLASS' requires an approved spec [${_T4_REQUIRED_CATS}] created within 7 days. None found. Author a spec via the appropriate agent, obtain CEO approval, then retry."
+      fi
+    fi
+  fi
+fi
+
+# ─────────────────────────────────────────────
 # Track 3 — append-only audit log
 # ─────────────────────────────────────────────
 # Routes via hooks/lib/db.sh so Local SQLite adopters get audit-log
