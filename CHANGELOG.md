@@ -11,6 +11,21 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-06-17 — Project-subagent sandbox access fix
+
+### Fixed
+
+- **BUG-042** `scripts/sync-project-globs.sh` — also wire
+  `permissions.additionalDirectories` (not only `permissions.allow`) for each
+  project `working_tree`. The allow-list removes the permission *prompt*, but
+  project subagents run in a filesystem *sandbox* confined to `cwd +
+  additionalDirectories + /tmp` — so a sibling code repo was still denied at
+  the sandbox layer. Managed via a parallel sentinel block (idempotent,
+  comment-safe; creates the array if absent, preserves manual entries). Also
+  fixes a latent `allow` first-run splice that targeted the wrong array when
+  `additionalDirectories` precedes `allow`, and corrects the misleading
+  `JUVANT_OS.md` prose (permission layer → permission + sandbox layers).
+
 ## [1.3.0] — 2026-06-16 — Structural governance enforcement + single-writer & orchestrator boundaries
 
 Validated end-to-end by the `single-project` testco batch on 2026-06-16
