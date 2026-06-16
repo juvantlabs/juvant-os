@@ -2849,8 +2849,8 @@ Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
    - `hiring_log WHERE status='pending'`.
    - `decisions WHERE status='proposed'`.
    - `security_audit_log WHERE status='open' AND severity IN ('P0','P1')`.
-   - `knowledge_base WHERE project_id IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
-   - If a project is active: `knowledge_base WHERE project_id = '<active_project_id>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context). `<active_project_id>` = `master_context.value WHERE key='active_project'` = `projects.id` (the slug, e.g. `'hardys'` — there is no separate `slug` column).
+   - `knowledge_base WHERE source_project IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
+   - If a project is active: `knowledge_base WHERE source_project = '<active_project_id>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context). `<active_project_id>` = `master_context.value WHERE key='active_project'` = `projects.id` (the slug, e.g. `'hardys'` — there is no separate `slug` column).
    - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then runs `bash helpers/morning-brief.sh` to send an updated brief to Teams.
    - **Log file reading policy** (BUG-027): `.juvant/logs/*.log` files accumulate output across runs. When reading them for health assessment, **always filter to the most recent run** by finding the last `=== RUN <RUN_ID> ===` boundary. Never surface entries from prior runs as current issues — doing so re-reports already-fixed bugs as active. To read only the last run: `awk '/^=== RUN /{run=1; buf=""} run{buf=buf"\n"$0} END{print buf}' .juvant/logs/<helper>.log`
 4b. **If `company_type='sub'`: read global decisions from master** (ADR 0017)
@@ -2908,8 +2908,7 @@ knowledge_base context to the prompt:
 
 ```sql
 SELECT content FROM knowledge_base
-WHERE project_id = '<active_project_id>'  -- projects.id IS the slug (e.g. 'hardys'); no separate slug column
-  AND (agent_role = '<role>' OR agent_role IS NULL)
+WHERE source_project = '<active_project_id>'  -- KB project filter is source_project; '<active_project_id>' is the slug (e.g. 'hardys')
 ORDER BY created_at DESC;
 ```
 
@@ -2923,14 +2922,16 @@ losing customizations on the next `compile-templates --scope projects` run.
 All project-specific context belongs in `knowledge_base` rows instead:
 
 ```
-CoS: "Add to Eng Lead's knowledge base for Hardys: React Native 0.76,
+CoS: "Add to the Hardys project knowledge base: React Native 0.76,
       Expo SDK 52, targets iOS 17+ and Android 14+."
-→ knowledge_base INSERT: project_id='hardys', agent_role='eng-lead',
+→ knowledge_base INSERT: source_project='hardys',
   content='Tech stack: React Native 0.76, Expo SDK 52...'
 ```
 
 The Skill writes the row via standard Turso INSERT. The knowledge is available
-to the Hardys Eng Lead at next dispatch.
+to every Hardys project agent at next dispatch — `knowledge_base` is
+project-scoped, not role-scoped (there is no `agent_role` column). To aim
+advice at one role, name it in the `content` (e.g. prefix `[eng-lead]`).
 
 **Task Brief Assembly on dispatch (ARCH-013).** Extends ARCH-012.
 Before calling ANY `Task()` — for any agent, company-scope or
