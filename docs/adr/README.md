@@ -30,6 +30,13 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0008](0008-manifesto-fast-start.md) | Manifesto fast-start — Tier 1 blocking, Tier 2 async 7-day | Accepted | 2026-04-23 |
 | [0009](0009-mail-via-ms-graph-on-demand.md) | Mail integration via on-demand `ms-graph` connector dispatched by CoS (supersedes 0004) | Accepted | 2026-05-04 |
 | [0010](0010-compiled-agent-registration.md) | Compiled agent templates register in `.claude/agents/` via symlinks | Accepted | 2026-05-08 |
+| [0011](0011-ceo-direct-channel-class.md) | `<channel>:send-ceo-only` carve-out from the §4 disclosure boundary | Proposed | 2026-05-09 |
+| [0012](0012-batch-testco-mode.md) | Batch testco mode + CI integration | Accepted | 2026-05-09 |
+| [0013](0013-script-scope-flag-uniformity.md) | Script scope-flag uniformity (`--project=<slug>` canonical pattern) | Accepted | 2026-05-10 |
+| [0014](0014-tech-leadership-restructure.md) | Tech leadership restructure (CTO promotion, project-scope rename, VPE toggle) | Proposed | 2026-05-09 |
+| [0015](0015-design-brand-ownership.md) | Design & brand ownership (CMO ↔ Design Lead split, 3-mode brand-spec pattern) | Proposed | 2026-05-09 |
+| [0016](0016-framework-scope-position.md) | Framework scope position (Juvant OS as software-development-flavored opinionated stack) | Proposed | 2026-05-09 |
+| [0017](0017-sub-company-model.md) | Sub-company model: master/sub topology with global-scoped decisions | Proposed | 2026-05-16 |
 | [0018](0018-descope-bash-escalation.md) | De-scope FEAT-025 dynamic bash escalation; self-remediating deny message is the durable design | Accepted | 2026-06-16 |
 
 ## Modification governance
