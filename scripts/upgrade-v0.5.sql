@@ -83,10 +83,14 @@ CREATE INDEX IF NOT EXISTS idx_actions_log_agent
 CREATE INDEX IF NOT EXISTS idx_actions_log_status
   ON agent_actions_log(status, started_at);
 
--- FEAT-025 (escalate-deny + bash_oneshot_grants) is deferred to v1.1 —
--- intentionally omitted from this script. When FEAT-025 lands, a
--- successor upgrade script will add the bash_oneshot_grants table and
--- the agent_actions_log.escalation_msg_id column.
+-- FEAT-025's dynamic bash escalation flow (escalate-deny + the
+-- bash_oneshot_grants table + agent_actions_log.escalation_msg_id) was
+-- deferred here and is now DE-SCOPED per ADR 0018 — it is intentionally
+-- not built. The allow-list-miss path emits a self-remediating deny
+-- message instead (hooks/pre-tool-use.sh, BUG-039); genuinely-novel-binary
+-- needs route through the existing tool-matrix-change governance. Do not
+-- add this table or column without first reopening ADR 0018 on the
+-- telemetry evidence gate it defines. Ref: juvantlabs/juvant-os-pm#110.
 
 -- ─────────────────────────────────────────────
 -- FEAT-024 — token usage + model pricing
