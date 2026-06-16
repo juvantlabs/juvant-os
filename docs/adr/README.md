@@ -30,6 +30,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0008](0008-manifesto-fast-start.md) | Manifesto fast-start — Tier 1 blocking, Tier 2 async 7-day | Accepted | 2026-04-23 |
 | [0009](0009-mail-via-ms-graph-on-demand.md) | Mail integration via on-demand `ms-graph` connector dispatched by CoS (supersedes 0004) | Accepted | 2026-05-04 |
 | [0010](0010-compiled-agent-registration.md) | Compiled agent templates register in `.claude/agents/` via symlinks | Accepted | 2026-05-08 |
+| [0018](0018-descope-bash-escalation.md) | De-scope FEAT-025 dynamic bash escalation; self-remediating deny message is the durable design | Accepted | 2026-06-16 |
 
 ## Modification governance
 

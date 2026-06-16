@@ -179,7 +179,13 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
         ' "$POLICY" 2>/dev/null || echo "")
         if [[ -z "$ALLOW_OK" ]]; then
           DECISION="deny"
-          DENY_REASON="binary '$FIRST_TOKEN' not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Escalate to CoS for tool-matrix-change."
+          # BUG-039: self-remediating deny message — diagnostic prefix +
+          # no-retry + native-tool remedy. Interim materialization of the
+          # FEAT-025 deny contract until its full escalate-deny flow lands
+          # (juvantlabs/juvant-os-pm#110). The old message ("Escalate to CoS
+          # for tool-matrix-change") drove a ~50x retry-loop on file-IO-via-
+          # shell because it named a remedy the agent cannot perform in-session.
+          DENY_REASON="deny:allow-list:$FIRST_TOKEN — binary not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Do NOT retry: repeating this command will never pass. If this is file I/O (cat/tee/heredoc, python3 -c, node -e fs.*), use the Write/Edit/Read tools instead — they are always available and not gated. For a genuine remote read (e.g. 'gh api .../contents'), that is read-only and legitimate — surface it rather than abandoning. Otherwise surface this denial to your parent (CoS) for a tool-matrix-change; do not work around it. Refs: FEAT-025 BUG-039 juvantlabs/juvant-os-pm#110"
         fi
       fi
     fi
