@@ -11,6 +11,62 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-06-16 — Structural governance enforcement + single-writer & orchestrator boundaries
+
+Validated end-to-end by the `single-project` testco batch on 2026-06-16
+(`bootstrap_verdict=PASS`, all assertions satisfied).
+
+### Added
+
+- **FEAT-040** Governance enforcement — declarative → structural. Layer 0
+  retroactive remediation (`scripts/governance-backfill.sh`), Layer 1
+  structural DB triggers (decisions category + lifecycle), Layer 1d
+  `input_summary` on `agent_actions_log` denied rows, Layer 3 spec-lookup
+  gate (Track 4 in `pre-tool-use.sh`).
+- **FEAT-047** Single-writer & orchestrator boundaries — Track 2d
+  single-writer git gate (only eng-lead / eng-platform may commit, push,
+  merge), Track 2c orchestrator boundary hook, §9 Orchestrator Boundary in
+  `SYSTEM_INVARIANTS.md`, orchestrator contract block in `JUVANT_OS.md`.
+- **FEAT-045 / FEAT-046** §4d project-scoped decision authorship invariant +
+  Track 2b Case c semantic content check.
+- **FEAT-044** ARCH-013 Task Brief Assembly + universal opening protocol.
+- **FEAT-039** decisions ↔ GitHub issues bidirectional traceability.
+- **morning-brief** redesign — decisions with titles, system health, scope
+  violations.
+- **ADR 0018** — de-scope the FEAT-025 dynamic bash escalation flow; the
+  self-remediating allow-list deny message is the durable design.
+- ADR index (`docs/adr/README.md`) backfilled with entries 0011-0017.
+
+### Fixed
+
+- **BUG-039** `pre-tool-use.sh` — self-remediating allow-list deny message
+  (diagnostic prefix, no-retry, native-tool remedy); ends the ~50× file-I/O
+  retry-loop.
+- **BUG-040** `migrate.sh` — classify schema-patch errors instead of
+  blanket-suppressing; a real `ALTER` failure no longer silently leaves a
+  trigger-without-column drift.
+- **BUG-041** `JUVANT_OS.md` — `knowledge_base` injection prose referenced
+  non-existent `project_id` / `agent_role`; corrected to `source_project`.
+- **BUG-038** `bash-policy.json` — introduce `read_utils` and `infra_cli` tiers.
+- **BUG-037** `pre-tool-use.sh` — first-token extraction skips comments,
+  keywords, and array lines.
+- **BUG-036** `bash-policy.json` — add `Explore` subagent entry.
+- **BUG-035** launchd plists — bake `PATH`+`HOME`; fail loudly if `turso` missing.
+- **BUG-034** upstream-sync whitelist — include `agents/projects/*.md` base templates.
+- `schema.sql` — restore `IF NOT EXISTS` on category-check triggers.
+- FEAT-040 follow-ups — category allowlist (`legal`/`product`/`business`);
+  lifecycle triggers fire on status transition only; governance-backfill
+  bash 3.2 compat + category mappings; install-schedules / launchd wiring;
+  shellcheck cleanups.
+
+### Notes
+
+- **VERSION** file corrected `0.8.2` → `1.3.0`. It had drifted — never bumped
+  past 0.8.2 despite the 1.0.0–1.2.0 tags. `migrate.sh`,
+  `compile-templates.sh`, and `run-testco-batch.sh` read this file.
+- **CHANGELOG gap**: releases **1.1.2** and **1.2.0** were tagged without
+  CHANGELOG entries; not reconstructed here. The log resumes at 1.3.0.
+
 ## [1.1.3] — 2026-05-16 — Bug fixes: project-scope audit, seed-matrix, and boot sequence
 
 ### Fixed
