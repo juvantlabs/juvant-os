@@ -189,8 +189,39 @@ run_schema_apply() {
 
 # Idempotent column patches — called after schema.sql apply.
 # Turso/libSQL does not support ALTER TABLE ADD COLUMN IF NOT EXISTS,
-# so each statement runs separately with error suppressed (failure = column
-# already exists, which is the correct post-CREATE TABLE state).
+# so each statement runs separately. Failures are classified rather than
+# blanket-suppressed (BUG-040): a benign "duplicate column" / "already
+# exists" on an idempotent re-run is ignored, but any OTHER failure is
+# surfaced as a warning and counted — so a dependent object (e.g. a trigger
+# whose prerequisite column failed to add) is never created against a
+# silently-broken schema unnoticed.
+
+MIGRATE_PATCH_WARNINGS=0
+
+_is_benign_patch_err() {
+  case "$1" in
+    *"duplicate column name"*|*"already exists"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Run one idempotent patch; suppress only benign idempotent-re-run errors,
+# surface everything else as a counted warning (BUG-040).
+_run_patch_local() {
+  local db="$1" sql="$2" err
+  err=$(sqlite3 "$db" "$sql" 2>&1) && return 0
+  _is_benign_patch_err "$err" && return 0
+  printf 'WARN [migrate]: non-benign schema patch failure: %s\n  SQL: %.140s\n' "$err" "$sql" >&2
+  MIGRATE_PATCH_WARNINGS=$((MIGRATE_PATCH_WARNINGS + 1))
+}
+
+_run_patch_turso() {
+  local url="$1" sql="$2" err
+  err=$(turso db shell "$url" "$sql" 2>&1) && return 0
+  _is_benign_patch_err "$err" && return 0
+  printf 'WARN [migrate]: non-benign schema patch failure: %s\n  SQL: %.140s\n' "$err" "$sql" >&2
+  MIGRATE_PATCH_WARNINGS=$((MIGRATE_PATCH_WARNINGS + 1))
+}
 
 apply_schema_patches_local() {
   local db="$1" project_slug="${2:-}"
@@ -225,12 +256,15 @@ apply_schema_patches_local() {
     "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
   )
   for sql in "${common_patches[@]}"; do
-    sqlite3 "$db" "$sql" 2>/dev/null || true
+    _run_patch_local "$db" "$sql"
   done
   if [[ -z "$project_slug" ]]; then
     for sql in "${company_patches[@]}"; do
-      sqlite3 "$db" "$sql" 2>/dev/null || true
+      _run_patch_local "$db" "$sql"
     done
+  fi
+  if [[ "$MIGRATE_PATCH_WARNINGS" -gt 0 ]]; then
+    printf 'WARN [migrate]: %d non-benign schema patch(es) failed (see above) — schema may be inconsistent (e.g. a trigger created without its prerequisite column). Inspect before use. (BUG-040)\n' "$MIGRATE_PATCH_WARNINGS" >&2
   fi
 }
 
@@ -265,12 +299,15 @@ apply_schema_patches_turso() {
     "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
   )
   for sql in "${common_patches[@]}"; do
-    turso db shell "$url" "$sql" 2>/dev/null || true
+    _run_patch_turso "$url" "$sql"
   done
   if [[ -z "$project_slug" ]]; then
     for sql in "${company_patches[@]}"; do
-      turso db shell "$url" "$sql" 2>/dev/null || true
+      _run_patch_turso "$url" "$sql"
     done
+  fi
+  if [[ "$MIGRATE_PATCH_WARNINGS" -gt 0 ]]; then
+    printf 'WARN [migrate]: %d non-benign schema patch(es) failed (see above) — schema may be inconsistent (e.g. a trigger created without its prerequisite column). Inspect before use. (BUG-040)\n' "$MIGRATE_PATCH_WARNINGS" >&2
   fi
 }
 
