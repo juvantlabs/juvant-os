@@ -56,9 +56,9 @@ STALENESS_DAYS=$(turso db shell "$TURSO_URL" "
 SELECT CAST(julianday('now') - julianday(MAX(created_at)) AS INTEGER)
 FROM security_audit_log
 WHERE audit_type IN ('5-layer','bootstrap_baseline');
-" 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ')
+" 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ' || true)
 
-STALENESS_DAYS="${STALENESS_DAYS:-99}"   # treat missing as very stale
+STALENESS_DAYS="${STALENESS_DAYS:-99}"   # treat missing/unreachable as very stale (fail-safe)
 
 echo "[cso-weekly-audit] days since last 5-layer/bootstrap audit: ${STALENESS_DAYS}"
 
@@ -67,21 +67,26 @@ if [[ "$STALENESS_DAYS" -le 7 ]]; then
   exit 0
 fi
 
-# ── Audit is stale — write inbound_queue entry for CSO ──────────────────────
+# ── Audit is stale — escalate to CoS via the messages queue ─────────────────
+# `messages` is the internal agent-to-agent escalation channel (type='escalation',
+# priority, notify_ceo). `inbound_queue` is NOT used: it is the counterparty
+# inbound queue and requires a NOT NULL counterparty_id — there is no
+# counterparty for an audit-cadence alert.
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
 turso db shell "$TURSO_URL" "
-INSERT INTO inbound_queue (agent_owner, priority, status, subject, body, created_at)
+INSERT INTO messages (from_agent, to_agent, type, content, priority, notify_ceo, created_at)
 VALUES (
-  'cso',
+  'cso-weekly-audit',
+  'cos',
+  'escalation',
+  'CSO 5-layer audit overdue (${STALENESS_DAYS}d stale): the weekly CSO security audit has not run in ${STALENESS_DAYS} days (threshold: 7d). Dispatch the CSO 5-layer audit from the main thread (Task subagent_type=cso) per JUVANT_OS.md §9.7. Source: cso-weekly-audit.sh scheduled helper.',
   'critical',
-  'pending',
-  'CSO 5-layer audit overdue (${STALENESS_DAYS}d stale)',
-  'The weekly CSO 5-layer security audit has not run in ${STALENESS_DAYS} days (threshold: 7d). Dispatch via Task(subagent_type=''cso'', ...) per JUVANT_OS.md §9.7. Source: cso-weekly-audit.sh scheduled helper.',
+  1,
   '${NOW}'
 );
-" 2>/dev/null || echo "[cso-weekly-audit] WARN: failed to write inbound_queue row" >&2
+" 2>/dev/null || echo "[cso-weekly-audit] WARN: failed to write messages escalation row" >&2
 
-echo "[cso-weekly-audit] ALERT: audit stale (${STALENESS_DAYS}d) — inbound_queue row written for cso"
+echo "[cso-weekly-audit] ALERT: audit stale (${STALENESS_DAYS}d) — messages escalation row written for cos (notify_ceo=1)"
 
 # ── Teams notification ───────────────────────────────────────────────────────
 if [[ -z "$TEAMS_URL" ]]; then
@@ -116,7 +121,7 @@ CARD=$(jq -n \
       },
       {
         "type": "TextBlock",
-        "text": ("The CSO 5-layer security audit has not run in " + $days + " days (threshold: 7d). Action required: open a Claude Code session and dispatch the CSO audit via Atlas → Shield."),
+        "text": ("The CSO 5-layer security audit has not run in " + $days + " days (threshold: 7d). Action required: open a Claude Code session and dispatch the CSO audit via CoS → CSO."),
         "wrap": true,
         "spacing": "Medium"
       },

@@ -98,7 +98,7 @@ AUDIT_STALENESS_DAYS=$(turso db shell "$TURSO_URL" "
 SELECT CAST(julianday('now') - julianday(MAX(created_at)) AS INTEGER)
 FROM security_audit_log
 WHERE audit_type IN ('5-layer','bootstrap_baseline');
-" 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ')
+" 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ' || true)
 AUDIT_STALENESS_DAYS="${AUDIT_STALENESS_DAYS:-99}"
 
 # ─── Helpers
@@ -242,7 +242,7 @@ if [[ "$AUDIT_STALENESS_DAYS" -gt 7 ]]; then
       {"type":"TextBlock","text":"Security audit overdue","size":"Small","weight":"Bolder","color":"Attention","separator":true,"spacing":"Medium"},
       {"type":"FactSet","facts":[
         {"title":"Days since last 5-layer audit","value":($days + "d (threshold: 7d)")},
-        {"title":"Action","value":"Dispatch CSO audit via Atlas → Shield"}
+        {"title":"Action","value":"Dispatch CSO audit via CoS → CSO"}
       ]}
     ]')
 fi
