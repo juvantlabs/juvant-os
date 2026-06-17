@@ -93,6 +93,14 @@ WHERE status='denied' AND started_at > '$SINCE'
 GROUP BY agent, deny_reason ORDER BY COUNT(*) DESC;
 " 2>/dev/null | awk 'NR > 1' || true)
 
+# ─── CSO audit staleness (fail-safe: surface in brief when last full audit is stale)
+AUDIT_STALENESS_DAYS=$(turso db shell "$TURSO_URL" "
+SELECT CAST(julianday('now') - julianday(MAX(created_at)) AS INTEGER)
+FROM security_audit_log
+WHERE audit_type IN ('5-layer','bootstrap_baseline');
+" 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ')
+AUDIT_STALENESS_DAYS="${AUDIT_STALENESS_DAYS:-99}"
+
 # ─── Helpers
 
 trim() { echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
@@ -223,6 +231,19 @@ if [[ -n "$KILLSWITCH_RAW" ]]; then
     '. + [
       {"type":"TextBlock","text":"🔴 Kill switch ACTIVE","size":"Small","weight":"Bolder","color":"Attention","separator":true,"spacing":"Medium"},
       {"type":"FactSet","facts":[{"title":"Reason","value":$reason},{"title":"Set at","value":$set_at}]}
+    ]')
+fi
+
+# ─── CSO audit staleness warning (only when >7d stale)
+if [[ "$AUDIT_STALENESS_DAYS" -gt 7 ]]; then
+  BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
+    --arg days "$AUDIT_STALENESS_DAYS" \
+    '. + [
+      {"type":"TextBlock","text":"Security audit overdue","size":"Small","weight":"Bolder","color":"Attention","separator":true,"spacing":"Medium"},
+      {"type":"FactSet","facts":[
+        {"title":"Days since last 5-layer audit","value":($days + "d (threshold: 7d)")},
+        {"title":"Action","value":"Dispatch CSO audit via Atlas → Shield"}
+      ]}
     ]')
 fi
 
