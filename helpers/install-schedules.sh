@@ -4,9 +4,11 @@
 # guardrail helpers per handbook ADR 0004 Track 3 + Track 4.
 #
 # Schedules:
-#   helpers/turso-backup.sh     — daily 03:00
-#   helpers/audit-reconcile.sh  — weekly Saturday 03:00
-#   helpers/anomaly-check.sh    — every 15 min
+#   helpers/turso-backup.sh         — daily 03:00
+#   helpers/audit-reconcile.sh      — weekly Saturday 03:00
+#   helpers/anomaly-check.sh        — every 15 min
+#   helpers/morning-brief.sh        — daily 08:00
+#   helpers/cso-weekly-audit.sh     — weekly Sunday 22:00
 #
 # Idempotent: re-running replaces existing plists / cron entries
 # under the well-known JUVANT prefix. Does NOT touch unrelated
@@ -186,18 +188,47 @@ PLIST
 </plist>
 PLIST
 
+        # CSO weekly audit cadence — Sunday 22:00 local
+        cat > "$LAUNCHD_DIR/${PREFIX}.cso-weekly-audit.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.cso-weekly-audit</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${REPO_ROOT}/helpers/cso-weekly-audit.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>0</integer>
+    <key>Hour</key><integer>22</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/cso-weekly-audit.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/cso-weekly-audit.err</string>
+</dict>
+</plist>
+PLIST
+
         mkdir -p "${REPO_ROOT}/.juvant/logs"
 
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed (5 jobs)."
+        echo "[install-schedules] OK — Mac launchd schedules installed (6 jobs)."
         ;;
 
       uninstall|--uninstall)
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
@@ -226,11 +257,12 @@ PLIST
 0 4 1 * *    /bin/bash ${REPO_ROOT}/scripts/governance-backfill.sh --dry-run --all >> ${REPO_ROOT}/.juvant/logs/governance-backfill.log 2>&1 $CRON_TAG
 */15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh      >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1         $CRON_TAG
 0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh      >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1         $CRON_TAG
+0 22 * * 0   /bin/bash ${REPO_ROOT}/helpers/cso-weekly-audit.sh   >> ${REPO_ROOT}/.juvant/logs/cso-weekly-audit.log 2>&1      $CRON_TAG
 CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
         rm -f "$TMP"
-        echo "[install-schedules] OK — Linux cron entries installed (3 jobs tagged $CRON_TAG)."
+        echo "[install-schedules] OK — Linux cron entries installed (6 jobs tagged $CRON_TAG)."
         ;;
 
       uninstall|--uninstall)
@@ -267,11 +299,11 @@ If you must stay on Git Bash (no WSL), you can manually create
 Windows Task Scheduler entries pointing at:
   - C:\\path\\to\\Git\\bin\\bash.exe
   - $REPO_ROOT/helpers/<helper>.sh
-For each of the 4 helpers (turso-backup daily 03:00,
+For each of the 5 helpers (turso-backup daily 03:00,
 audit-reconcile weekly Sat 03:00, anomaly-check every 15 min,
-morning-brief daily 08:00). The hooks themselves run independently
-of these schedules. fiscal-deadlines.sh is available as an on-demand
-helper but is not scheduled.
+morning-brief daily 08:00, cso-weekly-audit weekly Sun 22:00).
+The hooks themselves run independently of these schedules.
+fiscal-deadlines.sh is available as an on-demand helper but is not scheduled.
 WINMSG
     exit 1
     ;;
