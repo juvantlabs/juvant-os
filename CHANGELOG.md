@@ -11,6 +11,25 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-06-18 — CSO weekly audit cadence
+
+### Added
+
+- **CSO weekly audit cadence** (`helpers/cso-weekly-audit.sh`, FEAT-007) —
+  scheduled Sunday 22:00 (launchd on Mac, cron on Linux). Checks
+  `security_audit_log` for a `5-layer`/`bootstrap_baseline` entry within the
+  last 7 days; if stale, escalates to CoS via a `messages` row
+  (`type='escalation'`, `priority='critical'`, `notify_ceo=1`) so CoS surfaces
+  it at next session start, and posts an AdaptiveCard to the `ops` Teams
+  webhook. Config-driven company name; role-based references (CoS → CSO); no
+  hardcoded agent identifiers.
+- **morning-brief** fail-safe — surfaces a "Security audit overdue" section
+  when the last full audit is >7d old, so the gap is visible even outside a
+  Teams notification window.
+- `helpers/install-schedules.sh` — wires the `cso-weekly-audit` launchd plist
+  (Sunday 22:00) and cron line (`0 22 * * 0`) into the install/uninstall loops
+  (Mac + Linux); job counts and the Windows manual-scheduling note updated.
+
 ## [1.3.1] — 2026-06-17 — Project-subagent sandbox access fix
 
 ### Fixed
