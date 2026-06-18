@@ -11,6 +11,24 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-06-18 — Sibling-repo grants for project subagents
+
+### Added
+
+- **FEAT-049** `scripts/sync-project-globs.sh` — new optional
+  `projects.<slug>.additional_working_trees` config field (list of absolute
+  paths). Sibling repos beyond a project's primary `working_tree` — e.g. a `-pm`
+  planning repo or a docs repo — are now wired into `permissions.allow` and
+  `permissions.additionalDirectories` in the same managed sentinel blocks.
+  Generic (no `-pm`-specific semantics). Closes the BUG-042 residual follow-up
+  (`working_tree` was single-path).
+- **ADR 0019** — model `juvantlabs` as a self-developing project: source-of-truth
+  (dual working tree + release-tag boundary), upstream-sync under §4
+  single-writer, the `program` convention vs a first-class abstraction,
+  bootstrapping-recursion safety, and `labs.juvant.io` placement. Conclusion: no
+  framework code/template change required; the existing project model already
+  supports it.
+
 ## [1.4.0] — 2026-06-18 — CSO weekly audit cadence
 
 ### Added
