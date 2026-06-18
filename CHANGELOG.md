@@ -51,9 +51,9 @@ All written artifacts in English. No exceptions.
   to a JSONC-tolerant pre-pass (stdlib-only: strip `//` line comments
   outside strings + trailing commas, then strict parse).
 - **`scripts/audit-bootstrap-baseline.sh`** Layer 4 — CI-trigger check
-  inspected only `lint.yml` and only for a push-to-main trigger; per
-  CCS-7 some workflows are legitimately `workflow_dispatch`-only and
-  the real PR gate may live in any `.github/workflows/*.yml`. Now scans
+  inspected only `lint.yml` and only for a push-to-main trigger; but
+  some workflows are legitimately `workflow_dispatch`-only and the real
+  PR gate may live in any `.github/workflows/*.yml`. Now scans
   all workflows for any `pull_request` / `pull_request_target` trigger
   before flagging CI as incomplete.
 

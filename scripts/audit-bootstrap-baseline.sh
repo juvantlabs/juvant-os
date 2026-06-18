@@ -305,7 +305,7 @@ PYEOF
 
 audit_layer_4_code() {
   # CI PR-gate detection. Pre-fix the check inspected only lint.yml and
-  # only for a push-to-main trigger; per CCS-7 some workflows are
+  # only for a push-to-main trigger; but some workflows are
   # legitimately workflow_dispatch-only (e.g. lint.yml in repos that
   # gate via a different workflow), and the real PR gate may live in
   # any .github/workflows/*.yml. Scan ALL workflows for a `pull_request`
