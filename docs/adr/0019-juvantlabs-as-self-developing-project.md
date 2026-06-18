@@ -25,12 +25,15 @@ Two facts shape the mechanics:
    collapses the clean upstream/downstream split that the OSS template model
    relies on.
 
-2. **Writer correction.** In this instance `eng-platform` has **never** written
-   to `juvantlabs/*` repos — its only `juvant-os` interaction has been opening
-   upstream PRs from the instance. This contradicts `agents/company/eng-platform.md`,
-   which still claims `eng-platform` is the sole writer for "company-level repos
-   (template fork)" and "npm canonical-helper publication." That description
-   must be reconciled (see Consequences).
+2. **Writer placement (already correct).** `eng-platform` has **never** written
+   to canonical `juvantlabs/*` repos, and the framework template already accounts
+   for this: `agents/company/eng-platform.md` states "PROJECT repos are READ-ONLY
+   (project Eng Lead is sole writer at project scope)". Since `juvant-os`, `engram`,
+   the MCP servers, etc. are repos **of the juvantlabs project**, their writer is
+   the juvantlabs Eng Lead — by the existing §4 rule, with no template change.
+   `eng-platform`'s "company-level repos (template fork)" = the instance's **local
+   operational mirror** (the fork it consumes), not canonical upstream — which it
+   only ever proposes to via PR. No reconciliation of `eng-platform.md` is needed.
 
 The single load-bearing idea this ADR introduces: **the canonical GitHub repo
 `juvantlabs/juvant-os` is the one source of truth, and the `juvant` instance
@@ -67,22 +70,30 @@ apply whitelist). Mirror-push / sync to *other* per-company instances continues
 to originate from canonical `juvantlabs/juvant-os` **unchanged**; Juvant's
 dev-home status is invisible to other adopters, who see only canonical releases.
 
-**Producer side: changes, but reuses existing mechanisms.** A framework-worthy
-change discovered in company-scope operation now flows:
+**Producer side: entirely within the juvantlabs project.** A framework-worthy
+change discovered while operating the instance flows:
 
-1. `eng-platform` (company scope) **proposes** — surfaces the finding via a
-   `messages`/escalation to CoS. It does **not** author the change and does
-   **not** open the PR.
-2. The **juvantlabs project** (PCA / Eng Lead) **authors a `pr-spec`** in the
-   `project-juvantlabs` DB. Authorship stays in the project scope — this
-   preserves §4d (a company-scope agent must not author project-scoped rows).
-3. The **juvantlabs Eng Lead** (sole §4 writer for `juvantlabs/*`) **implements
-   and merges** into `juvant-os`, cuts a release.
+1. The operator (CEO) notices it and engages the **juvantlabs project**
+   directly. `eng-platform` is **not** involved — it knows nothing about PRs and
+   has no role in framework contributions; it participates only when the change
+   is an infra modification (IaC / cloud control plane).
+2. The **juvantlabs Product Lead** authors the `pr-spec`; the **juvantlabs Eng
+   Lead** (sole §4 writer for `juvantlabs/*`) implements and merges into
+   `juvant-os`, runs the batch testco if warranted, and cuts the tag.
+3. The change is now in canonical `juvantlabs/juvant-os`.
 
-Proposer ≠ writer across scopes is handled by the **existing** spec-routing
-pattern; no new spec class is required. The `juvant` instance then becomes the
-**first dogfood consumer** of its own release (dev → tag → `juv-upstream-sync`
-into the operational mirror). `juv-upstream-sync` itself needs **no change**.
+All of this stays in **project scope** (Product Lead authors the spec, Eng Lead
+writes) — no cross-scope authorship, no new spec class, no company-scope agent
+in the path.
+
+**Then, separately and at company scope:** the operator / CoS runs
+`juv-upstream-sync` — a **company-scope** operation — to pull the freshly-tagged
+release into the instance's operational mirror. The `juvant` instance is thus
+the first dogfood consumer of its own release. This producer (project / Eng
+Lead, at the tag) ↔ consumer (company / operator, at the sync) **scope split is
+itself the anti-recursion barrier** (Q4): the dev checkout never reaches the
+running instance except through a released tag the operator deliberately syncs.
+`juv-upstream-sync` itself needs **no change**.
 
 ### Q3 — Program abstraction
 
@@ -146,23 +157,20 @@ program label) populated. Do not give it its own project.
 
 - One source of truth (`juvantlabs/juvant-os`), zero new sync machinery; the
   consumer path and other adopters are untouched.
-- The producer path reuses `pr-spec` + §4d authorship; the recursion is made
-  safe by boundaries that already exist.
+- The producer path is entirely project-scope (Product Lead authors the spec,
+  Eng Lead writes) and reuses `pr-spec`; the recursion is made safe by boundaries
+  that already exist. `eng-platform` is not in the path.
 - Juvant dogfoods its own framework releases as the first consumer — fast
   feedback on real adopter pain.
+- **No `eng-platform.md` change** — the existing "project repos READ-ONLY,
+  project Eng Lead is sole writer" already places `juvant-os`-as-a-project-repo
+  correctly. (An earlier draft of this ADR wrongly proposed reconciling it.)
 
-**Negative / required follow-up**
+**Negative / follow-up (optional docs only)**
 
-- **`agents/company/eng-platform.md` must be reconciled** (and recompiled). The
-  canonical `juvantlabs/*` OSS repos — `juvant-os`, `engram`, MCP servers,
-  canonical-helper **source** repos, and **npm publication** of those packages —
-  move to the **juvantlabs project Eng Lead** (sole §4 writer for `juvantlabs/*`).
-  `eng-platform` remains sole writer for the **company instance's own** infra,
-  cloud control plane, and the **operational framework mirror** (the consuming
-  fork). "template fork" in its description = the instance's operational fork,
-  **not** canonical upstream. This narrows eng-platform's GitHub/npm write scope.
-- `JUVANT_OS.md` project-setup gains a note on the dual working-tree rule (Q1)
-  and the `program` convention field (Q3).
+- `JUVANT_OS.md` project-setup **may** gain a generic note on the dual
+  working-tree rule (Q1) and the `program` convention field (Q3) — no agent or
+  instance names; purely the generic pattern. Not required for execution.
 
 **Neutral**
 
@@ -172,16 +180,24 @@ program label) populated. Do not give it its own project.
 
 ## Implementation checklist (for the framework)
 
-- [ ] Edit `agents/company/eng-platform.md`: narrow GitHub/npm write scope to
-      the instance's own infra + operational mirror; canonical `juvantlabs/*`
-      and npm publication → juvantlabs project Eng Lead. Recompile.
-- [ ] `JUVANT_OS.md` project-setup: document the dual working-tree rule and the
-      `program` field convention.
-- [ ] Optionally surface `program` in the project config schema doc.
+There is **no required framework code/template change** — the existing project
+model, §4 single-writer, and `juv-upstream-sync` already support everything in
+Q1–Q5. Optional, generic-only docs:
 
-The downstream CTO can execute `project-init` for `juvantlabs` immediately on
-the strength of Q1/Q4/Q5; the producer-path wiring (Q2) and the eng-platform
-reconciliation are framework-side and tracked above.
+- [ ] (optional) `JUVANT_OS.md` project-setup: a generic note on the dual
+      working-tree rule (Q1) and the `program` field convention (Q3) — no agent
+      or instance names.
+
+The downstream CTO can execute `project-init` for `juvantlabs` immediately. The
+producer path (Q2) is ordinary project-scope work (Product Lead authors spec →
+Eng Lead writes/tags); the consumer path (`juv-upstream-sync`) is unchanged
+company-scope.
+
+> Related but out of scope: running **multiple concurrent Claude Code sessions**
+> across projects (e.g. two projects at once) is a separate, larger piece of
+> work — tracked in FEAT-048. Today's model assumes a single active session /
+> single global `active_project`; do not attempt concurrent full instances
+> before FEAT-048 lands.
 
 ## Cross-references
 
