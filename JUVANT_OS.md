@@ -4292,6 +4292,7 @@ hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
 scripts/sync-project-globs.sh scripts/governance-backfill.sh
+scripts/seed-matrix.sh        scripts/templates/v0-agent-tool-matrix.json
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md
@@ -4303,8 +4304,8 @@ scripts/templates/commands/juv-add-project.md
 .claude/commands/juv-init-company.md
 .claude/commands/juv-add-project.md
 JUVANT_OS.md                  SYSTEM_INVARIANTS.md
-CHANGELOG.md                  docs/MCP_INVENTORY.md
-docs/branch-protection-spec.md
+CHANGELOG.md                  VERSION
+docs/MCP_INVENTORY.md         docs/branch-protection-spec.md
 agents/projects/*.md
 ```
 
