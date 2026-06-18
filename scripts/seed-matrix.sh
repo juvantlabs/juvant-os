@@ -90,6 +90,33 @@ else
   EXPECTED=$(jq '.rows | length' "$TEMPLATE")
 fi
 
+# Resolve the abstract `cloud:write` MCP entry on eng-platform's row per
+# `feature_toggles.cloud_provider` ∈ {azure, aws, gcp, none}. The canonical
+# template's _doc field declares: "with cloud_provider=none the cloud:write
+# entry is dropped from eng-platform's row." Pre-fix the script did not
+# honor that contract — every adopter (including cloud_provider=none) seeded
+# eng-platform with `cloud:write`, granting cloud-mutation authority to an
+# agent on a single-Mac local-only setup that has no cloud control plane.
+# Security incident class: framework bug enabling unauthorized agent cloud
+# writes (e.g. `az ad app create`). Root-cause fix.
+#
+# Resolution rules (company scope only — project-scope rows have no
+# cloud:write entry today, so the filter is a no-op for --project runs):
+#   cloud_provider=none → drop the literal "cloud:write" entry
+#   cloud_provider=azure|aws|gcp → keep "cloud:write" (downstream MCP
+#     binding resolves the concrete server in .claude/settings.json)
+#   cloud_provider missing → default to "none" (safe default, matches the
+#     wizard's principle that absent toggles are treated as off)
+CLOUD_PROVIDER=$(jq -r '.feature_toggles.cloud_provider // "none"' "$CONFIG")
+case "$CLOUD_PROVIDER" in
+  azure|aws|gcp) DROP_CLOUD_WRITE=0 ;;
+  none|"")       DROP_CLOUD_WRITE=1 ;;
+  *)
+    echo "ERROR: feature_toggles.cloud_provider='$CLOUD_PROVIDER' not in {azure,aws,gcp,none}." >&2
+    exit 1
+    ;;
+esac
+
 # Refuse to overwrite a populated matrix unless --force.
 existing=$(juvant_db_query "SELECT COUNT(*) FROM agent_tool_matrix;" 2>/dev/null | tail -1)
 existing="${existing:-0}"
@@ -119,6 +146,20 @@ if [[ -n "$PROJECT_SLUG" ]]; then
   ROWS_JSON=$(jq --argjson roles "$ROLE_FILTER" '[.rows[] | select(.role as $r | $roles | index($r) != null)]' "$TEMPLATE")
 else
   ROWS_JSON=$(jq '.rows' "$TEMPLATE")
+fi
+
+# Apply cloud_provider=none drop to eng-platform's row (company scope only).
+# Targets the literal string "cloud:write" inside mcp_servers; preserves
+# every other entry. No-op for project-scope runs (eng-platform is company-
+# scope and would not be in the filtered rows anyway).
+if [[ "$DROP_CLOUD_WRITE" == "1" && -z "$PROJECT_SLUG" ]]; then
+  ROWS_JSON=$(echo "$ROWS_JSON" | jq '
+    map(
+      if .role == "eng-platform" then
+        .mcp_servers |= map(select(. != "cloud:write"))
+      else . end
+    )
+  ')
 fi
 ROW_COUNT=$(echo "$ROWS_JSON" | jq 'length')
 

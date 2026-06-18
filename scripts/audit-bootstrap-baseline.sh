@@ -252,12 +252,49 @@ audit_layer_3_network() {
       "mcp-config-invalid"
   fi
 
-  if python3 -c "import json; json.load(open('$ROOT/.claude/settings.json'))" 2>/dev/null; then
+  # .claude/settings.json is JSONC (line comments + trailing commas
+  # permitted by Claude Code's loader). Strict json.load produces false
+  # FAILs on every adopter who legitimately commented their settings
+  # block. Use a JSONC-tolerant pre-pass: strip `//` line comments
+  # (outside strings) and trailing commas, then attempt strict parse.
+  # Stdlib-only (no node/json5 dependency).
+  if python3 - "$ROOT/.claude/settings.json" <<'PYEOF' 2>/dev/null; then
+import json, re, sys
+path = sys.argv[1]
+with open(path) as fp:
+    src = fp.read()
+# Strip // line comments, but only when '//' is not inside a string.
+out = []
+i, n = 0, len(src)
+in_str = False
+str_ch = ""
+while i < n:
+    c = src[i]
+    if in_str:
+        out.append(c)
+        if c == "\\" and i + 1 < n:
+            out.append(src[i + 1]); i += 2; continue
+        if c == str_ch:
+            in_str = False
+        i += 1; continue
+    if c in ('"', "'"):
+        in_str = True; str_ch = c; out.append(c); i += 1; continue
+    if c == "/" and i + 1 < n and src[i + 1] == "/":
+        # consume to end of line
+        while i < n and src[i] != "\n":
+            i += 1
+        continue
+    out.append(c); i += 1
+stripped = "".join(out)
+# Strip trailing commas before } or ]
+stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)
+json.loads(stripped)
+PYEOF
     emit "network" "info" \
-      ".claude/settings.json valid JSON; hook + permission registration coherent."
+      ".claude/settings.json valid JSONC (line comments + trailing commas tolerated); hook + permission registration coherent."
   else
     emit "network" "high" \
-      ".claude/settings.json invalid JSON." \
+      ".claude/settings.json invalid JSONC." \
       "settings-invalid"
   fi
 }
@@ -267,18 +304,35 @@ audit_layer_3_network() {
 # ─────────────────────────────────────────────
 
 audit_layer_4_code() {
-  local lint_yml="$ROOT/.github/workflows/lint.yml"
-  if [[ -f "$lint_yml" ]]; then
-    if grep -q "branches.*main" "$lint_yml"; then
-      emit "code" "info" "CI workflow .github/workflows/lint.yml triggers on push to main."
+  # CI PR-gate detection. Pre-fix the check inspected only lint.yml and
+  # only for a push-to-main trigger; but some workflows are
+  # legitimately workflow_dispatch-only (e.g. lint.yml in repos that
+  # gate via a different workflow), and the real PR gate may live in
+  # any .github/workflows/*.yml. Scan ALL workflows for a `pull_request`
+  # trigger; flag CI as incomplete only when none has one.
+  local workflows_dir="$ROOT/.github/workflows"
+  if [[ -d "$workflows_dir" ]]; then
+    local pr_trigger_files=""
+    local wf
+    for wf in "$workflows_dir"/*.yml "$workflows_dir"/*.yaml; do
+      [[ -f "$wf" ]] || continue
+      # Match `pull_request:` or `pull_request_target:` at trigger level
+      # (line starts with optional indent, then the key, then `:`).
+      if grep -qE '^[[:space:]]*pull_request(_target)?[[:space:]]*:' "$wf"; then
+        pr_trigger_files="$pr_trigger_files $(basename "$wf")"
+      fi
+    done
+    if [[ -n "$pr_trigger_files" ]]; then
+      emit "code" "info" \
+        "CI PR gate present: workflow(s)${pr_trigger_files} trigger on pull_request."
     else
       emit "code" "medium" \
-        "CI workflow exists but main-branch trigger not detected." \
+        "No .github/workflows/*.yml file declares a pull_request trigger — PRs are not gated by CI." \
         "ci-trigger-incomplete"
     fi
   else
     emit "code" "high" \
-      ".github/workflows/lint.yml missing — no CI gating on PRs." \
+      ".github/workflows/ missing — no CI gating on PRs." \
       "ci-missing"
   fi
 

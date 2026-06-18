@@ -11,6 +11,52 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-06-18 — Seed-matrix cloud_provider drop + R3 hook blocklist + audit-script false-positives
+
+### Security
+
+- **`scripts/seed-matrix.sh`** — honor `feature_toggles.cloud_provider`
+  when seeding the v0 `agent_tool_matrix`. The canonical template
+  (`scripts/templates/v0-agent-tool-matrix.json`) `_doc` field declares:
+  "with cloud_provider=none the cloud:write entry is dropped from
+  eng-platform's row." Pre-fix the script did not honor that contract —
+  every adopter (including `cloud_provider=none` single-Mac local-only
+  setups) seeded eng-platform with `cloud:write`, granting cloud-mutation
+  authority to an agent on an instance with no cloud control plane.
+  Resolution rules: `cloud_provider ∈ {azure,aws,gcp}` → keep
+  `cloud:write`; `cloud_provider=none` (default when absent) → drop.
+  Class of bug: tool-matrix / seed drift enabling unauthorized agent
+  cloud writes. Root-cause fix for the security-incident class where an
+  agent in spec-only mode performed live `az` writes against a control
+  plane it had no business addressing.
+- **`hooks/bash-policy.json` + `hooks/pre-tool-use.sh`** — R3 defense-
+  in-depth. New `agent_role_deny_patterns` field deny cloud-mutating CLI
+  commands (`az` + write verbs; `aws` + write verbs; `gcloud` + write
+  verbs; `terraform apply|destroy|import|state|taint|untaint|force-unlock|
+  workspace new|workspace delete`) for any real agent role. Read-only
+  invocations (`az ... show|list|account|version|help`,
+  `terraform fmt|validate|plan|init|workspace|providers|version`)
+  continue to pass. CEO/operator path (ROLE in {unknown, ceo, operator})
+  is exempt — the human at the keyboard is exercising direct authority.
+  Cloud mutations must only ever flow through the CEO-triggered
+  `terraform-apply` GitHub workflow (gated by Track 4 deployment-spec /
+  eng-platform-spec), never via local CLI from an agent.
+
+### Fixed
+
+- **`scripts/audit-bootstrap-baseline.sh`** Layer 3 — `.claude/settings.json`
+  is JSONC (line comments + trailing commas tolerated by Claude Code's
+  loader). Strict `python3 json.load` produced false `FAIL` verdicts on
+  every adopter who legitimately commented their settings block. Switch
+  to a JSONC-tolerant pre-pass (stdlib-only: strip `//` line comments
+  outside strings + trailing commas, then strict parse).
+- **`scripts/audit-bootstrap-baseline.sh`** Layer 4 — CI-trigger check
+  inspected only `lint.yml` and only for a push-to-main trigger; but
+  some workflows are legitimately `workflow_dispatch`-only and the real
+  PR gate may live in any `.github/workflows/*.yml`. Now scans
+  all workflows for any `pull_request` / `pull_request_target` trigger
+  before flagging CI as incomplete.
+
 ## [1.5.0] — 2026-06-18 — Sibling-repo grants for project subagents
 
 ### Added

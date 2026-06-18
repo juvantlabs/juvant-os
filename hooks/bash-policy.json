@@ -44,6 +44,15 @@
     "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
   ],
 
+  "_agent_role_deny_comment": "R3 defense-in-depth (security incident class: framework-bug-enabled agent cloud-writes). These patterns deny cloud-mutating CLI commands for any agent role (cos, cfo, …, eng-platform, pca, eng-lead, …). The CEO/operator path (ROLE in {unknown, ceo, operator}, i.e. main thread without a subagent dispatch) is exempt — the human at the keyboard is exercising direct authority. Read-only invocations are NOT blocked: 'az ... show|list|account|version|help', 'terraform fmt|validate|plan|init|workspace|providers|version' continue to pass. Cloud mutations MUST only ever happen via the CEO-triggered terraform-apply GitHub workflow (deployment-spec / eng-platform-spec gated by Track 4), never via local CLI from an agent. Patterns are deliberately verb-explicit (vs negative lookahead, which ERE does not support); the universe of mutating verbs is open-ended but the high-risk ones are well-known and additions are cheap.",
+
+  "agent_role_deny_patterns": [
+    "(^|[^a-zA-Z])az[[:space:]]+([a-z-]+[[:space:]]+)*(create|delete|update|set|add|remove|assign|grant|revoke|login|logout|configure|upgrade|install|uninstall|start|stop|restart|reset|rotate|regenerate|enable|disable|purge|destroy|import|export|deploy|rename|move|tag|untag|cancel|approve|reject|publish|unpublish|invoke|exec)([[:space:]]|$)",
+    "(^|[^a-zA-Z])terraform[[:space:]]+(apply|destroy|import|state|taint|untaint|workspace[[:space:]]+(new|delete)|force-unlock)([[:space:]]|$)",
+    "(^|[^a-zA-Z])aws[[:space:]]+([a-z0-9-]+[[:space:]]+)*(create|delete|update|put|attach|detach|associate|disassociate|register|deregister|run|terminate|reboot|start|stop|modify|tag|untag|set|reset|grant|revoke|publish|invoke|import|deploy|cp|mv|sync|rb|rm|copy|remove)[a-z0-9-]*([[:space:]]|$)",
+    "(^|[^a-zA-Z])gcloud[[:space:]]+([a-z-]+[[:space:]]+)*(create|delete|update|set|add|remove|grant|revoke|deploy|enable|disable|start|stop|restart|reset|rotate|import|export|run-tasks)([[:space:]]|$)"
+  ],
+
   "tiers": {
     "read_utils": ["grep", "find", "ls", "cat", "head", "tail", "awk", "sed", "wc", "sort", "uniq", "cut", "tr", "jq"],
     "infra_cli":  ["az", "aws", "gcloud"]
