@@ -11,6 +11,19 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.5.2] — 2026-06-19 — Propagate seed-matrix + VERSION via upstream-sync
+
+### Fixed
+
+- **BUG-043** `JUVANT_OS.md` § Upstream sync — the framework whitelist omitted
+  `scripts/seed-matrix.sh`, so its v1.5.1 security fix (the
+  `cloud_provider=none` `cloud:write` drop) could not propagate to adopters'
+  operational mirrors. Whitelisted `scripts/seed-matrix.sh`, its coupled
+  canonical template `scripts/templates/v0-agent-tool-matrix.json`, and
+  `VERSION` (adopters were otherwise frozen on their init-time framework
+  version). The whitelist lives in `JUVANT_OS.md`, itself whitelisted, so the
+  correction self-propagates on the next sync.
+
 ## [1.5.1] — 2026-06-18 — Seed-matrix cloud_provider drop + R3 hook blocklist + audit-script false-positives
 
 ### Security
