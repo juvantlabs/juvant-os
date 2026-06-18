@@ -198,6 +198,40 @@ out=$(echo "$event_json" | AGENT_ROLE=ghost-role bash "$HOOKS_DIR/pre-tool-use.s
 decision=$(echo "$out" | jq -r '.permissionDecision')
 t_assert "unknown role → deny" "deny" "$decision"
 
+# 5. Agent-role deny (R3 defense-in-depth, v1.5.1+): cloud-mutating verbs
+# blocked for any real agent role even when the binary is in the role's
+# allow-list. eng-platform has `az` in @infra_cli but `az ad app create`
+# is a cloud write — must be denied via agent_role_deny_patterns.
+t_seed_agent "eng-platform" "active"
+event_json='{"tool_name":"Bash","session_id":"sess-pt-5","tool_input":{"command":"az ad app create --display-name foo"}}'
+out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.permissionDecision')
+reason=$(echo "$out" | jq -r '.permissionDecisionReason')
+t_assert "agent role + az write → deny" "deny" "$decision"
+case "$reason" in
+  *"agent-role deny-list match"*) t_assert "agent role + az write → reason cites R3" "ok" "ok" ;;
+  *) t_assert "agent role + az write → reason cites R3" "ok" "got: $reason" ;;
+esac
+
+# 5b. Same role, read-only az — must pass (terraform-apply workflow path
+# is the only legitimate write path; read-only az is fine for spec authors).
+event_json='{"tool_name":"Bash","session_id":"sess-pt-5b","tool_input":{"command":"az account show"}}'
+out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.permissionDecision')
+t_assert "agent role + az read → allow" "allow" "$decision"
+
+# 5c. Same role, terraform plan — read-only, must pass.
+event_json='{"tool_name":"Bash","session_id":"sess-pt-5c","tool_input":{"command":"terraform plan"}}'
+out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.permissionDecision')
+t_assert "agent role + terraform plan → allow" "allow" "$decision"
+
+# 5d. Same role, terraform apply — must be denied via R3.
+event_json='{"tool_name":"Bash","session_id":"sess-pt-5d","tool_input":{"command":"terraform apply -auto-approve"}}'
+out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.permissionDecision')
+t_assert "agent role + terraform apply → deny" "deny" "$decision"
+
 # ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
