@@ -2205,7 +2205,8 @@ config nested under `.db` (symmetric with the company-level `.db`):
       },
       "doc_folder": "/<Company>/04 - Products/<Product Folder>",
       "github_project_number": 1,
-      "working_tree": "/Users/<user>/Projects/<project-slug>"
+      "working_tree": "/Users/<user>/Projects/<project-slug>",
+      "additional_working_trees": ["/Users/<user>/Projects/<project-slug>-pm"]
     }
   }
 }
@@ -2233,6 +2234,13 @@ cwd + `additionalDirectories` + `/tmp`). Without (b), the allow-list silences
 the prompt but subagents are still denied the sibling-repo read at the sandbox
 layer. Value is the absolute path to the local git working tree
 (local-filesystem only — not stored in Turso `projects` table).
+
+The optional `additional_working_trees` field (FEAT-049) is a list of extra
+sibling repo paths to grant alongside `working_tree` — e.g. a `-pm` planning
+repo or a docs repo. Each path is wired into both layers exactly like
+`working_tree`, and `sync-project-globs.sh` manages them in the same sentinel
+blocks. Use it when project subagents must read repos beyond the primary code
+tree.
 
 Run `bash scripts/migrate.sh --project=<slug>` (HARD-REQUIRED) to
 apply `scripts/schema.sql` to the per-project DB, then run

@@ -8,9 +8,10 @@
 # working trees (e.g. /Users/antonio/Projects/hardys/) are denied because
 # the path is outside the relative glob scope.
 #
-# Fix: for each project in .juvant/config.json that has a `working_tree`
-# field, emit absolute Read/Grep/Glob entries in permissions.allow AND add
-# the working-tree path to permissions.additionalDirectories. Both are
+# Fix: for each project in .juvant/config.json, take its `working_tree` plus any
+# `additional_working_trees[]` (e.g. a `-pm` planning repo — FEAT-049) and, for
+# each path, emit absolute Read/Grep/Glob entries in permissions.allow AND add
+# the path to permissions.additionalDirectories. Both are
 # required (BUG-042): the allow-list removes the permission *prompt*, but
 # project subagents run in a filesystem *sandbox* confined to cwd +
 # additionalDirectories + /tmp — without the directory in
@@ -69,9 +70,11 @@ if ! command -v jq &>/dev/null; then
   exit 1
 fi
 
-# Collect working_tree values for all registered projects.
-# A project is eligible if it has a non-empty working_tree field.
-# Uses while-read loop for bash 3.2 compatibility (BUG-031).
+# Collect grant paths for all registered projects: each project's primary
+# `working_tree` PLUS any sibling repos listed in `additional_working_trees`
+# (e.g. a `-pm` planning repo, a docs repo). A project contributes a path if
+# `working_tree` is non-empty and/or `additional_working_trees[]` is set
+# (FEAT-049). Uses while-read loop for bash 3.2 compatibility (BUG-031).
 WORKING_TREES=()
 while IFS= read -r line; do
   WORKING_TREES+=("$line")
@@ -79,7 +82,9 @@ done < <(
   jq -r '
     .projects
     | to_entries[]
-    | .value.working_tree // empty
+    | .value
+    | [ (.working_tree // empty) ] + (.additional_working_trees // [])
+    | .[]
     | select(length > 0)
   ' "$CONFIG" 2>/dev/null || true
 )
