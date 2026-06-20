@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/sync-project-globs.sh
-# FEAT-039 — Auto-extend .claude/settings.json Read/Grep/Glob permission
+# FEAT-039 / FEAT-049 — Auto-extend .claude/settings.json Read/Grep/Glob permission
 # globs to cover registered project working trees.
 #
 # Problem: ** globs in settings.json are evaluated relative to the session
@@ -22,18 +22,42 @@
 #
 # Idempotent — safe to run multiple times.
 #
-# Sentinel-comment approach (BUG-032):
-# The script manages ONLY the content between two sentinel comment lines:
-#   // [sync-project-globs:start]
-#   ...auto-generated entries...
-#   // [sync-project-globs:end]
-# Entries outside the sentinels are never touched. Manually-curated paths,
-# PM repos, and any other absolute-path entries added by hand are preserved.
+# Strict-JSON / state-sidecar approach (BUG-044, supersedes BUG-032 sentinels):
+# Claude Code parses .claude/settings.json as STRICT JSON — no `//` comments,
+# no trailing commas. Earlier revisions of this script wrote JSONC-style
+# sentinel comments (`// [sync-project-globs:start]` / `:end` / `:addir:start` /
+# `:addir:end`) and a trailing comma after every managed entry, which `/doctor`
+# (and any strict-JSON consumer) rejects as "Invalid or malformed JSON". The
+# bet on JSONC tolerance did not hold: the first real sync on a consumer
+# instance broke `.claude/settings.json`.
 #
-# First run on an existing instance (no sentinels present): strips the old
-# absolute-path block (Read/Grep/Glob starting with /) and inserts the
-# sentinel-wrapped block. Any manually-added absolute entries will need to
-# be re-added once after this migration; subsequent runs preserve them.
+# This revision manages auto-entries by **pattern via jq**, not by comment-
+# sentinel text surgery. A small state sidecar tracks the set of working-tree
+# paths previously managed by this script so stale entries get cleaned up
+# when a project is removed:
+#
+#   .juvant/.sync-project-globs.state.json
+#       { "version": 1, "managed_paths": ["/abs/path/one", ...] }
+#
+# Algorithm per run:
+#   1. Compute NEW = working_tree + additional_working_trees[] for every project.
+#   2. Load OLD from the state sidecar (empty if absent).
+#   3. Migration (no sidecar yet): also treat as OLD any absolute path
+#      appearing as Read(/abs/**) / Grep(/abs/**) / Glob(/abs/**) in the
+#      current permissions.allow — these are the entries the pre-BUG-044
+#      script (sentinel or pre-sentinel) installed.
+#   4. REMOVE = OLD ∪ migration-inferred. Drop the corresponding entries
+#      from permissions.allow and the corresponding bare-path entries from
+#      permissions.additionalDirectories.
+#   5. Add NEW entries to both arrays (create additionalDirectories if absent).
+#   6. Dedupe both arrays preserving first-occurrence order — manual entries
+#      stay where the operator put them.
+#   7. Write strict JSON. Write the new state sidecar with NEW.
+#
+# Manual entries (non-absolute globs in allow, absolute paths in
+# additionalDirectories that this script never installed) are preserved
+# untouched — the script only removes paths it tracked itself or inherited
+# from the documented pre-migration shape.
 #
 # Usage:
 #   bash scripts/sync-project-globs.sh [--dry-run]
@@ -49,6 +73,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 CONFIG="$REPO_ROOT/.juvant/config.json"
 SETTINGS="$REPO_ROOT/.claude/settings.json"
+STATE="$REPO_ROOT/.juvant/.sync-project-globs.state.json"
 DRY_RUN=0
 
 for arg in "$@"; do
@@ -70,14 +95,12 @@ if ! command -v jq &>/dev/null; then
   exit 1
 fi
 
-# Collect grant paths for all registered projects: each project's primary
-# `working_tree` PLUS any sibling repos listed in `additional_working_trees`
-# (e.g. a `-pm` planning repo, a docs repo). A project contributes a path if
-# `working_tree` is non-empty and/or `additional_working_trees[]` is set
-# (FEAT-049). Uses while-read loop for bash 3.2 compatibility (BUG-031).
-WORKING_TREES=()
+# ── Step 1: collect NEW set of working-tree paths from config ─────────────
+# Each project contributes: working_tree (if non-empty) + additional_working_trees[].
+# Uses while-read loop for bash 3.2 compatibility (BUG-031).
+NEW_PATHS=()
 while IFS= read -r line; do
-  WORKING_TREES+=("$line")
+  NEW_PATHS+=("$line")
 done < <(
   jq -r '
     .projects
@@ -89,160 +112,124 @@ done < <(
   ' "$CONFIG" 2>/dev/null || true
 )
 
-if [[ "${#WORKING_TREES[@]}" -eq 0 ]]; then
+if [[ "${#NEW_PATHS[@]}" -eq 0 ]]; then
   echo "[sync-project-globs] no projects with working_tree configured — nothing to add"
-  exit 0
+  # Still proceed: the operator may have just removed the last project, in
+  # which case we should still strip previously-managed entries from settings.
 fi
 
-echo "[sync-project-globs] found ${#WORKING_TREES[@]} project working tree(s):"
-for wt in "${WORKING_TREES[@]}"; do
-  echo "  $wt"
-done
+if [[ "${#NEW_PATHS[@]}" -gt 0 ]]; then
+  echo "[sync-project-globs] found ${#NEW_PATHS[@]} project working tree(s):"
+  for wt in "${NEW_PATHS[@]}"; do
+    echo "  $wt"
+  done
+fi
 
-# Build two JSON arrays:
-#   GLOBS — Read/Grep/Glob allow-list entries. Removes the permission *prompt*.
-#   DIRS  — bare working-tree paths for permissions.additionalDirectories.
-#           Extends the harness filesystem *sandbox* (project subagents run
-#           confined to cwd + additionalDirectories + /tmp). The allow-list
-#           alone is NOT sufficient: it silences the prompt, but the sandbox
-#           still denies a sibling-repo read for subagents. Both are required
-#           (BUG-042).
-NEW_GLOBS_JSON="[]"
-NEW_DIRS_JSON="[]"
-for wt in "${WORKING_TREES[@]}"; do
-  NEW_GLOBS_JSON=$(jq -n \
-    --argjson existing "$NEW_GLOBS_JSON" \
-    --arg wt "$wt" \
-    '$existing + ["Read(\($wt)/**)", "Grep(\($wt)/**)", "Glob(\($wt)/**)"]'
-  )
-  NEW_DIRS_JSON=$(jq -n \
-    --argjson existing "$NEW_DIRS_JSON" \
-    --arg wt "$wt" \
-    '$existing + [$wt]'
-  )
-done
-PAYLOAD_JSON=$(jq -n --argjson globs "$NEW_GLOBS_JSON" --argjson dirs "$NEW_DIRS_JSON" \
-  '{globs: $globs, dirs: $dirs}')
+# ── Step 2: serialize NEW as a JSON array for jq ──────────────────────────
+# Bash 3.2-safe: `printf` on an empty array still emits a newline, which jq
+# would turn into [""]. Guard the empty case explicitly.
+if [[ "${#NEW_PATHS[@]}" -eq 0 ]]; then
+  NEW_PATHS_JSON='[]'
+else
+  NEW_PATHS_JSON=$(printf '%s\n' "${NEW_PATHS[@]}" | jq -R . | jq -s 'unique')
+fi
 
+# ── Step 3: load OLD set from the state sidecar ───────────────────────────
+if [[ -f "$STATE" ]]; then
+  OLD_PATHS_JSON=$(jq '.managed_paths // []' "$STATE")
+else
+  OLD_PATHS_JSON='[]'
+fi
+
+# ── Step 4: migration — infer prior-script-managed paths from settings ────
+# Any entry in permissions.allow of shape (Read|Grep|Glob)(/abs/**) was
+# installed by an earlier revision of this script (sentinel-era or pre-
+# sentinel). Add their /abs prefix to REMOVE so the migration cleanly
+# rewrites the block without leaving duplicates.
+MIGRATION_PATHS_JSON=$(jq '
+  .permissions.allow // []
+  | map(capture("^(?:Read|Grep|Glob)\\((?<p>/[^)]*)/\\*\\*\\)$"; "x") | .p)
+  | unique
+' "$SETTINGS")
+
+REMOVE_PATHS_JSON=$(jq -n \
+  --argjson old "$OLD_PATHS_JSON" \
+  --argjson mig "$MIGRATION_PATHS_JSON" \
+  '($old + $mig) | unique')
+
+# ── Step 5: dry-run report ────────────────────────────────────────────────
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "[sync-project-globs] DRY RUN — would manage permissions.allow with:"
-  echo "$NEW_GLOBS_JSON" | jq -r '.[]' | sed 's/^/  /'
-  echo "[sync-project-globs] DRY RUN — would manage permissions.additionalDirectories with:"
-  echo "$NEW_DIRS_JSON" | jq -r '.[]' | sed 's/^/  /'
+  echo "[sync-project-globs] DRY RUN — would remove paths previously managed:"
+  echo "$REMOVE_PATHS_JSON" | jq -r '.[]' | sed 's/^/  /'
+  echo "[sync-project-globs] DRY RUN — would add (or re-add) Read/Grep/Glob entries for:"
+  echo "$NEW_PATHS_JSON" | jq -r '.[]' | sed 's/^/  /'
+  echo "[sync-project-globs] DRY RUN — would add (or re-add) additionalDirectories entries for:"
+  echo "$NEW_PATHS_JSON" | jq -r '.[]' | sed 's/^/  /'
   exit 0
 fi
 
-# Apply sentinel-aware text surgery via Python (bash 3.2-safe, no extra deps).
-#
-# Sentinel mode (block already present): replace only the content between
-# // [sync-project-globs:start] and // [sync-project-globs:end].
-#
-# First-run migration mode (no sentinels): strip the old absolute-path
-# Read/Grep/Glob entries, re-serialize, and append the sentinel block.
-UPDATED_SETTINGS=$(python3 - "$SETTINGS" "$PAYLOAD_JSON" <<'PYEOF'
-import json, re, sys
-
-path    = sys.argv[1]
-payload = json.loads(sys.argv[2])
-globs   = payload["globs"]
-dirs    = payload["dirs"]
-
-A_START = "// [sync-project-globs:start]"
-A_END   = "// [sync-project-globs:end]"
-D_START = "// [sync-project-globs:addir:start]"
-D_END   = "// [sync-project-globs:addir:end]"
-
-ENTRY_INDENT = "      "  # 6 spaces: array entries
-KEY_INDENT   = "    "    # 4 spaces: keys under "permissions"
-
-def build_block(start, end, items, indent=ENTRY_INDENT):
-    lines = [f"{indent}{start}"]
-    for e in items:
-        lines.append(f'{indent}"{e}",')
-    lines.append(f"{indent}{end}")
-    return "\n".join(lines)
-
-text = open(path).read()
-
-# ── permissions.allow — Read/Grep/Glob globs (BUG-032 sentinel approach) ──
-if A_START in text and A_END in text:
-    # Sentinel block present — replace only its contents, preserve indent.
-    idx    = text.index(A_START)
-    lstart = text.rfind('\n', 0, idx) + 1
-    indent = text[lstart:idx]
-    pat = re.compile(
-        re.escape(indent) + re.escape(A_START) + r'.*?' + re.escape(indent) + re.escape(A_END),
-        re.DOTALL
+# ── Step 6: transform settings.json via jq (strict JSON in, strict JSON out) ─
+# Notes on the jq program:
+# - `.permissions //= {}` and `.permissions.additionalDirectories //= []`
+#   create the keys if absent, preserving everything else.
+# - For each removed path P we drop:
+#     * any entry in permissions.allow equal to "Read(P/**)" / "Grep(P/**)" / "Glob(P/**)"
+#     * any entry in permissions.additionalDirectories equal to P
+# - We then append the new entries.
+# - `unique_by(.)` would re-sort; instead we use a small reducer to dedupe
+#   while preserving first-occurrence order — manual entries keep their slot.
+UPDATED_SETTINGS=$(jq \
+  --argjson remove "$REMOVE_PATHS_JSON" \
+  --argjson add "$NEW_PATHS_JSON" \
+  '
+  # Build the set of allow-list strings to drop, derived from `remove`.
+  ($remove | map(["Read(\(.)/**)", "Grep(\(.)/**)", "Glob(\(.)/**)"]) | add // []) as $drop_allow
+  | ($add    | map(["Read(\(.)/**)", "Grep(\(.)/**)", "Glob(\(.)/**)"]) | add // []) as $add_allow
+  | .permissions //= {}
+  | .permissions.allow //= []
+  | .permissions.additionalDirectories //= []
+  | .permissions.allow = (
+      (.permissions.allow | map(select(IN($drop_allow[]) | not)))
+      + $add_allow
     )
-    text = pat.sub(build_block(A_START, A_END, globs, indent), text)
-else:
-    # First-run migration: parse as clean JSON, strip old auto-absolute entries,
-    # re-serialize, splice in sentinel block.
-    data  = json.loads(text)
-    allow = data.get("permissions", {}).get("allow", [])
-    kept  = [e for e in allow if not re.match(r'^(Read|Grep|Glob)\(/', str(e))]
-    data.setdefault("permissions", {})["allow"] = kept
-    base  = json.dumps(data, indent=2)
-    new_block = build_block(A_START, A_END, globs)
-    if kept:
-        # Insert ",\n<block>" before the closing "]" of the "allow" array
-        # SPECIFICALLY — not the first "    ]" in the document, which may be
-        # a preceding array (e.g. additionalDirectories) (BUG-042).
-        am      = re.search(r'"allow"\s*:\s*\[', base)
-        a_close = base.index('\n    ]', am.end() - 1)
-        text    = base[:a_close] + ',\n' + new_block + base[a_close:]
-    else:
-        # Empty allow array: replace [] with [\n<block>\n    ].
-        text = re.sub(
-            r'"allow":\s*\[\s*\]',
-            '"allow": [\n' + new_block + '\n    ]',
-            base, count=1
-        )
-
-# ── permissions.additionalDirectories — sandbox extension (BUG-042) ──
-# Pure text surgery (comment-safe): this runs after the allow block above,
-# whose // sentinel comments make the file invalid strict JSON, so we must
-# never re-parse here.
-if D_START in text and D_END in text:
-    idx    = text.index(D_START)
-    lstart = text.rfind('\n', 0, idx) + 1
-    indent = text[lstart:idx]
-    pat = re.compile(
-        re.escape(indent) + re.escape(D_START) + r'.*?' + re.escape(indent) + re.escape(D_END),
-        re.DOTALL
+  | .permissions.additionalDirectories = (
+      (.permissions.additionalDirectories | map(select(IN($remove[]) | not)))
+      + $add
     )
-    text = pat.sub(build_block(D_START, D_END, dirs, indent), text)
-else:
-    addir_block = build_block(D_START, D_END, dirs)
-    m = re.search(r'"additionalDirectories"\s*:\s*\[', text)
-    if m:
-        # Array exists without our sentinel — splice block in, preserve manual entries.
-        open_idx  = m.end() - 1
-        close_idx = text.index(']', open_idx)
-        inner     = text[open_idx + 1:close_idx]
-        if inner.strip() == "":
-            new_inner = "\n" + addir_block + "\n" + KEY_INDENT
-        else:
-            trimmed   = inner.rstrip()
-            sep       = "" if trimmed.endswith(",") else ","
-            new_inner = trimmed + sep + "\n" + addir_block + "\n" + KEY_INDENT
-        text = text[:open_idx + 1] + new_inner + text[close_idx:]
-    else:
-        # Key absent — create it as the first child of "permissions".
-        pm = re.search(r'"permissions"\s*:\s*\{[ \t]*\n', text)
-        if not pm:
-            sys.stderr.write("[sync-project-globs] FATAL: cannot locate permissions object to add additionalDirectories\n")
-            sys.exit(1)
-        insert = KEY_INDENT + '"additionalDirectories": [\n' + addir_block + '\n' + KEY_INDENT + '],\n'
-        text = text[:pm.end()] + insert + text[pm.end():]
+  # Dedupe both arrays preserving first-occurrence order.
+  | .permissions.allow = (
+      reduce .permissions.allow[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end)
+    )
+  | .permissions.additionalDirectories = (
+      reduce .permissions.additionalDirectories[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end)
+    )
+  ' "$SETTINGS")
 
-print(text, end="")
-PYEOF
-)
+# Validate the jq output is strict JSON before writing — defence in depth.
+if ! echo "$UPDATED_SETTINGS" | jq empty &>/dev/null; then
+  echo "[sync-project-globs] FATAL: jq transform produced invalid JSON — refusing to write" >&2
+  exit 1
+fi
 
-echo "$UPDATED_SETTINGS" > "$SETTINGS"
-echo "[sync-project-globs] updated $SETTINGS (allow + additionalDirectories sentinel blocks)"
-echo "[sync-project-globs] managed permissions.allow:"
-echo "$NEW_GLOBS_JSON" | jq -r '.[]' | sed 's/^/  /'
-echo "[sync-project-globs] managed permissions.additionalDirectories:"
-echo "$NEW_DIRS_JSON" | jq -r '.[]' | sed 's/^/  /'
+# Atomic write: temp file then mv.
+TMP="$SETTINGS.tmp.$$"
+echo "$UPDATED_SETTINGS" > "$TMP"
+mv "$TMP" "$SETTINGS"
+
+# ── Step 7: persist the state sidecar with NEW for the next run ───────────
+mkdir -p "$(dirname "$STATE")"
+STATE_TMP="$STATE.tmp.$$"
+jq -n --argjson paths "$NEW_PATHS_JSON" \
+  '{version: 1, managed_paths: $paths}' > "$STATE_TMP"
+mv "$STATE_TMP" "$STATE"
+
+echo "[sync-project-globs] updated $SETTINGS (strict JSON, pattern-managed entries)"
+if [[ "${#NEW_PATHS[@]}" -gt 0 ]]; then
+  echo "[sync-project-globs] managed permissions.allow entries:"
+  echo "$NEW_PATHS_JSON" | jq -r '.[] | "  Read(\(.)/**)\n  Grep(\(.)/**)\n  Glob(\(.)/**)"'
+  echo "[sync-project-globs] managed permissions.additionalDirectories entries:"
+  echo "$NEW_PATHS_JSON" | jq -r '.[]' | sed 's/^/  /'
+else
+  echo "[sync-project-globs] no working trees configured — any previously-managed entries have been removed"
+fi
+echo "[sync-project-globs] state sidecar: $STATE"
