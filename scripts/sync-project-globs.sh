@@ -5,7 +5,7 @@
 #
 # Problem: ** globs in settings.json are evaluated relative to the session
 # cwd (company root). Subagents that need to Read/Grep/Glob sibling project
-# working trees (e.g. /Users/antonio/Projects/hardys/) are denied because
+# working trees (e.g. /Users/<user>/Projects/<project-slug>/) are denied because
 # the path is outside the relative glob scope.
 #
 # Fix: for each project in .juvant/config.json, take its `working_tree` plus any
