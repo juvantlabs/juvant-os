@@ -2238,9 +2238,11 @@ layer. Value is the absolute path to the local git working tree
 The optional `additional_working_trees` field (FEAT-049) is a list of extra
 sibling repo paths to grant alongside `working_tree` — e.g. a `-pm` planning
 repo or a docs repo. Each path is wired into both layers exactly like
-`working_tree`, and `sync-project-globs.sh` manages them in the same sentinel
-blocks. Use it when project subagents must read repos beyond the primary code
-tree.
+`working_tree`. `sync-project-globs.sh` tracks the set of paths it manages
+in a small state sidecar (`.juvant/.sync-project-globs.state.json`) so a
+removed project's entries get cleaned up on the next run while any
+manually-added entries are preserved (BUG-044). Use `additional_working_trees`
+when project subagents must read repos beyond the primary code tree.
 
 Run `bash scripts/migrate.sh --project=<slug>` (HARD-REQUIRED) to
 apply `scripts/schema.sql` to the per-project DB, then run

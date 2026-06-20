@@ -11,6 +11,31 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **BUG-044** `scripts/sync-project-globs.sh` emitted invalid strict JSON.
+  The BUG-032 sentinel-comment approach wrote JSONC-style markers
+  (`// [sync-project-globs:start]` / `:end` / `:addir:start` / `:addir:end`)
+  and a trailing comma after every managed entry — including the last —
+  producing a trailing comma before the closing `]`. Claude Code parses
+  `.claude/settings.json` as strict JSON (no comments, no trailing commas),
+  so `/doctor` flagged the file as "Invalid or malformed JSON" on the
+  first real sync. The script even self-documented the trap (the BUG-042
+  `additionalDirectories` block was intentionally written via pure text
+  surgery "because the file is no longer valid JSON at this point"). This
+  revision rewrites the script around `jq` end-to-end: auto-managed
+  entries are identified by **pattern** (Read/Grep/Glob with absolute-path
+  globs in `permissions.allow`; the bare path in
+  `permissions.additionalDirectories`), and the set of script-managed
+  paths is persisted to a small sidecar
+  (`.juvant/.sync-project-globs.state.json`) so stale entries get cleaned
+  up when a project is removed from `.juvant/config.json` while any
+  manually-added entries are preserved. Output is strict JSON — validated
+  in-script with `jq empty` before the atomic write. Pre-existing
+  sentinel-broken or pre-sentinel installations are auto-migrated on the
+  next run by a one-shot regex sweep of any leftover absolute-path
+  Read/Grep/Glob entries.
+
 ## [1.5.2] — 2026-06-19 — Propagate seed-matrix + VERSION via upstream-sync
 
 ### Fixed
