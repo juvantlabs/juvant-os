@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.5.3] — 2026-06-20 — sync-project-globs.sh strict-JSON rewrite
+
 ### Fixed
 
 - **BUG-044** `scripts/sync-project-globs.sh` emitted invalid strict JSON.
