@@ -11,6 +11,40 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-06-21 — DB calls off the gating path: hard timeout + async audit spool
+
+### Fixed
+
+- **BUG-046** `hooks/lib/db.sh` DB CLI calls had no timeout while sitting on the
+  tool **gating path**. `turso db shell` is a network call; under Turso latency /
+  token refresh / a dropped socket it hangs forever, so the PreToolUse hook never
+  emits its allow/deny decision → the tool never starts → the subagent produces no
+  output → Claude Code's 600s stream watchdog fires (observed as "stalls" under
+  ~16 parallel subagents). The `|| echo WARN` fail-soft only catches non-zero
+  **exits**, never **hangs**. Worse, `db.sh`'s quiet-by-default `>/dev/null 2>&1`
+  hid the hang (visible-fast-fail → invisible-stall), and stock macOS ships no
+  `timeout`/`gtimeout`. Fix: wrap **every** `turso`/`sqlite3` invocation in a
+  portable hard timeout (`timeout`/`gtimeout`, else a `perl` alarm — the macOS
+  path), default 8s (`JUVANT_DB_TIMEOUT`). Infinite hang → bounded fail-soft.
+
+### Added
+
+- **FEAT-051** Audit-log writes moved off the tool gating path via an async local
+  spool. The allow/deny decision never depends on the Track-3 audit write, yet it
+  was executed inline (a network round-trip — or, pre-BUG-046, a hang — on every
+  tool call). New `juvant_db_exec_async()` appends the statement to a local
+  `.juvant/audit-spool.sql` (microsecond, network-free, hang-impossible; single
+  physical line per statement so concurrent O_APPEND writes stay atomic). The
+  pre-tool-use INSERT and post-tool-use UPDATE now spool. New
+  `helpers/drain-audit-spool.sh` flushes the spool to the backend out-of-band:
+  atomically claims the batch, applies it in order (INSERT before its UPDATE),
+  and re-queues verbatim on failure (no data loss; eventual consistency — Track-3
+  is forensic, not real-time). Self-bootstrapping — drained in the background
+  from `session-start.sh` on every session (no cron required) — plus a periodic
+  5-min schedule in `install-schedules.sh` for long-running sessions. Track-4
+  spec **reads** stay synchronous and rely on BUG-046's timeout. Drainer added to
+  the framework upstream-sync whitelist; spool files gitignored.
+
 ## [1.6.0] — 2026-06-21 — Syncable framework hook-registration block
 
 ### Added

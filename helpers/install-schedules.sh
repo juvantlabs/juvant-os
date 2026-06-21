@@ -9,6 +9,7 @@
 #   helpers/anomaly-check.sh        — every 15 min
 #   helpers/morning-brief.sh        — daily 08:00
 #   helpers/cso-weekly-audit.sh     — weekly Sunday 22:00
+#   helpers/drain-audit-spool.sh    — every 5 min (FEAT-051)
 #
 # Idempotent: re-running replaces existing plists / cron entries
 # under the well-known JUVANT prefix. Does NOT touch unrelated
@@ -217,18 +218,45 @@ PLIST
 </plist>
 PLIST
 
+        # FEAT-051: drain-audit-spool — every 5 minutes. SessionStart
+        # already drains in the background on each new session; this
+        # periodic job flushes the spool during long-running sessions so
+        # the audit log stays near-current.
+        cat > "$LAUNCHD_DIR/${PREFIX}.drain-audit-spool.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.drain-audit-spool</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${REPO_ROOT}/helpers/drain-audit-spool.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/drain-audit-spool.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/drain-audit-spool.err</string>
+</dict>
+</plist>
+PLIST
+
         mkdir -p "${REPO_ROOT}/.juvant/logs"
 
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed (6 jobs)."
+        echo "[install-schedules] OK — Mac launchd schedules installed (7 jobs)."
         ;;
 
       uninstall|--uninstall)
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
@@ -258,11 +286,12 @@ PLIST
 */15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh      >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1         $CRON_TAG
 0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh      >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1         $CRON_TAG
 0 22 * * 0   /bin/bash ${REPO_ROOT}/helpers/cso-weekly-audit.sh   >> ${REPO_ROOT}/.juvant/logs/cso-weekly-audit.log 2>&1      $CRON_TAG
+*/5 * * * *  /bin/bash ${REPO_ROOT}/helpers/drain-audit-spool.sh  >> ${REPO_ROOT}/.juvant/logs/drain-audit-spool.log 2>&1     $CRON_TAG
 CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
         rm -f "$TMP"
-        echo "[install-schedules] OK — Linux cron entries installed (6 jobs tagged $CRON_TAG)."
+        echo "[install-schedules] OK — Linux cron entries installed (7 jobs tagged $CRON_TAG)."
         ;;
 
       uninstall|--uninstall)

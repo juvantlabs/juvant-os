@@ -88,7 +88,10 @@ case "$TOOL_NAME" in
       AND args_hash = '$ARGS_HASH'" ;;
 esac
 
-juvant_db_exec "UPDATE agent_actions_log
+# FEAT-051: spool the audit UPDATE instead of executing it inline (same
+# rationale as pre-tool-use.sh). Drained in order, so the INSERT's
+# 'pending' row always lands before this UPDATE finalizes it.
+juvant_db_exec_async "UPDATE agent_actions_log
   SET status = 'success',
       result_hash = '$RESULT_HASH',
       ended_at = '$NOW'
@@ -98,6 +101,6 @@ juvant_db_exec "UPDATE agent_actions_log
     ORDER BY started_at DESC
     LIMIT 1
   );" \
-  || echo "[post-tool-use] WARN: failed to update agent_actions_log" >&2
+  || echo "[post-tool-use] WARN: failed to spool agent_actions_log update" >&2
 
 exit 0
