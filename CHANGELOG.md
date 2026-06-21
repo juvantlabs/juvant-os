@@ -11,6 +11,23 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **BUG-045** `.claude/settings.json` — all 11 hook registrations resolved their
+  script path via `git rev-parse --show-toplevel` (cwd/git-dependent, suppressed
+  with `2>/dev/null`). When `git` resolution failed for any reason (a subagent's
+  cwd in a sibling repo with no `hooks/`; `git` absent from the hook env's PATH;
+  `safe.directory`; non-git cwd) the `[[ -f ]] && exec` chain silently returned
+  the failed test's exit code, surfacing as `<Hook>:<Tool> hook error — Failed
+  with non-blocking status code: No stderr output` and, worse, **the hook did
+  not run** (Track 2/3 enforcement skipped). Switch each wrapper to the
+  documented stable anchor `${CLAUDE_PROJECT_DIR:-$(git rev-parse
+  --show-toplevel 2>/dev/null)}` and append `; exit 0` so a legitimate no-run is
+  a clean no-op. `CLAUDE_PROJECT_DIR` is exported to every hook process and
+  points at the project root regardless of cwd or subagent context.
+  NOTE: `.claude/settings.json` is on the upstream-sync "never touched" list, so
+  existing adopters must apply this patch by hand; new adopters get it on fork.
+
 ## [1.5.3] — 2026-06-20 — sync-project-globs.sh strict-JSON rewrite
 
 ### Fixed
