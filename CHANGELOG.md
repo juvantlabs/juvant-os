@@ -27,6 +27,10 @@ All written artifacts in English. No exceptions.
   **every** `turso`/`sqlite3` invocation in a portable hard timeout
   (`timeout`/`gtimeout`, else a `perl` alarm — the macOS path), default 8s
   (`JUVANT_DB_TIMEOUT`). Infinite hang → bounded fail-soft.
+- **BUG-047** `helpers/cso-weekly-audit.sh` was scheduled by
+  `install-schedules.sh` but missing from the framework upstream-sync
+  whitelist (same class as BUG-043) — the CSO weekly audit cadence never
+  propagated to existing adopters. Added to the whitelist in `JUVANT_OS.md`.
 
 ### Added
 
