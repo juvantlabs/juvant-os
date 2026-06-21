@@ -4252,6 +4252,11 @@ trail. **Company-scope agents only** — no project agents involved.
      re-run `bash scripts/compile-templates.sh --scope company`.
    - `scripts/migrate.sh` changed → surface reminder:
      *"migrate.sh changed — re-run `bash scripts/migrate.sh schema-apply` to apply any new column patches."*
+   - `scripts/templates/hooks-registration.json` changed (FEAT-050) →
+     run `bash scripts/sync-hooks.sh` to reconcile the framework hook block
+     into `.claude/settings.json` (preserves instance-specific keys). This is
+     how hook-infra fixes reach existing adopters even though
+     `.claude/settings.json` itself is on the "never touched" list.
 
 9. **Commit** — `git add <all applied files>` +
    `git commit -m "chore: sync framework files to upstream <tag>"`.
@@ -4295,6 +4300,7 @@ scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
 scripts/sync-project-globs.sh scripts/governance-backfill.sh
 scripts/seed-matrix.sh        scripts/templates/v0-agent-tool-matrix.json
+scripts/sync-hooks.sh         scripts/templates/hooks-registration.json
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md

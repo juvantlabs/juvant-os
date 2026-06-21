@@ -11,6 +11,20 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added
+
+- **FEAT-050** Syncable framework hook-registration block. The `hooks` block in
+  `.claude/settings.json` is framework boilerplate, but settings.json is on the
+  upstream-sync "never touched" list (it also holds instance-specific
+  permissions), so hook-infra fixes (e.g. BUG-045) could not reach existing
+  adopters via `juv-upstream-sync`. New: the canonical hooks block lives in a
+  whitelisted template (`scripts/templates/hooks-registration.json`), and
+  `scripts/sync-hooks.sh` reconciles it into `.claude/settings.json` with jq —
+  replacing only `.hooks`, preserving every instance-specific key, strict JSON,
+  idempotent. Wired as a `juv-upstream-sync` post-apply step (runs when the
+  template changed) and both files added to the framework whitelist. Hook-infra
+  changes now propagate to existing adopters automatically.
+
 ## [1.5.4] — 2026-06-21 — Hook registrations anchored on CLAUDE_PROJECT_DIR
 
 ### Fixed
