@@ -94,4 +94,13 @@ if [[ -x "$REPO_ROOT/helpers/kb-sync.sh" ]]; then
   bash "$REPO_ROOT/helpers/kb-sync.sh" >> "$_KBLOG" 2>&1 &
 fi
 
+# FEAT-051: flush the audit spool in the background (never blocks session
+# start). Self-bootstrapping replacement for a cron-driven drain — every
+# new session drains whatever the previous session spooled, so the spool
+# can never grow unbounded even on instances that don't schedule the
+# periodic drain.
+if [[ -x "$REPO_ROOT/helpers/drain-audit-spool.sh" ]]; then
+  bash "$REPO_ROOT/helpers/drain-audit-spool.sh" >/dev/null 2>&1 &
+fi
+
 exit 0

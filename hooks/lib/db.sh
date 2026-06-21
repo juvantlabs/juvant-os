@@ -32,8 +32,31 @@
 # unless JUVANT_DB_DEBUG=1. Hooks treat failure as fail-soft (the
 # tool decision still gets emitted) per the latency-budget rule.
 
+# Hard time bound for every DB CLI invocation (BUG-046).
+# `turso db shell` is a NETWORK call; without a bound a hung connection
+# (latency / token refresh / dropped socket) on the tool gating path in
+# pre-tool-use.sh never returns, the allow/deny decision is never emitted,
+# the tool never starts, and Claude Code's 600s stream watchdog fires =
+# "stall". The old `|| echo WARN` fail-soft only catches non-zero EXITS,
+# not hangs — a hung process never reaches `||`. macOS ships neither
+# `timeout` nor `gtimeout`, so fall back to a perl alarm (perl is present
+# on macOS by default; the alarm timer survives exec and SIGALRM's default
+# disposition terminates the exec'd command after the deadline).
+# Override the deadline via JUVANT_DB_TIMEOUT (seconds; default 8).
+# sqlite3 (local) is wrapped too — it can block on a locked DB file.
+_juvant_db_run() {
+  local secs="${JUVANT_DB_TIMEOUT:-8}"
+  if command -v timeout &>/dev/null; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$secs" "$@"
+  else
+    perl -e 'my $s=shift; alarm $s; exec @ARGV or exit 127' "$secs" "$@"
+  fi
+}
+
 # Resolve provider + endpoint. Reads .juvant/config.json; cloud
-# paths accept TURSO_URL/TURSO_TOKEN env override.
+# paths accept TURSO_URL/TURSO_TOKEN override.
 # Sets globals JUVANT_DB_PROVIDER, JUVANT_DB_URL, JUVANT_DB_TOKEN,
 # JUVANT_DB_PATH (the latter only for provider=local).
 juvant_db_resolve() {
@@ -90,9 +113,9 @@ juvant_db_exec() {
         return 1
       fi
       if [[ "${JUVANT_DB_DEBUG:-0}" == "1" ]]; then
-        sqlite3 "$JUVANT_DB_PATH" "$sql"
+        _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql"
       else
-        sqlite3 "$JUVANT_DB_PATH" "$sql" >/dev/null 2>&1
+        _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql" >/dev/null 2>&1
       fi
       ;;
     turso|azure|aws|gcp)
@@ -100,15 +123,70 @@ juvant_db_exec() {
         return 1
       fi
       if [[ "${JUVANT_DB_DEBUG:-0}" == "1" ]]; then
-        turso db shell "$JUVANT_DB_URL" "$sql"
+        _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql"
       else
-        turso db shell "$JUVANT_DB_URL" "$sql" >/dev/null 2>&1
+        _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql" >/dev/null 2>&1
       fi
       ;;
     *)
       return 1
       ;;
   esac
+}
+
+# FEAT-051: append an audit statement to the local spool instead of
+# executing it inline. The allow/deny decision in pre-tool-use.sh never
+# depends on the audit write, so the write must NOT sit on the tool
+# gating path (where any DB latency is paid by — or, pre-BUG-046, hangs
+# — every tool call). The spool is a plain local file; appending is a
+# microsecond, network-free, hang-impossible operation. It is drained to
+# the DB out-of-band by helpers/drain-audit-spool.sh (launched in the
+# background from session-start.sh, so no cron is required).
+#
+# The statement is collapsed to a single physical line so concurrent
+# O_APPEND writes from parallel subagents stay atomic (a single bounded
+# write() to an O_APPEND fd is not interleaved; input_summary is already
+# truncated upstream, keeping statements well under the atomic-write
+# size). Newlines inside the SQL become spaces — harmless, since SQL is
+# whitespace-insensitive outside string literals and the only literal
+# that can carry a newline (input_summary) is a free-text audit summary.
+#
+# Fail-safe: if the spool directory is missing or the append fails, fall
+# back to a synchronous (timeout-bounded) exec so an audit row is never
+# silently dropped.
+# Resolve the audit spool path (FEAT-051). Single source of truth shared
+# by juvant_db_exec_async (writer) and helpers/drain-audit-spool.sh
+# (reader). Honors JUVANT_SPOOL (test isolation / explicit override);
+# otherwise the spool lives alongside the resolved config under .juvant/.
+juvant_spool_path() {
+  if [[ -n "${JUVANT_SPOOL:-}" ]]; then
+    printf '%s' "$JUVANT_SPOOL"
+    return 0
+  fi
+  local config="${JUVANT_CONFIG:-${SCRIPT_DIR}/../.juvant/config.json}"
+  printf '%s' "$(dirname "$config")/audit-spool.sql"
+}
+
+juvant_db_exec_async() {
+  local sql="$1"
+  juvant_db_resolve
+  [[ -z "$JUVANT_DB_PROVIDER" ]] && return 1
+
+  local spool spool_dir
+  spool="$(juvant_spool_path)"
+  spool_dir="$(dirname "$spool")"
+  if [[ ! -d "$spool_dir" ]]; then
+    juvant_db_exec "$sql"
+    return $?
+  fi
+
+  local oneline
+  oneline=$(printf '%s' "$sql" | tr '\n' ' ')
+  if ! printf '%s\n' "$oneline" >> "$spool" 2>/dev/null; then
+    juvant_db_exec "$sql"
+    return $?
+  fi
+  return 0
 }
 
 # Execute SQL piped via stdin (heredoc-friendly).
@@ -121,9 +199,9 @@ juvant_db_exec_stdin() {
         return 1
       fi
       if [[ "${JUVANT_DB_DEBUG:-0}" == "1" ]]; then
-        sqlite3 "$JUVANT_DB_PATH"
+        _juvant_db_run sqlite3 "$JUVANT_DB_PATH"
       else
-        sqlite3 "$JUVANT_DB_PATH" >/dev/null 2>&1
+        _juvant_db_run sqlite3 "$JUVANT_DB_PATH" >/dev/null 2>&1
       fi
       ;;
     turso|azure|aws|gcp)
@@ -131,9 +209,9 @@ juvant_db_exec_stdin() {
         return 1
       fi
       if [[ "${JUVANT_DB_DEBUG:-0}" == "1" ]]; then
-        turso db shell "$JUVANT_DB_URL"
+        _juvant_db_run turso db shell "$JUVANT_DB_URL"
       else
-        turso db shell "$JUVANT_DB_URL" >/dev/null 2>&1
+        _juvant_db_run turso db shell "$JUVANT_DB_URL" >/dev/null 2>&1
       fi
       ;;
     *)
@@ -153,7 +231,7 @@ juvant_db_query() {
       if [[ -z "$JUVANT_DB_PATH" ]] || ! command -v sqlite3 &>/dev/null; then
         return 1
       fi
-      sqlite3 "$JUVANT_DB_PATH" "$sql" 2>/dev/null
+      _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql" 2>/dev/null
       ;;
     turso|azure|aws|gcp)
       if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
@@ -161,7 +239,7 @@ juvant_db_query() {
       fi
       # turso db shell pads scalar output with whitespace; strip it so
       # callers can compare COUNT(*) results with == without false mismatches.
-      turso db shell "$JUVANT_DB_URL" "$sql" 2>/dev/null | tr -d ' \t' | grep -v '^$'
+      _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql" 2>/dev/null | tr -d ' \t' | grep -v '^$'
       ;;
     *)
       return 1
@@ -181,13 +259,13 @@ juvant_db_query_csv() {
       if [[ -z "$JUVANT_DB_PATH" ]] || ! command -v sqlite3 &>/dev/null; then
         return 1
       fi
-      sqlite3 -csv "$JUVANT_DB_PATH" "$sql" 2>/dev/null
+      _juvant_db_run sqlite3 -csv "$JUVANT_DB_PATH" "$sql" 2>/dev/null
       ;;
     turso|azure|aws|gcp)
       if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
         return 1
       fi
-      turso db shell --output csv "$JUVANT_DB_URL" "$sql" 2>/dev/null
+      _juvant_db_run turso db shell --output csv "$JUVANT_DB_URL" "$sql" 2>/dev/null
       ;;
     *)
       return 1

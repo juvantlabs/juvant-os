@@ -2,6 +2,11 @@
 .juvant/config.json
 .juvant/sessions/
 .juvant/state.db
+
+# FEAT-051: local audit spool + its drain work/merge temp files
+# (instance runtime artifact — never committed)
+.juvant/audit-spool.sql
+.juvant/audit-spool.sql.*
 .env
 *.env.*
 .env.local

@@ -474,11 +474,15 @@ ROLE_ESC=$(sql_escape "$ROLE")
 TOOL_ESC=$(sql_escape "$TOOL_NAME")
 INPUT_SUMMARY_ESC=$(sql_escape "$INPUT_SUMMARY")
 
-juvant_db_exec "INSERT INTO agent_actions_log
+# FEAT-051: spool the audit INSERT instead of executing it inline. This
+# write is NOT a precondition for the allow/deny decision below, so it
+# must not sit on the tool gating path. Spooled rows are drained to the
+# DB out-of-band (helpers/drain-audit-spool.sh via session-start.sh).
+juvant_db_exec_async "INSERT INTO agent_actions_log
   (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary)
   VALUES
   ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL, '$INPUT_SUMMARY_ESC');" \
-  || echo "[pre-tool-use] WARN: failed to write agent_actions_log row" >&2
+  || echo "[pre-tool-use] WARN: failed to spool agent_actions_log row" >&2
 
 # ─────────────────────────────────────────────
 # Output decision
