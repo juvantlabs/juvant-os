@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.5.4] — 2026-06-21 — Hook registrations anchored on CLAUDE_PROJECT_DIR
+
 ### Fixed
 
 - **BUG-045** `.claude/settings.json` — all 11 hook registrations resolved their
