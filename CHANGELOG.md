@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-06-21 — Syncable framework hook-registration block
+
 ### Added
 
 - **FEAT-050** Syncable framework hook-registration block. The `hooks` block in
