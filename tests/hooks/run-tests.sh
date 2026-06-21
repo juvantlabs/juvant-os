@@ -32,6 +32,11 @@ export JUVANT_TEST_DB_FILE="$TEST_DB"
 export TURSO_URL="libsql://test.fake"
 export TURSO_TOKEN="test-token"
 
+# FEAT-051: isolate the audit spool to the temp dir so async audit writes
+# (pre/post-tool-use) don't pollute the real repo's .juvant/, and so the
+# drainer can be exercised end-to-end against the fake DB.
+export JUVANT_SPOOL="$TMPROOT/audit-spool.sql"
+
 # ─────────────────────────────────────────────
 # Test plumbing
 # ─────────────────────────────────────────────
@@ -184,8 +189,16 @@ event_json='{"tool_name":"Bash","session_id":"sess-pt-3","tool_input":{"command"
 out=$(echo "$event_json" | AGENT_ROLE=eng-frontend bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
 decision=$(echo "$out" | jq -r '.permissionDecision')
 t_assert "allow-list miss → deny" "deny" "$decision"
+# FEAT-051: the audit row is spooled (off the gating path), not written
+# inline. Assert it lands first in the spool, then reaches the DB after a
+# drain — exercising the full spool→drain pipeline.
+t_assert "allow-list miss → audit row spooled (status=denied)" "1" \
+  "$(grep -c "agent_actions_log.*eng-frontend.*denied" "$JUVANT_SPOOL" 2>/dev/null || echo 0)"
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
 audit_count=$(t_db "SELECT COUNT(*) FROM agent_actions_log WHERE agent='eng-frontend' AND status='denied';")
 t_assert "allow-list miss → audit log row written (status=denied)" "1" "$audit_count"
+t_assert "drain empties the spool" "no" \
+  "$([[ -f "$JUVANT_SPOOL" ]] && echo yes || echo no)"
 
 # 4. Unknown role → deny (operator-mode bypass does NOT apply for unknown agent roles).
 # v0.7.3+ (F-28): universal_allow contains POSIX shell builtins (cd, echo,

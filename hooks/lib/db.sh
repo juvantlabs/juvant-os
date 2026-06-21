@@ -154,13 +154,27 @@ juvant_db_exec() {
 # Fail-safe: if the spool directory is missing or the append fails, fall
 # back to a synchronous (timeout-bounded) exec so an audit row is never
 # silently dropped.
+# Resolve the audit spool path (FEAT-051). Single source of truth shared
+# by juvant_db_exec_async (writer) and helpers/drain-audit-spool.sh
+# (reader). Honors JUVANT_SPOOL (test isolation / explicit override);
+# otherwise the spool lives alongside the resolved config under .juvant/.
+juvant_spool_path() {
+  if [[ -n "${JUVANT_SPOOL:-}" ]]; then
+    printf '%s' "$JUVANT_SPOOL"
+    return 0
+  fi
+  local config="${JUVANT_CONFIG:-${SCRIPT_DIR}/../.juvant/config.json}"
+  printf '%s' "$(dirname "$config")/audit-spool.sql"
+}
+
 juvant_db_exec_async() {
   local sql="$1"
   juvant_db_resolve
   [[ -z "$JUVANT_DB_PROVIDER" ]] && return 1
 
-  local spool_dir="${SCRIPT_DIR}/../.juvant"
-  local spool="${spool_dir}/audit-spool.sql"
+  local spool spool_dir
+  spool="$(juvant_spool_path)"
+  spool_dir="$(dirname "$spool")"
   if [[ ! -d "$spool_dir" ]]; then
     juvant_db_exec "$sql"
     return $?

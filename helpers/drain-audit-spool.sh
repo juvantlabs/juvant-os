@@ -24,20 +24,26 @@
 
 set -euo pipefail
 
-# launchd / cron provide a minimal PATH — extend it to find Homebrew tools.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd / cron provide a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin) —
+# APPEND the Homebrew dirs so turso/jq are found there, without shadowing
+# a turso the caller deliberately put first on PATH (e.g. the fake-turso
+# shim in tests/hooks/run-tests.sh). Append, not prepend, on purpose.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-SPOOL="$REPO_ROOT/.juvant/audit-spool.sql"
-
-# Nothing spooled — no-op (fast, common path).
-[[ -s "$SPOOL" ]] || exit 0
 
 # db.sh expects SCRIPT_DIR to point at the hooks dir for path resolution.
 SCRIPT_DIR="$REPO_ROOT/hooks"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/hooks/lib/db.sh"
+
+# Single source of truth for the spool path (honors JUVANT_SPOOL).
+SPOOL="$(juvant_spool_path)"
+
+# Nothing spooled — no-op (fast, common path).
+[[ -s "$SPOOL" ]] || exit 0
+
 juvant_db_resolve
 if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
   echo "[drain-audit-spool] WARN: no db.provider configured; leaving spool intact" >&2
