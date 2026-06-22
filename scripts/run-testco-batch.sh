@@ -608,6 +608,39 @@ else
   assert_fail "matrix_rows_count=$actual_matrix (expected $expected_matrix)"
 fi
 
+# Component-init phase assertions (FEAT-053 / ADR 0020). Only when the fixture
+# defines a component_phase block. Components write no DB state — checks are
+# config + filesystem.
+comp_slug=$(yq -r '.expect.component_phase.slug // ""' "$FIXTURE")
+if [[ -n "$comp_slug" && "$comp_slug" != "null" ]]; then
+  comp_maint=$(yq -r '.expect.component_phase.maintainer' "$FIXTURE")
+  comp_wt=$(yq -r '.expect.component_phase.working_tree' "$FIXTURE")
+  CFG="$TMP_DIR/.juvant/config.json"
+  SET="$TMP_DIR/.claude/settings.json"
+
+  # 1. component registered in config.json components[]
+  in_cfg=$(jq -r --arg s "$comp_slug" '[.components[]? | select(.slug==$s)] | length' "$CFG" 2>/dev/null || echo "0")
+  if [[ "$in_cfg" -ge 1 ]]; then
+    assert_ok "component registered in config [$comp_slug]"
+  else
+    assert_fail "component NOT in config.json components[] [$comp_slug]"
+  fi
+
+  # 2. maintainer agent compiled
+  if [[ -f "$TMP_DIR/.claude/agents/$comp_maint.md" ]]; then
+    assert_ok "maintainer agent compiled [$comp_maint]"
+  else
+    assert_fail "maintainer agent file absent [.claude/agents/$comp_maint.md]"
+  fi
+
+  # 3. working tree granted filesystem access (sync-project-globs folded it)
+  if grep -qF "$comp_wt" "$SET" 2>/dev/null; then
+    assert_ok "component working_tree in settings.json (glob-sync)"
+  else
+    assert_fail "component working_tree NOT granted in settings.json [$comp_wt]"
+  fi
+fi
+
 # audit_findings caps
 p1_max=$(yq -r '.expect.audit_findings.p1_max' "$FIXTURE")
 p2_max=$(yq -r '.expect.audit_findings.p2_max' "$FIXTURE")

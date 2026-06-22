@@ -2637,6 +2637,131 @@ already-loaded JUVANT_OS.md context.
 
 ---
 
+## Component setup
+
+A **component** (ADR 0020) is a single-responsibility `juvantlabs` repo of type
+`library` / `mcp-server` / `toolbox` — the long tail that does **not** warrant
+a full project. Triggered by `/juv-add-component`. Unlike a project it has **no**
+project DB, **no** board, **no** `-pm` repo, and a roster of exactly **one**
+agent. If the repo needs Product/Design/Eng coordination, it is a project — use
+`/juv-add-project` instead.
+
+Inputs (collected interactively, or from the batch fixture's `component:` block):
+
+| Field | Meaning |
+|---|---|
+| `slug` | component slug, e.g. `m365-graph` |
+| `name` | display name |
+| `repo` | `<org>/<repo>`, e.g. `juvantlabs/m365-graph-mcp-server` |
+| `visibility` | `public` \| `private` (does NOT change where state lives) |
+| `type` | `library` \| `mcp-server` \| `toolbox` |
+| `maintainer_name` | the agent's operating name (interactive; the role id is always `<slug>-maintainer`) |
+| `working_tree` | absolute path to the local git checkout of `<repo>` — REQUIRED so the maintainer gets filesystem access (same mechanism as a project's `working_tree`, FEAT-049/BUG-042). |
+| `additional_working_trees` | optional list of extra local trees the maintainer needs (rare for a component; usually empty) |
+
+Steps (each rendered per the Wizard rendering rule):
+
+1. **Register** the component in `.juvant/config.json` `components[]` (create the
+   array if absent):
+
+   ```json
+   { "components": [
+     { "slug": "<slug>", "name": "<name>", "repo": "<org>/<repo>",
+       "visibility": "<public|private>", "type": "<library|mcp-server|toolbox>",
+       "maintainer": "<slug>-maintainer", "maturity": "incubation",
+       "working_tree": "/Users/<user>/Projects/<repo-local>",
+       "additional_working_trees": [] }
+   ] }
+   ```
+
+   No DB is created and no schema is migrated — components hold no company-DB
+   state.
+
+2. **Compile the maintainer agent** from `agents/components/maintainer.md` into
+   `.claude/agents/<slug>-maintainer.md`, substituting `{{COMPONENT_SLUG}}`,
+   `{{COMPONENT_NAME}}`, `{{COMPONENT_REPO}}`, `{{COMPONENT_TYPE}}`,
+   `{{AGENT_NAME}}` / `{{AGENT_DESCRIPTION}}`. The compiled agent carries
+   `model: claude-opus-4-7` (principal full-stack + AI/LLM, solo single-writer —
+   the role demands top capability; usage is episodic so cost is bounded).
+   (Compilation is a Skill Write+substitution step; a `compile-templates.sh
+   --scope component` path for parity with project agents is FEAT-055.)
+
+2b. **Grant filesystem access to the working tree.** Run
+   `bash scripts/sync-project-globs.sh` — it folds `components[].working_tree`
+   (+ `additional_working_trees[]`) into `.claude/settings.json`
+   `permissions.allow` globs + `additionalDirectories`, exactly as it does for
+   projects (BUG-042/FEAT-049). Without this the maintainer cannot read/edit its
+   own repo. The orchestrator (cos main thread) is conversely **denied**
+   Write/Edit inside component working trees (Track-2c §9) — only the maintainer
+   edits them.
+
+3. **State conventions** (no DB writes — confirm to the operator):
+   - Backlog → GitHub **Issues + Projects** on `<repo>`.
+   - Decisions → in-repo **ADRs** (`docs/adr/*.md`) and/or Issues labeled
+     **`juvant:decision`** (open = awaiting CEO ratification → CEO approves →
+     maintainer executes and closes with the artifact ref).
+   - Knowledge → in-repo **docs / README / Discussions**.
+
+4. **Shared gates** (no new agents): the **CTO (Arch)** is the architectural
+   review gate; **eng-platform** owns release / npm / CI / infra. The maintainer
+   escalates to them via `Task()`; it is the single writer for `<repo>` only.
+
+5. Record a `bootstrap-action` decision row in the company DB noting the
+   component was registered (audit trail only — the component itself stores no
+   state in the DB):
+
+   ```sql
+   INSERT INTO decisions (agent, title, category, rationale, status, scope)
+   VALUES ('cos', 'Component registered: <slug>', 'bootstrap-action',
+           'juv-add-component registered <org>/<repo> as a <type> component (ADR 0020); maintainer <slug>-maintainer compiled, model opus. State on GitHub.',
+           'executed', 'company');
+   ```
+
+No matrix re-seed, no DB migrate, no branch-protection-spec. Expected wall
+duration: a few seconds (one config edit + one agent compile).
+
+### Batch mode for component-init (HARD-REQUIRED override of interactive flow)
+
+> Parallel preamble to the company-init and project-init batch modes
+> (ADR 0012 / ADR 0020). Manual interactive component-init remains the primary
+> mode; batch is the CI / test-automation override.
+
+**Activation** — component-init batch activates when **either**:
+
+1. The active fixture (loaded at SessionStart) contains an `inputs.component:`
+   block AND company-init has already completed in this session
+   (`master_context.bootstrap_completed_at` non-null), OR
+2. The CEO prompt cites *"Add component to Juvant OS using batch inputs from
+   `<path>`"* against an already-bootstrapped instance.
+
+In activation case 1 the Skill **auto-chains**: company-init batch completes →
+emits `[BATCH] {"event":"phase_done","phase":"company"}` → (if `inputs.project:`
+present, the project phase runs first per its own batch preamble) → reads
+`inputs.component:` from the same fixture → enters component-init batch with
+`phase="component"`.
+
+**Lookup pattern** (replaces every AskUserQuestion call):
+
+| Component setup step | Fixture path | Notes |
+|---|---|---|
+| Register (step 1) | `inputs.component.{slug,name,repo,visibility,type,working_tree}` | all required; `additional_working_trees` optional |
+| Maintainer name (step 2) | `inputs.component.agent_name` | `null` → default operating name |
+
+Missing/`null` required key → emit
+`[BATCH] {"event":"run_complete","verdict":"FAIL","reason":"missing_fixture_key","key":"component.<dotted.path>"}`
+and exit (fail-loud, no interactive fallback).
+
+**Event emission** — emit `[BATCH]` events at each Component setup step boundary
+(`step_start`/`step_done` with `phase":"component"`), and a
+`phase_done` checkpoint when done:
+`[BATCH] {"event":"phase_done","phase":"component","verdict":"PASS"}`. A
+component phase has no CSO audit and no DB writes (besides the one-time
+registration row), so its verdict is `PASS` once the config entry + compiled
+maintainer + glob-sync all succeed. Fold `component_verdict` into the final
+`run_complete` (overall verdict = worst of company / project / component).
+
+---
+
 ## Project maturity status
 
 Each project carries a **maturity status** that calibrates how every agent
@@ -2893,6 +3018,26 @@ Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
    *"Master DB unavailable — global decisions and knowledge not loaded this session."*
    Also surface any `decisions WHERE upstream_candidate=1` under
    **"Decisions pending upstream proposal"**.
+4c. **If `.juvant/config.json` has `components[]`: read component decisions
+   awaiting ratification** (ADR 0020). Components hold no DB state — their
+   pending decisions live on GitHub as Issues labeled `juvant:decision`. Derive
+   the **unique orgs** from `components[].repo` (the part before `/`) — there may
+   be more than one (e.g. `juvantlabs` + `juvantio`) — and run one
+   timeout-wrapped, best-effort search **per org**:
+   ```bash
+   # for each <org> in (components[].repo | split("/")[0] | unique):
+   bash helpers/with-timeout.sh 30 \
+     gh search issues --owner <org> 'label:"juvant:decision"' 'state:open' \
+     --json repository,number,title 2>/dev/null || true
+   ```
+   The label contains a colon → it **must** be quoted (`label:"juvant:decision"`),
+   else `gh search` mis-parses it. Cross-reference `repository` against
+   `components[].repo`; surface matches in the boot summary under **"Component
+   decisions awaiting ratification"** (repo · #N · title), for the CEO to ratify
+   on GitHub. `with-timeout` is **mandatory** — `gh` can hang (FEAT-052).
+   Best-effort: if GitHub is unreachable, note *"Component decisions not loaded
+   (GitHub unreachable)"* and continue — never block boot. Do **not** pull
+   routine Issues/PRs; only `juvant:decision`.
 5. **Check for active disclosure fallback** —
    `inbound_queue WHERE json_extract(content, '$.category')='disclosure-unavailable' AND status='pending'`.
    If any: enter Disclosure Fallback Cascade per §3 (see below) BEFORE presenting
@@ -3329,6 +3474,25 @@ WHERE notify_ceo = 1 AND status = 'unread';
 
 Surface counts to CEO. For each non-zero count, list the specific rows
 (title/content) so the CEO can decide action vs defer.
+
+### Step 1b — Component decisions (if `components[]`)
+
+If `.juvant/config.json` has `components[]` (ADR 0020), check GitHub for
+component decisions still awaiting ratification — same per-org, timeout-wrapped,
+best-effort call as the boot sequence (step 4c):
+
+```bash
+# for each unique <org> in components[].repo (split on "/"):
+bash helpers/with-timeout.sh 30 \
+  gh search issues --owner <org> 'label:"juvant:decision"' 'state:open' \
+  --json repository,number,title 2>/dev/null || true
+```
+
+The label's colon **must** be quoted (`label:"juvant:decision"`). Surface any
+matches (repo · #N · title) as **"Component decisions still open"** so the CEO
+can ratify before closing the session. `with-timeout` mandatory; best-effort
+(if GitHub is unreachable, note it and continue). Only `juvant:decision` —
+routine Issues/PRs are the maintainer's domain.
 
 ### Step 2 — Conversational retrospective
 
@@ -4330,15 +4494,17 @@ scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md
 scripts/templates/commands/juv-init-company.md
 scripts/templates/commands/juv-add-project.md
+scripts/templates/commands/juv-add-component.md
 .claude/commands/juv-boot-sequence.md
 .claude/commands/juv-upstream-sync.md
 .claude/commands/juv-wrap-up.md
 .claude/commands/juv-init-company.md
 .claude/commands/juv-add-project.md
+.claude/commands/juv-add-component.md
 JUVANT_OS.md                  SYSTEM_INVARIANTS.md
 CHANGELOG.md                  VERSION
 docs/MCP_INVENTORY.md         docs/branch-protection-spec.md
-agents/projects/*.md
+agents/projects/*.md          agents/components/maintainer.md
 ```
 
 **Files NEVER touched** (instance-specific — skip regardless of diff):

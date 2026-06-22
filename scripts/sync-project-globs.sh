@@ -97,29 +97,33 @@ fi
 
 # ── Step 1: collect NEW set of working-tree paths from config ─────────────
 # Each project contributes: working_tree (if non-empty) + additional_working_trees[].
+# Each component (FEAT-053 / ADR 0020) contributes its working_tree — the
+# <slug>-maintainer needs filesystem access to its repo, same as a project agent.
+# `.projects` is an object (keyed by slug); `.components` is an array.
 # Uses while-read loop for bash 3.2 compatibility (BUG-031).
 NEW_PATHS=()
 while IFS= read -r line; do
   NEW_PATHS+=("$line")
 done < <(
   jq -r '
-    .projects
-    | to_entries[]
-    | .value
-    | [ (.working_tree // empty) ] + (.additional_working_trees // [])
-    | .[]
+    (
+      ( .projects // {} | to_entries[] | .value
+        | ([ (.working_tree // empty) ] + (.additional_working_trees // [])) | .[] ),
+      ( .components // [] | .[]
+        | ([ (.working_tree // empty) ] + (.additional_working_trees // [])) | .[] )
+    )
     | select(length > 0)
   ' "$CONFIG" 2>/dev/null || true
 )
 
 if [[ "${#NEW_PATHS[@]}" -eq 0 ]]; then
-  echo "[sync-project-globs] no projects with working_tree configured — nothing to add"
+  echo "[sync-project-globs] no project/component working_tree configured — nothing to add"
   # Still proceed: the operator may have just removed the last project, in
   # which case we should still strip previously-managed entries from settings.
 fi
 
 if [[ "${#NEW_PATHS[@]}" -gt 0 ]]; then
-  echo "[sync-project-globs] found ${#NEW_PATHS[@]} project working tree(s):"
+  echo "[sync-project-globs] found ${#NEW_PATHS[@]} project/component working tree(s):"
   for wt in "${NEW_PATHS[@]}"; do
     echo "  $wt"
   done

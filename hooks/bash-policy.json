@@ -97,7 +97,9 @@
     "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "@read_utils"],
     "eng-backend":  ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "@read_utils"],
     "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "@read_utils"],
-    "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "@read_utils"]
+    "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "@read_utils"],
+
+    "maintainer":   ["git", "gh", "npm", "npx", "node", "python", "python3", "pip", "pip3", "pytest", "tsc", "vitest", "eslint", "shellcheck", "@read_utils"]
   },
 
   "_gated_action_classes_comment": "FEAT-040 Layer 3 — spec-lookup gate. Pre-tool-use.sh Track 4 matches the current Bash command against patterns here and requires an approved decision of the listed category in Turso (created within 7 days) before allowing. Bypass: main operator thread (agent_type absent from hook event = CEO direct session) — allowed but logged as [CEO-BYPASS] in input_summary for morning-brief retroactive spec tracking.",

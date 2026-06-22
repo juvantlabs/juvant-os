@@ -272,6 +272,12 @@ t_assert "product-lead + gh api -X GET -f → allow" "allow" "$(_t2d dog-ai-prod
 t_assert "product-lead + git push → deny"          "deny"  "$(_t2d dog-ai-product-lead 'git push')"
 t_assert "wrapped gh write still gated → deny"     "deny"  "$(_t2d dog-ai-product-lead 'bash helpers/with-timeout.sh 60 gh pr merge 7')"
 t_assert "eng-platform + gh api POST → allow"      "allow" "$(_t2d eng-platform 'gh api orgs/x/repos -X POST')"
+# component maintainer (FEAT-053): single-writer on its own repo; BUG-049
+# normalization maps <slug>-maintainer → maintainer for the allow-list.
+t_assert "maintainer + gh pr create → allow"       "allow" "$(_t2d engram-maintainer 'gh pr create --title x')"
+t_assert "maintainer + git commit → allow"         "allow" "$(_t2d engram-maintainer 'git commit -m x')"
+t_assert "maintainer + npm test → allow"           "allow" "$(_t2d engram-maintainer 'npm test')"
+t_assert "maintainer + gh pr view → allow"         "allow" "$(_t2d engram-maintainer 'gh pr view 1')"
 # main thread (no agent_type) bypasses the gate
 _t2d_mt=$(echo '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"gh pr create --title x"}}' \
   | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.permissionDecision')
