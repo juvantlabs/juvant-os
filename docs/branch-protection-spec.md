@@ -34,6 +34,49 @@ checks for these rules; absence is recorded as a Tier-2 follow-up.
    - GitHub Free org plans: not enforceable. Per CSO Layer 4 convention,
      ship the ruleset in `disabled` state rather than missing — see
      "Free-plan caveat" below.
+   - **Single-identity exception**: when the maintainer agent operates as
+     the same GitHub identity as the CEO (no separate reviewer identity
+     exists), `enforce_admins` MUST be `false`. Enabling it alongside the
+     "1 approving review" rule creates a self-approval deadlock — GitHub
+     forbids a user from approving their own PR, so `main` becomes
+     permanently locked. In this configuration the CEO-review gate is
+     procedural (orchestrator dispatches the maintainer to prepare a PR;
+     the CEO reviews and merges via admin bypass). See ADR 0021 for the
+     full rationale and the documented upgrade path to `enforce_admins=true`.
+
+## Single-identity / agent-maintained repos
+
+Applies to **component-scope repos** (ADR 0020) where the `<slug>-maintainer`
+agent operates as the same GitHub identity as the CEO — i.e. the org has no
+separate bot account or second reviewer identity (see handbook ADR 0001).
+
+**Rule**: apply the full canonical ruleset above, but with **`enforce_admins=false`**
+(administrators exempt). This is the only permitted deviation from the canonical
+spec under the single-identity condition.
+
+**Why**: GitHub forbids self-approval — a user cannot approve their own pull
+request. When author = reviewer = admin = one identity, `enforce_admins=true`
+combined with "1 approving review required" permanently locks `main`. No PR
+can ever be merged. Setting `enforce_admins=false` breaks the deadlock while
+keeping every other protection in place.
+
+**Gate in this mode**: the CEO-review gate is procedural.
+1. The orchestrator (CoS) dispatches the maintainer to prepare a PR.
+2. The CEO reviews and merges via admin bypass on the GitHub web UI.
+3. The merge is recorded in `agent_actions_log` as the audit trail.
+
+**Audit treatment**: the CSO baseline audit MUST record `enforce_admins=false`
+as `WARN` (not `FAIL`) when the single-identity condition is confirmed. A
+spurious `FAIL` would incorrectly penalize an intentional, documented exemption.
+
+**Upgrade path**: provision a dedicated second GitHub identity (bot account or
+co-maintainer human) as the required reviewer / push identity, then set
+`enforce_admins=true` to restore full technical enforcement. No amendment to
+this spec or to ADR 0021 is required — the upgrade is within the canonical
+envelope.
+
+**Cross-reference**: ADR 0021 (`docs/adr/0021-single-identity-branch-protection.md`)
+for full rationale, decision, and consequences.
 
 ## Application path
 
