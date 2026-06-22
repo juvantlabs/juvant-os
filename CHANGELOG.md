@@ -11,6 +11,39 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-06-22 — Repo-scoped write gate + compile --scope component
+
+### Added
+
+- **FEAT-055** `compile-templates.sh --scope component --component=<slug>` —
+  robust maintainer compilation (parity with `--scope projects`): substitutes
+  `{{COMPONENT_SLUG/NAME/REPO/TYPE}}` + operating name from `components[]`,
+  writes `agents/components/<slug>/maintainer.md` (source pristine), symlinks
+  `.claude/agents/<slug>-maintainer.md`. `juv-add-component` now calls it
+  instead of a Skill Write+substitution step.
+
+### Changed
+
+- **FEAT-054** Repo-scoped single-writer gate (Track-2d). The gate previously
+  authorized the writer *role*; it now confines git/gh **writes** to the
+  writer's **owned repo/working-tree set**, derived from the registry:
+  `components[].repo`/`working_tree` for a `*-maintainer`; a project's
+  `github_repos[]` + `working_tree` + `additional_working_trees[]` for a
+  `*-eng-lead` (**N repos supported** — e.g. `hardys` with many repos). The
+  command's target is parsed from `cd <abs-path>` and/or `gh -R/--repo` /
+  `api repos/<O>/<R>`; a target outside the owned set is denied, an
+  undeterminable target **fails open** to the role gate (no false-deny on
+  own-repo writes). `eng-platform` is company-broad and exempt. Both Track-2c
+  (§9) and Track-2d now honor `JUVANT_CONFIG` for testability.
+- **Multi-repo projects**: new `projects.<slug>.github_repos[]` field (the
+  generalization of the singular `github_repo`; backward-compatible — a lone
+  `github_repo` is treated as a one-element set). Components are the N=1 case of
+  the same owned-set model.
+
+Closes the two FEAT-053 follow-ups (#128, #129). Tests: hook suite 46/46
+(9 new repo-scope cases incl. multi-repo eng-lead), `compile --scope component`
+verified end-to-end, shellcheck clean.
+
 ## [1.9.0] — 2026-06-22 — Component-scope for library/MCP/toolbox repos
 
 ### Added

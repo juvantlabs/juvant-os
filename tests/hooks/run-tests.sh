@@ -284,6 +284,42 @@ _t2d_mt=$(echo '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"gh
 t_assert "main thread + gh write → allow (bypass)" "allow" "$_t2d_mt"
 
 # ─────────────────────────────────────────────
+# repo-scoped single-writer gate (Track 2d / FEAT-054) — owned-set, multi-repo
+# Uses a JUVANT_CONFIG fixture so the gate has a registry to scope against.
+# ─────────────────────────────────────────────
+suite "repo-scoped gate (Track 2d / FEAT-054)"
+
+RS_CFG="$TMPROOT/repo-scope-config.json"
+cat > "$RS_CFG" <<'JSON'
+{
+  "components": [
+    { "slug":"lumen-cli", "maintainer":"lumen-cli-maintainer", "repo":"juvantlabs/lumen-cli",
+      "working_tree":"/W/lumen-cli", "additional_working_trees":[] }
+  ],
+  "projects": {
+    "hardys": { "working_tree":"/W/hardys-web", "additional_working_trees":["/W/hardys-api"],
+      "github_repos":["juvantlabs/hardys-web","juvantlabs/hardys-api","juvantlabs/hardys-infra"] }
+  }
+}
+JSON
+_rs() {  # $1=agent_type $2=command -> decision (with the repo-scope fixture)
+  JUVANT_CONFIG="$RS_CFG" jq -nc --arg c "$2" --arg a "$1" \
+    '{tool_name:"Bash",session_id:"s",agent_type:$a,tool_input:{command:$c}}' \
+    | JUVANT_CONFIG="$RS_CFG" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.permissionDecision'
+}
+# maintainer (N=1)
+t_assert "maintainer + own-tree git push → allow"   "allow" "$(_rs lumen-cli-maintainer 'cd /W/lumen-cli && git push')"
+t_assert "maintainer + own-repo gh → allow"         "allow" "$(_rs lumen-cli-maintainer 'gh pr create --repo juvantlabs/lumen-cli')"
+t_assert "maintainer + other-repo gh → deny"        "deny"  "$(_rs lumen-cli-maintainer 'gh pr create --repo juvantlabs/other')"
+t_assert "maintainer + other-tree git → deny"       "deny"  "$(_rs lumen-cli-maintainer 'cd /W/other && git push')"
+t_assert "maintainer + undeterminable → allow (fail-open)" "allow" "$(_rs lumen-cli-maintainer 'git commit -m x')"
+# eng-lead, multi-repo project (hardys: N=many)
+t_assert "eng-lead + owned repo (api) → allow"      "allow" "$(_rs hardys-eng-lead 'gh pr create --repo juvantlabs/hardys-api')"
+t_assert "eng-lead + owned repo (infra) → allow"    "allow" "$(_rs hardys-eng-lead 'gh api repos/juvantlabs/hardys-infra/pulls -X POST')"
+t_assert "eng-lead + non-owned repo → deny"         "deny"  "$(_rs hardys-eng-lead 'gh pr create --repo juvantlabs/hardys-mobile')"
+t_assert "eng-lead + other-tree git → deny"         "deny"  "$(_rs hardys-eng-lead 'cd /W/elsewhere && git push')"
+
+# ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
 echo

@@ -2244,6 +2244,19 @@ removed project's entries get cleaned up on the next run while any
 manually-added entries are preserved (BUG-044). Use `additional_working_trees`
 when project subagents must read repos beyond the primary code tree.
 
+**Multi-repo projects (FEAT-054).** A project may own **more than one** GitHub
+repo (e.g. `hardys` → `hardys-web`, `hardys-api`, `hardys-infra`). List every
+local checkout in `working_tree` + `additional_working_trees[]` (filesystem
+access), and every GitHub repo in **`github_repos: ["<org>/<repo>", …]`** on the
+`projects.<slug>` entry. The Eng Lead is the single writer for **all** of them;
+the Track-2d repo-scope gate (FEAT-054) authorizes git/gh writes whose target
+(`cd <abs-path>` or `gh --repo`/`api repos/<O>/<R>`) is in the project's owned
+set, and denies writes to any repo/tree outside it. `github_repos` is the
+multi-repo generalization of the singular `github_repo`; if only `github_repo`
+is present it is treated as a one-element set (backward-compatible). Components
+are the N=1 case of the same owned-set model (`components[].repo` +
+`working_tree`).
+
 Run `bash scripts/migrate.sh --project=<slug>` (HARD-REQUIRED) to
 apply `scripts/schema.sql` to the per-project DB, then run
 `bash scripts/sync-project-globs.sh` (HARD-REQUIRED) to extend
@@ -2677,14 +2690,17 @@ Steps (each rendered per the Wizard rendering rule):
    No DB is created and no schema is migrated — components hold no company-DB
    state.
 
-2. **Compile the maintainer agent** from `agents/components/maintainer.md` into
-   `.claude/agents/<slug>-maintainer.md`, substituting `{{COMPONENT_SLUG}}`,
-   `{{COMPONENT_NAME}}`, `{{COMPONENT_REPO}}`, `{{COMPONENT_TYPE}}`,
-   `{{AGENT_NAME}}` / `{{AGENT_DESCRIPTION}}`. The compiled agent carries
+2. **Compile the maintainer agent** (FEAT-055):
+   ```bash
+   bash scripts/compile-templates.sh --scope component --component=<slug>
+   ```
+   It substitutes `{{COMPONENT_SLUG/NAME/REPO/TYPE}}` + the maintainer's
+   operating name from `components[]`, writes
+   `agents/components/<slug>/maintainer.md` (source template stays pristine), and
+   symlinks `.claude/agents/<slug>-maintainer.md`. The compiled agent carries
    `model: claude-opus-4-7` (principal full-stack + AI/LLM, solo single-writer —
-   the role demands top capability; usage is episodic so cost is bounded).
-   (Compilation is a Skill Write+substitution step; a `compile-templates.sh
-   --scope component` path for parity with project agents is FEAT-055.)
+   top capability; usage episodic so cost is bounded). `{{AGENT_DESCRIPTION}}`
+   resolves at runtime (allowlisted survivor, like every other agent).
 
 2b. **Grant filesystem access to the working tree.** Run
    `bash scripts/sync-project-globs.sh` — it folds `components[].working_tree`

@@ -361,7 +361,7 @@ if [[ "$ROLE" == "cos" && "$DECISION" == "allow" ]]; then
     _T2C_PATH=$(echo "$EVENT_JSON" | \
       jq -r '.tool_input.path // .tool_input.file_path // ""' 2>/dev/null || echo "")
     if [[ -n "$_T2C_PATH" ]]; then
-      _CFG_T2C="$SCRIPT_DIR/../.juvant/config.json"
+      _CFG_T2C="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
       while IFS= read -r _wt; do
         [[ -z "$_wt" || "$_wt" == "null" ]] && continue
         if [[ "$_T2C_PATH" == "$_wt"/* || "$_T2C_PATH" == "$_wt" ]]; then
@@ -426,6 +426,57 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
           DENY_REASON="SINGLE-WRITER §4 (Track 2d / FEAT-047 + FEAT-052 + FEAT-053): only eng-lead (project scope), eng-platform (company scope), or a component's <slug>-maintainer (component scope, its own repo) may perform git or gh WRITE operations — git commit/push/merge, or gh pr/issue/release/repo/secret/workflow/api writes. Agent '$ROLE' must author the appropriate spec (pr-spec / gh-issue-spec / gh-project-update-spec / release-spec / deployment-spec) and delegate the write to the scope's single writer via Task(). Read-only gh (view/list/diff/checks/status, api GET, repo clone) is allowed — re-issue as a read if that was the intent."
           ;;
       esac
+
+      # FEAT-054 — repo-scope the SCOPE-BOUND writers to their OWN repo(s)/tree(s).
+      # eng-platform is company-broad and exempt. The owned set comes from the
+      # registry (components[].{repo,working_tree,additional_working_trees} for a
+      # maintainer; projects[<slug>].{github_repos|github_repo, working_tree,
+      # additional_working_trees} for an eng-lead — N repos supported, e.g.
+      # hardys). The command's target is parsed from an explicit gh repo
+      # (-R/--repo or api repos/<O>/<R>) and/or a leading `cd <abs-path>`. A
+      # target OUTSIDE the owned set is denied; an undeterminable target FAILS
+      # OPEN to the role gate above (no false-deny on own-repo writes).
+      if [[ "$DECISION" == "allow" ]]; then
+        _CFG_T2D="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
+        if [[ -f "$_CFG_T2D" ]]; then
+          _OWNED=""
+          case "$ROLE" in
+            *-maintainer|maintainer)
+              _OWNED=$(jq -r --arg r "$ROLE" '.components[]? | select(.maintainer==$r) | (.repo // empty), (.working_tree // empty), (.additional_working_trees[]? // empty)' "$_CFG_T2D" 2>/dev/null || true)
+              ;;
+            *-eng-lead)
+              _SLUG="${ROLE%-eng-lead}"
+              _OWNED=$(jq -r --arg s "$_SLUG" '.projects[$s]? | ((.github_repos // (if .github_repo then [(.github_repo.org + "/" + .github_repo.repo_name)] else [] end))[]? // empty), (.working_tree // empty), (.additional_working_trees[]? // empty)' "$_CFG_T2D" 2>/dev/null || true)
+              ;;
+          esac
+          if [[ -n "$_OWNED" ]]; then
+            _TGT_REPO=""; _TGT_TREE=""; _VIOL=""
+            if [[ "$COMMAND" =~ (-R|--repo)[[:space:]=]+([A-Za-z0-9._-]+/[A-Za-z0-9._-]+) ]]; then
+              _TGT_REPO="${BASH_REMATCH[2]}"
+            elif [[ "$COMMAND" =~ repos/([A-Za-z0-9._-]+/[A-Za-z0-9._-]+) ]]; then
+              _TGT_REPO="${BASH_REMATCH[1]}"
+            fi
+            if [[ "$COMMAND" =~ (^|[\;\&[:space:]])cd[[:space:]]+(/[^[:space:]\;\&]+) ]]; then
+              _TGT_TREE="${BASH_REMATCH[2]}"
+            fi
+            if [[ -n "$_TGT_REPO" ]] && ! printf '%s\n' "$_OWNED" | grep -qxF "$_TGT_REPO"; then
+              _VIOL="repo '$_TGT_REPO'"
+            fi
+            if [[ -z "$_VIOL" && -n "$_TGT_TREE" ]]; then
+              _IN=0
+              while IFS= read -r _o; do
+                [[ -z "$_o" ]] && continue
+                [[ "$_TGT_TREE" == "$_o" || "$_TGT_TREE" == "$_o"/* ]] && { _IN=1; break; }
+              done <<< "$_OWNED"
+              [[ "$_IN" -eq 0 ]] && _VIOL="working tree '$_TGT_TREE'"
+            fi
+            if [[ -n "$_VIOL" ]]; then
+              DECISION="deny"
+              DENY_REASON="SINGLE-WRITER §4 repo-scope (Track 2d / FEAT-054): '$ROLE' may write only its own repo(s)/working-tree(s), but this command targets $_VIOL — outside its owned set. Author a spec and delegate to that scope's writer via Task(). (Undeterminable targets fail open to the role gate; an explicit cross-repo/cross-tree target is blocked.)"
+            fi
+          fi
+        fi
+      fi
     fi
   fi
 fi
