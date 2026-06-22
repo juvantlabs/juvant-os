@@ -11,6 +11,49 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-06-22 — GitHub via gh CLI (no MCP) — ends agent stalls
+
+### Added
+
+- **FEAT-052** Dropped the deprecated `@modelcontextprotocol/server-github`
+  MCP (npm: *"Package no longer supported"*); GitHub access is now the `gh`
+  CLI. The MCP was the dominant remaining stall source after BUG-046/FEAT-051:
+  its heavy ops (chiefly `create_pull_request_review`) hung, and **MCP tool
+  calls have no client-side timeout** (internal to Claude Code), so a wedged
+  call dead-locked the agent until the 600s stream watchdog. `gh` Bash calls
+  **can** be timeout-wrapped — the whole point of going CLI-only.
+  - `helpers/with-timeout.sh` — portable hard-timeout primitive
+    (`timeout`/`gtimeout`/`perl` alarm; macOS has none of the first two),
+    returns 124 on timeout. Wrap every GitHub call: `with-timeout.sh 60 gh …`.
+  - `docs/MCP_INVENTORY.md`, `scripts/templates/v0-agent-tool-matrix.json`,
+    `JUVANT_OS.md` — `github:read`/`github:write` MCP capabilities removed;
+    GitHub documented as a gh-CLI capability. (Instance follow-up: drop the
+    `github` block from `.mcp.json`.)
+
+### Fixed
+
+- **FEAT-052 / governance** Extended the Track-2d single-writer gate to gh
+  **write** operations (`gh pr/issue/release/repo/secret/variable/workflow/
+  label/project/gist` mutations, `gh api -X POST|PUT|PATCH|DELETE`, and
+  `gh api` field-flags without `-X GET`) → eng-lead/eng-platform only, same
+  policy as `git push/commit/merge`. Patterns: `bash-policy.json`
+  `single_writer_gh_patterns`. Without this, removing the MCP's read/write
+  split would have let any gh-allowed agent write to GitHub (§4 violation).
+  Read-only gh (view/list/diff/checks/status, api GET, repo clone) stays open.
+- **BUG-049** Track-2 Bash allow-list lookup is now project-prefix aware.
+  Project agents carry a slug prefix in `agent_type` (`dog-ai-eng-lead`) but
+  `agent_allow` keys are canonical (`eng-lead`), so every **direct** git/gh
+  command from a project agent was denied (only `cd`-prefixed compound
+  commands slipped through — observed as 268 denied vs 122 success for one
+  project eng-lead). `ROLE` is normalized to `LOOKUP_ROLE` (exact key, else
+  longest `-<key>` suffix) for the allow-list only; scope/writer gates keep
+  the full role. This also unblocks gh-CLI-only for project eng-leads.
+- **BUG-048** Closed the last unbounded network calls in hooks:
+  `notification.sh` curl now uses `--connect-timeout 5 --max-time 10`
+  (Telegram + Teams); `session-end.sh` routes its wrap-up counts through
+  `db.sh`'s timeout-wrapped `juvant_db_query` instead of a direct
+  `turso db shell`.
+
 ## [1.7.0] — 2026-06-21 — DB calls off the gating path (timeout + async spool)
 
 ### Fixed

@@ -44,6 +44,21 @@
     "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
   ],
 
+  "_single_writer_gh_comment": "FEAT-052 — single-writer §4 gate for GitHub writes via the gh CLI. With the deprecated github MCP removed, gh is the GitHub mechanism and gh is broadly allow-listed, so WRITE operations must be restricted to the single writer per scope (eng-lead at project scope, eng-platform at company scope) — exactly like git push/commit/merge in Track 2d. pre-tool-use.sh Track 2d matches the Bash command against these patterns; a match by any non-eng-lead/eng-platform subagent is denied (main operator thread is exempt, same as the git gate). Read-only gh (view/list/diff/checks/status, api GET, repo clone/view, release download) is NOT listed and stays open to all gh-allowed agents. gh api with field flags (-f/-F/--field/--raw-field) defaults to POST, so it is gated unless an explicit -X GET is present — that special case is handled in pre-tool-use.sh, not here. Verb-explicit (ERE has no negative lookahead); additions are cheap.",
+
+  "single_writer_gh_patterns": [
+    "gh[[:space:]]+pr[[:space:]]+(create|merge|close|reopen|edit|ready|review|comment|lock|unlock)",
+    "gh[[:space:]]+issue[[:space:]]+(create|edit|close|reopen|comment|delete|transfer|pin|unpin|lock|unlock)",
+    "gh[[:space:]]+release[[:space:]]+(create|edit|delete|upload|delete-asset)",
+    "gh[[:space:]]+repo[[:space:]]+(create|edit|delete|rename|archive|unarchive|fork|sync)",
+    "gh[[:space:]]+secret[[:space:]]+(set|delete|remove)",
+    "gh[[:space:]]+variable[[:space:]]+(set|delete|remove)",
+    "gh[[:space:]]+workflow[[:space:]]+(run|enable|disable)",
+    "gh[[:space:]]+label[[:space:]]+(create|edit|delete|clone)",
+    "gh[[:space:]]+(project|gist|cache|ruleset)[[:space:]]+(create|edit|delete|close|copy|rename|item-create|item-edit|item-delete|item-add|item-archive|field-create|field-delete)",
+    "gh[[:space:]]+api[[:space:]].*(-X|--method)[[:space:]]+(POST|PUT|PATCH|DELETE)"
+  ],
+
   "_agent_role_deny_comment": "R3 defense-in-depth (security incident class: framework-bug-enabled agent cloud-writes). These patterns deny cloud-mutating CLI commands for any agent role (cos, cfo, …, eng-platform, pca, eng-lead, …). The CEO/operator path (ROLE in {unknown, ceo, operator}, i.e. main thread without a subagent dispatch) is exempt — the human at the keyboard is exercising direct authority. Read-only invocations are NOT blocked: 'az ... show|list|account|version|help', 'terraform fmt|validate|plan|init|workspace|providers|version' continue to pass. Cloud mutations MUST only ever happen via the CEO-triggered terraform-apply GitHub workflow (deployment-spec / eng-platform-spec gated by Track 4), never via local CLI from an agent. Patterns are deliberately verb-explicit (vs negative lookahead, which ERE does not support); the universe of mutating verbs is open-ended but the high-risk ones are well-known and additions are cheap.",
 
   "agent_role_deny_patterns": [
