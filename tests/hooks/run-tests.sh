@@ -246,6 +246,38 @@ decision=$(echo "$out" | jq -r '.permissionDecision')
 t_assert "agent role + terraform apply → deny" "deny" "$decision"
 
 # ─────────────────────────────────────────────
+# single-writer gate (Track 2d: git + gh writes) — FEAT-047 + FEAT-052
+# Also exercises BUG-049 role normalization (project-prefixed agent_type).
+# NOTE: the gate keys on event.agent_type; the bypass triggers when it is
+# absent (main thread), so these cases MUST pass agent_type in the event.
+# ─────────────────────────────────────────────
+suite "single-writer gate (Track 2d: git + gh)"
+
+_t2d() {  # $1=agent_type  $2=command  -> prints decision
+  jq -nc --arg c "$2" --arg a "$1" \
+    '{tool_name:"Bash",session_id:"sess-t2d",agent_type:$a,tool_input:{command:$c}}' \
+    | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.permissionDecision'
+}
+
+# project writer (prefixed) — allowed (needs BUG-049 normalization to even
+# pass the Track-2 allow-list for bare gh/git, then the Track-2d writer case)
+t_assert "eng-lead + git commit → allow"           "allow" "$(_t2d dog-ai-eng-lead 'git commit -m x')"
+t_assert "eng-lead + gh pr create → allow"         "allow" "$(_t2d dog-ai-eng-lead 'gh pr create --title x')"
+t_assert "eng-lead + gh api POST → allow"          "allow" "$(_t2d dog-ai-eng-lead 'gh api repos/o/r -X POST')"
+# project non-writer with gh — reads ok, writes denied
+t_assert "product-lead + gh pr view → allow"       "allow" "$(_t2d dog-ai-product-lead 'gh pr view 1')"
+t_assert "product-lead + gh pr create → deny"      "deny"  "$(_t2d dog-ai-product-lead 'gh pr create --title x')"
+t_assert "product-lead + gh api -f (POST) → deny"  "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r -f a=b')"
+t_assert "product-lead + gh api -X GET -f → allow" "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r -X GET -f a=b')"
+t_assert "product-lead + git push → deny"          "deny"  "$(_t2d dog-ai-product-lead 'git push')"
+t_assert "wrapped gh write still gated → deny"     "deny"  "$(_t2d dog-ai-product-lead 'bash helpers/with-timeout.sh 60 gh pr merge 7')"
+t_assert "eng-platform + gh api POST → allow"      "allow" "$(_t2d eng-platform 'gh api orgs/x/repos -X POST')"
+# main thread (no agent_type) bypasses the gate
+_t2d_mt=$(echo '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"gh pr create --title x"}}' \
+  | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.permissionDecision')
+t_assert "main thread + gh write → allow (bypass)" "allow" "$_t2d_mt"
+
+# ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
 echo

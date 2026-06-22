@@ -16,13 +16,30 @@ inventory triggers a build-fail with a remediation hint.
 | `turso` | rw | all agents | `turso` CLI / `@libsql/client` | `TURSO_URL`, `TURSO_AUTH_TOKEN` | shipped |
 | `ms-graph` | r | CFO, CLO, CMO, CCO, Design Lead, CoS, CRO | claude.ai connector (read tools) | OAuth delegated (claude.ai-managed) | shipped (read-only) |
 | `m365-graph` | rw | CFO, CLO, CMO, CCO, Design Lead, CoS, CRO | [`@juvantlabs/m365-graph-mcp-server@0.1.3`](https://www.npmjs.com/package/@juvantlabs/m365-graph-mcp-server) (FEAT-014) | `M365_CLIENT_ID`, `M365_CLIENT_SECRET`, `M365_TENANT_ID` | shipped |
-| `github:read` | r | CTO, CSO, PCA, Product Lead, Design Lead, VPE (if enabled), eng-platform, eng-* | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
-| `github:write` | w | **eng-platform** (company repos) + **each project's Eng Lead** (that project's repos) per §4 single-writer-per-scope (ADR 0014) | `@modelcontextprotocol/server-github` | `GITHUB_TOKEN` | shipped |
+| ~~`github` (MCP)~~ | — | **removed (FEAT-052)** — GitHub access is now the `gh` CLI, not an MCP | ~~`@modelcontextprotocol/server-github`~~ (deprecated by upstream: *"Package no longer supported"*) | `GH_TOKEN`/`gh auth` | **dropped v1.8.0** |
 | `cloud:write` | w | **eng-platform only** — abstract MCP entry resolved at adoption per `feature_toggles.cloud_provider` ∈ {azure, aws, gcp, none}; dropped when `none` | provider-specific (Azure: `azure-platform-mcp-server`; AWS/GCP: TBD) | pending (per-provider FEATs) |
 | `npm:publish` | w | **eng-platform only** — canonical-helper publication (FEAT-024 path) | `npm` CLI + OIDC trusted publishing | shipped |
 | `bank` | r | **CFO only** | provider-specific MCP, abstract-bound at company init (Finom: `juvantlabs/finom-mcp-server`, FEAT-011) | provider-specific (Finom: `FINOM_API_KEY`) | pending FEAT-011 (Finom) |
 | `fattura_elettronica` | r | CFO | provider-specific MCP (Italy: `juvantlabs/aruba-fattura-mcp-server`, FEAT-012) | provider-specific (Aruba: `ARUBA_*`) | pending FEAT-012 (Aruba) |
 | `buffer` | rw | CMO | TBD (third-party SaaS scheduler) | `BUFFER_ACCESS_TOKEN` | not yet specified |
+
+## GitHub access — `gh` CLI, not an MCP (FEAT-052)
+
+GitHub is **not** an MCP server. The deprecated `@modelcontextprotocol/server-github`
+(npm: *"Package no longer supported"*) was dropped in v1.8.0: its calls hung with
+no client-side timeout, dead-locking agents until Claude Code's 600s stream
+watchdog. GitHub access is now the `gh` CLI:
+
+- **Mechanism**: `gh` / `gh api`, present in the relevant agents' Bash allow-lists.
+- **Timeouts**: wrap every GitHub call with `helpers/with-timeout.sh <secs> gh …`
+  so a wedged request fails fast instead of stalling (MCP calls could not be
+  timeout-wrapped — that was the whole problem).
+- **Read vs. write governance**: read-only `gh` (view/list/diff/checks/status,
+  `gh api` GET, `repo clone`) is open to all gh-allowed agents. **Write**
+  operations (`gh pr/issue/release/repo/secret/workflow/api` mutations) are gated
+  by the Track-2d single-writer gate to **eng-lead** (project scope) /
+  **eng-platform** (company scope) per §4 — the same policy as `git
+  push/commit/merge`. Patterns: `bash-policy.json` `single_writer_gh_patterns`.
 
 ## Abstract roles vs. concrete servers
 
@@ -58,11 +75,13 @@ binding that violates these:
   (`cfo-portal`, `clo-portal`, `cco-portal`, `cmo-portal`). Autonomous
   send is never granted; portal variants use two-phase confirmation per
   handbook ADR 0002.
-- **`github:write`** to any agent except `eng-platform` at company scope
+- **`gh` write operations** (FEAT-052; replaces the former `github:write`
+  MCP capability) to any agent except `eng-platform` at company scope
   (company repos only) and each project's `eng-lead` at that project's
-  scope per §4 single-writer-per-scope (ADR 0014). Cross-scope writes
-  are forbidden — `eng-platform` cannot write to a project repo;
-  `eng-lead` cannot write to a company repo.
+  scope per §4 single-writer-per-scope (ADR 0014). Enforced by the
+  Track-2d gate over `bash-policy.json` `single_writer_gh_patterns`, not by
+  an MCP capability. Cross-scope writes are forbidden — `eng-platform`
+  cannot write to a project repo; `eng-lead` cannot write to a company repo.
 - **`cloud:write`** to any agent except `eng-platform` (per ADR 0014 §3).
 - **`npm:publish`** to any agent except `eng-platform` for the
   canonical-helper publication path (FEAT-024). Every publish requires

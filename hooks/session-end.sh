@@ -70,7 +70,10 @@ fi
 # indicators. If any found, write a session-wrap-reminder messages row
 # so session-start.sh surfaces it at next boot.
 if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
-  _count() { turso db shell "$JUVANT_DB_URL" "$1" 2>/dev/null | tail -1 | tr -d ' \r'; }
+  # BUG-048: route through db.sh's juvant_db_query (hard-timeout wrapped per
+  # BUG-046) instead of calling `turso db shell` directly — a direct call has
+  # no time bound and can hang session end on a network stall.
+  _count() { juvant_db_query "$1" 2>/dev/null | tail -1 | tr -d ' \r'; }
 
   PENDING_QUEUE=$(_count \
     "SELECT COUNT(*) FROM inbound_queue WHERE agent_owner='cos' AND status='pending';")

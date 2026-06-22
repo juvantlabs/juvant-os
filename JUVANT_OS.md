@@ -3505,7 +3505,7 @@ SYSTEM_INVARIANTS.md §2 is canonical. Defaults:
 | PCA | `<project_id>-pca` |
 | Product Lead | `<project_id>-product-lead` |
 | Design Lead | `<project_id>-design-lead` (Chief **Design** Officer — not Data) |
-| Eng Lead | `<project_id>-eng-lead` (sole `github:write` bearer per §4) |
+| Eng Lead | `<project_id>-eng-lead` (sole GitHub writer per §4 — `gh` write gate, FEAT-052) |
 | eng-api / eng-backend / eng-frontend / eng-ai | role identifier only |
 
 Each project gets its own Eng Lead; there is no company-wide Eng Lead. The Eng Lead single-writer
@@ -3745,7 +3745,28 @@ SET status='executed',
 WHERE id=?;
 ```
 
-2. Run the GitHub action (via `github:write` MCP).
+2. Run the GitHub action **via the `gh` CLI, always timeout-wrapped** (FEAT-052 —
+   the deprecated `@modelcontextprotocol/server-github` MCP was dropped because its
+   calls hung with no client-side timeout, stalling agents to the 600s watchdog).
+   Wrap every GitHub call with `helpers/with-timeout.sh <secs> gh …` so a wedged
+   request fails fast:
+
+   ```bash
+   # PR (write) — eng-lead / eng-platform only (Track-2d single-writer gate)
+   bash helpers/with-timeout.sh 90 gh pr create --repo <org>/<repo> \
+     --base <base> --head <branch> --title "<t>" --body-file <f>
+   # PR review with inline comments (the op that hung most under the old MCP)
+   bash helpers/with-timeout.sh 90 gh api repos/<org>/<repo>/pulls/<N>/reviews \
+     -X POST -f event=COMMENT -f body="<summary>" \
+     -F 'comments[][path]=<file>' -F 'comments[][line]=<n>' -F 'comments[][body]=<c>'
+   # Reads — open to all gh-allowed agents
+   bash helpers/with-timeout.sh 30 gh pr view <N> --repo <org>/<repo> --json state,reviews
+   ```
+
+   Read-only `gh` (view/list/diff/checks/status, `gh api` GET, `repo clone`) is
+   allowed for any gh-allowed agent. **Write** operations (`gh pr/issue/release/
+   repo/secret/workflow/api` mutations) are gated to eng-lead/eng-platform by the
+   Track-2d single-writer gate (`bash-policy.json` `single_writer_gh_patterns`).
 
 3. Record the artifact reference in `source_ref` (canonical format `<org>/<repo>#<N>`):
 
@@ -3771,8 +3792,10 @@ but no open issue signal stale / already-closed work.
 
 - `bank:write` to any agent except a future ratified `treasury` role.
 - Mail-send capability (FEAT-016 `m365-mail-mcp-server`, v1.1+) to any agent except portal variants in v1.1; autonomous send is never granted.
-- **`github:write` to any agent except Eng Lead.** Single-writer is a security invariant
-  (§4), not a preference.
+- **`gh` write operations to any agent except Eng Lead / eng-platform** (FEAT-052;
+  replaces the former `github:write` MCP capability). Enforced by the Track-2d gate
+  over `single_writer_gh_patterns`. Single-writer is a security invariant (§4), not
+  a preference.
 - Both `state.db` read and external-channel send in the same matrix row.
 - `Bash` unrestricted to any external-facing agent (portal/demo variants).
 
@@ -4295,7 +4318,7 @@ helpers/turso-backup.sh       helpers/install-schedules.sh
 helpers/fiscal-deadlines.sh   helpers/anomaly-baseline-report.sh
 helpers/kb-coverage.sh        helpers/agent-killswitch.sh
 helpers/kb-sync.sh            helpers/drain-audit-spool.sh
-helpers/cso-weekly-audit.sh
+helpers/cso-weekly-audit.sh   helpers/with-timeout.sh
 hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
@@ -4409,8 +4432,10 @@ The Skill itself enforces these. They are non-negotiable.
 7. **Bank is read-only by construction** — `bank:read` is the only scope ever
    granted; `bank:write` is a Universal Boundary refusal.
 
-8. **GitHub writes flow only through Eng Lead** — every other agent carries
-   `github:read` only. Any attempt to bypass this is a P0 security incident.
+8. **GitHub writes flow only through Eng Lead** — GitHub is the `gh` CLI
+   (timeout-wrapped), not an MCP (FEAT-052); every other agent may only run
+   read-only `gh`. `gh` writes are gated to eng-lead/eng-platform by Track-2d.
+   Any attempt to bypass this is a P0 security incident.
 
 9. **CMO mail scope is press only** — `.juvant/config.json`
    `mail_enabled_agents.cmo` defaults to `press@{{COMPANY_DOMAIN}}` and CMO

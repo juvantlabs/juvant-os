@@ -66,7 +66,9 @@ fi
 
 # Push to Telegram (skipped when JUVANT_TEAMS_ONLY=1 — e.g. long markdown briefs)
 if [[ "${JUVANT_TEAMS_ONLY:-0}" != "1" ]] && [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
-  curl -s -X POST \
+  # BUG-048: --connect-timeout/--max-time bound the call; without them a
+  # stalled connection hangs the hook (curl has no overall timeout by default).
+  curl -s --connect-timeout 5 --max-time 10 -X POST \
     "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     -d "chat_id=${TELEGRAM_CHAT_ID}" \
     --data-urlencode "text=${FULL_MESSAGE}" \
@@ -87,7 +89,7 @@ if [[ -n "${TEAMS_WEBHOOK_URL:-}" ]]; then
       }
     ]
   }')
-  curl -s -X POST \
+  curl -s --connect-timeout 5 --max-time 10 -X POST \
     "$TEAMS_WEBHOOK_URL" \
     -H "Content-Type: application/json" \
     -d "$TEAMS_PAYLOAD" \

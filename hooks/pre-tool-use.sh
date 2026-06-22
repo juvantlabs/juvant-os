@@ -61,6 +61,24 @@ if [[ -z "$ROLE" ]]; then
   fi
 fi
 
+# BUG-049: normalize ROLE → LOOKUP_ROLE for the Bash allow-list lookup.
+# Project-scope agents carry a project-slug prefix in agent_type
+# (e.g. "dog-ai-eng-lead"), but bash-policy.json `agent_allow` keys are
+# canonical/unprefixed ("eng-lead"). Without normalization, project agents
+# are denied every DIRECT git/gh/… command (only commands starting with a
+# universal_allow token like `cd` slipped through, via the compound-command
+# caveat) — which also blocks gh-CLI-only (FEAT-052) for project eng-leads.
+# Exact agent_allow key wins; else the longest key K such that ROLE ends
+# with "-K". Only the allow-list/tier lookup uses LOOKUP_ROLE; the Track-2b
+# scope checks and the Track-2d writer gate keep the full prefixed ROLE.
+LOOKUP_ROLE="$ROLE"
+if [[ -f "$POLICY" ]] && ! jq -e --arg r "$ROLE" '.agent_allow | has($r)' "$POLICY" >/dev/null 2>&1; then
+  _canon=$(jq -r --arg r "$ROLE" \
+    '.agent_allow | keys[] as $k | select($r == $k or ($r | endswith("-" + $k))) | $k' \
+    "$POLICY" 2>/dev/null | awk '{ if (length($0) > length(b)) b=$0 } END{ print b }')
+  [[ -n "$_canon" ]] && LOOKUP_ROLE="$_canon"
+fi
+
 # Compute SHA-256 of canonical (sorted-keys) JSON of tool_input
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
 ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')
@@ -188,7 +206,7 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
         '(.universal_allow // []) | index($bin) // empty' \
         "$POLICY" 2>/dev/null || echo "")
       if [[ -z "$UNIVERSAL_OK" ]]; then
-        ALLOW_OK=$(jq -r --arg role "$ROLE" --arg bin "$FIRST_TOKEN" '
+        ALLOW_OK=$(jq -r --arg role "$LOOKUP_ROLE" --arg bin "$FIRST_TOKEN" '
           . as $doc |
           [
             ($doc.agent_allow[$role] // [])[] |
@@ -370,15 +388,40 @@ fi
 # Read-only git ops (pull, fetch, log, diff, status, show, clone) are
 # not gated. git commit --amend and git push --force are already caught
 # by the universal deny-list (Track 2).
+#
+# FEAT-052: the gate also covers gh WRITE operations. With the deprecated
+# github MCP removed, gh is the GitHub mechanism and gh is broadly
+# allow-listed, so writes must be restricted to the single writer the same
+# way git writes are. Write patterns live in bash-policy.json
+# (single_writer_gh_patterns); read-only gh (view/list/diff/checks, api
+# GET) is not listed and stays open. gh api with field flags defaults to
+# POST, so it is gated unless an explicit -X GET is present.
 if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
+  _T2D_WRITE=0
   if [[ "$COMMAND" =~ git[[:space:]]+(push|commit|merge) ]]; then
+    _T2D_WRITE=1
+  fi
+  if [[ "$_T2D_WRITE" -eq 0 && -f "$POLICY" ]]; then
+    while IFS= read -r _ghp; do
+      [[ -z "$_ghp" ]] && continue
+      if [[ "$COMMAND" =~ $_ghp ]]; then _T2D_WRITE=1; break; fi
+    done < <(jq -r '.single_writer_gh_patterns[]?' "$POLICY" 2>/dev/null)
+  fi
+  # gh api with field flags (-f/-F/--field/--raw-field) is a POST by
+  # default — a write — unless an explicit -X GET / --method GET is given.
+  if [[ "$_T2D_WRITE" -eq 0 ]] \
+     && [[ "$COMMAND" =~ gh[[:space:]]+api.*(-f|-F|--field|--raw-field)([[:space:]]|=) ]] \
+     && [[ ! "$COMMAND" =~ (-X|--method)[[:space:]]+GET ]]; then
+    _T2D_WRITE=1
+  fi
+  if [[ "$_T2D_WRITE" -eq 1 ]]; then
     _T2D_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
     if [[ -n "$_T2D_AGENT_TYPE" ]]; then
       case "$ROLE" in
         *-eng-lead|eng-lead|eng-platform) ;;
         *)
           DECISION="deny"
-          DENY_REASON="SINGLE-WRITER §4 (Track 2d / FEAT-047): only eng-lead may commit, push, or merge on project repos. Agent '$ROLE' must author a pr-spec and delegate git writes to eng-lead via Task()."
+          DENY_REASON="SINGLE-WRITER §4 (Track 2d / FEAT-047 + FEAT-052): only eng-lead (project scope) / eng-platform (company scope) may perform git or gh WRITE operations — git commit/push/merge, or gh pr/issue/release/repo/secret/workflow/api writes. Agent '$ROLE' must author the appropriate spec (pr-spec / gh-issue-spec / gh-project-update-spec / release-spec / deployment-spec) and delegate the write to eng-lead via Task(). Read-only gh (view/list/diff/checks/status, api GET, repo clone) is allowed — re-issue as a read if that was the intent."
           ;;
       esac
     fi
