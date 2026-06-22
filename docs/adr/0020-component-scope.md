@@ -82,8 +82,13 @@ just generic full-stack.
 - **Single-writer for its own repo** (see §5). The Track-2d gate authorizes the
   maintainer *role* to perform git/gh writes; binding the write to *only* the
   maintainer's own repo is by working-tree access + dispatch discipline today
-  (the same property eng-lead has — the gate is role-scoped, not repo-scoped).
-  Hard repo-scoped enforcement (for eng-lead and maintainer alike) is FEAT-054.
+  (the same property eng-lead had). Hard repo-scoped enforcement (for eng-lead
+  and maintainer alike) is now in place — **FEAT-054** (v1.10.0): the Track-2d
+  gate confines git/gh writes to the writer's owned repo/working-tree set
+  (`components[].repo`/`working_tree` for a maintainer; a project's
+  `github_repos[]` + `working_tree` + `additional_working_trees[]` for an
+  eng-lead, N repos supported), failing open only when the target is
+  undeterminable.
   It escalates to **Arch (CTO)** for cross-cutting architectural choices and to
   **eng-platform** for release / npm / CI / infra.
 
@@ -137,7 +142,7 @@ where component decisions accrue. State is on the repo whether public or private
 ### 5. §4 single-writer, intact
 
 The maintainer is a **pure repo-writer**: it writes git/gh (its own repo by
-working-tree + dispatch; repo-scoped hard enforcement is FEAT-054) and never the
+working-tree + dispatch, repo-scoped-enforced via FEAT-054) and never the
 company DB. The Track-2d single-writer gate adds `*-maintainer`
 to its writer set (alongside `*-eng-lead`, `eng-lead`, `eng-platform`), so a
 `<slug>-maintainer` may perform git/gh **writes** while every other agent is

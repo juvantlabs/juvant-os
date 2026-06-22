@@ -59,6 +59,7 @@ DO_CODEOWNERS=0
 CHECK_ONLY=0
 DO_REWRITE_META=0
 PROJECT_SLUG=""
+COMPONENT_SLUG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -66,6 +67,8 @@ while [[ $# -gt 0 ]]; do
     --scope=*) SCOPE="${1#--scope=}"; shift ;;
     --project) PROJECT_SLUG="$2"; shift 2 ;;
     --project=*) PROJECT_SLUG="${1#--project=}"; shift ;;
+    --component) COMPONENT_SLUG="$2"; shift 2 ;;
+    --component=*) COMPONENT_SLUG="${1#--component=}"; shift ;;
     --codeowners) DO_CODEOWNERS=1; shift ;;
     --rewrite-meta) DO_REWRITE_META=1; shift ;;
     --check-only) CHECK_ONLY=1; shift ;;
@@ -190,6 +193,36 @@ if [[ "$SCOPE" == "projects" ]]; then
   ENG_AI_NAME=$(project_agent_name "$PROJECT_SLUG" eng-ai "$PROJECT_SLUG-eng-ai")
 fi
 
+# FEAT-055 (ADR 0020): component-scope resolution. Reads the component row from
+# .juvant/config.json components[] by --component=<slug> and exports COMPONENT_*.
+COMPONENT_NAME=""
+COMPONENT_REPO=""
+COMPONENT_TYPE=""
+MAINTAINER_AGENT_NAME=""
+if [[ "$SCOPE" == "component" ]]; then
+  if [[ -z "$COMPONENT_SLUG" ]]; then
+    only=$(jq -r '(.components // []) | if length == 1 then .[0].slug else "" end' "$CONFIG")
+    [[ -n "$only" ]] && COMPONENT_SLUG="$only"
+  fi
+  if [[ -z "$COMPONENT_SLUG" ]]; then
+    echo "ERROR: --scope component requires --component=<slug> (or a single .components entry in $CONFIG)." >&2
+    exit 1
+  fi
+  _comp=$(jq -c --arg s "$COMPONENT_SLUG" '(.components // [])[] | select(.slug==$s)' "$CONFIG")
+  if [[ -z "$_comp" ]]; then
+    echo "ERROR: component '$COMPONENT_SLUG' not found in $CONFIG (.components[].slug)." >&2
+    exit 1
+  fi
+  COMPONENT_NAME=$(echo "$_comp" | jq -r '.name // empty')
+  COMPONENT_REPO=$(echo "$_comp" | jq -r '.repo // empty')
+  COMPONENT_TYPE=$(echo "$_comp" | jq -r '.type // "library"')
+  [[ -z "$COMPONENT_NAME" ]] && COMPONENT_NAME="$COMPONENT_SLUG"
+  MAINTAINER_AGENT_NAME=$(echo "$_comp" | jq -r '.maintainer_name // .agent_name // empty')
+  # Default operating name when none given (e.g. batch fixture with agent_name: null).
+  [[ -z "$MAINTAINER_AGENT_NAME" || "$MAINTAINER_AGENT_NAME" == "null" ]] && MAINTAINER_AGENT_NAME="$COMPONENT_SLUG-maintainer"
+  export COMPONENT_SLUG COMPONENT_NAME COMPONENT_REPO COMPONENT_TYPE
+fi
+
 # GitHub user map (Step 1.6 — single CEO handle by default)
 github_handle() {
   local role="$1"
@@ -309,6 +342,7 @@ substitute_file() {
     eng-backend.md)   agent_name_token="$ENG_BACKEND_NAME" ;;
     eng-frontend.md)  agent_name_token="$ENG_FRONTEND_NAME" ;;
     eng-ai.md)        agent_name_token="$ENG_AI_NAME" ;;
+    maintainer.md)    agent_name_token="$MAINTAINER_AGENT_NAME" ;;  # component scope (FEAT-055)
     *)                agent_name_token="" ;;
   esac
 
@@ -345,6 +379,11 @@ subs = {
     "ENG_PLATFORM_NAME":         os.environ.get("ENG_PLATFORM_NAME", ""),
     "PROJECT_NAME":              os.environ.get("PROJECT_NAME", ""),
     "PROJECT_NAME_SLUG":         os.environ.get("PROJECT_NAME_SLUG", ""),
+    # FEAT-055 (ADR 0020) component-scope placeholders.
+    "COMPONENT_SLUG":            os.environ.get("COMPONENT_SLUG", ""),
+    "COMPONENT_NAME":            os.environ.get("COMPONENT_NAME", ""),
+    "COMPONENT_REPO":            os.environ.get("COMPONENT_REPO", ""),
+    "COMPONENT_TYPE":            os.environ.get("COMPONENT_TYPE", ""),
     # v0.8.0 (ADR 0014 §1) project-scope role placeholders.
     "PCA_NAME":                  os.environ.get("PCA_NAME", ""),
     "PRODUCT_LEAD_NAME":         os.environ.get("PRODUCT_LEAD_NAME", ""),
@@ -621,9 +660,10 @@ elif [[ "$DO_CODEOWNERS" == "1" ]]; then
   substitute_file "$TARGET"
 else
   case "$SCOPE" in
-    company)  TARGET_DIR="$ROOT/agents/company" ;;
-    projects) TARGET_DIR="$ROOT/agents/projects" ;;
-    *) echo "ERROR: unknown --scope '$SCOPE' (expected 'company' or 'projects')" >&2; exit 1 ;;
+    company)   TARGET_DIR="$ROOT/agents/company" ;;
+    projects)  TARGET_DIR="$ROOT/agents/projects" ;;
+    component) TARGET_DIR="$ROOT/agents/components" ;;
+    *) echo "ERROR: unknown --scope '$SCOPE' (expected 'company', 'projects', or 'component')" >&2; exit 1 ;;
   esac
 
   if [[ ! -d "$TARGET_DIR" ]]; then
@@ -631,7 +671,24 @@ else
     exit 1
   fi
 
-  if [[ "$SCOPE" == "projects" ]]; then
+  if [[ "$SCOPE" == "component" ]]; then
+    # FEAT-055 (ADR 0020): compile the single maintainer.md template for one
+    # component into agents/components/<slug>/maintainer.md (source template
+    # stays pristine) + symlink .claude/agents/<slug>-maintainer.md.
+    COMP_OUT_DIR="$ROOT/agents/components/$COMPONENT_SLUG"
+    mkdir -p "$COMP_OUT_DIR"
+    src="$TARGET_DIR/maintainer.md"
+    if [[ ! -f "$src" ]]; then
+      echo "ERROR: $src not found." >&2
+      exit 1
+    fi
+    out_file="$COMP_OUT_DIR/maintainer.md"
+    substitute_file "$src" "$out_file"
+    link_target="../../agents/components/${COMPONENT_SLUG}/maintainer.md"
+    link_name="$ROOT/.claude/agents/${COMPONENT_SLUG}-maintainer.md"
+    ln -sf "$link_target" "$link_name"
+    echo "  symlinked: .claude/agents/${COMPONENT_SLUG}-maintainer.md → ${link_target}"
+  elif [[ "$SCOPE" == "projects" ]]; then
     # Write compiled output to agents/projects/<slug>/ so source templates
     # in agents/projects/*.md remain pristine across multi-project compiles.
     # Wire .claude/agents/<slug>-<role>.md symlinks after each file.
