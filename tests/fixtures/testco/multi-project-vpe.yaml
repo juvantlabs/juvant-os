@@ -256,11 +256,11 @@ expect:
     - { role: cco,          mcp_servers_includes: [m365-graph] }
     - { role: design-lead,  mcp_servers_includes: [m365-graph] }
     # vpe row present and ACTIVE because vpe_enabled=true.
-    - { role: vpe,          scope: company, mcp_servers: [turso, github:read] }
+    - { role: vpe,          scope: company, mcp_servers: [turso] }
     # cro row present in matrix template but inactive (cro_enabled=false).
     # Driver should verify it's NOT in agents/manifests tables.
-    - { role: eng-platform, scope: company, mcp_servers_includes: [turso, github:write, npm:publish] }
-    - { role: eng-lead,     mcp_servers: [turso, github:write] }
+    - { role: eng-platform, scope: company, mcp_servers_includes: [turso, npm:publish] }
+    - { role: eng-lead,     mcp_servers: [turso] }
 
   agent_table_assertions:
     # Confirm vpe agent ROW is active (toggle drove activation).

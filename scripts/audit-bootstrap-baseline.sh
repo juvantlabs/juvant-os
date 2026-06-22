@@ -178,12 +178,31 @@ audit_layer_1_access() {
   # Layer 5 §11 sub-rule (forward-compat): empty agent_actions_log + populated
   # security_audit_log auditor='cso' = cover-up flag. Reported here at audit
   # time so CSO sees its own pre-state.
-  local action_log_count
+  #
+  # BUG-050: since FEAT-051 the Track-3 audit writes are spooled to
+  # .juvant/audit-spool.sql and drained out-of-band, so agent_actions_log can
+  # legitimately be empty mid-bootstrap (rows pending drain) even though
+  # Track-3 IS running — a false 'track-3-disabled' P1 otherwise fires on every
+  # first bootstrap. Drain the spool first so the count reflects reality at
+  # bootstrap-seal (forensic value preserved); only an empty log AFTER draining
+  # is a real signal, and even then a still-populated spool means Track-3 is
+  # running (drain just failed/offline) → informational, not track-3-disabled.
+  if [[ -x "$ROOT/helpers/drain-audit-spool.sh" ]]; then
+    bash "$ROOT/helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true
+  fi
+  local action_log_count spool_file
   action_log_count=$(juvant_db_query "SELECT COUNT(*) FROM agent_actions_log;" | tail -1 | tr -d '[:space:]')
+  spool_file="$ROOT/.juvant/audit-spool.sql"
   if [[ "${action_log_count:-0}" == "0" ]]; then
-    emit "access" "medium" \
-      "agent_actions_log is empty (0 rows) at audit time. v0.6.3+ Local SQLite hooks should populate this on every tool call; an empty log mid-bootstrap suggests Track 3 is not running. Verify hooks/lib/db.sh routing and provider config (v0.6.5 F-20 strip 'file:' prefix)." \
-      "track-3-disabled"
+    if [[ -s "$spool_file" ]]; then
+      emit "access" "info" \
+        "agent_actions_log is empty but the audit spool (.juvant/audit-spool.sql) has pending rows — Track 3 is running async (FEAT-051); rows are spooled awaiting drain. Informational, not a Track-3 failure." \
+        "track-3-async-pending"
+    else
+      emit "access" "medium" \
+        "agent_actions_log is empty (0 rows) at audit time and the audit spool is empty too. v0.6.3+ hooks should populate the log (or the FEAT-051 spool) on every tool call; an empty log+spool mid-bootstrap suggests Track 3 is not running. Verify hooks/lib/db.sh routing and provider config (v0.6.5 F-20 strip 'file:' prefix)." \
+        "track-3-disabled"
+    fi
   fi
 }
 

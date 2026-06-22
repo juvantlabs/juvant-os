@@ -53,6 +53,19 @@ All written artifacts in English. No exceptions.
   (Telegram + Teams); `session-end.sh` routes its wrap-up counts through
   `db.sh`'s timeout-wrapped `juvant_db_query` instead of a direct
   `turso db shell`.
+- **BUG-050** CSO bootstrap-baseline audit no longer raises a false-P1
+  `track-3-disabled` when the audit log is empty. Since FEAT-051 the Track-3
+  writes are spooled (`.juvant/audit-spool.sql`) and drained out-of-band, so
+  `agent_actions_log` is legitimately empty mid-bootstrap (rows pending
+  drain) — which fired a false P1 on every first bootstrap (caught by
+  testco: p1=1 vs the pre-FEAT-051 PASS baseline).
+  `audit-bootstrap-baseline.sh` now drains the spool **before** checking the
+  log (forensic state reflects reality at seal); an empty log with a
+  populated spool is reported as `info` (`track-3-async-pending`), and only
+  an empty log **and** empty spool remains a `track-3-disabled` finding.
+  Also updated the 4 testco fixtures (`single-project`, `multi-project-vpe`,
+  `single-company`, `manifesto-walk-through`) to drop the stale
+  `github:read`/`github:write` `mcp_servers` assertions (FEAT-052 fallout).
 
 ## [1.7.0] — 2026-06-21 — DB calls off the gating path (timeout + async spool)
 

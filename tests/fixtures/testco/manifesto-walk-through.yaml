@@ -178,8 +178,8 @@ expect:
     - { role: cro,          mcp_servers_includes: [m365-graph] }
     - { role: design-lead,  mcp_servers_includes: [m365-graph] }
     # eng-platform: cloud:write dropped because cloud_provider=none.
-    - { role: eng-platform, scope: company, mcp_servers_includes: [turso, github:write, npm:publish] }
-    - { role: eng-lead,     mcp_servers: [turso, github:write] }      # single-writer at project scope per ADR 0014 §4
+    - { role: eng-platform, scope: company, mcp_servers_includes: [turso, npm:publish] }
+    - { role: eng-lead,     mcp_servers: [turso] }      # single-writer at project scope per ADR 0014 §4
 
   decision_categories:
     bootstrap-action_min: 12
