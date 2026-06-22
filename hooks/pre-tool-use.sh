@@ -418,10 +418,10 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
     _T2D_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
     if [[ -n "$_T2D_AGENT_TYPE" ]]; then
       case "$ROLE" in
-        *-eng-lead|eng-lead|eng-platform) ;;
+        *-eng-lead|eng-lead|eng-platform|*-maintainer|maintainer) ;;
         *)
           DECISION="deny"
-          DENY_REASON="SINGLE-WRITER §4 (Track 2d / FEAT-047 + FEAT-052): only eng-lead (project scope) / eng-platform (company scope) may perform git or gh WRITE operations — git commit/push/merge, or gh pr/issue/release/repo/secret/workflow/api writes. Agent '$ROLE' must author the appropriate spec (pr-spec / gh-issue-spec / gh-project-update-spec / release-spec / deployment-spec) and delegate the write to eng-lead via Task(). Read-only gh (view/list/diff/checks/status, api GET, repo clone) is allowed — re-issue as a read if that was the intent."
+          DENY_REASON="SINGLE-WRITER §4 (Track 2d / FEAT-047 + FEAT-052 + FEAT-053): only eng-lead (project scope), eng-platform (company scope), or a component's <slug>-maintainer (component scope, its own repo) may perform git or gh WRITE operations — git commit/push/merge, or gh pr/issue/release/repo/secret/workflow/api writes. Agent '$ROLE' must author the appropriate spec (pr-spec / gh-issue-spec / gh-project-update-spec / release-spec / deployment-spec) and delegate the write to the scope's single writer via Task(). Read-only gh (view/list/diff/checks/status, api GET, repo clone) is allowed — re-issue as a read if that was the intent."
           ;;
       esac
     fi

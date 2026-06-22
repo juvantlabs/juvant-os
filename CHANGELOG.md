@@ -11,6 +11,36 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-06-22 — Component-scope for library/MCP/toolbox repos
+
+### Added
+
+- **FEAT-053 / ADR 0020** Component-scope — a third, lighter tier below
+  project-scope for single-responsibility `juvantlabs` repos (library /
+  mcp-server / toolbox), so the long tail isn't forced into the full 8-agent
+  project roster + project DB + board + `-pm`. Big products (e.g. `juvant-os`)
+  stay full projects.
+  - **`/juv-add-component`** (new command) + `agents/components/maintainer.md`
+    template. Registers the component in `.juvant/config.json` `components[]`
+    (no DB, no migration) and compiles one `<slug>-maintainer`.
+  - **Maintainer** = principal/staff full-stack **+ AI/LLM** engineer that owns
+    one repo end-to-end, **single-writer on its own repo only**, `model:
+    claude-opus-4-7` (solo role, no safety net, episodic so cost-bounded).
+  - **State lives on GitHub** (visibility-agnostic): backlog = Issues/Projects;
+    decisions = in-repo ADRs + `juvant:decision`-labeled Issues; knowledge =
+    in-repo docs/Discussions. No component DB, no rows in company
+    decisions/KB, no `-pm`.
+  - **CEO ratification preserved** via the `juvant:decision` label. Boot
+    (step 4c) and wrap-up (step 1b) run one timeout-wrapped, best-effort
+    `gh search issues --owner <org> label:juvant:decision state:open`
+    (via `helpers/with-timeout.sh` — FEAT-052) and surface pending component
+    decisions to the CEO. Routine Issues/PRs are not pulled.
+  - **§4 intact**: the maintainer is a pure repo-writer. Track-2d's writer set
+    gains `*-maintainer`; `bash-policy.json` gets a `maintainer` allow-list
+    tier (git, gh, node/npm/npx, python, test tooling). No company-DB write
+    scope, so the §4b/§4c scope checks are unchanged. BUG-049 role
+    normalization maps `<slug>-maintainer` → `maintainer`.
+
 ## [1.8.0] — 2026-06-22 — GitHub via gh CLI (no MCP) — ends agent stalls
 
 ### Added
