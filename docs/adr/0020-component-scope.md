@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-06-22). **Extends ADR 0019.** ADR 0019 modeled `juvantlabs`
+Accepted (2026-06-23, ratified — in force; first component `juvantlabs/m365-graph-mcp-server` registered 2026-06-22). **Extends ADR 0019.** ADR 0019 modeled `juvantlabs`
 as one full-roster project covering every OSS repo (`juvant-os`, `engram`,
 the MCP servers, `labs-web`). In practice the 8-agent roster (PCA + Product +
 Design + Eng Lead + 4×eng) + a per-project DB + a board is **over-structure**

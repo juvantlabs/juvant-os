@@ -39,7 +39,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0017](0017-sub-company-model.md) | Sub-company model: master/sub topology with global-scoped decisions | Proposed | 2026-05-16 |
 | [0018](0018-descope-bash-escalation.md) | De-scope FEAT-025 dynamic bash escalation; self-remediating deny message is the durable design | Accepted | 2026-06-16 |
 | [0019](0019-juvantlabs-as-self-developing-project.md) | Modeling `juvantlabs` as a project that develops the framework — source-of-truth, upstream-sync, recursion mechanics | Accepted | 2026-06-18 |
-| [0020](0020-component-scope.md) | Component-scope: lightweight third tier (one `<slug>-maintainer`, state on GitHub, registry in config) for library/MCP/toolbox repos | Proposed | 2026-06-22 |
+| [0020](0020-component-scope.md) | Component-scope: lightweight third tier (one `<slug>-maintainer`, state on GitHub, registry in config) for library/MCP/toolbox repos | Accepted | 2026-06-22 |
 | [0021](0021-single-identity-branch-protection.md) | Branch protection for single-identity agent-maintained repos (administrators exempt) | Accepted | 2026-06-23 |
 
 ## Modification governance
