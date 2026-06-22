@@ -40,6 +40,21 @@ All written artifacts in English. No exceptions.
     tier (git, gh, node/npm/npx, python, test tooling). No company-DB write
     scope, so the §4b/§4c scope checks are unchanged. BUG-049 role
     normalization maps `<slug>-maintainer` → `maintainer`.
+  - **Working-tree access**: the component's `working_tree` is part of the
+    registry and `sync-project-globs.sh` now folds `components[].working_tree`
+    (+ `additional_working_trees[]`) into `.claude/settings.json` so the
+    maintainer can edit its repo. Track-2c (§9 orchestrator boundary) extended
+    to component trees — the orchestrator may not Write/Edit them; only the
+    maintainer does. The `juv-add-component` flow runs the glob-sync.
+  - **Boot/wrap-up surfacing** quotes the `juvant:decision` label
+    (`label:"juvant:decision"`) and searches **per unique org** derived from
+    `components[].repo` (multi-org safe).
+  - **Testco**: new `single-component` scenario (company-init + one component)
+    + a "Batch mode for component-init" Skill section + driver component-phase
+    assertions (config registration, maintainer compiled, working_tree granted).
+  - Closes all 10 findings of the pre-merge design review. Repo-scoped
+    write-gate enforcement (FEAT-054) and `compile-templates --scope component`
+    (FEAT-055) are tracked as follow-ups.
 
 ## [1.8.0] — 2026-06-22 — GitHub via gh CLI (no MCP) — ends agent stalls
 

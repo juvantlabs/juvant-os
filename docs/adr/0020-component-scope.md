@@ -79,8 +79,12 @@ just generic full-stack.
 - **Per-task downshift** (lever, not default): the `model-override` decision
   path may run a genuinely mechanical task (dep bump, typo) on Sonnet; baseline
   stays Opus.
-- **Single-writer on its own repo only** (gated; see §5). It escalates to
-  **Arch (CTO)** for cross-cutting architectural choices and to
+- **Single-writer for its own repo** (see §5). The Track-2d gate authorizes the
+  maintainer *role* to perform git/gh writes; binding the write to *only* the
+  maintainer's own repo is by working-tree access + dispatch discipline today
+  (the same property eng-lead has — the gate is role-scoped, not repo-scoped).
+  Hard repo-scoped enforcement (for eng-lead and maintainer alike) is FEAT-054.
+  It escalates to **Arch (CTO)** for cross-cutting architectural choices and to
   **eng-platform** for release / npm / CI / infra.
 
 ### 3. State lives on GitHub (visibility-agnostic)
@@ -92,9 +96,13 @@ just generic full-stack.
 | Knowledge | In-repo **docs / README + Discussions** |
 | Audit of maintainer actions | `agent_actions_log` (hook-written, automatic) |
 
-There is **no** component DB, **no** component rows in the company
-`decisions` / `knowledge_base` tables, and **no** `-pm` repo. State is on the
-repo whether it is public or private.
+There is **no** component DB and **no** `-pm` repo, and the component's
+**ongoing** decisions / knowledge are **not** kept in the company
+`decisions` / `knowledge_base` tables — they live on the repo. The single
+exception is a **one-time `bootstrap-action` registration row** in the company
+`decisions` table recording that the company adopted the component (the
+company's own act, not component state) — an audit-trail entry, not a place
+where component decisions accrue. State is on the repo whether public or private.
 
 ### 4. Registry + CEO ratification
 
@@ -109,12 +117,14 @@ repo whether it is public or private.
   storage moves from a DB `status` to a GitHub label. (`juvant:decision` reuses
   the existing FEAT-039 reconciliation label rather than introducing a second
   convention.)
-- **Boot / wrap-up surfacing**: one timeout-wrapped, best-effort call covers
-  **all** components —
+- **Boot / wrap-up surfacing**: one timeout-wrapped, best-effort call per unique
+  org in `components[].repo` (the label's colon must be quoted, else `gh search`
+  mis-parses it) —
 
   ```bash
+  # for each <org> in (components[].repo | split("/")[0] | unique):
   bash helpers/with-timeout.sh 30 \
-    gh search issues --owner <org> "label:juvant:decision state:open" \
+    gh search issues --owner <org> 'label:"juvant:decision"' 'state:open' \
     --json repository,number,title
   ```
 
@@ -126,8 +136,9 @@ repo whether it is public or private.
 
 ### 5. §4 single-writer, intact
 
-The maintainer is a **pure repo-writer**: it writes only its own repo (git/gh)
-and never the company DB. The Track-2d single-writer gate adds `*-maintainer`
+The maintainer is a **pure repo-writer**: it writes git/gh (its own repo by
+working-tree + dispatch; repo-scoped hard enforcement is FEAT-054) and never the
+company DB. The Track-2d single-writer gate adds `*-maintainer`
 to its writer set (alongside `*-eng-lead`, `eng-lead`, `eng-platform`), so a
 `<slug>-maintainer` may perform git/gh **writes** while every other agent is
 denied. No company-DB write scope is granted, so the §4b/§4c scope-boundary

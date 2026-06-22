@@ -366,10 +366,12 @@ if [[ "$ROLE" == "cos" && "$DECISION" == "allow" ]]; then
         [[ -z "$_wt" || "$_wt" == "null" ]] && continue
         if [[ "$_T2C_PATH" == "$_wt"/* || "$_T2C_PATH" == "$_wt" ]]; then
           DECISION="deny"
-          DENY_REASON="ORCHESTRATOR BOUNDARY (SYSTEM_INVARIANTS §9): main thread may not directly edit files in project working tree '${_wt}'. Identify the correct agent (Eng Lead, PCA, Product Lead, etc.) and dispatch via Task(). Refs: FEAT-047 juvantlabs/juvant-os-pm#100"
+          DENY_REASON="ORCHESTRATOR BOUNDARY (SYSTEM_INVARIANTS §9): main thread may not directly edit files in a project/component working tree '${_wt}'. Identify the correct agent (Eng Lead, PCA, Product Lead, the component's <slug>-maintainer, etc.) and dispatch via Task(). Refs: FEAT-047 + FEAT-053 juvantlabs/juvant-os-pm#100"
           break
         fi
-      done < <(jq -r '.projects[].working_tree // empty' "$_CFG_T2C" 2>/dev/null || true)
+        # FEAT-053: component working trees are gated too — the <slug>-maintainer
+        # edits them, not the orchestrator.
+      done < <(jq -r '(.projects[].working_tree // empty), (.components[]?.working_tree // empty)' "$_CFG_T2C" 2>/dev/null || true)
     fi
   fi
 fi
