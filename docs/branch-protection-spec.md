@@ -36,13 +36,17 @@ checks for these rules; absence is recorded as a Tier-2 follow-up.
      "Free-plan caveat" below.
    - **Single-identity exception**: when the maintainer agent operates as
      the same GitHub identity as the CEO (no separate reviewer identity
-     exists), `enforce_admins` MUST be `false`. Enabling it alongside the
-     "1 approving review" rule creates a self-approval deadlock — GitHub
-     forbids a user from approving their own PR, so `main` becomes
-     permanently locked. In this configuration the CEO-review gate is
-     procedural (orchestrator dispatches the maintainer to prepare a PR;
-     the CEO reviews and merges via admin bypass). See ADR 0021 for the
-     full rationale and the documented upgrade path to `enforce_admins=true`.
+     exists), **required approving reviews MUST be `0`** — the review gate
+     becomes procedural (the CEO reviews the diff and merges). A required
+     review of 1 is *unsatisfiable* under a single identity (GitHub forbids
+     self-approval); "1 review + admins-exempt" only relocates the deadlock,
+     because every merge then needs an **admin bypass**, which an agent
+     sub-process cannot legitimately perform on its own (it requires direct
+     CEO authorization it never receives in this topology). Setting reviews
+     to `0` lets the maintainer/CEO merge a PR normally; status checks,
+     non-fast-forward, and deletion protection stay fully enforced. See
+     ADR 0021 for rationale and the upgrade path (provision a second
+     identity → restore reviews to 1).
 
 ## Single-identity / agent-maintained repos
 
@@ -50,30 +54,39 @@ Applies to **component-scope repos** (ADR 0020) where the `<slug>-maintainer`
 agent operates as the same GitHub identity as the CEO — i.e. the org has no
 separate bot account or second reviewer identity (see handbook ADR 0001).
 
-**Rule**: apply the full canonical ruleset above, but with **`enforce_admins=false`**
-(administrators exempt). This is the only permitted deviation from the canonical
-spec under the single-identity condition.
+**Rule**: apply the full canonical ruleset above, but set
+**`required_approving_review_count = 0`** (`require_code_owner_review = false`,
+`require_last_push_approval = false`). Keep every other protection — required
+status checks (e.g. `lint`), non-fast-forward, deletion protection — and retain
+the admin / bypass-actor for emergency override. This is the only permitted
+deviation from the canonical spec under the single-identity condition.
 
 **Why**: GitHub forbids self-approval — a user cannot approve their own pull
-request. When author = reviewer = admin = one identity, `enforce_admins=true`
-combined with "1 approving review required" permanently locks `main`. No PR
-can ever be merged. Setting `enforce_admins=false` breaks the deadlock while
-keeping every other protection in place.
+request. When author = reviewer = admin = one identity, "1 approving review
+required" is unsatisfiable: the *only* way to merge is an **admin bypass**.
+That is the trap — an agent sub-process will not (and should not) perform an
+admin bypass on its own, because that is a privileged outward action requiring
+direct CEO authorization, which it never receives through the orchestrator
+(anti-relay rule). So "1 review + admins-exempt" doesn't fix the lock, it just
+moves it from "can't merge at all" to "can't merge without a bypass the agent
+can't make." Setting reviews to `0` removes the bypass requirement entirely:
+the maintainer prepares and merges a normal PR, gated only by the status checks.
 
-**Gate in this mode**: the CEO-review gate is procedural.
+**Gate in this mode**: the CEO-review gate is procedural, not technical.
 1. The orchestrator (CoS) dispatches the maintainer to prepare a PR.
-2. The CEO reviews and merges via admin bypass on the GitHub web UI.
+2. The CEO reviews the diff and authorizes the merge; the maintainer (or the
+   CEO via the main operator thread) merges normally — no admin bypass needed.
 3. The merge is recorded in `agent_actions_log` as the audit trail.
 
-**Audit treatment**: the CSO baseline audit MUST record `enforce_admins=false`
-as `WARN` (not `FAIL`) when the single-identity condition is confirmed. A
-spurious `FAIL` would incorrectly penalize an intentional, documented exemption.
+**Audit treatment**: the CSO baseline audit MUST record
+`required_approving_review_count = 0` as `WARN` (not `FAIL`) when the
+single-identity condition is confirmed. A spurious `FAIL` would incorrectly
+penalize an intentional, documented exemption.
 
 **Upgrade path**: provision a dedicated second GitHub identity (bot account or
-co-maintainer human) as the required reviewer / push identity, then set
-`enforce_admins=true` to restore full technical enforcement. No amendment to
-this spec or to ADR 0021 is required — the upgrade is within the canonical
-envelope.
+co-maintainer human) as the required reviewer, then set
+`required_approving_review_count = 1` to restore full technical enforcement.
+The upgrade is within the canonical envelope.
 
 **Cross-reference**: ADR 0021 (`docs/adr/0021-single-identity-branch-protection.md`)
 for full rationale, decision, and consequences.
