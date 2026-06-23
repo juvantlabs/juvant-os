@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-06-23). **Applies to component-scope repos (ADR 0020)** where the
+Accepted (2026-06-23); **amended same day** — the exception is
+`required_approving_review_count = 0`, not "1 review + `enforce_admins=false`"
+(see the Decision amendment). **Applies to component-scope repos (ADR 0020)** where the
 `<slug>-maintainer` agent operates as the same GitHub identity as the CEO. The
 canonical ruleset in `docs/branch-protection-spec.md` remains unchanged for all
 other repo classes; this ADR encodes the one exception needed under the single-
@@ -42,28 +44,40 @@ applied with `enforce_admins=true`.
 For **component-scope repos** where the maintainer agent shares the CEO's GitHub
 identity (i.e. there is no separate bot/reviewer identity in the org):
 
-1. Apply the **full canonical ruleset** from `docs/branch-protection-spec.md`
-   (require PR, 1 approving review, CODEOWNERS check, dismiss-stale, required
-   status checks, linear history, no force-push, no branch deletion, conversation
-   resolution required).
+1. Apply the **canonical ruleset** from `docs/branch-protection-spec.md`
+   (require PR, required status checks, no force-push, no branch deletion) but
+   set **`required_approving_review_count = 0`** (`require_code_owner_review =
+   false`, `require_last_push_approval = false`). This is the one deviation from
+   the canonical spec.
 
-2. Set **`enforce_admins=false`** (administrators exempt). This is the one
-   deviation from the canonical spec.
+   > **Amendment (2026-06-23).** The original decision kept "1 approving
+   > review" and set `enforce_admins=false`. That does **not** clear the
+   > deadlock — a 1-review requirement is unsatisfiable under a single identity,
+   > so the *only* way to merge becomes an **admin bypass**, and an agent
+   > sub-process cannot legitimately perform an admin bypass on its own (it is a
+   > privileged outward action requiring direct CEO authorization, which the
+   > anti-relay rule means it never receives through the orchestrator). The lock
+   > simply moves from "can't merge" to "can't merge without a bypass the agent
+   > can't make." Setting required reviews to **0** removes the bypass
+   > requirement entirely: the maintainer prepares and merges a normal PR, gated
+   > only by status checks. First corrected on `juvantlabs/juvant-os` itself
+   > (2026-06-23) after the same deadlock surfaced there.
 
-3. The "approving review" requirement becomes **procedurally enforced**, not
+2. The "approving review" requirement becomes **procedurally enforced**, not
    technically enforced. The gate is:
    - The orchestrator (CoS) dispatches the maintainer to prepare a PR.
-   - The CEO reviews the PR via the GitHub web UI and merges via admin bypass.
-   - The admin merge is logged in `agent_actions_log` (hooks) as the audit trail.
+   - The CEO reviews the diff and authorizes the merge; the maintainer (or the
+     CEO via the main operator thread) merges normally — **no admin bypass**.
+   - The merge is logged in `agent_actions_log` (hooks) as the audit trail.
    - No `juvant:decision`-labeled Issue is required for routine PRs; for
      ADR-class or breaking changes, the `juvant:decision` label pattern from
      ADR 0020 §4 applies.
 
-4. The **documented upgrade path** is: provision a dedicated second GitHub
-   identity (bot account or co-maintainer human) as the required reviewer and
-   as the maintainer's push identity, then set `enforce_admins=true` to restore
-   full technical enforcement. Until that identity exists, the procedural gate is
-   the accepted substitute.
+3. The **documented upgrade path** is: provision a dedicated second GitHub
+   identity (bot account or co-maintainer human) as the required reviewer, then
+   set `required_approving_review_count = 1` to restore full technical
+   enforcement. Until that identity exists, the procedural gate is the accepted
+   substitute.
 
 This decision applies to any component-scope repo and, by extension, to any
 repo in the `juvantlabs` org (or a downstream adopter's equivalent) where the
@@ -91,9 +105,10 @@ org has a single GitHub identity. It does NOT apply to:
 - The "approving review" rule is not technically enforced: a CEO who chose to
   merge directly without reviewing the PR could do so. The safeguard is
   procedural discipline and the `agent_actions_log` trail.
-- Audit tooling must treat `enforce_admins=false` as `WARN` (not `FAIL`) when
-  the single-identity condition is confirmed. Without this contextual check,
-  the CSO baseline audit would produce spurious FAILs on all component repos.
+- Audit tooling must treat `required_approving_review_count = 0` as `WARN`
+  (not `FAIL`) when the single-identity condition is confirmed. Without this
+  contextual check, the CSO baseline audit would produce spurious FAILs on all
+  single-identity / component repos.
 - Technical debt accrues until the upgrade path is exercised: the org remains
   dependent on one identity for both authoring and merging.
 
