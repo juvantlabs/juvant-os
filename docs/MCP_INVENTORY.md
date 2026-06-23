@@ -62,6 +62,77 @@ inspiration only — never bound directly without a security audit
 at https://gist.github.com/juvantlabs/a9fe0a76a23b0c1260b1e0ad3194a6da
 for the canonical case).
 
+## Wiring a remote authenticated MCP server (`.mcp.json` shape)
+
+When an inventory row points at a **remote** MCP endpoint (HTTP or SSE
+transport) that requires an authenticated header — typical for third-party
+SaaS MCPs — the entry in `.mcp.json` MUST use the **stdio bridge shape**
+defined in [ADR 0022](adr/0022-remote-mcp-stdio-bridge.md), not the
+`type: http` + `headers.${SECRET}` shape.
+
+The reason is operational: `type: http` interpolates `${SECRET}` against
+Claude Code's **parent process environment**, which forces every operator
+to either export the secret shell-wide (leaks into unrelated processes)
+or wrap `claude` in a launcher script (breaks the canonical
+`claude` / `claude --chrome` invocation, IDE integrations, and every
+CLI flag). The stdio bridge loads the secret per-server from the
+gitignored `.env.local` into the **child** process — same `.env.local`
+the command-style MCP entries already use.
+
+**Canonical shape** (brand-agnostic placeholders):
+
+```json
+{
+  "mcpServers": {
+    "<server>": {
+      "command": "npx",
+      "args": [
+        "-y", "dotenv-cli", "-e", ".env.local", "--",
+        "npx", "-y", "mcp-remote", "https://<remote-endpoint>/mcp",
+        "--header", "Authorization: Bearer ${MCP_TOKEN}"
+      ]
+    }
+  }
+}
+```
+
+Where:
+
+- `<server>` — the inventory row name (e.g. the abstract role).
+- `https://<remote-endpoint>/mcp` — the remote MCP URL published by the
+  provider.
+- `${MCP_TOKEN}` — the secret env-var name listed in the inventory row's
+  "Auth env vars" column for that server.
+- `.env.local` — the gitignored, per-instance env file at the repo root
+  (already covered by the standard `.gitignore`).
+
+The shape mirrors the canonical stdio + `dotenv-cli` shape used by
+command-style servers (e.g. `m365-graph` → `dotenv-cli -e .env.local --
+npx -y @juvantlabs/m365-graph-mcp-server`); the only addition is the
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge, which
+performs `${VAR}` substitution on `--header` values from
+`process.env` at child-process invocation time.
+
+**Anti-patterns** (rejected by CTO at `tool-matrix-change` review):
+
+- `type: http` + `headers: { "Authorization": "Bearer ${SECRET}" }` —
+  requires parent-shell secret export. Inventory row goes back for
+  rewrite as the stdio bridge.
+- `scripts/start.sh` (or equivalent) launcher that sources `.env.local`
+  and `exec`s `claude` — breaks the canonical `claude` invocation. Use
+  the stdio bridge instead; the launcher becomes unnecessary.
+- Hard-coding the secret in `.mcp.json` — `.mcp.json` is committed; the
+  secret is not. Always reference an env var.
+
+**When this section does NOT apply**:
+
+- Unauthenticated remote MCP endpoints — a plain `type: http` entry is
+  fine (no secret to load).
+- claude.ai-managed OAuth connectors (e.g. `ms-graph`) — not configured
+  in `.mcp.json`.
+- Command-style stdio servers — already use the `dotenv-cli -e .env.local
+  --` prefix directly; `mcp-remote` is not part of the chain.
+
 ## Universal Boundaries (per `SYSTEM_INVARIANTS.md` §4)
 
 The following MCP grants are **forbidden** under any rationale, even at
