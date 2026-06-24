@@ -42,6 +42,8 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0020](0020-component-scope.md) | Component-scope: lightweight third tier (one `<slug>-maintainer`, state on GitHub, registry in config) for library/MCP/toolbox repos | Accepted | 2026-06-22 |
 | [0021](0021-single-identity-branch-protection.md) | Branch protection for single-identity agent-maintained repos (administrators exempt) | Accepted | 2026-06-23 |
 | [0022](0022-remote-mcp-stdio-bridge.md) | Remote authenticated MCP servers wired via `mcp-remote` + `dotenv-cli` stdio bridge (not `type: http` + launcher wrapper) | Accepted | 2026-06-23 |
+| [0023](0023-document-spaces-third-party-access.md) | Provider-neutral document **spaces**: scoped third-party access via org-owned containers (SharePoint site / Shared Drive), surgical not wholesale; agent→space pointing under the existing principal | Proposed | 2026-06-25 |
+| [0024](0024-outbound-action-queue.md) | Outbound action queue (**outbox**): one durable Turso queue for side-effecting MCP operations; approval inside the queue; per-operation activation via rubric, not per-MCP mandate | Proposed | 2026-06-25 |
 
 ## Modification governance
 
