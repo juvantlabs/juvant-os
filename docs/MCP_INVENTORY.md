@@ -205,6 +205,49 @@ deliverable):
 5. `eng-platform` executes the matrix change via `install-spec` at
    company scope (or each project's `eng-lead` at project scope)
    per `SYSTEM_INVARIANTS.md` §6 + §4 single-writer-per-scope (ADR 0014).
+6. **Outbox rubric (per [ADR 0024](adr/0024-outbound-action-queue.md)).**
+   For each **side-effecting** operation the new server exposes, evaluate
+   whether it must route through the shared `outbox` table — see the
+   rubric below. Record the decision (which operations queue, which
+   dispatch inline) in the `tool-matrix-change`. This is part of the
+   CTO + CSO review, not a separate gate.
+
+## Outbound action queue (outbox) — activation rubric
+
+Side-effecting MCP operations are not all equal. A **single canonical
+`outbox` table** (Turso, `scripts/schema.sql`, per ADR 0024) stages the
+ones that need it; the rest are called inline. The unit is the
+**operation**, NOT the server — most servers have zero or one operation
+that qualifies. **Never create a `<domain>_queue` per MCP**; everything
+shares the one `outbox` via `(target_mcp, operation)` + JSON `payload`.
+
+**An operation routes through the outbox if *any* of these hold:**
+
+| Trigger | Example |
+|---|---|
+| **Accumulation / batch** | invoices accrue before the Aruba submission window |
+| **Approval gate** | the CEO must commit before the external effect (default for money / legal / public visibility) |
+| **Throttle / quota** | a plan cap or rate limit (e.g. a free social scheduler ~10 queued posts/channel) |
+| **Retry / durability** | a send can fail and the *intent* must survive |
+| **Scheduling** | the send must occur at a specific future time (scheduled posts, payment on due date) |
+
+**If none hold** — pure read, or a genuinely fire-and-forget low-stakes
+call — the operation bypasses the outbox with a direct MCP call. No table,
+no row.
+
+Lifecycle and ownership:
+- The drafting agent inserts a `draft` row (`created_by`).
+- The CEO commit via CoS flips it to `approved` (`approved_by`) — the
+  outbox **is** the register of "what awaits the CEO commit"; there is no
+  separate approval store. Autonomous external effect on a non-`approved`
+  row is forbidden (`SYSTEM_INVARIANTS.md` §4 — the commit is the gate).
+- Dispatch (`approved → sent`) is **agent-mediated in v1.0** (CoS drains
+  approved-and-due rows during a session, honoring per-target throttle;
+  see `JUVANT_OS.md` § "Outbox — staged outbound actions"). The scheduled
+  drain helper (`helpers/drain-outbox.sh`) handles readiness surfacing and
+  retry/dead-letter reconciliation; fully autonomous cloud-routine drain
+  is the v1.1+ evolution. Failed dispatch bumps `retry_count` and falls to
+  `adapter_dead_letters` once exhausted.
 
 ## Status legend
 

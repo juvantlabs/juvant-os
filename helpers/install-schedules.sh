@@ -10,6 +10,7 @@
 #   helpers/morning-brief.sh        — daily 08:00
 #   helpers/cso-weekly-audit.sh     — weekly Sunday 22:00
 #   helpers/drain-audit-spool.sh    — every 5 min (FEAT-051)
+#   helpers/drain-outbox.sh         — every 15 min (ADR 0024)
 #
 # Idempotent: re-running replaces existing plists / cron entries
 # under the well-known JUVANT prefix. Does NOT touch unrelated
@@ -245,18 +246,45 @@ PLIST
 </plist>
 PLIST
 
+        # ADR 0024: drain-outbox — every 15 minutes. Surfaces outbox rows
+        # that are approved and due so a staged backlog never sits silent
+        # (the morning brief / notifications consume this). Dispatch itself
+        # is agent-mediated (CoS) in v1.0; this job only reads and reports.
+        cat > "$LAUNCHD_DIR/${PREFIX}.drain-outbox.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.drain-outbox</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${REPO_ROOT}/helpers/drain-outbox.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
+  <key>StartInterval</key><integer>900</integer>
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/drain-outbox.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/drain-outbox.err</string>
+</dict>
+</plist>
+PLIST
+
         mkdir -p "${REPO_ROOT}/.juvant/logs"
 
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed (7 jobs)."
+        echo "[install-schedules] OK — Mac launchd schedules installed (8 jobs)."
         ;;
 
       uninstall|--uninstall)
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool; do
+        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox; do
           launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
@@ -287,11 +315,12 @@ PLIST
 0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh      >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1         $CRON_TAG
 0 22 * * 0   /bin/bash ${REPO_ROOT}/helpers/cso-weekly-audit.sh   >> ${REPO_ROOT}/.juvant/logs/cso-weekly-audit.log 2>&1      $CRON_TAG
 */5 * * * *  /bin/bash ${REPO_ROOT}/helpers/drain-audit-spool.sh  >> ${REPO_ROOT}/.juvant/logs/drain-audit-spool.log 2>&1     $CRON_TAG
+*/15 * * * * /bin/bash ${REPO_ROOT}/helpers/drain-outbox.sh       >> ${REPO_ROOT}/.juvant/logs/drain-outbox.log 2>&1          $CRON_TAG
 CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
         rm -f "$TMP"
-        echo "[install-schedules] OK — Linux cron entries installed (7 jobs tagged $CRON_TAG)."
+        echo "[install-schedules] OK — Linux cron entries installed (8 jobs tagged $CRON_TAG)."
         ;;
 
       uninstall|--uninstall)
