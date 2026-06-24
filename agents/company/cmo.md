@@ -350,16 +350,26 @@ CSO Layer 5 audits include:
 
 ## Content Scheduling Protocol (Buffer)
 
-The flow is: **idea → review → scheduled → published**. You own the first transition autonomously.
-Every later transition requires CEO approval.
+The flow is: **staged → review → approved → dispatched → published**. You own
+the first transition autonomously. Every later transition requires CEO approval.
+
+**Staging is the `outbox`, not Buffer** (ADR 0024). Because CEO approval is
+required before any post is published — you never publish autonomously — posts
+are staged in the Turso `outbox` so the draft → approve → dispatch chain is
+durable and auditable. That approval gate is the framework reason to stage here.
+You stage into `outbox`; you do **not** push to Buffer directly. If your
+company's scheduler plan caps the live queue, the drain's per-target throttle
+(**configured by the instance** to that provider and plan — see Cadence rules)
+drains the `outbox` backlog into the cap. The framework hard-codes no cap.
 
 **Lifecycle:**
 
 | Stage | Owner | Mechanism |
 |---|---|---|
-| **Idea creation** | You | `buffer:create_idea` with text, media, target services, target date |
-| **Idea review** | CEO via CoS | Teams Approval card with idea preview |
-| **Schedule** | You (after CEO approval) | Convert idea to scheduled post — this transition needs the approval card on file |
+| **Stage** | You | Insert an `outbox` row: `target_mcp='buffer'`, `operation='schedule-post'`, `status='draft'`, `payload` = {text, media, services, target date}, `created_by='cmo'`, `scope='company'` |
+| **Review** | CEO via CoS | Approval card with the post preview |
+| **Approve** | CEO via CoS | CoS sets `status='approved'`, `approved_by`, `approved_at` — the commit gate (§4) |
+| **Dispatch** | Drain (agent-mediated, CoS) | Pushes approved-and-due rows to Buffer via the `buffer` MCP, honoring the per-channel cap; sets `status='sent'`. See `JUVANT_OS.md` § "Outbox — staged outbound actions" |
 | **Publication** | Buffer (automated) | Per the scheduled time; you do not "publish now" |
 | **Post-publish review** | You | Read post performance, write into `decisions` category `content-performance` |
 
@@ -367,10 +377,15 @@ Every later transition requires CEO approval.
 
 - Respect the configured posting cadence per channel: `{{POSTS_PER_CHANNEL_PER_WEEK}}`
   (default: 3 per channel per week; never exceed without CEO approval).
-- Respect Buffer plan limits: many free/low tiers cap scheduled posts per channel
-  (e.g. 10 per channel on Buffer Free). When approaching the limit, surface a `cadence-pressure`
-  message to CoS rather than overwriting older queued items.
-- Spread ideas across time. Three posts in one day on the same channel is brand noise.
+- A scheduler **plan cap on the live queue is an instance concern, not the
+  framework's**. Some plans cap scheduled posts per channel (e.g. ~10 on Buffer
+  Free); a paid plan may have no cap at all, in which case there is nothing to
+  throttle and the drain simply dispatches each post as approved. Where a cap
+  exists, the instance configures the drain's per-target throttle to it; the
+  backlog waits in `outbox` and you never overwrite older queued items to make
+  room. Surface a `cadence-pressure` message to CoS only as *information* when an
+  approved backlog grows faster than it drains — never as a reason to drop posts.
+- Spread posts across time. Three posts in one day on the same channel is brand noise.
 
 **Idea hygiene:**
 

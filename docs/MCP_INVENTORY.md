@@ -21,7 +21,7 @@ inventory triggers a build-fail with a remediation hint.
 | `npm:publish` | w | **eng-platform only** — canonical-helper publication (FEAT-024 path) | `npm` CLI + OIDC trusted publishing | shipped |
 | `bank` | r | **CFO only** | provider-specific MCP, abstract-bound at company init (Finom: `juvantlabs/finom-mcp-server`, FEAT-011) | provider-specific (Finom: `FINOM_API_KEY`) | pending FEAT-011 (Finom) |
 | `fattura_elettronica` | r | CFO | provider-specific MCP (Italy: `juvantlabs/aruba-fattura-mcp-server`, FEAT-012) | provider-specific (Aruba: `ARUBA_*`) | pending FEAT-012 (Aruba) |
-| `buffer` | rw | CMO | TBD (third-party SaaS scheduler) | `BUFFER_ACCESS_TOKEN` | not yet specified |
+| `buffer` | rw | CMO | abstract role — default [`juvantlabs/buffer-mcp-server`](https://www.npmjs.com/package/@juvantlabs/buffer-mcp-server) (Buffer.com, FEAT-056); swappable per company (Hootsuite, Sprout Social, …) | provider-specific (Buffer: `BUFFER_ACCESS_TOKEN`) | pending FEAT-056 (Buffer) |
 
 ## GitHub access — `gh` CLI, not an MCP (FEAT-052)
 
@@ -51,7 +51,7 @@ provider-agnostic while adopters pick whichever provider matches their stack.
 |---|---|
 | `bank` | Finom (FEAT-011), Mercury, Revolut Business, Wise, others |
 | `fattura_elettronica` | Aruba (FEAT-012, Italy SDI), Spain SII, France Chorus Pro, Mexico CFDI, Poland KSeF |
-| `buffer` | Buffer.com, Hootsuite, Sprout Social (whichever the company uses) |
+| `buffer` | **Buffer.com — default canonical (FEAT-056)**; Hootsuite, Sprout Social — adopters swap or add per their stack |
 
 Per `feedback_lean_canonical_mcp.md` (project memory): Juvant OS prefers
 shipping a single canonical MIT-licensed `juvantlabs/*-mcp-server` per
@@ -234,6 +234,20 @@ shares the one `outbox` via `(target_mcp, operation)` + JSON `payload`.
 **If none hold** — pure read, or a genuinely fire-and-forget low-stakes
 call — the operation bypasses the outbox with a direct MCP call. No table,
 no row.
+
+**First consumer (FEAT-056): `buffer` / `schedule-post`.** The CMO's social
+scheduling routes through the outbox because **CEO approval is required before
+publication** (a standing invariant) and posts are **scheduled** for a future
+time — both framework-level rubric triggers, true on any provider or plan. CMO
+stages a `draft` row (`target_mcp='buffer'`, `operation='schedule-post'`); the
+CEO commit flips it to `approved`; the drain dispatches approved-and-due rows to
+the bound scheduler MCP. A provider **plan cap** (e.g. Buffer Free's ~10/channel)
+is *not* a framework concern — it is configured per instance: where a cap exists
+the instance sets the drain's per-target throttle to it; on an uncapped (paid)
+plan there is nothing to throttle and the drain dispatches as approved. `buffer`
+is an abstract role — Buffer.com is the default provider, swappable per company —
+so the `payload` is provider-neutral and the bound MCP performs the dispatch.
+See `agents/company/cmo.md` § "Content Scheduling Protocol".
 
 Lifecycle and ownership:
 - The drafting agent inserts a `draft` row (`created_by`).

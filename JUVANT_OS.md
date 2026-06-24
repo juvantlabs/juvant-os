@@ -2233,10 +2233,13 @@ staging; pure reads and fire-and-forget calls bypass it).
    in session it drains approved-and-due rows: for each `target_mcp`,
    take rows where `scheduled_for IS NULL OR scheduled_for <=` now, up to
    the target's throttle budget, call the target MCP's `operation`, and
-   on success set `status='sent'`, `sent_at`. The throttle budget is what
-   keeps a capped external system safe — e.g. a free social tier that
-   accepts only ~10 queued posts per channel: the backlog lives in
-   `outbox` unbounded; only the ≤cap due rows are dispatched per drain.
+   on success set `status='sent'`, `sent_at`. The throttle budget is an
+   **instance configuration**, not a framework constant — it exists only
+   when the company's provider/plan imposes a cap, set to that cap. Where a
+   cap exists (e.g. a free social tier accepting ~10 queued posts/channel),
+   the backlog lives in `outbox` unbounded and only the ≤budget due rows are
+   dispatched per drain; on an uncapped (paid) plan there is no throttle and
+   due rows dispatch as approved.
 4. **Failure.** On dispatch error, bump `retry_count` and leave the row
    `approved` for the next drain; once retries are exhausted, move the
    payload to `adapter_dead_letters` (status `failed`) for forensic
