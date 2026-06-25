@@ -51,7 +51,7 @@ provider-agnostic while adopters pick whichever provider matches their stack.
 |---|---|
 | `bank` | Finom (FEAT-011), Mercury, Revolut Business, Wise, others |
 | `fattura_elettronica` | Aruba (FEAT-012, Italy SDI), Spain SII, France Chorus Pro, Mexico CFDI, Poland KSeF |
-| `social` | Buffer.com, Hootsuite, Sprout Social — the adopter binds their own per instance (the framework ships no canonical server; see FEAT-056) |
+| `social` | Buffer.com, Hootsuite, Sprout Social — the adopter binds their own per instance. No canonical server ships today (renamed from `buffer`, FEAT-056); an **optional** canonical MIT server (Buffer provider) is tracked in FEAT-057. |
 
 Per `feedback_lean_canonical_mcp.md` (project memory): Juvant OS prefers
 shipping a single canonical MIT-licensed `juvantlabs/*-mcp-server` per
