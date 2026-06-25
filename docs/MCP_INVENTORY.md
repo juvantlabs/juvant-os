@@ -21,7 +21,7 @@ inventory triggers a build-fail with a remediation hint.
 | `npm:publish` | w | **eng-platform only** — canonical-helper publication (FEAT-024 path) | `npm` CLI + OIDC trusted publishing | shipped |
 | `bank` | r | **CFO only** | provider-specific MCP, abstract-bound at company init (Finom: `juvantlabs/finom-mcp-server`, FEAT-011) | provider-specific (Finom: `FINOM_API_KEY`) | pending FEAT-011 (Finom) |
 | `fattura_elettronica` | r | CFO | provider-specific MCP (Italy: `juvantlabs/aruba-fattura-mcp-server`, FEAT-012) | provider-specific (Aruba: `ARUBA_*`) | pending FEAT-012 (Aruba) |
-| `buffer` | rw | CMO | abstract role — default [`juvantlabs/buffer-mcp-server`](https://www.npmjs.com/package/@juvantlabs/buffer-mcp-server) (Buffer.com, FEAT-056); swappable per company (Hootsuite, Sprout Social, …) | provider-specific (Buffer: `BUFFER_ACCESS_TOKEN`) | pending FEAT-056 (Buffer) |
+| `social` | rw | CMO | abstract role — provider MCP **bound per instance** (e.g. Buffer.com, Hootsuite, Sprout Social); the adopter supplies and configures their own | provider-specific (e.g. Buffer: `BUFFER_ACCESS_TOKEN`) | abstract (adopter-bound) |
 
 ## GitHub access — `gh` CLI, not an MCP (FEAT-052)
 
@@ -51,7 +51,7 @@ provider-agnostic while adopters pick whichever provider matches their stack.
 |---|---|
 | `bank` | Finom (FEAT-011), Mercury, Revolut Business, Wise, others |
 | `fattura_elettronica` | Aruba (FEAT-012, Italy SDI), Spain SII, France Chorus Pro, Mexico CFDI, Poland KSeF |
-| `buffer` | **Buffer.com — default canonical (FEAT-056)**; Hootsuite, Sprout Social — adopters swap or add per their stack |
+| `social` | Buffer.com, Hootsuite, Sprout Social — the adopter binds their own per instance (the framework ships no canonical server; see FEAT-056) |
 
 Per `feedback_lean_canonical_mcp.md` (project memory): Juvant OS prefers
 shipping a single canonical MIT-licensed `juvantlabs/*-mcp-server` per
@@ -235,18 +235,18 @@ shares the one `outbox` via `(target_mcp, operation)` + JSON `payload`.
 call — the operation bypasses the outbox with a direct MCP call. No table,
 no row.
 
-**First consumer (FEAT-056): `buffer` / `schedule-post`.** The CMO's social
+**First consumer (FEAT-056): `social` / `schedule-post`.** The CMO's social
 scheduling routes through the outbox because **CEO approval is required before
 publication** (a standing invariant) and posts are **scheduled** for a future
 time — both framework-level rubric triggers, true on any provider or plan. CMO
-stages a `draft` row (`target_mcp='buffer'`, `operation='schedule-post'`); the
+stages a `draft` row (`target_mcp='social'`, `operation='schedule-post'`); the
 CEO commit flips it to `approved`; the drain dispatches approved-and-due rows to
 the bound scheduler MCP. A provider **plan cap** (e.g. Buffer Free's ~10/channel)
 is *not* a framework concern — it is configured per instance: where a cap exists
 the instance sets the drain's per-target throttle to it; on an uncapped (paid)
-plan there is nothing to throttle and the drain dispatches as approved. `buffer`
-is an abstract role — Buffer.com is the default provider, swappable per company —
-so the `payload` is provider-neutral and the bound MCP performs the dispatch.
+plan there is nothing to throttle and the drain dispatches as approved. `social`
+is an abstract role — the adopter binds a provider (e.g. Buffer.com) per instance
+— so the `payload` is provider-neutral and the bound MCP performs the dispatch.
 See `agents/company/cmo.md` § "Content Scheduling Protocol".
 
 Lifecycle and ownership:
@@ -274,3 +274,9 @@ Lifecycle and ownership:
 - **not yet specified** — referenced in design intent but no FEAT opened.
   Adopters who need the capability open a request issue on
   `juvantlabs/juvant-os-pm`.
+- **abstract (adopter-bound)** — an abstract role the framework defines but
+  ships **no** canonical server for; the adopter binds a provider-specific
+  MCP per instance (e.g. `social` → Buffer.com / Hootsuite / Sprout). Treated
+  by the Step 8.5 cross-check like `pending FEAT-XXX` — warn, allow pass; the
+  agent runs in restricted mode for the capability until the adopter binds a
+  provider.

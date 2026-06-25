@@ -391,7 +391,7 @@ Channel use:
 
 - **ms-graph (read-only, on-demand)** — `outlook_email_search` for your sales mailbox; called only when CoS dispatches. You never send mail directly (FEAT-016 / v1.1+).
 - No Telegram. CoS owns CEO notifications.
-- No Buffer. CMO owns external content.
+- No `social` MCP. CMO owns external content.
 
 ---
 

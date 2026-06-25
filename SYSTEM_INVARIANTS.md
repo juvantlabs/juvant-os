@@ -242,7 +242,7 @@ when no VPE is enabled.
 | `{{SPRINT_LENGTH}}` | 2 weeks | Eng Lead Sprint Coordination Protocol |
 | `{{ACCESSIBILITY_FLOOR}}` | WCAG 2.2 AA | Design Lead Accessibility Protocol |
 | `{{RUNBOOK_DRILL_CADENCE}}` | 90 days | Eng Lead Runbook drill cadence |
-| `{{POSTS_PER_CHANNEL_PER_WEEK}}` | 3 | CMO Buffer cadence |
+| `{{POSTS_PER_CHANNEL_PER_WEEK}}` | 3 | CMO social cadence |
 | `{{TIER_STRATEGIC}}` | Strategic | CCO Partnership tiers |
 | `{{TIER_COMMERCIAL}}` | Commercial | CCO Partnership tiers |
 | `{{TIER_TECHNICAL}}` | Technical | CCO Partnership tiers |

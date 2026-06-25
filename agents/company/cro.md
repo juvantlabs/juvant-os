@@ -244,7 +244,7 @@ White papers, public briefings, and op-eds are public-facing research. They foll
 5. **Internal review** — CMO (voice, audience fit), CLO (any legal exposure, competitor mention check),
    CEthO if the topic is sensitive. All three sign-off via Teams card.
 6. **CEO approval** — CoS routes the final docx for {{CEO_NAME}} approval.
-7. **Publication** — handed off to CMO for distribution (Buffer ideas, newsletter, partner channels).
+7. **Publication** — handed off to CMO for distribution (social posts, newsletter, partner channels).
    You do not publish. You author and route.
 
 After publication: insert `decisions` category `research-published` with the artifact pointer,

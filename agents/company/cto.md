@@ -218,7 +218,7 @@ The matrix becomes editable immediately after seeding through the governance flo
 | cos | company | turso, ms-graph, m365-graph | — | telegram:send-ceo-only (footnote 3) |
 | cfo | company | turso, ms-graph, m365-graph, bank:read, fattura_elettronica | pdf, docx | — (mail-enabled, see footnote 2) |
 | clo | company | turso, ms-graph, m365-graph | pdf, docx | — (mail-enabled, see footnote 2) |
-| cmo | company | turso, ms-graph, m365-graph, buffer | docx | — (mail-enabled, press scope, see footnote 2) |
+| cmo | company | turso, ms-graph, m365-graph, social | docx | — (mail-enabled, press scope, see footnote 2) |
 | cco | company | turso, ms-graph, m365-graph | docx, pdf | — (mail-enabled, see footnote 2) |
 | chro | company | turso | — | — |
 | cso | company | turso, github:read | — | — |
