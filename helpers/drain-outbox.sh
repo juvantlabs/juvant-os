@@ -47,7 +47,11 @@ DUE_SQL="SELECT COUNT(*) FROM outbox
          WHERE status='approved'
            AND (scheduled_for IS NULL OR scheduled_for <= CURRENT_TIMESTAMP);"
 
-DUE="$(juvant_db_query "$DUE_SQL" 2>/dev/null || true)"
+# `tail -1 | tr -d ' \t\r'` mirrors hooks/session-end.sh's `_count()`: the turso
+# CLI prints a header line above a scalar that juvant_db_query does not strip, so
+# take the last line and strip padding — otherwise the empty-queue guard below
+# would never match on a turso/azure/aws/gcp backend.
+DUE="$(juvant_db_query "$DUE_SQL" 2>/dev/null | tail -1 | tr -d ' \t\r' || true)"
 DUE="${DUE:-0}"
 
 if [[ "$DUE" == "0" ]]; then

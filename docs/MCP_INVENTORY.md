@@ -183,6 +183,10 @@ matrix row against this inventory. Failure modes:
 - **Status `pending FEAT-XXX`** → warn, allow pass: "MCP server is
   not yet shipped. Agent will operate in restricted mode for this
   capability until the FEAT lands."
+- **Status `abstract (adopter-bound)`** → warn, allow pass (same handling
+  as `pending FEAT-XXX`): "Abstract role; the adopter must bind a
+  provider-specific MCP for this instance. Agent operates in restricted mode
+  for this capability until a provider is bound."
 
 ## Adding a new MCP server
 

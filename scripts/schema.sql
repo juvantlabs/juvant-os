@@ -506,7 +506,8 @@ CREATE TABLE IF NOT EXISTS outbox (
   -- e.g. 'publish' | 'submit-invoice' | 'schedule-post'.
   payload         TEXT NOT NULL,
   -- JSON, operation-specific (the content to send).
-  status          TEXT DEFAULT 'draft',
+  status          TEXT DEFAULT 'draft'
+                  CHECK (status IN ('draft','approved','sent','failed')),
   -- 'draft' | 'approved' | 'sent' | 'failed'
   created_by      TEXT NOT NULL,
   -- the drafting agent (role name).

@@ -702,8 +702,8 @@ def resolve_space(role: str) -> dict | None:
         return {
             "container":    sp.get("container", "org"),
             "provider":     sp.get("provider", doc_storage["provider"]),
-            "resource_ids": sp["resource_ids"],
-            "path":         sp["path"],
+            "resource_ids": sp.get("resource_ids"),
+            "path":         sp.get("path"),
             "access":       sp.get("access", []),  # external guests
         }
     path = resolve_folder(role)             # soft default (+ fallback chain)
@@ -1632,6 +1632,10 @@ Failure modes:
 - **Server status `pending FEAT-XXX`** → warn, allow pass. The agent
   operates in restricted mode for the affected capability until the
   named FEAT lands.
+- **Server status `abstract (adopter-bound)`** → warn, allow pass (same as
+  `pending FEAT-XXX`). The role is abstract and the adopter binds a
+  provider-specific MCP per instance (e.g. `social` → Buffer); restricted
+  mode for the capability until a provider is bound.
 
 This check enforces that the inventory is the canonical source of
 truth for agent capability declarations and surfaces design drift
@@ -2235,7 +2239,10 @@ staging; pure reads and fire-and-forget calls bypass it).
    the target's throttle budget, call the target MCP's `operation`, and
    on success set `status='sent'`, `sent_at`. The throttle budget is an
    **instance configuration**, not a framework constant — it exists only
-   when the company's provider/plan imposes a cap, set to that cap. Where a
+   when the company's provider/plan imposes a cap, set to that cap. Its
+   source is wired together with the capped consumer (e.g. the `social`
+   consumer derives the cap from the provider plan, FEAT-057); there is no
+   standing throttle-config field today. Where a
    cap exists (e.g. a free social tier accepting ~10 queued posts/channel),
    the backlog lives in `outbox` unbounded and only the ≤budget due rows are
    dispatched per drain; on an uncapped (paid) plan there is no throttle and

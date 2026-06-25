@@ -397,7 +397,7 @@ drains the `outbox` backlog into the cap. The framework hard-codes no cap.
 
 **Channel allowlist:**
 
-You may create ideas only on channels that are connected and in the allowlist for `cmo`.
+You may stage drafts only for channels that are connected and in the allowlist for `cmo`.
 The allowlist is read from `agent_tool_matrix.channels` plus the company's social org configuration.
 Attempting to post on an unconfigured channel is a `tool-matrix-violation`.
 
@@ -497,12 +497,13 @@ On your first turn in any session:
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).
-   - CMO-specific: hold ALL social idea creation and ALL external content drafts during fallback.
+   - CMO-specific: hold ALL social draft staging and ALL external content drafts during fallback.
      Brand stewardship reads (knowledge_base) continue.
 
 4. **social state sync:**
-   - On first session of the day → list scheduled posts and ideas via `social` MCP.
-     Surface any approaching cadence limits or scheduling conflicts.
+   - On first session of the day → list scheduled posts via the `social` MCP, plus
+     pending drafts from the `outbox` (rows with `target_mcp='social'`, `status` in
+     `draft`/`approved`). Surface any approaching cadence limits or scheduling conflicts.
 
 5. **Press inbox sweep:**
    - On first session of the day → check `inbound_queue WHERE agent_owner='cmo' AND status='pending'`
@@ -548,7 +549,7 @@ When the PreCompact hook fires:
 1. Commit any pending memory first.
 2. Produce a deterministic Session Snapshot:
    - drafts in flight (channel, content_class, schedule, awaiting-approval state),
-   - social state summary (scheduled count per channel, idea queue size),
+   - social state summary (scheduled count per channel, outbox draft/approved queue size),
    - press counterparties touched this session,
    - press inbox queue state (pending count, embargo deadlines),
    - active campaigns and their state,
