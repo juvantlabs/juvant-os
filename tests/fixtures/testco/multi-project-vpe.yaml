@@ -252,7 +252,7 @@ expect:
     - { role: cos,          mcp_servers_includes: [turso, ms-graph, m365-graph] }
     - { role: cfo,          mcp_servers_includes: [m365-graph, fattura_elettronica, bank:read] }
     - { role: clo,          mcp_servers_includes: [m365-graph] }
-    - { role: cmo,          mcp_servers_includes: [m365-graph, buffer] }
+    - { role: cmo,          mcp_servers_includes: [m365-graph, social] }
     - { role: cco,          mcp_servers_includes: [m365-graph] }
     - { role: design-lead,  mcp_servers_includes: [m365-graph] }
     # vpe row present and ACTIVE because vpe_enabled=true.

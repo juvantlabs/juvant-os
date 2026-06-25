@@ -475,6 +475,56 @@ CREATE TABLE IF NOT EXISTS adapter_dead_letters (
   last_retry      DATETIME
 );
 
+-- Outbound action queue (the "outbox"), per ADR 0024. The durable,
+-- auditable materialization of the draft → approve → execute invariant:
+-- side-effecting MCP operations that need staging (accumulation, an
+-- approval gate, throttle/quota, retry, or scheduling) are queued here
+-- instead of being dispatched inline. This is ONE canonical table for
+-- the whole instance — NOT a queue per MCP. Heterogeneous operations
+-- share it via (target_mcp, operation) + a JSON payload, exactly as
+-- adapter_dead_letters shares one payload across adapters.
+--
+-- Activation is per-operation, not per-MCP: an operation enters here only
+-- when the rubric in docs/MCP_INVENTORY.md § "Adding a new MCP server"
+-- fires. Read-only and fire-and-forget operations bypass it.
+--
+-- Lifecycle: draft → approved → sent → failed.
+--   draft     — agent staged the intent; awaits the CEO commit.
+--   approved  — CEO committed via CoS (approved_by set); eligible for drain.
+--   sent      — dispatched to the external system (sent_at set).
+--   failed    — dispatch failed; retry_count bumped, falls to
+--               adapter_dead_letters once retries are exhausted.
+-- Autonomous external effect on a non-'approved' row is forbidden
+-- (SYSTEM_INVARIANTS §4; the CEO commit is the gate).
+CREATE TABLE IF NOT EXISTS outbox (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope           TEXT NOT NULL,
+  -- 'company' | '<project-slug>' — the governance scope that owns the action.
+  target_mcp      TEXT NOT NULL,
+  -- the MCP server that performs the dispatch (abstract role name).
+  operation       TEXT NOT NULL,
+  -- e.g. 'publish' | 'submit-invoice' | 'schedule-post'.
+  payload         TEXT NOT NULL,
+  -- JSON, operation-specific (the content to send).
+  status          TEXT DEFAULT 'draft'
+                  CHECK (status IN ('draft','approved','sent','failed')),
+  -- 'draft' | 'approved' | 'sent' | 'failed'
+  created_by      TEXT NOT NULL,
+  -- the drafting agent (role name).
+  approved_by     TEXT,
+  -- set on the CEO commit via CoS; NULL while in 'draft'.
+  scheduled_for   DATETIME,
+  -- NULL = send as soon as a drain slot/quota allows; else not before this.
+  retry_count     INTEGER DEFAULT 0,
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+  approved_at     DATETIME,
+  sent_at         DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_drain
+  ON outbox(status, scheduled_for, target_mcp);
+CREATE INDEX IF NOT EXISTS idx_outbox_scope
+  ON outbox(scope, status);
+
 -- ─────────────────────────────────────────────
 -- KNOWLEDGE & PROJECTS
 -- ─────────────────────────────────────────────

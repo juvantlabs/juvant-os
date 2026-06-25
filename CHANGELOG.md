@@ -11,6 +11,28 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added
+
+- **ADR 0023** — provider-neutral document **spaces** (= §4 scopes). Default
+  stays soft (personal drive); a space is promoted to an org-owned container
+  (SharePoint site / Shared Drive) only when shared with an external third
+  party, surgically. New `spaces.<role>` config block + `resolve_space()`;
+  adopter guide `docs/DOCUMENT_SPACES.md`. Tracker ARCH-013.
+- **ADR 0024** — outbound action queue: one canonical Turso `outbox` table for
+  side-effecting MCP operations (approval inside the queue; per-operation
+  activation via rubric, not per-MCP). New `helpers/drain-outbox.sh` (readiness
+  surfacer; dispatch agent-mediated). Tracker ARCH-014.
+
+### Changed
+
+- **Renamed the abstract `buffer` MCP role to `social`** (FEAT-056) — the role
+  name no longer leaks a provider (`buffer` was misleading, like naming `bank`
+  "UniCredit"). `social` is an abstract role bound per instance to a provider
+  (Buffer.com / Hootsuite / Sprout); the framework ships no canonical server.
+  CMO Content Scheduling Protocol now stages through the `outbox` (justified by
+  the CEO-approval-before-publish invariant; any plan cap / rotating queue is
+  instance config, not framework).
+
 ## [1.10.0] — 2026-06-22 — Repo-scoped write gate + compile --scope component
 
 ### Added

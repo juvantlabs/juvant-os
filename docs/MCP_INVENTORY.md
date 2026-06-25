@@ -21,7 +21,7 @@ inventory triggers a build-fail with a remediation hint.
 | `npm:publish` | w | **eng-platform only** — canonical-helper publication (FEAT-024 path) | `npm` CLI + OIDC trusted publishing | shipped |
 | `bank` | r | **CFO only** | provider-specific MCP, abstract-bound at company init (Finom: `juvantlabs/finom-mcp-server`, FEAT-011) | provider-specific (Finom: `FINOM_API_KEY`) | pending FEAT-011 (Finom) |
 | `fattura_elettronica` | r | CFO | provider-specific MCP (Italy: `juvantlabs/aruba-fattura-mcp-server`, FEAT-012) | provider-specific (Aruba: `ARUBA_*`) | pending FEAT-012 (Aruba) |
-| `buffer` | rw | CMO | TBD (third-party SaaS scheduler) | `BUFFER_ACCESS_TOKEN` | not yet specified |
+| `social` | rw | CMO | abstract role — provider MCP **bound per instance** (e.g. Buffer.com, Hootsuite, Sprout Social); the adopter supplies and configures their own | provider-specific (e.g. Buffer: `BUFFER_ACCESS_TOKEN`) | abstract (adopter-bound) |
 
 ## GitHub access — `gh` CLI, not an MCP (FEAT-052)
 
@@ -51,7 +51,7 @@ provider-agnostic while adopters pick whichever provider matches their stack.
 |---|---|
 | `bank` | Finom (FEAT-011), Mercury, Revolut Business, Wise, others |
 | `fattura_elettronica` | Aruba (FEAT-012, Italy SDI), Spain SII, France Chorus Pro, Mexico CFDI, Poland KSeF |
-| `buffer` | Buffer.com, Hootsuite, Sprout Social (whichever the company uses) |
+| `social` | Buffer.com, Hootsuite, Sprout Social — the adopter binds their own per instance. No canonical server ships today (renamed from `buffer`, FEAT-056); an **optional** canonical MIT server (Buffer provider) is tracked in FEAT-057. |
 
 Per `feedback_lean_canonical_mcp.md` (project memory): Juvant OS prefers
 shipping a single canonical MIT-licensed `juvantlabs/*-mcp-server` per
@@ -183,6 +183,10 @@ matrix row against this inventory. Failure modes:
 - **Status `pending FEAT-XXX`** → warn, allow pass: "MCP server is
   not yet shipped. Agent will operate in restricted mode for this
   capability until the FEAT lands."
+- **Status `abstract (adopter-bound)`** → warn, allow pass (same handling
+  as `pending FEAT-XXX`): "Abstract role; the adopter must bind a
+  provider-specific MCP for this instance. Agent operates in restricted mode
+  for this capability until a provider is bound."
 
 ## Adding a new MCP server
 
@@ -205,6 +209,63 @@ deliverable):
 5. `eng-platform` executes the matrix change via `install-spec` at
    company scope (or each project's `eng-lead` at project scope)
    per `SYSTEM_INVARIANTS.md` §6 + §4 single-writer-per-scope (ADR 0014).
+6. **Outbox rubric (per [ADR 0024](adr/0024-outbound-action-queue.md)).**
+   For each **side-effecting** operation the new server exposes, evaluate
+   whether it must route through the shared `outbox` table — see the
+   rubric below. Record the decision (which operations queue, which
+   dispatch inline) in the `tool-matrix-change`. This is part of the
+   CTO + CSO review, not a separate gate.
+
+## Outbound action queue (outbox) — activation rubric
+
+Side-effecting MCP operations are not all equal. A **single canonical
+`outbox` table** (Turso, `scripts/schema.sql`, per ADR 0024) stages the
+ones that need it; the rest are called inline. The unit is the
+**operation**, NOT the server — most servers have zero or one operation
+that qualifies. **Never create a `<domain>_queue` per MCP**; everything
+shares the one `outbox` via `(target_mcp, operation)` + JSON `payload`.
+
+**An operation routes through the outbox if *any* of these hold:**
+
+| Trigger | Example |
+|---|---|
+| **Accumulation / batch** | invoices accrue before the Aruba submission window |
+| **Approval gate** | the CEO must commit before the external effect (default for money / legal / public visibility) |
+| **Throttle / quota** | a plan cap or rate limit (e.g. a free social scheduler ~10 queued posts/channel) |
+| **Retry / durability** | a send can fail and the *intent* must survive |
+| **Scheduling** | the send must occur at a specific future time (scheduled posts, payment on due date) |
+
+**If none hold** — pure read, or a genuinely fire-and-forget low-stakes
+call — the operation bypasses the outbox with a direct MCP call. No table,
+no row.
+
+**First consumer (FEAT-056): `social` / `schedule-post`.** The CMO's social
+scheduling routes through the outbox because **CEO approval is required before
+publication** (a standing invariant) and posts are **scheduled** for a future
+time — both framework-level rubric triggers, true on any provider or plan. CMO
+stages a `draft` row (`target_mcp='social'`, `operation='schedule-post'`); the
+CEO commit flips it to `approved`; the drain dispatches approved-and-due rows to
+the bound scheduler MCP. A provider **plan cap** (e.g. Buffer Free's ~10/channel)
+is *not* a framework concern — it is configured per instance: where a cap exists
+the instance sets the drain's per-target throttle to it; on an uncapped (paid)
+plan there is nothing to throttle and the drain dispatches as approved. `social`
+is an abstract role — the adopter binds a provider (e.g. Buffer.com) per instance
+— so the `payload` is provider-neutral and the bound MCP performs the dispatch.
+See `agents/company/cmo.md` § "Content Scheduling Protocol".
+
+Lifecycle and ownership:
+- The drafting agent inserts a `draft` row (`created_by`).
+- The CEO commit via CoS flips it to `approved` (`approved_by`) — the
+  outbox **is** the register of "what awaits the CEO commit"; there is no
+  separate approval store. Autonomous external effect on a non-`approved`
+  row is forbidden (`SYSTEM_INVARIANTS.md` §4 — the commit is the gate).
+- Dispatch (`approved → sent`) is **agent-mediated in v1.0** (CoS drains
+  approved-and-due rows during a session, honoring per-target throttle;
+  see `JUVANT_OS.md` § "Outbox — staged outbound actions"). The scheduled
+  drain helper (`helpers/drain-outbox.sh`) handles readiness surfacing and
+  retry/dead-letter reconciliation; fully autonomous cloud-routine drain
+  is the v1.1+ evolution. Failed dispatch bumps `retry_count` and falls to
+  `adapter_dead_letters` once exhausted.
 
 ## Status legend
 
@@ -217,3 +278,9 @@ deliverable):
 - **not yet specified** — referenced in design intent but no FEAT opened.
   Adopters who need the capability open a request issue on
   `juvantlabs/juvant-os-pm`.
+- **abstract (adopter-bound)** — an abstract role the framework defines but
+  ships **no** canonical server for; the adopter binds a provider-specific
+  MCP per instance (e.g. `social` → Buffer.com / Hootsuite / Sprout). Treated
+  by the Step 8.5 cross-check like `pending FEAT-XXX` — warn, allow pass; the
+  agent runs in restricted mode for the capability until the adopter binds a
+  provider.

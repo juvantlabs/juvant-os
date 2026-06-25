@@ -315,7 +315,7 @@ Channel use:
 
 - **ms-graph (read-only, on-demand)** — `outlook_email_search` for your assigned legal mailbox; called only when CoS dispatches. Never send mail directly (FEAT-016 / v1.1+).
 - No Telegram. CoS owns CEO notifications.
-- No Buffer.
+- No `social` MCP.
 
 ---
 

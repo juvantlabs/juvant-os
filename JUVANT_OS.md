@@ -515,6 +515,39 @@ Step 1.5 makes it operationally usable. Without Step 1.5, every agent that
 wants to read or write a document hits "source unbound" and has to ask the
 CEO at runtime — friction the wizard exists to prevent.
 
+#### Spaces model — provider-neutral, default soft, promote on external sharing
+
+Per [ADR 0023](docs/adr/0023-document-spaces-third-party-access.md).
+Document storage is modeled as **spaces**, where a space corresponds to a
+governance scope (§4): company-scope spaces and project-scope spaces
+(components have no doc-storage, ADR 0020). "Space with access rules" is
+the abstraction; the provider is the implementation — a folder on a
+personal drive (soft), a SharePoint site/library (Microsoft org), or a
+Shared Drive (Google org).
+
+- **Default is soft.** Company init binds each role to a folder on the
+  CEO's personal drive, one connected principal. The flat `folders` map
+  below *is* the soft model. **No migration is required**; most spaces
+  (ops, branding, internal docs) can stay here indefinitely.
+- **Promote surgically, only on an external-sharing trigger.** When — and
+  only when — a space must be shared with an **external third party**
+  (commercialista → finance, counsel → legal), *that one space* is
+  promoted to an **org-owned container** and the third party is added as a
+  **guest at library granularity**, never via a personal-folder share
+  (which leaks siblings and dies with the CEO's identity). A single
+  instance can therefore mix soft spaces with a few promoted ones.
+- **Agents keep their identity.** Promoting a space does **not** mint a
+  per-agent service identity. Agents keep writing under the existing
+  connected principal (which is a *member* of the org space); the third
+  party is the *guest*. Per-agent identities are a cloud-milestone concern
+  (FEAT-022), not this step.
+
+The **how-to** for building an org container and pointing agents at it
+(per provider), plus the doc-storage taxonomy guard, lives in
+[`docs/DOCUMENT_SPACES.md`](docs/DOCUMENT_SPACES.md). The rest of this
+step configures the soft default; a promoted space adds a per-space
+override block (see the schema below).
+
 This step records **N=11 folder bindings** (root, legal, finance,
 operations, branding, gtm, products, research, press, sales, hr).
 The wizard renders the **collection-collapse menu** (rendering rule
@@ -602,6 +635,23 @@ fallback chain.
       "sales": ["gtm", "root"],
       "research": [],
       "hr": ["root"]
+    },
+    "spaces": {
+      "finance": {
+        "container": "org",
+        "provider": "sharepoint",
+        "resource_ids": {
+          "site_id": "<host>,<siteCollectionId>,<webId>",
+          "drive_id": "b!<base64-id>"
+        },
+        "path": "/Finance",
+        "access": [
+          { "principal": "commercialista@studio.example",
+            "role": "read",
+            "granted_at": "2026-06-25",
+            "decision_ref": "<decisions.id>" }
+        ]
+      }
     }
   }
 }
@@ -617,6 +667,14 @@ fallback chain.
   per its own logic (e.g. CRO in a product-centric company reads per-project
   research from `folders.products + /<project>/Research`, not a flat
   `folders.research`).
+- `spaces.<role>` — **optional, present only for a promoted space** (ADR
+  0023). Overrides the instance-default binding for that one role with an
+  org-owned container: `container: "org"`, the provider implementation
+  (`sharepoint` / `shared-drive`), per-space `resource_ids`, `path`, and an
+  `access` list of external guests (`principal`, `role` ∈ read|comment|write,
+  `granted_at`, `decision_ref` → the `decisions` row that authorized the
+  grant). A role absent from `spaces` resolves to the soft default
+  (`folders` + the top-level `provider`/`resource_ids`).
 
 #### Folder resolution algorithm (used by every agent that reads or writes documents)
 
@@ -631,6 +689,40 @@ def resolve_folder(role: str) -> str | None:
             return folder
     return None
 ```
+
+`resolve_folder` answers *where* on the instance-default drive. For the
+**spaces model** (ADR 0023) an agent resolves *where AND under which
+container/provider*, so a promoted org-space is reached correctly while
+soft roles fall through to the default:
+
+```python
+def resolve_space(role: str) -> dict | None:
+    sp = doc_storage.get("spaces", {}).get(role)
+    if sp is not None:                      # promoted org-owned space
+        return {
+            "container":    sp.get("container", "org"),
+            "provider":     sp.get("provider", doc_storage["provider"]),
+            "resource_ids": sp.get("resource_ids"),
+            "path":         sp.get("path"),
+            "access":       sp.get("access", []),  # external guests
+        }
+    path = resolve_folder(role)             # soft default (+ fallback chain)
+    if path is None:
+        return None
+    return {
+        "container":    "personal",
+        "provider":     doc_storage["provider"],
+        "resource_ids": doc_storage["resource_ids"],
+        "path":         path,
+        "access":       [],
+    }
+```
+
+Agents that read or write documents call `resolve_space`; the returned
+`provider` + `resource_ids` tell the bound MCP which container to address
+(personal drive vs SharePoint site vs Shared Drive), and `access`
+documents who else can see the space. `resolve_folder` remains the inner
+soft-path resolver — unchanged, still used for the common single-drive case.
 
 If the result is `None`, the agent surfaces `[<ROLE> SOURCE UNBOUND]` in
 its response and offers the CEO three options:
@@ -1540,6 +1632,10 @@ Failure modes:
 - **Server status `pending FEAT-XXX`** → warn, allow pass. The agent
   operates in restricted mode for the affected capability until the
   named FEAT lands.
+- **Server status `abstract (adopter-bound)`** → warn, allow pass (same as
+  `pending FEAT-XXX`). The role is abstract and the adopter binds a
+  provider-specific MCP per instance (e.g. `social` → Buffer); restricted
+  mode for the capability until a provider is bound.
 
 This check enforces that the inventory is the canonical source of
 truth for agent capability declarations and surfaces design drift
@@ -2105,6 +2201,70 @@ the workflow is:
    require a successor handbook ADR.
 4. **Once fixed**: kill switch off; record incident outcome in
    `decisions`.
+
+---
+
+## Outbox — staged outbound actions
+
+Per [ADR 0024](docs/adr/0024-outbound-action-queue.md). The `outbox`
+table (`scripts/schema.sql`) is the durable, auditable form of the
+standing invariant *"agents draft, never execute autonomously; the CEO
+commits via CoS"*. It exists so that side-effecting external actions can
+be **staged, approved, throttled, scheduled, and retried** instead of
+fired inline and lost.
+
+**One table for the whole instance.** There is no `<domain>_queue` per
+MCP. Social posts, invoices bound for the e-invoicing provider, and any
+other staged outbound action all share `outbox`, discriminated by
+`(target_mcp, operation)` with a JSON `payload`. Whether a given
+operation is staged here at all is decided per-operation by the rubric in
+`docs/MCP_INVENTORY.md` § "Adding a new MCP server" (accumulation /
+approval gate / throttle-quota / retry / scheduling — any one triggers
+staging; pure reads and fire-and-forget calls bypass it).
+
+**Lifecycle** (`draft → approved → sent → failed`):
+
+1. **Draft.** The owning agent (e.g. CMO for a social post, CFO for an
+   invoice) inserts a `draft` row with `scope`, `target_mcp`,
+   `operation`, JSON `payload`, and `created_by`. It does **not** dispatch.
+2. **Approve.** The CEO commit flows through CoS (the only agent the CEO
+   talks to by default). On commit, CoS sets `status='approved'`,
+   `approved_by`, `approved_at`. The outbox **is** the register of "what
+   awaits the CEO commit" — there is no separate approval store. A row
+   that is not `approved` must never produce an external effect
+   (`SYSTEM_INVARIANTS.md` §4 — the commit is the gate).
+3. **Dispatch (`approved → sent`) — agent-mediated in v1.0.** When CoS is
+   in session it drains approved-and-due rows: for each `target_mcp`,
+   take rows where `scheduled_for IS NULL OR scheduled_for <=` now, up to
+   the target's throttle budget, call the target MCP's `operation`, and
+   on success set `status='sent'`, `sent_at`. The throttle budget is an
+   **instance configuration**, not a framework constant — it exists only
+   when the company's provider/plan imposes a cap, set to that cap. Its
+   source is wired together with the capped consumer (e.g. the `social`
+   consumer derives the cap from the provider plan, FEAT-057); there is no
+   standing throttle-config field today. Where a
+   cap exists (e.g. a free social tier accepting ~10 queued posts/channel),
+   the backlog lives in `outbox` unbounded and only the ≤budget due rows are
+   dispatched per drain; on an uncapped (paid) plan there is no throttle and
+   due rows dispatch as approved.
+4. **Failure.** On dispatch error, bump `retry_count` and leave the row
+   `approved` for the next drain; once retries are exhausted, move the
+   payload to `adapter_dead_letters` (status `failed`) for forensic
+   follow-up.
+
+**Why dispatch is agent-mediated and not a pure cron job.** MCP servers
+are Claude-tool surfaces; a shell cron cannot call them. So the *dispatch*
+step happens in an agent turn (CoS). The scheduled helper
+`helpers/drain-outbox.sh` does only the shell-safe part: it surfaces
+approved-and-due rows (per `target_mcp`) so a staged backlog never sits
+silent — the morning brief and notifications consume it. Fully autonomous
+cloud-routine drain is the v1.1+ evolution, riding the same table.
+
+**Disclosure boundary.** The drain never collapses the §4 boundary: it is
+performed by CoS under the operator-direct channel class, not by an agent
+holding `[state.db read + external-channel send]` in one
+`agent_tool_matrix` row (see `docs/MCP_INVENTORY.md` § Universal
+Boundaries).
 
 ---
 
@@ -4453,8 +4613,8 @@ trail. **Company-scope agents only** — no project agents involved.
      `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.juvant.guardrails.<label>.plist`.
    - `scripts/compile-templates.sh` changed →
      re-run `bash scripts/compile-templates.sh --scope company`.
-   - `scripts/migrate.sh` changed → surface reminder:
-     *"migrate.sh changed — re-run `bash scripts/migrate.sh schema-apply` to apply any new column patches."*
+   - `scripts/migrate.sh` **or** `scripts/schema.sql` changed → surface reminder:
+     *"schema changed — re-run `bash scripts/migrate.sh schema-apply` to apply any new tables or column patches (idempotent; `CREATE TABLE IF NOT EXISTS`)."* A new table (e.g. `outbox`, ADR 0024) only reaches an existing instance's DB once this is run.
    - `scripts/templates/hooks-registration.json` changed (FEAT-050) →
      run `bash scripts/sync-hooks.sh` to reconcile the framework hook block
      into `.claude/settings.json` (preserves instance-specific keys). This is
@@ -4499,6 +4659,7 @@ helpers/fiscal-deadlines.sh   helpers/anomaly-baseline-report.sh
 helpers/kb-coverage.sh        helpers/agent-killswitch.sh
 helpers/kb-sync.sh            helpers/drain-audit-spool.sh
 helpers/cso-weekly-audit.sh   helpers/with-timeout.sh
+helpers/drain-outbox.sh
 hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
@@ -4520,6 +4681,7 @@ scripts/templates/commands/juv-add-component.md
 JUVANT_OS.md                  SYSTEM_INVARIANTS.md
 CHANGELOG.md                  VERSION
 docs/MCP_INVENTORY.md         docs/branch-protection-spec.md
+docs/DOCUMENT_SPACES.md
 agents/projects/*.md          agents/components/maintainer.md
 ```
 

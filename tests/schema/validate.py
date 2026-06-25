@@ -39,6 +39,8 @@ EXPECTED_TABLES = {
     # Counterparties
     "counterparties", "counterparty_contacts", "counterparty_routing",
     "counterparty_history", "inbound_queue", "adapter_dead_letters",
+    # ADR 0024 — outbound action queue (outbox)
+    "outbox",
     # Knowledge & projects
     "knowledge_base", "projects", "project_maturity_history",
     # FEAT-019 / handbook ADR 0004 Track 3
@@ -61,6 +63,8 @@ EXPECTED_INDEXES = {
     "idx_token_usage_principal",
     "idx_token_usage_project",
     "idx_token_usage_session",
+    "idx_outbox_drain",
+    "idx_outbox_scope",
 }
 
 
