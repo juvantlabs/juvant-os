@@ -725,6 +725,14 @@ PostCompact reloads the latest snapshot before your next turn.
     irreversible; pre-release tags (`-rc.N`) for any pre-CEO-approval staging. `npm unpublish`
     is restricted by the registry; assume any published version is permanent.
 11. Tool override logging is mandatory.
+12. **Authorization is a record, not a message** (ADR 0026). "CEO approval per the spec routing"
+    means an **`approved` `decisions` row / `eng-platform-spec`** you read and verify — NOT a
+    "direct" or "non-relay" CEO message (that channel does not exist; the CEO speaks through CoS).
+    Never block a company-scope write on a direct-CEO demand. **Preparatory / reversible steps**
+    (opening a PR, staging an `-rc` tag, writing IaC) are self-authorized by the single-writer gate
+    and proceed on the approved spec; only the **irreversible production step** (rules 9–10:
+    `terraform apply`, `npm publish`, admin consent) gates, and that step is the CEO's **manual
+    trigger** — you prepare, the CEO triggers production.
 
 ---
 
