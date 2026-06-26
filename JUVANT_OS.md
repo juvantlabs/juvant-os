@@ -675,6 +675,16 @@ fallback chain.
   `granted_at`, `decision_ref` → the `decisions` row that authorized the
   grant). A role absent from `spaces` resolves to the soft default
   (`folders` + the top-level `provider`/`resource_ids`).
+- `spaces.<role>.agent_allowlist` — **optional, ADR 0025.** A list of internal
+  agent roles permitted to resolve/operate on a **sensitive** (Universal-
+  CONFIDENTIAL) promoted space, e.g. `["lex","cto","cso"]` for a `legal-ip`
+  space. Absent ⇒ all company agents (the default for a normally-promoted
+  space). `resolve_space` honours it cooperatively; the **hard** perimeter is
+  the pre-tool-use hook deny-list keyed on `(AGENT_ROLE, driveId)`, with the
+  concrete rules in the instance-local policy file (`.juvant/space-access-policy.json`,
+  not the synced `bash-policy.json`). **Prefer not promoting** a sensitive space
+  that has no external party — keep it soft so the broad `Sites` scope never
+  reaches it (ADR 0025).
 
 #### Folder resolution algorithm (used by every agent that reads or writes documents)
 
@@ -696,15 +706,24 @@ container/provider*, so a promoted org-space is reached correctly while
 soft roles fall through to the default:
 
 ```python
-def resolve_space(role: str) -> dict | None:
+def resolve_space(role: str, caller: str) -> dict | None:
     sp = doc_storage.get("spaces", {}).get(role)
     if sp is not None:                      # promoted org-owned space
+        # Access-aware (ADR 0025): a sensitive space may restrict which agent
+        # roles may resolve its binding via `agent_allowlist` (None ⇒ all
+        # company agents). COOPERATIVE layer — the hard perimeter is the
+        # pre-tool-use hook deny-list keyed on (AGENT_ROLE, driveId); refusing
+        # to hand back the driveId here is defence-in-depth, not enforcement.
+        allow = sp.get("agent_allowlist")
+        if allow is not None and caller not in allow:
+            return None                     # surface [<ROLE> ACCESS DENIED]
         return {
             "container":    sp.get("container", "org"),
             "provider":     sp.get("provider", doc_storage["provider"]),
             "resource_ids": sp.get("resource_ids"),
             "path":         sp.get("path"),
-            "access":       sp.get("access", []),  # external guests
+            "access":       sp.get("access", []),          # external guests
+            "agent_allowlist": sp.get("agent_allowlist"),  # internal agents (None ⇒ all)
         }
     path = resolve_folder(role)             # soft default (+ fallback chain)
     if path is None:
@@ -718,11 +737,24 @@ def resolve_space(role: str) -> dict | None:
     }
 ```
 
-Agents that read or write documents call `resolve_space`; the returned
-`provider` + `resource_ids` tell the bound MCP which container to address
-(personal drive vs SharePoint site vs Shared Drive), and `access`
-documents who else can see the space. `resolve_folder` remains the inner
-soft-path resolver — unchanged, still used for the common single-drive case.
+Agents that read or write documents call `resolve_space(role, caller)` with
+their own `AGENT_ROLE` as `caller`; the returned `provider` + `resource_ids`
+tell the bound MCP which container to address (personal drive vs SharePoint
+site vs Shared Drive), `access` documents which external guests can see the
+space, and `agent_allowlist` (when set) records which internal agents may.
+`resolve_folder` remains the inner soft-path resolver — unchanged, still used
+for the common single-drive case.
+
+A `None` from `agent_allowlist` denial surfaces `[<ROLE> ACCESS DENIED]` (a
+sensitive space the caller is not permitted to resolve). This is the
+**cooperative** layer only; per [ADR 0025](docs/adr/0025-document-space-access-control.md)
+the **hard** perimeter for a Universal-CONFIDENTIAL space (e.g. banking, IP)
+is the pre-tool-use hook deny-list keyed on `(AGENT_ROLE, target driveId)` —
+the MCP server is one delegated token in one process and cannot authenticate
+the caller, so server-side enforcement would be spoofable. The cleanest move,
+where a sensitive space has **no** external party, is not to promote it at all
+(keep it soft — the broad `Sites` scope then never reaches it). See
+`docs/DOCUMENT_SPACES.md` § "Access control for sensitive spaces".
 
 If the result is `None`, the agent surfaces `[<ROLE> SOURCE UNBOUND]` in
 its response and offers the CEO three options:
