@@ -57,6 +57,46 @@ Promotion is **surgical**: promote the *one* space that needs sharing, not
 the whole store. An instance happily runs with most spaces personal and a
 couple (finance, legal) org-owned.
 
+> **Do not promote a Universal-CONFIDENTIAL space that has no external party**
+> (ADR 0025). Banking, IP, and other §5 material with no commercialista/counsel
+> who needs it fails the trigger above — keep it **soft** (personal drive).
+> Agents still reach it via the existing `Files`-class scope, and the broad
+> `Sites` scope you grant for the *other* promoted spaces then **never touches
+> it**. Promoting it and bolting on a deny-list is strictly worse than not
+> promoting it: you would create the exposure, then mitigate it. Promote the
+> sensitive space **only** when it genuinely has an external party (e.g.
+> `legal-ip` that outside counsel must read) — and then it needs the perimeter
+> in "Access control for sensitive spaces" below.
+
+## Prerequisite: the bound MCP must reach the container (sequence this FIRST)
+
+> **ADR 0025 — hard prerequisite.** Being a *member* of the org space is
+> necessary but **not sufficient**: the bound MCP also needs the Graph **scope**
+> to reach that container *type*. `m365-graph` with `Files.ReadWrite` reaches the
+> CEO's **OneDrive only** — it cannot read or write a **SharePoint** library. If
+> you migrate before granting the scope, you move documents into a place the
+> agents cannot operate. Incoherent.
+
+| Container | Scope the bound MCP needs |
+|---|---|
+| OneDrive (personal, soft) | `Files.ReadWrite` (already present) |
+| SharePoint (org) | `Sites.ReadWrite.All` (delegated — bounded by the principal's site memberships, *cooperative*) **or** `Sites.Selected` (app-only, truly per-site — the harder path, FEAT-022) |
+| Google Shared Drive (org) | the Drive scope covering shared drives |
+
+**Fixed sequence — never reorder:**
+
+1. **Grant the scope** to the bound MCP (delegated `Sites.ReadWrite.All` is the
+   pragmatic today-path; it likely needs a server version bump + Entra admin
+   consent). This is **gate #1** of any promotion, not a follow-on.
+2. **Create the sites/libraries + add guests** (next section).
+3. **Migrate the documents** — last.
+
+Delegated-scope caveat: with `Sites.ReadWrite.All` the agent (acting *as* the
+connected principal) reaches **every** site that principal is a member of —
+cooperative isolation, not a per-agent perimeter. That is fine for
+non-sensitive spaces; for Universal-CONFIDENTIAL ones see "Access control for
+sensitive spaces" below. True per-agent isolation is FEAT-022.
+
 ## How to build the org container
 
 The credential / OAuth mechanics for the bound MCP server are already
@@ -78,10 +118,12 @@ covers only the *container* construction and the *guest grant*.
    minimum role (read / contribute). Guest-at-library, never guest-at-site
    if the site holds more than this one library — keep the blast radius to
    the shared library only.
-4. **Scope any app access with `Sites.Selected`.** If/when programmatic
-   access is wired, grant the app `Sites.Selected` and authorize it on
-   *this site only* — never tenant-wide `Sites.ReadWrite.All`. Surgical app
-   perimeter is the whole point.
+4. **Grant the bound MCP the scope to reach this site** (the prerequisite
+   above — do it *first*). For today's **delegated** `m365-graph` that is
+   `Sites.ReadWrite.All`, bounded by your site memberships. If/when you move to
+   **app-only** access, prefer `Sites.Selected` authorized on *this site only*
+   over tenant-wide application permission — the surgical per-site app perimeter
+   (FEAT-022 path). Don't grant broader than the container set requires.
 5. **Capture `site_id` and `drive_id`** (Microsoft Graph returns both; the
    wizard's discover-via-tool path can read them). These go in the
    `spaces.<role>.resource_ids` block.
@@ -139,6 +181,61 @@ principal, not a service-account provisioning project.
   a scope is the writer of its space. Promotion does not change who writes;
   it changes who can *see*.
 
+## Access control for sensitive spaces (ADR 0025)
+
+Needed **only** when you had to promote a Universal-CONFIDENTIAL space because it
+genuinely has an external party (the `legal-ip`-must-be-read-by-counsel case). If
+you followed the "do not promote a sensitive space with no external party" rule
+above, most sensitive material stays soft and this section does not apply to it.
+
+The problem: with a broad delegated `Sites` scope, agents act *as the connected
+principal* and can technically reach the sensitive library. Library
+guest-membership stops **guests**, not **agents**. So you need a real perimeter
+on that one library — two layers:
+
+**1. Cooperative — `agent_allowlist` on the space (does not, alone, enforce).**
+Set `spaces.<role>.agent_allowlist` to the agent roles that legitimately need it,
+e.g. `["lex","cto","cso"]` for `legal-ip`. `resolve_space` then refuses to hand
+the `driveId` to any other agent. This is defence-in-depth — necessary but not
+sufficient, because an agent could obtain the `driveId` another way.
+
+**2. Hard — pre-tool-use hook deny-list (the enforcement of record).** Keyed on
+`(AGENT_ROLE, target driveId/siteId)`. `AGENT_ROLE` is set at spawn and is
+**not** something an agent can rewrite at call time, so it is the same
+non-spoofable trust floor as the framework's Track-2 deny-list. **Enforcement
+cannot live in the MCP server** — `m365-graph` is one delegated token in one
+process and cannot tell which agent is calling; a `caller_agent_role` argument
+would be self-declared and spoofable. Requirements for the hard layer:
+
+- **Per-operation target visibility.** For *every* operation the hook must be
+  able to derive the target `driveId`/`siteId`. Path-only operations → a double
+  predicate (driveId **and** a library-name match). A cross-site search → scoped
+  to a `siteId`/`driveId` or **denied** to non-allowlisted callers. **Any
+  operation where the hook cannot see a target → denied** in the interim.
+- **Escalation surface.** Sharing / permission-grant operations on the sensitive
+  library are in scope of the allowlist — granting access is privilege
+  escalation, not a read.
+- **Alerting.** Every access writes `security_audit_log` (severity high) +
+  notifies CoS, **including** allowlisted agents (tagged "expected") — to catch
+  authorized-but-anomalous access.
+- **Regression gate.** A synthetic canary (a non-allowlisted probe agent trying
+  every operation, path-only included) gates go-live **and re-runs on every MCP
+  version bump** — a new tool in a later server release must not silently reopen
+  a hole.
+
+**Where the rules live — critical.** The concrete `driveId`s and agent allowlists
+are **instance state**. Put them in an instance-local, non-synced policy file —
+convention **`.juvant/space-access-policy.json`** (gitignored) — that the hook
+reads **in addition to** the synced `hooks/bash-policy.json`. **Never** put them
+in `bash-policy.json` itself: `upstream-sync` would overwrite it and your
+perimeter would evaporate. The hook treats the policy as a no-op when the file is
+absent.
+
+Honest cost: until FEAT-022, operations whose target the hook cannot see are
+denied to non-allowlisted callers (an unscopable cross-site search, for example).
+That is the price of cooperative→hard on the sensitive spaces only; the bulk of
+promoted spaces stay cooperative.
+
 ## Taxonomy guard — what must NOT go in doc-storage
 
 The audit that motivated ADR 0023 found a personal drive being used as a
@@ -165,6 +262,9 @@ before it lands — doc-storage is not a filesystem.
 
 - [ADR 0023](adr/0023-document-spaces-third-party-access.md) — the spaces
   model, the surgical-promotion decision, and the identity decoupling.
+- [ADR 0025](adr/0025-document-space-access-control.md) — the access-control +
+  scope model this guide implements (MCP-scope prerequisite, access-aware
+  `resolve_space`, the sensitive-space hook perimeter, instance-local policy).
 - [ADR 0024](adr/0024-outbound-action-queue.md) — the `outbox`: where
   operational/transactional state lives (the DB leg of the taxonomy).
 - `JUVANT_OS.md` § "Wizard — Step 1.5" — the `doc_storage` schema,
