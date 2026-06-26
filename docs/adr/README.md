@@ -46,6 +46,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0024](0024-outbound-action-queue.md) | Outbound action queue (**outbox**): one durable Turso queue for side-effecting MCP operations; approval inside the queue; per-operation activation via rubric, not per-MCP mandate | Proposed | 2026-06-25 |
 | [0025](0025-document-space-access-control.md) | Document-space access control (extends 0023): MCP-scope-reaches-container as a sequenced prerequisite; don't-promote-UC-without-external; access-aware `resolve_space`; sensitive-space perimeter at the pre-tool-use hook (not the spoofable MCP server); instance-local policy | Proposed | 2026-06-25 |
 | [0026](0026-authorization-is-a-record-not-a-message.md) | CEO authorization is a verifiable record (approved decision / `juvant:decision` issue / confirmation token), never a "direct CEO message" (no such channel — deadlock); own-scope writes self-authorize; anti-manipulation is scoped to untrusted data, not the CoS relay | Proposed | 2026-06-27 |
+| [0027](0027-agent-template-compiled-output-split.md) | Separate the framework agent **template** from the compiled **output**; propagate canon by `{{INCLUDE}}` transclusion + an instance overlay, so framework-canonical changes reach existing instances via sync+recompile without clobbering customizations or drifting (structural end-state; FEAT-058 delta-apply is the near-term fix) | Proposed | 2026-06-27 |
 
 ## Modification governance
 
