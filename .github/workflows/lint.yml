@@ -116,6 +116,7 @@ jobs:
           pip install --quiet pyyaml
           python3 tests/schema/validate.py
           bash tests/migrate/test-v07-to-v08-agents.sh
+          bash tests/helpers/test-turso-backup-archival.sh
 
       - name: Eval scenario lint (FEAT-008 L1)
         run: |

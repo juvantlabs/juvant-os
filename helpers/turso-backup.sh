@@ -28,9 +28,12 @@
 # (B2 lifecycle rule, S3 lifecycle, manual rotation on NAS, etc.).
 #
 # Permanent retention for spec-class decisions: helper greps the
-# dump for "category='spec'" rows in decisions; if any, prefixes
-# the filename with "ARCHIVAL-" so the destination's retention
-# rule can pin those.
+# `.dump` for a `'-spec'` category value inside an `INSERT INTO
+# decisions` data row (pr-spec, gh-issue-spec, install-spec, …);
+# if any, prefixes the filename with "ARCHIVAL-" so the
+# destination's retention rule can pin those. (See the detailed
+# note at the grep site for why a bare `category='spec'` matched
+# nothing in positional `.dump` output.)
 
 set -euo pipefail
 
@@ -67,9 +70,19 @@ ENCRYPTED="$TMPDIR/juvant-${DATE}.sql.gz.gpg"
 echo "[turso-backup] dumping Turso ($TURSO_DB_NAME) to $DUMP" >&2
 turso db shell "$TURSO_DB_NAME" ".dump" > "$DUMP" 2>/dev/null
 
-# Tag spec-class dumps for permanent retention
+# Tag spec-class dumps for permanent retention.
+# The dump is `.dump` output — INSERTs with POSITIONAL values, so the category
+# appears as a quoted value (e.g. 'pr-spec'), never as `category='…'`. And
+# there is no bare 'spec' category — the spec classes all end in '-spec'
+# (pr-spec, gh-issue-spec, install-spec, deployment-spec, eng-platform-spec, …).
+# The old `category='spec'` grep matched neither, so ARCHIVAL- was never applied
+# and spec history was silently subject to rolling deletion.
+# Match a '-spec' value inside a `INSERT INTO decisions` DATA row only — the
+# dump also contains the schema (the category CHECK trigger lists every spec
+# category), so a bare `'-spec'` grep would match every dump. CREATE/trigger
+# lines are not `INSERT INTO decisions`, so this stays data-scoped.
 PREFIX=""
-if grep -qE "category='spec'" "$DUMP"; then
+if grep -qE "INSERT INTO .?decisions.*'[a-z_-]+-spec'" "$DUMP"; then
   PREFIX="ARCHIVAL-"
   ENCRYPTED="$TMPDIR/${PREFIX}juvant-${DATE}.sql.gz.gpg"
 fi
