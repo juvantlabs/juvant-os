@@ -541,6 +541,144 @@ if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
 fi
 
 # ─────────────────────────────────────────────
+# Track 2e — sensitive-space deny-list (ADR 0025 / ADR 0027)
+# ─────────────────────────────────────────────
+# Deny-by-default perimeter for MCP tool calls targeting a SENSITIVE
+# document space — a Universal-CONFIDENTIAL library that had to be promoted
+# to an org container because it has an external party (e.g. legal-ip read
+# by outside counsel). Keyed on (AGENT_ROLE, driveId match || path-pattern
+# match). Enforcement lives HERE, not in the MCP server: the server is one
+# delegated token in one process and cannot authenticate the caller
+# (ADR 0025); AGENT_ROLE is spawn-set and non-spoofable — the framework's
+# real trust floor.
+#
+# Rules are INSTANCE-LOCAL — read from .juvant/config.json
+#   .security.space_access[]   (gitignored; NEVER in a synced file — ADR 0025)
+# Each entry:
+#   { "space": "<name>", "tool_prefix": "mcp__<server>__",
+#     "drive_ids": ["b!…"], "path_patterns": ["legal-ip","/IP/"],
+#     "allowlist": ["lex","atlas","cso"] }
+# Absent / empty .security.space_access ⇒ this Track is a no-op (the default
+# framework state — most instances have no promoted sensitive space).
+#
+# Coverage gates (harvested from the instance reference proven by the canary
+# that gated go-live, decisions#210):
+#   (a) path-only ops also match the space's path_patterns;
+#   (b) search ops must carry a site/drive scope, else deny;
+#   (c) resolution helpers refuse to surface the sensitive driveId;
+#   (d) any op with no hook-visible target + unclassified ⇒ deny.
+# Op classification A=Read / B=Write / C=Escalation pre-empts future tools.
+# Every resolved op writes security_audit_log severity=high + same-turn CoS
+# notification (allowlisted agents tagged expected=true — the row still fires,
+# to catch authorized-but-anomalous access).
+_T2E_CFG="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
+if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "$_T2E_CFG" >/dev/null 2>&1; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/db.sh"
+  _t2e_esc() { printf '%s' "$1" | sed "s/'/''/g"; }
+
+  _T2E_ARGS=$(echo "$EVENT_JSON" | jq -c '.tool_input // {}' 2>/dev/null || echo "{}")
+  _T2E_DRIVE_ID=$(echo "$_T2E_ARGS" | jq -r '.drive_id // .driveId // ""' 2>/dev/null || echo "")
+  _T2E_SITE_ID=$(echo "$_T2E_ARGS"  | jq -r '.site_id // .siteId // ""'   2>/dev/null || echo "")
+  _T2E_PATH=$(echo "$_T2E_ARGS"     | jq -r '.path // .file_path // .folder_path // .item_path // ""' 2>/dev/null || echo "")
+
+  # Generic op classification (Graph-like MCPs). A=Read B=Write C=Escalation.
+  _T2E_OP_CLASS="unclassified"
+  case "$TOOL_NAME" in
+    *share*|*permission*|*invite*|*grant*|*role*|*member*|*access*) _T2E_OP_CLASS="C" ;;
+    *upload*|*create*|*update*|*delete*|*write*|*move*|*copy*|*rename*|*put*) _T2E_OP_CLASS="B" ;;
+    *list*|*get*|*read*|*search*|*resolve*|*whoami*|*who_am_i*|*download*) _T2E_OP_CLASS="A" ;;
+  esac
+  _T2E_HAS_TARGET=false
+  [[ -n "$_T2E_DRIVE_ID" || -n "$_T2E_SITE_ID" || -n "$_T2E_PATH" ]] && _T2E_HAS_TARGET=true
+
+  _T2E_NSPACE=$(jq -r '.security.space_access | length' "$_T2E_CFG" 2>/dev/null || echo 0)
+  _t2e_i=0
+  while [[ "$_t2e_i" -lt "$_T2E_NSPACE" ]]; do
+    _SP=$(jq -c ".security.space_access[$_t2e_i]" "$_T2E_CFG" 2>/dev/null || echo "{}")
+    _t2e_i=$(( _t2e_i + 1 ))
+    _SP_PREFIX=$(echo "$_SP" | jq -r '.tool_prefix // ""')
+    [[ -n "$_SP_PREFIX" && "$TOOL_NAME" == "$_SP_PREFIX"* ]] || continue
+    _SP_NAME=$(echo "$_SP" | jq -r '.space // "sensitive-space"')
+
+    # allowlist membership (role or <project>-role)
+    _SP_ALLOW=false
+    while IFS= read -r _al; do
+      [[ -z "$_al" ]] && continue
+      [[ "$ROLE" == "$_al" || "$ROLE" == *"-$_al" ]] && { _SP_ALLOW=true; break; }
+    done < <(echo "$_SP" | jq -r '.allowlist[]?' 2>/dev/null)
+
+    # driveId hit (exact) + arg-contains (gate-c resolution helpers)
+    _SP_DRIVE_HIT=false; _SP_DRIVE_IN_ARGS=false
+    while IFS= read -r _did; do
+      [[ -z "$_did" ]] && continue
+      [[ "$_T2E_DRIVE_ID" == "$_did" ]] && _SP_DRIVE_HIT=true
+      [[ "$_T2E_ARGS" == *"$_did"* ]] && _SP_DRIVE_IN_ARGS=true
+    done < <(echo "$_SP" | jq -r '.drive_ids[]?' 2>/dev/null)
+
+    # path-pattern hit (gate a)
+    _SP_PATH_HIT=false
+    while IFS= read -r _pp; do
+      [[ -z "$_pp" ]] && continue
+      [[ "$_T2E_PATH" == *"$_pp"* ]] && _SP_PATH_HIT=true
+    done < <(echo "$_SP" | jq -r '.path_patterns[]?' 2>/dev/null)
+
+    if [[ "$_SP_ALLOW" == "false" && "$DECISION" == "allow" ]]; then
+      if [[ "$TOOL_NAME" == *"search"* && -z "$_T2E_DRIVE_ID" && -z "$_T2E_SITE_ID" ]]; then
+        # gate (b): search must be scope-bound
+        DECISION="deny"
+        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-b): a search on '$_SP_PREFIX' must be pre-scoped to a site_id or drive_id for non-allowlisted agents. Agent '$ROLE' is not in the '${_SP_NAME}' allowlist. Re-scope explicitly, or route via an allowlisted agent."
+      elif [[ ( "$TOOL_NAME" == *"resolve"* || "$TOOL_NAME" == *"get_drive"* || "$TOOL_NAME" == *"list_drives"* || "$TOOL_NAME" == *"get_site"* || "$TOOL_NAME" == *"list_sites"* ) && ( "$_SP_DRIVE_IN_ARGS" == "true" || "$_SP_PATH_HIT" == "true" ) ]]; then
+        # gate (c): resolution helpers must not surface the sensitive identity
+        DECISION="deny"
+        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-c): resolution helper targeting the '${_SP_NAME}' library identity denied for non-allowlisted agent '$ROLE'. Only the '${_SP_NAME}' allowlist may resolve it."
+      elif [[ "$_SP_DRIVE_HIT" == "true" || "$_SP_PATH_HIT" == "true" ]]; then
+        # core: driveId hit || path-pattern hit
+        DECISION="deny"
+        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 Class ${_T2E_OP_CLASS}): agent '$ROLE' is not in the '${_SP_NAME}' allowlist. Access to the sensitive document space is denied; route this request via an allowlisted agent."
+      elif [[ "$_T2E_HAS_TARGET" == "false" && "$_T2E_OP_CLASS" == "unclassified" ]]; then
+        # gate (d): no hook-visible target + unclassified op
+        DECISION="deny"
+        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-d + deny-by-default): tool '$TOOL_NAME' has no hook-visible target and is unclassified — denied for non-allowlisted agent '$ROLE'. Only the '${_SP_NAME}' allowlist may invoke unscoped/unclassified tools on this server."
+      fi
+    fi
+
+    # Condition-#1 audit + CoS notify: fire on any op resolving to this space,
+    # or when this block denied for this space (allowlisted tagged expected).
+    _SP_AUDIT=false
+    [[ "$_SP_DRIVE_HIT" == "true" || "$_SP_PATH_HIT" == "true" ]] && _SP_AUDIT=true
+    [[ "$DECISION" == "deny" && "$DENY_REASON" == *"'${_SP_NAME}'"* ]] && _SP_AUDIT=true
+    if [[ "$_SP_AUDIT" == "true" ]]; then
+      _SP_EXPECTED="false"; [[ "$_SP_ALLOW" == "true" ]] && _SP_EXPECTED="true"
+      _SP_FINDING="space-access ${_T2E_OP_CLASS} op on '${_SP_NAME}' by agent '${ROLE}' (expected=${_SP_EXPECTED}); tool=${TOOL_NAME}; drive_match=${_SP_DRIVE_HIT}; path_match=${_SP_PATH_HIT}; decision=${DECISION}"
+      juvant_db_exec "INSERT INTO security_audit_log
+        (auditor, scope, audit_type, layer, finding, severity, category, status)
+        VALUES
+        ('hook:pre-tool-use', 'company', 'incident', 'agents',
+         '$(_t2e_esc "$_SP_FINDING")', 'high', 'unauthorized-write', 'open');" \
+        || echo "[pre-tool-use] WARN: failed to write security_audit_log for space-access op" >&2
+
+      _SP_MSG="[SECURITY ALERT] sensitive-space op: space=${_SP_NAME} agent=${ROLE} tool=${TOOL_NAME} decision=${DECISION} expected=${_SP_EXPECTED} (ADR 0025)"
+      _SP_WEBHOOK=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+      if [[ -n "$_SP_WEBHOOK" ]]; then
+        curl -s --connect-timeout 5 --max-time 10 -X POST "$_SP_WEBHOOK" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n --arg msg "$_SP_MSG" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')" \
+          -o /dev/null 2>&1 || echo "[pre-tool-use] WARN: Teams CoS notification failed for space-access alert" >&2
+      fi
+      _SP_TG_TOKEN=$(jq -r '.notifications.telegram_bot_token // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+      _SP_TG_CHAT=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+      if [[ -n "$_SP_TG_TOKEN" && -n "$_SP_TG_CHAT" ]]; then
+        curl -s --connect-timeout 5 --max-time 10 -X POST \
+          "https://api.telegram.org/bot${_SP_TG_TOKEN}/sendMessage" \
+          -d "chat_id=${_SP_TG_CHAT}" --data-urlencode "text=${_SP_MSG}" \
+          -o /dev/null 2>&1 || echo "[pre-tool-use] WARN: Telegram notification failed for space-access alert" >&2
+      fi
+    fi
+  done
+fi
+
+# ─────────────────────────────────────────────
 # Track 3 — append-only audit log
 # ─────────────────────────────────────────────
 # Routes via hooks/lib/db.sh so Local SQLite adopters get audit-log

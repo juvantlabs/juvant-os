@@ -127,3 +127,8 @@ jobs:
           # redirecting to a local SQLite file (no Turso credentials
           # required in CI).
           bash tests/hooks/run-tests.sh
+          # Track 2e sensitive-space deny-list canary (ADR 0025/0027).
+          # Standing regression gate: re-runs on every hook change and on
+          # every classified-MCP bump (a new tool must not slip in
+          # unclassified for non-allowlisted agents).
+          bash tests/hooks/test-space-access-policy.sh

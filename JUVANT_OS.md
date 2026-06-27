@@ -680,9 +680,10 @@ fallback chain.
   CONFIDENTIAL) promoted space, e.g. `["lex","cto","cso"]` for a `legal-ip`
   space. Absent ⇒ all company agents (the default for a normally-promoted
   space). `resolve_space` honours it cooperatively; the **hard** perimeter is
-  the pre-tool-use hook deny-list keyed on `(AGENT_ROLE, driveId)`, with the
-  concrete rules in the instance-local policy file (`.juvant/space-access-policy.json`,
-  not the synced `bash-policy.json`). **Prefer not promoting** a sensitive space
+  the pre-tool-use hook deny-list (`hooks/pre-tool-use.sh` Track 2e) keyed on
+  `(AGENT_ROLE, driveId)`, with the concrete rules in `.juvant/config.json`
+  `.security.space_access[]` (instance-local — never in a synced file).
+  **Prefer not promoting** a sensitive space
   that has no external party — keep it soft so the broad `Sites` scope never
   reaches it (ADR 0025).
 

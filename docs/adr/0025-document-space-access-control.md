@@ -10,6 +10,14 @@ instance-local policy *convention* are defined here and implemented in docs +
 instance once its `m365-graph` v0.4.0 proves the per-operation enforcement (the
 ADR 0019 self-developing path) — tracked in ARCH-015.
 
+> **Update (2026-06-27): executable shipped — ARCH-015 closed.** The instance's
+> canary went green (every op incl. path-only refused for non-allowlisted agents,
+> audit fires), so the per-op enforcement was generalized into the framework hook
+> as **`hooks/pre-tool-use.sh` Track 2e** (policy-driven from
+> `.security.space_access[]`), with the standing regression canary
+> `tests/hooks/test-space-access-policy.sh` wired into CI. Convention finalized to
+> `config.json .security.space_access` (clause 5).
+
 ## Context
 
 ADR 0023 said an agent operates on a promoted org-owned space "under the existing
@@ -99,11 +107,14 @@ spaces to SharePoint:
 
 5. **Instance-specific rules live in an instance-local policy layer.** The
    concrete `driveId`s and agent allowlists for a company's sensitive spaces are
-   instance state. They live in an **instance-local, non-synced** policy file
-   (convention: `.juvant/space-access-policy.json`, gitignored) that the hook
-   reads **in addition to** the synced `hooks/bash-policy.json` — never inside
-   `bash-policy.json` itself, which `upstream-sync` would overwrite, evaporating
-   the perimeter. The hook treats the policy as a no-op when the file is absent.
+   instance state. They live in **`.juvant/config.json` under
+   `.security.space_access[]`** (a list — gitignored, instance-local) that the
+   synced hook reads — never inside `hooks/bash-policy.json` or any synced file,
+   which `upstream-sync` would overwrite, evaporating the perimeter. The hook is
+   a no-op when the list is absent. *(Convention finalized at harvest time to
+   `config.json .security.space_access` — the form proven in the reference
+   instance — rather than a separate `space-access-policy.json`; the hook already
+   reads `config.json` for Track 2c/2d.)*
 
 ## Consequences
 
