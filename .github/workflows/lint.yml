@@ -132,3 +132,11 @@ jobs:
           # every classified-MCP bump (a new tool must not slip in
           # unclassified for non-allowlisted agents).
           bash tests/hooks/test-space-access-policy.sh
+
+      - name: Helper tests
+        run: |
+          # Scheduled-helper regressions. Tests run the actual generators
+          # with stubbed schedulers (no real launchd/cron mutation), so
+          # they execute on the Linux runner via install-schedules' cron
+          # branch.
+          bash tests/helpers/test-install-schedules-weekday.sh
