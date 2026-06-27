@@ -17,8 +17,13 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Read event JSON from stdin (may be empty on some Claude Code versions)
 EVENT_JSON=""
-if [ -p /dev/stdin ]; then
-  EVENT_JSON=$(cat -)
+# Claude Code delivers the event JSON on stdin, but NOT necessarily as a named
+# pipe — the old `[ -p /dev/stdin ]` guard missed it, so session_id was never
+# captured. Read whenever stdin is not a terminal, bounded by a 2s `read`
+# timeout so a non-EOF stdin can never hang session start/end (no `timeout(1)`
+# dependency — absent on macOS).
+if [ ! -t 0 ]; then
+  IFS= read -r -d "" -t 2 EVENT_JSON 2>/dev/null || true
 fi
 
 # shellcheck disable=SC1091
