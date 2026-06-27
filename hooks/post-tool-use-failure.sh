@@ -17,7 +17,25 @@ fi
 
 TOOL_NAME=$(echo "$EVENT_JSON" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
 SESSION_ID=$(echo "$EVENT_JSON" | jq -r '.session_id // ""' 2>/dev/null || echo "")
-ROLE="${AGENT_ROLE:-unknown}"
+# ROLE must be derived with the SAME precedence as pre-tool-use.sh (which
+# wrote the 'pending' row) and post-tool-use.sh (the success path), or the
+# match key (session_id, agent, tool_name, args_hash) diverges and this
+# UPDATE never finds the pending row — leaving failed tool calls stuck as
+# 'pending' forever (false "stuck-pending" reconcile alerts + lost failure
+# forensics). The old `${AGENT_ROLE:-unknown}` ignored the event's
+# `.agent_type` (the only ROLE signal a subagent carries) and defaulted to
+# a different sentinel ('unknown' vs ''/'cos'). Mirror post-tool-use.sh:
+ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
+ROLE="${ROLE:-${AGENT_ROLE:-}}"
+if [[ -z "$ROLE" ]]; then
+  # Main thread in a Juvant OS instance = CoS orchestrator; 'unknown' only
+  # outside an instance.
+  if [[ -f "$SCRIPT_DIR/../.juvant/config.json" ]]; then
+    ROLE="cos"
+  else
+    ROLE="unknown"
+  fi
+fi
 
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
 ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')
