@@ -224,12 +224,24 @@ would be self-declared and spoofable. Requirements for the hard layer:
   a hole.
 
 **Where the rules live — critical.** The concrete `driveId`s and agent allowlists
-are **instance state**. Put them in an instance-local, non-synced policy file —
-convention **`.juvant/space-access-policy.json`** (gitignored) — that the hook
-reads **in addition to** the synced `hooks/bash-policy.json`. **Never** put them
-in `bash-policy.json` itself: `upstream-sync` would overwrite it and your
-perimeter would evaporate. The hook treats the policy as a no-op when the file is
-absent.
+are **instance state**. They live in **`.juvant/config.json` under
+`.security.space_access[]`** (a list — gitignored, instance-local). The synced
+framework hook (`hooks/pre-tool-use.sh` **Track 2e**, ADR 0025/0027) reads this
+list and enforces the perimeter; it is a **no-op** when the list is absent
+(the default). **Never** put these rules in `hooks/bash-policy.json` or any other
+synced file — `upstream-sync` would overwrite it and your perimeter would
+evaporate. Each entry:
+
+```jsonc
+"security": { "space_access": [
+  { "space": "legal-ip", "tool_prefix": "mcp__m365-graph__",
+    "drive_ids": ["b!…"], "path_patterns": ["legal-ip","/IP/"],
+    "allowlist": ["lex","atlas","cso"] }
+]}
+```
+
+The canary `tests/hooks/test-space-access-policy.sh` is the standing regression
+gate (CI) — re-run it on every hook change and every classified-MCP bump.
 
 Honest cost: until FEAT-022, operations whose target the hook cannot see are
 denied to non-allowlisted callers (an unscopable cross-site search, for example).
