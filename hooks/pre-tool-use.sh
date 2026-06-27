@@ -585,9 +585,13 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
   # Generic op classification (Graph-like MCPs). A=Read B=Write C=Escalation.
   _T2E_OP_CLASS="unclassified"
   case "$TOOL_NAME" in
-    *share*|*permission*|*invite*|*grant*|*role*|*member*|*access*) _T2E_OP_CLASS="C" ;;
-    *upload*|*create*|*update*|*delete*|*write*|*move*|*copy*|*rename*|*put*) _T2E_OP_CLASS="B" ;;
+    # Read verbs FIRST (first-match-wins) so a read whose name merely contains an
+    # escalation token — list_shared_drives, list_members, get_permissions — is
+    # classified A, not C (bug_011). Genuine escalation ops (create_sharing_link,
+    # add_member, grant_access) carry no read verb and fall through to C.
     *list*|*get*|*read*|*search*|*resolve*|*whoami*|*who_am_i*|*download*) _T2E_OP_CLASS="A" ;;
+    *shar*|*permission*|*invite*|*grant*|*member*|*role*|*access*) _T2E_OP_CLASS="C" ;;
+    *upload*|*create*|*update*|*delete*|*write*|*move*|*copy*|*rename*|*put*) _T2E_OP_CLASS="B" ;;
   esac
   _T2E_HAS_TARGET=false
   [[ -n "$_T2E_DRIVE_ID" || -n "$_T2E_SITE_ID" || -n "$_T2E_PATH" ]] && _T2E_HAS_TARGET=true
@@ -628,51 +632,77 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
         # gate (b): search must be scope-bound
         DECISION="deny"
         DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-b): a search on '$_SP_PREFIX' must be pre-scoped to a site_id or drive_id for non-allowlisted agents. Agent '$ROLE' is not in the '${_SP_NAME}' allowlist. Re-scope explicitly, or route via an allowlisted agent."
-      elif [[ ( "$TOOL_NAME" == *"resolve"* || "$TOOL_NAME" == *"get_drive"* || "$TOOL_NAME" == *"list_drives"* || "$TOOL_NAME" == *"get_site"* || "$TOOL_NAME" == *"list_sites"* ) && ( "$_SP_DRIVE_IN_ARGS" == "true" || "$_SP_PATH_HIT" == "true" ) ]]; then
-        # gate (c): resolution helpers must not surface the sensitive identity
+      elif [[ "$TOOL_NAME" == *"resolve"* || "$TOOL_NAME" == *"get_drive"* || "$TOOL_NAME" == *"get_site"* || ( "$TOOL_NAME" == *"list"* && ( "$TOOL_NAME" == *"drive"* || "$TOOL_NAME" == *"site"* ) ) ]]; then
+        # gate (c): drive/site enumeration + resolution. Denied UNCONDITIONALLY
+        # for non-allowlisted agents (bug_010) — blind enumeration on a server
+        # that hosts a sensitive space would surface the sensitive driveId, which
+        # the perimeter exists to hide. Catches list_drives, list_shared_drives,
+        # list_sites, resolve_*, get_drive, get_site. Scoped file ops
+        # (list_files / get_file_content on a specific drive) are NOT enumeration
+        # and pass here — they are caught by core/path matching if sensitive.
         DECISION="deny"
-        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-c): resolution helper targeting the '${_SP_NAME}' library identity denied for non-allowlisted agent '$ROLE'. Only the '${_SP_NAME}' allowlist may resolve it."
+        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-c): drive/site enumeration or resolution on '$_SP_PREFIX' is denied for non-allowlisted agent '$ROLE' — only the '${_SP_NAME}' allowlist may enumerate or resolve identities on a server hosting a sensitive space. Use an explicitly-scoped op, or route via the allowlist."
       elif [[ "$_SP_DRIVE_HIT" == "true" || "$_SP_PATH_HIT" == "true" ]]; then
         # core: driveId hit || path-pattern hit
         DECISION="deny"
         DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 Class ${_T2E_OP_CLASS}): agent '$ROLE' is not in the '${_SP_NAME}' allowlist. Access to the sensitive document space is denied; route this request via an allowlisted agent."
-      elif [[ "$_T2E_HAS_TARGET" == "false" && "$_T2E_OP_CLASS" == "unclassified" ]]; then
-        # gate (d): no hook-visible target + unclassified op
+      elif [[ "$_T2E_HAS_TARGET" == "false" ]]; then
+        # gate (d): NO hook-visible target → deny regardless of op-class
+        # (deny-by-default, ADR 0025 clause d; bug_011). A target-less op on a
+        # server hosting a sensitive space may return everything; the previous
+        # `unclassified`-only restriction let mis-/well-classified target-less
+        # reads (e.g. list_members '{}') slip through.
         DECISION="deny"
-        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-d + deny-by-default): tool '$TOOL_NAME' has no hook-visible target and is unclassified — denied for non-allowlisted agent '$ROLE'. Only the '${_SP_NAME}' allowlist may invoke unscoped/unclassified tools on this server."
+        DENY_REASON="SPACE-ACCESS POLICY (ADR 0025 gate-d + deny-by-default): tool '$TOOL_NAME' has no hook-visible target — denied for non-allowlisted agent '$ROLE' on a server hosting the '${_SP_NAME}' space. Re-issue with an explicit non-sensitive site/drive/path scope, or route via the allowlist."
       fi
     fi
 
-    # Condition-#1 audit + CoS notify: fire on any op resolving to this space,
-    # or when this block denied for this space (allowlisted tagged expected).
+    # Condition-#1 high-severity audit + CoS alert: ONLY on actual evidence the
+    # op touched the space — a driveId/path hit, or the sensitive driveId in the
+    # args. Precautionary gate-b/c/d denies (recon attempts that did NOT touch
+    # the space) are still DENIED but are not alerted as space incidents
+    # (bug_005 — else every unscoped search / unclassified probe fans out a false
+    # legal-ip alert). Allowlisted agents still fire the row (expected=true) to
+    # catch authorized-but-anomalous access.
     _SP_AUDIT=false
-    [[ "$_SP_DRIVE_HIT" == "true" || "$_SP_PATH_HIT" == "true" ]] && _SP_AUDIT=true
-    [[ "$DECISION" == "deny" && "$DENY_REASON" == *"'${_SP_NAME}'"* ]] && _SP_AUDIT=true
+    [[ "$_SP_DRIVE_HIT" == "true" || "$_SP_PATH_HIT" == "true" || "$_SP_DRIVE_IN_ARGS" == "true" ]] && _SP_AUDIT=true
     if [[ "$_SP_AUDIT" == "true" ]]; then
       _SP_EXPECTED="false"; [[ "$_SP_ALLOW" == "true" ]] && _SP_EXPECTED="true"
       _SP_FINDING="space-access ${_T2E_OP_CLASS} op on '${_SP_NAME}' by agent '${ROLE}' (expected=${_SP_EXPECTED}); tool=${TOOL_NAME}; drive_match=${_SP_DRIVE_HIT}; path_match=${_SP_PATH_HIT}; decision=${DECISION}"
+      # Structured category derived from (op-class, decision) so Layer-5 / CSO
+      # roll-ups filter correctly (bug_004 — not every row is 'unauthorized-write').
+      case "${_T2E_OP_CLASS}:${DECISION}" in
+        C:deny) _SP_CATEGORY="unauthorized-escalation" ;;
+        B:deny) _SP_CATEGORY="unauthorized-write" ;;
+        A:deny) _SP_CATEGORY="unauthorized-read" ;;
+        *:deny) _SP_CATEGORY="unauthorized-access" ;;
+        *)      _SP_CATEGORY="access-event" ;;
+      esac
       juvant_db_exec "INSERT INTO security_audit_log
         (auditor, scope, audit_type, layer, finding, severity, category, status)
         VALUES
         ('hook:pre-tool-use', 'company', 'incident', 'agents',
-         '$(_t2e_esc "$_SP_FINDING")', 'high', 'unauthorized-write', 'open');" \
+         '$(_t2e_esc "$_SP_FINDING")', 'high', '$(_t2e_esc "$_SP_CATEGORY")', 'open');" \
         || echo "[pre-tool-use] WARN: failed to write security_audit_log for space-access op" >&2
 
       _SP_MSG="[SECURITY ALERT] sensitive-space op: space=${_SP_NAME} agent=${ROLE} tool=${TOOL_NAME} decision=${DECISION} expected=${_SP_EXPECTED} (ADR 0025)"
+      # Notifications are fire-and-forget — NOT a precondition of the allow/deny
+      # decision, so they must not block the gating path (bug_003; same rule as
+      # FEAT-051 for the audit INSERT). Backgrounded with fds closed so the hook
+      # emits its decision immediately instead of waiting up to ~20s on a
+      # degraded network.
       _SP_WEBHOOK=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2E_CFG" 2>/dev/null || echo "")
       if [[ -n "$_SP_WEBHOOK" ]]; then
+        _SP_CARD=$(jq -n --arg msg "$_SP_MSG" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
         curl -s --connect-timeout 5 --max-time 10 -X POST "$_SP_WEBHOOK" \
-          -H "Content-Type: application/json" \
-          -d "$(jq -n --arg msg "$_SP_MSG" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')" \
-          -o /dev/null 2>&1 || echo "[pre-tool-use] WARN: Teams CoS notification failed for space-access alert" >&2
+          -H "Content-Type: application/json" -d "$_SP_CARD" >/dev/null 2>&1 &
       fi
       _SP_TG_TOKEN=$(jq -r '.notifications.telegram_bot_token // ""' "$_T2E_CFG" 2>/dev/null || echo "")
       _SP_TG_CHAT=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null || echo "")
       if [[ -n "$_SP_TG_TOKEN" && -n "$_SP_TG_CHAT" ]]; then
         curl -s --connect-timeout 5 --max-time 10 -X POST \
           "https://api.telegram.org/bot${_SP_TG_TOKEN}/sendMessage" \
-          -d "chat_id=${_SP_TG_CHAT}" --data-urlencode "text=${_SP_MSG}" \
-          -o /dev/null 2>&1 || echo "[pre-tool-use] WARN: Telegram notification failed for space-access alert" >&2
+          -d "chat_id=${_SP_TG_CHAT}" --data-urlencode "text=${_SP_MSG}" >/dev/null 2>&1 &
       fi
     fi
   done

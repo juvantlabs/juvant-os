@@ -132,6 +132,39 @@ t_assert "non-allowlisted op → audit row expected=false" "1" \
 t_assert "two legal-ip ops → 2 high-severity audit rows" "2" \
   "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
 
+echo "=== gate-c: blind enumeration (empty args) denied — no driveId leak (bug_010) ==="
+t_assert "non-allowlisted cfo + list_drives {} → deny" "deny" \
+  "$(decide cfo mcp__m365-graph__list_drives '{}')"
+t_assert "non-allowlisted cfo + list_shared_drives {} → deny" "deny" \
+  "$(decide cfo mcp__m365-graph__list_shared_drives '{}')"
+t_assert "non-allowlisted cfo + list_sites {} → deny" "deny" \
+  "$(decide cfo mcp__m365-graph__list_sites '{}')"
+t_assert "allowlisted atlas + list_drives {} → allow" "allow" \
+  "$(decide atlas mcp__m365-graph__list_drives '{}')"
+
+echo "=== gate-d: ANY target-less op denied regardless of class (bug_011) ==="
+t_assert "non-allowlisted cfo + list_members {} (class A, no target) → deny" "deny" \
+  "$(decide cfo mcp__m365-graph__list_members '{}')"
+
+echo "=== bug_005: precautionary gate-b/d denies do NOT fire a space alert ==="
+sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+decide cfo mcp__m365-graph__search_files '{"query":"merger"}' >/dev/null   # gate-b deny, no space evidence
+decide cfo mcp__m365-graph__frobnicate '{}' >/dev/null                     # gate-d deny, no space evidence
+t_assert "gate-b + gate-d denies (no evidence) → 0 high-severity audit rows" "0" \
+  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
+
+echo "=== bug_004: audit category derived from (op-class, decision) ==="
+sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+decide cfo mcp__m365-graph__get_file_content   "$ARGS_DRIVE_ONLY" >/dev/null  # A:deny → unauthorized-read
+decide cfo mcp__m365-graph__create_sharing_link "$ARGS_DRIVE_ONLY" >/dev/null  # C:deny → unauthorized-escalation
+decide lex mcp__m365-graph__get_file_content   "$ARGS_DRIVE_ONLY" >/dev/null  # A:allow → access-event
+t_assert "Class-A deny → category=unauthorized-read" "1" \
+  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='unauthorized-read';")"
+t_assert "Class-C deny → category=unauthorized-escalation" "1" \
+  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='unauthorized-escalation';")"
+t_assert "allowlisted allow → category=access-event" "1" \
+  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='access-event';")"
+
 echo "======================================================="
 echo " RESULTS: $PASS passed, $FAIL failed"
 if [[ "$FAIL" -eq 0 ]]; then echo " CANARY STATUS: PASS"; exit 0
