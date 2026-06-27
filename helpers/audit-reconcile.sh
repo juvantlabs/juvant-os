@@ -24,8 +24,10 @@
 
 set -euo pipefail
 
-# launchd / cron provide a minimal PATH — extend it to find Homebrew tools.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd / cron provide a minimal PATH — APPEND Homebrew dirs so turso/
+# sqlite3/jq are found, without shadowing a test-shimmed or deliberately-
+# first CLI on PATH (mirrors helpers/drain-outbox.sh).
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
@@ -42,9 +44,19 @@ if [[ -f "$_LOG" ]]; then
 fi
 echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_LOG"
 
-TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
-if [[ -z "$TURSO_URL" ]]; then
-  echo "[audit-reconcile] FATAL: turso_url missing from $CONFIG" >&2
+# Route DB access through hooks/lib/db.sh: provider-agnostic (turso/azure/
+# aws/gcp cloud OR local sqlite), timeout-bounded (BUG-046), and reading the
+# canonical `.db.url` config key with `.turso_url` fallback. The old
+# `jq -r '.turso_url'` read FATAL-exited on v0.8 instances whose config
+# moved the endpoint under `.db.*`, and silently no-op'd on local-sqlite
+# adopters (the turso CLI cannot read a filesystem path) — either way this
+# Track-3 reconcile died without a trace.
+export JUVANT_CONFIG="$CONFIG"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/../hooks/lib/db.sh"
+juvant_db_resolve
+if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
+  echo "[audit-reconcile] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
   exit 1
 fi
 
@@ -58,7 +70,7 @@ SINCE=$(date -u -v-${WINDOW_DAYS}d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
 # (no agent_type in operator context). Accept 'unknown' as a valid
 # antecedent for decisions.agent='cos' so legitimate CoS decisions do
 # not trigger false-positive fabrication alerts.
-ORPHAN_DECISIONS=$(turso db shell "$TURSO_URL" "
+ORPHAN_DECISIONS=$(juvant_db_query "
   SELECT COUNT(*) FROM decisions d
   WHERE d.created_at > '$SINCE'
     AND NOT EXISTS (
@@ -73,7 +85,7 @@ ORPHAN_DECISIONS=$(turso db shell "$TURSO_URL" "
 # crash pattern (some success/failure + some stuck pending) from
 # background subagent pattern (ALL rows pending — post-tool-use hook
 # never reaches background subagent process context, BUG-025).
-STUCK_PENDING=$(turso db shell "$TURSO_URL" "
+STUCK_PENDING=$(juvant_db_query "
   SELECT COUNT(*) FROM agent_actions_log
   WHERE status = 'pending'
     AND started_at > '$SINCE'
@@ -88,7 +100,7 @@ STUCK_PENDING=$(turso db shell "$TURSO_URL" "
 # Anomaly 3: §4c violations — project-scope agent wrote to company DB
 # (FEAT-042 / SYSTEM_INVARIANTS §4c, 2026-05-18)
 _PROJECT_AGENTS="'pca','product-lead','design-lead','eng-lead','eng-api','eng-backend','eng-frontend','eng-ai'"
-SCOPE_VIOLATIONS=$(turso db shell "$TURSO_URL" "
+SCOPE_VIOLATIONS=$(juvant_db_query "
   SELECT COUNT(*) FROM decisions
   WHERE created_at > '$SINCE'
     AND agent IN ($_PROJECT_AGENTS);
@@ -103,7 +115,7 @@ STALE_DAYS=3
 STALE_SINCE=$(date -u -v-${STALE_DAYS}d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
               || date -u -d "${STALE_DAYS} days ago" +"%Y-%m-%d %H:%M:%S")
 
-STALE_SPECS=$(turso db shell "$TURSO_URL" "
+STALE_SPECS=$(juvant_db_query "
   SELECT COUNT(*) FROM decisions
   WHERE category IN ('gh-issue-spec', 'pr-spec')
     AND status IN ('proposed', 'approved')

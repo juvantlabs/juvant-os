@@ -249,6 +249,16 @@ juvant_db_query() {
 
 # Read-only query with CSV output (the two CLIs have different flags
 # for CSV — sqlite3 uses `-csv`, turso uses `--output csv`).
+#
+# Header consistency: `turso db shell --output csv` prints a column-name
+# HEADER row above the data; `sqlite3 -csv` (no `-header`) does NOT. Left
+# unequal, a `while IFS=',' read` consumer would process turso's header as
+# a bogus first data row on cloud backends but not on local — a
+# provider-dependent bug (it bit drain-outbox latently). We normalize to
+# HEADER-LESS on BOTH backends by stripping turso's single header line, so
+# every consumer parses rows uniformly with no per-call header skip. (The
+# fake-turso test shim mirrors the real CLI by emitting a header via
+# `sqlite3 -csv -header`, so this path is exercised in CI.)
 juvant_db_query_csv() {
   local sql="$1"
 
@@ -265,7 +275,11 @@ juvant_db_query_csv() {
       if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
         return 1
       fi
-      _juvant_db_run turso db shell --output csv "$JUVANT_DB_URL" "$sql" 2>/dev/null
+      # URL comes first (turso's positional order is `<url> [sql] [flags]`,
+      # and the scalar path above already relies on url-first); `--output csv`
+      # then `$sql`. tail -n +2 drops turso's header row (empty result ⇒
+      # header only ⇒ tail yields nothing, the correct empty output).
+      _juvant_db_run turso db shell "$JUVANT_DB_URL" --output csv "$sql" 2>/dev/null | tail -n +2
       ;;
     *)
       return 1

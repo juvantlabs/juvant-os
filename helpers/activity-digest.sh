@@ -25,9 +25,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
-TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
-if [[ -z "$TURSO_URL" ]]; then
-  echo "[activity-digest] FATAL: turso_url missing from $CONFIG" >&2
+# Route DB access through hooks/lib/db.sh: provider-agnostic (turso/azure/
+# aws/gcp cloud OR local sqlite), timeout-bounded (BUG-046), reading the
+# canonical `.db.url` key with `.turso_url` fallback. The old
+# `jq -r '.turso_url'` read FATAL-exited on v0.8 instances whose config
+# moved the endpoint under `.db.*`, and produced empty output on
+# local-sqlite adopters — the digest came back blank either way.
+export JUVANT_CONFIG="$CONFIG"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/../hooks/lib/db.sh"
+juvant_db_resolve
+if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
+  echo "[activity-digest] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
   exit 1
 fi
 
@@ -38,7 +47,7 @@ SINCE=$(date -u -v-1d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
 # Per-agent summary. We don't have category in agent_actions_log
 # (only in the MCP server source), so we report by tool_name buckets:
 # count + breakdown by status.
-PER_AGENT=$(turso db shell "$TURSO_URL" "
+PER_AGENT=$(juvant_db_query_csv "
 SELECT
   agent,
   COUNT(*) AS calls,
@@ -49,18 +58,18 @@ FROM agent_actions_log
 WHERE started_at > '$SINCE'
 GROUP BY agent
 ORDER BY calls DESC;
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 # Kill switch events (set_at within window or currently active)
-KILL_EVENTS=$(turso db shell "$TURSO_URL" "
+KILL_EVENTS=$(juvant_db_query_csv "
 SELECT
   CASE WHEN active=1 THEN 'ACTIVE' ELSE 'inactive' END,
   COALESCE(set_at, '-'),
-  COALESCE(reason, '-')
+  REPLACE(COALESCE(reason, '-'), ',', ';')
 FROM agent_kill_switch
 WHERE id=1
   AND (active=1 OR set_at > '$SINCE');
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 echo "## Yesterday's agent activity"
 echo ""
@@ -69,7 +78,7 @@ if [[ -z "$PER_AGENT" ]]; then
 else
   echo "| Agent | Calls | OK | Denied | Failed |"
   echo "|---|---:|---:|---:|---:|"
-  while read -r agent calls ok denied failed; do
+  while IFS=',' read -r agent calls ok denied failed; do
     agent=$(echo "$agent" | tr -d ' ')
     calls=$(echo "$calls" | tr -d ' ')
     ok=$(echo "$ok" | tr -d ' ')
@@ -85,7 +94,7 @@ echo "### Kill switch"
 if [[ -z "$KILL_EVENTS" ]]; then
   echo "No kill switch events in the last 24 hours; switch currently inactive."
 else
-  while read -r state when reason; do
+  while IFS=',' read -r state when reason; do
     state=$(echo "$state" | tr -d ' ')
     [[ -z "$state" ]] && continue
     echo "- **$state** (set_at: $when, reason: $reason)"
@@ -97,17 +106,17 @@ echo ""
 # but in non-alerting mode, just report. Keeps activity-digest
 # self-contained (no inter-helper coupling).
 echo "### Anomalies (last 24 hours)"
-DENIED_AGENTS=$(turso db shell "$TURSO_URL" "
+DENIED_AGENTS=$(juvant_db_query_csv "
 SELECT agent, COUNT(*) FROM agent_actions_log
 WHERE status='denied' AND started_at > '$SINCE'
 GROUP BY agent;
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 if [[ -z "$DENIED_AGENTS" ]]; then
   echo "No denied calls. No reconciliation discrepancies."
 else
   echo "Denied calls by agent:"
-  while read -r agent count; do
+  while IFS=',' read -r agent count; do
     agent=$(echo "$agent" | tr -d ' ')
     count=$(echo "$count" | tr -d ' ')
     [[ -z "$agent" ]] && continue

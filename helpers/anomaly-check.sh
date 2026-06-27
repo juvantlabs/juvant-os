@@ -23,8 +23,10 @@
 
 set -euo pipefail
 
-# launchd / cron provide a minimal PATH — extend it to find Homebrew tools.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd / cron provide a minimal PATH — APPEND Homebrew dirs so turso/
+# sqlite3/jq are found, without shadowing a test-shimmed or deliberately-
+# first CLI on PATH (mirrors helpers/drain-outbox.sh).
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
@@ -41,9 +43,18 @@ if [[ -f "$_LOG" ]]; then
 fi
 echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_LOG"
 
-TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
-if [[ -z "$TURSO_URL" ]]; then
-  echo "[anomaly-check] FATAL: turso_url missing from $CONFIG" >&2
+# Route DB access through hooks/lib/db.sh: provider-agnostic (turso/azure/
+# aws/gcp cloud OR local sqlite), timeout-bounded (BUG-046), reading the
+# canonical `.db.url` key with `.turso_url` fallback. The old
+# `jq -r '.turso_url'` read FATAL-exited on v0.8 instances whose config
+# moved the endpoint under `.db.*`, and returned nothing on local-sqlite
+# adopters — so this Track-4 anomaly detector silently never fired.
+export JUVANT_CONFIG="$CONFIG"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/../hooks/lib/db.sh"
+juvant_db_resolve
+if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
+  echo "[anomaly-check] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
   exit 1
 fi
 
@@ -72,7 +83,7 @@ ANOMALIES=()
 # Baseline = average calls/hour over last 7 days excluding the
 # most recent hour (so the baseline isn't skewed by the burst
 # we're trying to detect).
-RESULTS=$(turso db shell "$TURSO_URL" "
+RESULTS=$(juvant_db_query_csv "
 WITH last_hour AS (
   SELECT agent, status,
     julianday(CURRENT_TIMESTAMP) - julianday(started_at) AS age_days
@@ -103,14 +114,14 @@ SELECT
   s.failed
 FROM last_hour_summary s
 LEFT JOIN baseline b ON b.agent = s.agent;
-" 2>/dev/null | awk 'NR > 1')
+" 2>/dev/null)
 
 if [[ -z "$RESULTS" ]]; then
   echo "[anomaly-check] no agent activity in last hour"
   exit 0
 fi
 
-while read -r agent calls baseline denied failed; do
+while IFS=',' read -r agent calls baseline denied failed; do
   agent=$(echo "$agent" | tr -d ' ')
   [[ -z "$agent" ]] && continue
   calls=$(echo "$calls" | tr -d ' ' | head -1)

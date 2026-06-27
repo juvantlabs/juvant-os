@@ -30,14 +30,19 @@ if [[ -f "$_LOG" ]]; then
 fi
 echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_LOG"
 
-if ! command -v turso &>/dev/null; then
-  echo "[morning-brief] FATAL: turso not on PATH — re-run helpers/install-schedules.sh so the LaunchAgent EnvironmentVariables includes the correct PATH" >&2
-  exit 1
-fi
-
-TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
-if [[ -z "$TURSO_URL" ]]; then
-  echo "[morning-brief] FATAL: turso_url missing from $CONFIG" >&2
+# Route DB access through hooks/lib/db.sh: provider-agnostic (turso/azure/
+# aws/gcp cloud OR local sqlite), timeout-bounded (BUG-046), reading the
+# canonical `.db.url` key with `.turso_url` fallback. The old
+# `jq -r '.turso_url'` read FATAL-exited on v0.8 instances whose config
+# moved the endpoint under `.db.*`; the prior `command -v turso` PATH guard
+# also wrongly FATAL-exited local-sqlite adopters (which need sqlite3, not
+# turso). Either way the daily brief never sent.
+export JUVANT_CONFIG="$CONFIG"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/../hooks/lib/db.sh"
+juvant_db_resolve
+if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
+  echo "[morning-brief] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
   exit 1
 fi
 
@@ -53,48 +58,52 @@ SINCE=$(date -u -v-1d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
         || date -u -d "1 day ago" +"%Y-%m-%d %H:%M:%S")
 
 # ─── Decisions (last 24h) — title | status | rationale snippet (proposed only)
-DECISIONS_RAW=$(turso db shell "$TURSO_URL" "
-SELECT title || '|' || status || '|' ||
-  COALESCE(CASE WHEN status='proposed' THEN substr(rationale,1,100) ELSE '' END,'')
+# Single concatenated column (internal '|' delimiter). Strip the CSV
+# delimiter (',') and quote ('"') from the free-text rationale so the row
+# stays one unquoted CSV field — juvant_db_query_csv is header-normalized,
+# so no awk header skip is needed.
+DECISIONS_RAW=$(juvant_db_query_csv "
+SELECT REPLACE(REPLACE(title || '|' || status || '|' ||
+  COALESCE(CASE WHEN status='proposed' THEN substr(rationale,1,100) ELSE '' END,''), ',', ';'), '\"', '')
 FROM decisions
 WHERE created_at > '$SINCE'
 ORDER BY created_at DESC LIMIT 8;
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 # ─── Pending queue
-QUEUE_RAW=$(turso db shell "$TURSO_URL" "
+QUEUE_RAW=$(juvant_db_query_csv "
 SELECT agent_owner, COUNT(*) FROM inbound_queue
 WHERE status IN ('pending','escalated')
 GROUP BY agent_owner ORDER BY COUNT(*) DESC;
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 # ─── System health: calls | ok | denied per agent (last 24h)
-HEALTH_RAW=$(turso db shell "$TURSO_URL" "
+HEALTH_RAW=$(juvant_db_query_csv "
 SELECT agent || '|' || COUNT(*) || '|' ||
   SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) || '|' ||
   SUM(CASE WHEN status='denied'  THEN 1 ELSE 0 END)
 FROM agent_actions_log
 WHERE started_at > '$SINCE'
 GROUP BY agent ORDER BY COUNT(*) DESC;
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 # ─── Kill switch (only if active)
-KILLSWITCH_RAW=$(turso db shell "$TURSO_URL" "
-SELECT COALESCE(reason,'-'), COALESCE(set_at,'-')
+KILLSWITCH_RAW=$(juvant_db_query_csv "
+SELECT REPLACE(COALESCE(reason,'-'), ',', ';'), COALESCE(set_at,'-')
 FROM agent_kill_switch WHERE id=1 AND active=1;
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 # ─── Scope violations: Type B denials only — not allow-list friction
-VIOLATIONS_RAW=$(turso db shell "$TURSO_URL" "
-SELECT agent || '|' || deny_reason || '|' || COUNT(*)
+VIOLATIONS_RAW=$(juvant_db_query_csv "
+SELECT REPLACE(REPLACE(agent || '|' || deny_reason || '|' || COUNT(*), ',', ';'), '\"', '')
 FROM agent_actions_log
 WHERE status='denied' AND started_at > '$SINCE'
   AND deny_reason NOT LIKE '%not in agent%allow-list%'
 GROUP BY agent, deny_reason ORDER BY COUNT(*) DESC;
-" 2>/dev/null | awk 'NR > 1' || true)
+" 2>/dev/null || true)
 
 # ─── CSO audit staleness (fail-safe: surface in brief when last full audit is stale)
-AUDIT_STALENESS_DAYS=$(turso db shell "$TURSO_URL" "
+AUDIT_STALENESS_DAYS=$(juvant_db_query "
 SELECT CAST(julianday('now') - julianday(MAX(created_at)) AS INTEGER)
 FROM security_audit_log
 WHERE audit_type IN ('5-layer','bootstrap_baseline');
@@ -114,10 +123,11 @@ shorten_violation() {
   fi
 }
 
-# Reads 2-column space-padded turso output, emits a JSON FactSet element.
+# Reads 2-column CSV (juvant_db_query_csv, header-normalized), emits a JSON
+# FactSet element.
 build_facts() {
   local raw="$1" facts="" f1 f2 rest
-  while read -r f1 f2 rest; do
+  while IFS=',' read -r f1 f2 rest; do
     [[ -z "$f1" ]] && continue
     facts+=$(jq -n --arg t "$(trim "$f1")" --arg v "$(trim "$f2")" \
       '{"title":$t,"value":$v}'),
@@ -224,8 +234,9 @@ fi
 
 # ─── Kill switch (only when active)
 if [[ -n "$KILLSWITCH_RAW" ]]; then
-  reason=$(echo "$KILLSWITCH_RAW" | awk '{print $1}' | xargs)
-  set_at=$(echo "$KILLSWITCH_RAW" | awk '{print $2}' | xargs)
+  IFS=',' read -r reason set_at _rest <<< "$KILLSWITCH_RAW"
+  reason=$(echo "$reason" | xargs)
+  set_at=$(echo "$set_at" | xargs)
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     --arg reason "$reason" --arg set_at "$set_at" \
     '. + [

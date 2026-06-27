@@ -23,8 +23,10 @@
 
 set -euo pipefail
 
-# launchd / cron provide a minimal PATH — extend it to find Homebrew tools.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# launchd / cron provide a minimal PATH — APPEND Homebrew dirs so turso/
+# sqlite3/jq are found, without shadowing a test-shimmed or deliberately-
+# first CLI on PATH (mirrors helpers/drain-outbox.sh).
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
@@ -41,9 +43,19 @@ if [[ -f "$_LOG" ]]; then
 fi
 echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_LOG"
 
-TURSO_URL=$(jq -r '.turso_url // ""' "$CONFIG" 2>/dev/null || echo "")
-if [[ -z "$TURSO_URL" ]]; then
-  echo "[cso-weekly-audit] FATAL: turso_url missing from $CONFIG" >&2
+# Route DB access through hooks/lib/db.sh: provider-agnostic (turso/azure/
+# aws/gcp cloud OR local sqlite), timeout-bounded (BUG-046), reading the
+# canonical `.db.url` key with `.turso_url` fallback. The old
+# `jq -r '.turso_url'` read FATAL-exited on v0.8 instances whose config
+# moved the endpoint under `.db.*`, and the staleness read + escalation
+# write silently no-op'd on local-sqlite adopters — this cadence gate
+# died without a trace either way.
+export JUVANT_CONFIG="$CONFIG"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/../hooks/lib/db.sh"
+juvant_db_resolve
+if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
+  echo "[cso-weekly-audit] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
   exit 1
 fi
 
@@ -52,7 +64,7 @@ COMPANY=$(jq -r '.company.name // .company_name // "Juvant OS"' "$CONFIG" 2>/dev
 
 # ── Staleness check ──────────────────────────────────────────────────────────
 # Returns 1 if last audit is older than 7 days, 0 if fresh.
-STALENESS_DAYS=$(turso db shell "$TURSO_URL" "
+STALENESS_DAYS=$(juvant_db_query "
 SELECT CAST(julianday('now') - julianday(MAX(created_at)) AS INTEGER)
 FROM security_audit_log
 WHERE audit_type IN ('5-layer','bootstrap_baseline');
@@ -73,7 +85,7 @@ fi
 # inbound queue and requires a NOT NULL counterparty_id — there is no
 # counterparty for an audit-cadence alert.
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
-turso db shell "$TURSO_URL" "
+juvant_db_exec "
 INSERT INTO messages (from_agent, to_agent, type, content, priority, notify_ceo, created_at)
 VALUES (
   'cso-weekly-audit',
@@ -84,7 +96,7 @@ VALUES (
   1,
   '${NOW}'
 );
-" 2>/dev/null || echo "[cso-weekly-audit] WARN: failed to write messages escalation row" >&2
+" || echo "[cso-weekly-audit] WARN: failed to write messages escalation row" >&2
 
 echo "[cso-weekly-audit] ALERT: audit stale (${STALENESS_DAYS}d) — messages escalation row written for cos (notify_ceo=1)"
 
