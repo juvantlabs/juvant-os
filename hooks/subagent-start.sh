@@ -13,8 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Read event from stdin
 EVENT_JSON=""
-if [ -p /dev/stdin ]; then
-  EVENT_JSON=$(cat -)
+# stdin guard relaxed (was -p, named-pipe only) to capture Claude Code's
+# event JSON via any non-terminal stdin, bounded so it cannot hang.
+if [ ! -t 0 ]; then
+  IFS= read -r -d "" -t 2 EVENT_JSON 2>/dev/null || true
 fi
 
 # shellcheck disable=SC1091

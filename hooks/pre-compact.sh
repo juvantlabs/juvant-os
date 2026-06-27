@@ -27,8 +27,10 @@ NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
 # Read snapshot content from stdin (agent writes its context summary to stdout
 # which Claude Code routes to this hook's stdin)
 SNAPSHOT_CONTENT=""
-if [ -p /dev/stdin ]; then
-  SNAPSHOT_CONTENT=$(cat -)
+# stdin guard relaxed (was -p, named-pipe only) so Claude Code's stdin is
+# actually captured; bounded read so it cannot hang.
+if [ ! -t 0 ]; then
+  IFS= read -r -d "" -t 2 SNAPSHOT_CONTENT 2>/dev/null || true
 fi
 
 if [[ -z "$SNAPSHOT_CONTENT" ]]; then
