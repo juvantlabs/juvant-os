@@ -500,24 +500,31 @@ SQL
   fi
 
   # ────────────────────
-  # Update active state: agents.agent column
+  # Update active state: agents.role column
   # ────────────────────
-  log_step "Update active agents.agent rows to new identifiers (active manifestos only)"
+  log_step "Update active agents.role rows to new identifiers (active manifestos only)"
   local sql_agents
+  # NOTE (two fixes, BUG-from-main-review):
+  #   1. The column is `role`, not `agent` (schema.sql: agents.role TEXT
+  #      UNIQUE NOT NULL). The pre-fix statements referenced a nonexistent
+  #      `agent` column and aborted the whole migration after the irreversible
+  #      file renames had already run.
+  #   2. `role` is GLOBALLY UNIQUE, so the project-scope CTO must be renamed to
+  #      `pca` BEFORE the company-scope CA takes the `cto` name — otherwise
+  #      `ca`→`cto` collides with the still-present project `cto`. Order matters.
   sql_agents=$(cat <<SQL
-UPDATE agents SET agent='cto'          WHERE agent='ca';
-UPDATE agents SET agent='pca'          WHERE agent='cto' AND scope != 'company';
-UPDATE agents SET agent='eng-lead'     WHERE agent='coo';
-UPDATE agents SET agent='design-lead'  WHERE agent='cdo';
-UPDATE agents SET agent='product-lead' WHERE agent='cpo';
--- Project-VPE: row absorbed by eng-lead; if a project-vpe row still
--- exists with status='active', mark it offboarded (ADR 0014 §2 absorption).
--- Leave it in place for audit trail; downstream loaders should ignore
--- agents.status='offboarded'.
-UPDATE agents SET status='offboarded',
-                  offboarded_at=datetime('now'),
-                  offboarded_reason='absorbed-by-eng-lead-per-adr-0014-section-2'
-  WHERE agent='vpe' AND scope != 'company' AND status != 'offboarded';
+UPDATE agents SET role='pca'          WHERE role='cto' AND scope != 'company';
+UPDATE agents SET role='cto'          WHERE role='ca';
+UPDATE agents SET role='eng-lead'     WHERE role='coo';
+UPDATE agents SET role='design-lead'  WHERE role='cdo';
+UPDATE agents SET role='product-lead' WHERE role='cpo';
+-- Project-VPE: row absorbed by eng-lead; if a project-vpe row still exists
+-- with status='active', mark it offboarded (ADR 0014 §2 absorption). Left in
+-- place for the audit trail; downstream loaders ignore status='offboarded'.
+-- (The agents table has no offboarded_at/offboarded_reason columns — the
+-- offboard reason lives in this migration's log + the remediation summary.)
+UPDATE agents SET status='offboarded'
+  WHERE role='vpe' AND scope != 'company' AND status != 'offboarded';
 SQL
 )
   if [[ "$DRY_RUN" == "0" ]]; then
