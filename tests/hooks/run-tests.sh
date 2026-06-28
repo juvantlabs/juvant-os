@@ -320,6 +320,80 @@ t_assert "eng-lead + non-owned repo → deny"         "deny"  "$(_rs hardys-eng-
 t_assert "eng-lead + other-tree git → deny"         "deny"  "$(_rs hardys-eng-lead 'cd /W/elsewhere && git push')"
 
 # ─────────────────────────────────────────────
+# post-tool-use-failure.sh — ROLE derivation parity (audit plumbing)
+# ─────────────────────────────────────────────
+# pre-tool-use.sh writes the 'pending' row using the .agent_type from the
+# event (the only ROLE a subagent carries). The failure hook must derive
+# ROLE the same way, or its UPDATE's match key (session_id, agent,
+# tool_name, args_hash) never finds the pending row and the failed call
+# stays 'pending' forever. Regression: the hook used `${AGENT_ROLE:-unknown}`
+# which ignored .agent_type.
+suite "post-tool-use-failure.sh (ROLE parity)"
+
+t_db "DELETE FROM agent_actions_log;"
+# Seed a pending row exactly as pre-tool-use would for a subagent whose
+# event carries agent_type='cfo' (NOT exported as AGENT_ROLE in the env).
+ptf_event='{"session_id":"sess-ptf","tool_name":"Bash","tool_input":{"command":"terraform apply"},"agent_type":"cfo"}'
+# Match the hook's fingerprint exactly: jq -c -S of .tool_input, hashed with
+# NO trailing newline (printf '%s', not a bare `jq | shasum` which appends one).
+ptf_args_json=$(echo "$ptf_event" | jq -c -S '.tool_input // {}')
+ptf_args_hash=$(printf '%s' "$ptf_args_json" | shasum -a 256 | awk '{print $1}')
+t_db "INSERT INTO agent_actions_log (session_id, agent, tool_name, args_hash, status, started_at)
+      VALUES ('sess-ptf','cfo','Bash','$ptf_args_hash','pending', datetime('now'));"
+# Fire the failure hook with AGENT_ROLE unset — ROLE must come from .agent_type.
+echo "$ptf_event" | env -u AGENT_ROLE bash "$HOOKS_DIR/post-tool-use-failure.sh" >/dev/null 2>&1
+ptf_status=$(t_db "SELECT status FROM agent_actions_log WHERE session_id='sess-ptf';")
+t_assert "failure hook reads .agent_type → pending row finalized to 'failure'" "failure" "$ptf_status"
+
+# ─────────────────────────────────────────────
+# pre-compact.sh → post-compact.sh — snapshot round-trip (multi-line)
+# ─────────────────────────────────────────────
+# A snapshot is multi-line free text with spaces; the old reader truncated
+# it (`tail -n 1`) and the turso scalar query strips all whitespace. base64
+# storage makes it survive both. Round-trip an awkward snapshot and assert
+# byte-for-byte identity.
+suite "pre/post-compact.sh (snapshot round-trip)"
+
+t_db "DELETE FROM session_snapshots WHERE agent='snaptest';"
+snap=$'line one with spaces\nline two, with a comma\nit'\''s got an apostrophe\n  indented trailing line'
+printf '%s' "$snap" | AGENT_ROLE=snaptest bash "$HOOKS_DIR/pre-compact.sh" >/dev/null 2>&1
+restored=$(AGENT_ROLE=snaptest bash "$HOOKS_DIR/post-compact.sh" 2>/dev/null)
+t_assert "multi-line snapshot survives the store→restore round-trip" "$snap" "$restored"
+stored=$(t_db "SELECT snapshot FROM session_snapshots WHERE agent='snaptest' ORDER BY created_at DESC LIMIT 1;")
+# base64 is a single line ⇒ zero embedded newlines. A regressed raw multi-line
+# store would report >0 here.
+t_assert "snapshot is stored single-line (base64 ⇒ zero embedded newlines)" "0" \
+  "$(printf '%s' "$stored" | wc -l | tr -d ' ')"
+
+# ─────────────────────────────────────────────
+# drain-audit-spool.sh — partial failure does not duplicate (audit plumbing)
+# ─────────────────────────────────────────────
+# A spool whose middle statement fails must apply the head exactly once and
+# re-queue only the unapplied tail. The old whole-batch re-queue re-applied
+# the already-committed head on the next run, duplicating audit rows.
+suite "drain-audit-spool.sh (no dup on partial failure)"
+
+t_db "DELETE FROM messages WHERE from_agent='drain-t';"
+rm -f "$JUVANT_SPOOL"
+{
+  echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-t','x','task','one');"
+  echo "INSERT INTO no_such_table_xyz (a) VALUES (1);"
+  echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-t','x','task','three');"
+} > "$JUVANT_SPOOL"
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
+t_assert "partial drain applies only the head (1 row, not 2)" "1" \
+  "$(t_db "SELECT COUNT(*) FROM messages WHERE from_agent='drain-t';")"
+t_assert "partial drain re-queues the unapplied tail (2 lines)" "2" \
+  "$([[ -f "$JUVANT_SPOOL" ]] && grep -c . "$JUVANT_SPOOL" || echo 0)"
+# Repair the failing statement and drain again — the head must NOT re-apply.
+echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-t','x','task','three');" > "$JUVANT_SPOOL"
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
+t_assert "second drain adds the tail without duplicating the head (2 rows total)" "2" \
+  "$(t_db "SELECT COUNT(*) FROM messages WHERE from_agent='drain-t';")"
+t_assert "'one' was applied exactly once across both drains" "1" \
+  "$(t_db "SELECT COUNT(*) FROM messages WHERE from_agent='drain-t' AND content='one';")"
+
+# ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
 echo

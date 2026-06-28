@@ -17,10 +17,12 @@
 # registered in helpers/install-schedules.sh for long-running sessions.
 #
 # Crash-safety: the current spool is atomically claimed (renamed) before
-# draining, so writers starting a fresh spool never race the drain. On
-# drain failure the claimed batch is re-queued ahead of any new appends —
-# nothing is lost, and a flaky/offline backend simply defers the rows to
-# the next run (eventual consistency; Track-3 is forensic, not real-time).
+# draining, so writers starting a fresh spool never race the drain.
+# Statements are applied one at a time, in order; on failure only the
+# UNAPPLIED tail is re-queued ahead of any new appends — nothing is lost,
+# nothing is applied twice (so no duplicate audit rows on a mid-batch
+# failure), and a flaky/offline backend simply defers the remainder to the
+# next run (eventual consistency; Track-3 is forensic, not real-time).
 
 set -euo pipefail
 
@@ -55,21 +57,44 @@ fi
 WORK="$SPOOL.draining.$$"
 mv "$SPOOL" "$WORK" 2>/dev/null || exit 0
 
-# Apply the claimed batch as a single multi-statement stream.
-if juvant_db_exec_stdin < "$WORK"; then
-  COUNT=$(grep -c ';' "$WORK" 2>/dev/null || echo "?")
-  rm -f "$WORK"
-  echo "[drain-audit-spool] drained ~$COUNT statement(s) to $JUVANT_DB_PROVIDER"
+# Apply the claimed batch one statement per line, in order. The async
+# writer (juvant_db_exec_async) collapses every statement to a single
+# physical line, so a line == a statement. Incremental apply is what makes
+# a PARTIAL failure safe: if the backend drops after N statements have
+# already auto-committed, the old single-stream path re-queued the WHOLE
+# batch — re-applying those N already-committed INSERTs on the next run and
+# DUPLICATING those audit rows. Here only the unapplied tail is re-queued.
+APPLIED=0
+FAILED=0
+REMAINING=""
+while IFS= read -r _stmt || [[ -n "$_stmt" ]]; do
+  [[ -z "$_stmt" ]] && continue
+  if [[ "$FAILED" -eq 1 ]]; then
+    REMAINING+="$_stmt"$'\n'           # already failed — defer the rest in order
+    continue
+  fi
+  if juvant_db_exec "$_stmt"; then
+    APPLIED=$(( APPLIED + 1 ))
+  else
+    FAILED=1
+    REMAINING+="$_stmt"$'\n'
+  fi
+done < "$WORK"
+rm -f "$WORK"
+
+if [[ "$FAILED" -eq 0 ]]; then
+  echo "[drain-audit-spool] drained $APPLIED statement(s) to $JUVANT_DB_PROVIDER"
   exit 0
 fi
 
-# Drain failed (backend offline / timed out): re-queue the batch ahead of
-# any rows appended while we were draining, preserving order.
+# Re-queue ONLY the unapplied tail, ahead of any rows appended while we were
+# draining, preserving order. The $APPLIED already-committed statements are
+# not re-queued → no duplicate audit rows.
+_REQ=$(printf '%s' "$REMAINING" | grep -c . || true)
 if [[ -s "$SPOOL" ]]; then
-  cat "$WORK" "$SPOOL" > "$SPOOL.merge.$$" && mv "$SPOOL.merge.$$" "$SPOOL"
-  rm -f "$WORK"
+  { printf '%s' "$REMAINING"; cat "$SPOOL"; } > "$SPOOL.merge.$$" && mv "$SPOOL.merge.$$" "$SPOOL"
 else
-  mv "$WORK" "$SPOOL"
+  printf '%s' "$REMAINING" > "$SPOOL"
 fi
-echo "[drain-audit-spool] WARN: drain failed; batch re-queued for next run" >&2
+echo "[drain-audit-spool] WARN: drain failed after $APPLIED applied; ${_REQ} statement(s) re-queued for next run" >&2
 exit 1

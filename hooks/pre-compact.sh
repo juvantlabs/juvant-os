@@ -39,7 +39,12 @@ fi
 # Escape single quotes for SQL via sed — bash 3.2 (macOS) parameter
 # expansion `${V//\'/\'\'}` produces `\'\'`, which is not valid SQL.
 sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
-SNAPSHOT_ESCAPED=$(sql_escape "$SNAPSHOT_CONTENT")
+# Store the snapshot base64-encoded (single line, no whitespace, no quotes).
+# A snapshot is multi-line free text; reading it back through a CLI mangles
+# it — `juvant_db_query` strips ALL whitespace on the turso backend and the
+# reader's `tail -n 1` keeps only the last line. base64 is immune to both
+# (one line, space-free), so post-compact.sh can round-trip it intact.
+SNAPSHOT_STORED=$(printf '%s' "$SNAPSHOT_CONTENT" | base64 | tr -d '\n')
 ROLE_ESC=$(sql_escape "$ROLE")
 
 # Get current session_id
@@ -51,7 +56,7 @@ SESSION_ESC=$(sql_escape "$SESSION_ID")
 # Write snapshot
 juvant_db_exec \
   "INSERT INTO session_snapshots (agent, snapshot, session_id, created_at)
-   VALUES ('$ROLE_ESC', '$SNAPSHOT_ESCAPED', '$SESSION_ESC', '$NOW');" \
+   VALUES ('$ROLE_ESC', '$SNAPSHOT_STORED', '$SESSION_ESC', '$NOW');" \
   || echo "[pre-compact] WARN: Failed to write snapshot." >&2
 
 exit 0
