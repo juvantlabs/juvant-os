@@ -76,7 +76,7 @@ case "$OS" in
 </plist>
 PLIST
 
-        # audit-reconcile — weekly Saturday 03:00 (weekday 7 = Saturday in launchd)
+        # audit-reconcile — weekly Saturday 03:00 (launchd Weekday: 0/7=Sunday, 1=Mon … 6=Saturday)
         cat > "$LAUNCHD_DIR/${PREFIX}.audit-reconcile.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -95,7 +95,7 @@ PLIST
   </dict>
   <key>StartCalendarInterval</key>
   <dict>
-    <key>Weekday</key><integer>7</integer>
+    <key>Weekday</key><integer>6</integer>
     <key>Hour</key><integer>3</integer>
     <key>Minute</key><integer>0</integer>
   </dict>

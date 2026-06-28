@@ -134,3 +134,16 @@ jobs:
           # every classified-MCP bump (a new tool must not slip in
           # unclassified for non-allowlisted agents).
           bash tests/hooks/test-space-access-policy.sh
+
+      - name: Helper tests
+        run: |
+          # Auto-discovers every tests/helpers/*.sh regression (scheduled-helper
+          # generators with stubbed schedulers, db.sh provider routing, etc.).
+          # New helper tests are picked up without editing this step. Uses the
+          # fake-turso shim + local sqlite3, so no Turso credentials in CI.
+          shopt -s nullglob
+          fail=0
+          for f in tests/helpers/*.sh; do
+            echo "::group::$f"; bash "$f" || fail=1; echo "::endgroup::"
+          done
+          [ "$fail" = 0 ]
