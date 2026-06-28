@@ -271,6 +271,17 @@ t_assert "product-lead + gh api -f (POST) → deny"  "deny"  "$(_t2d dog-ai-prod
 t_assert "product-lead + gh api -X GET -f → allow" "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r -X GET -f a=b')"
 t_assert "product-lead + git push → deny"          "deny"  "$(_t2d dog-ai-product-lead 'git push')"
 t_assert "wrapped gh write still gated → deny"     "deny"  "$(_t2d dog-ai-product-lead 'bash helpers/with-timeout.sh 60 gh pr merge 7')"
+# E (Track 2d hardening) — write-detection bypass regressions.
+# git directory-redirect: the write verb no longer sits directly after `git `.
+t_assert "non-writer + git -C /tmp/o push → deny"        "deny"  "$(_t2d dog-ai-product-lead 'git -C /tmp/o push')"
+t_assert "non-writer + git --work-tree=/tmp/o commit → deny" "deny" "$(_t2d dog-ai-product-lead 'git --work-tree=/tmp/o commit -m x')"
+# gh api bodies that aren't field flags, and explicit non-GET methods.
+t_assert "non-writer + gh api --input → deny"            "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --input body.json')"
+t_assert "non-writer + gh api --method POST → deny"      "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --method POST')"
+t_assert "non-writer + gh api -X DELETE → deny"          "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/x -X DELETE')"
+# Controls — reads must still pass.
+t_assert "non-writer + gh api (plain GET) → allow"       "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues')"
+t_assert "non-writer + gh api --method GET → allow"      "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r --method GET')"
 t_assert "eng-platform + gh api POST → allow"      "allow" "$(_t2d eng-platform 'gh api orgs/x/repos -X POST')"
 # component maintainer (FEAT-053): single-writer on its own repo; BUG-049
 # normalization maps <slug>-maintainer → maintainer for the allow-list.
@@ -318,6 +329,41 @@ t_assert "eng-lead + owned repo (api) → allow"      "allow" "$(_rs hardys-eng-
 t_assert "eng-lead + owned repo (infra) → allow"    "allow" "$(_rs hardys-eng-lead 'gh api repos/juvantlabs/hardys-infra/pulls -X POST')"
 t_assert "eng-lead + non-owned repo → deny"         "deny"  "$(_rs hardys-eng-lead 'gh pr create --repo juvantlabs/hardys-mobile')"
 t_assert "eng-lead + other-tree git → deny"         "deny"  "$(_rs hardys-eng-lead 'cd /W/elsewhere && git push')"
+# E (Track 2d hardening) — the cross-tree redirect via `git -C` must be seen
+# as a working-tree target (the prior gate only parsed a leading `cd`).
+t_assert "maintainer + git -C /W/other push → deny (cross-tree via -C)"   "deny"  "$(_rs lumen-cli-maintainer 'git -C /W/other push')"
+t_assert "maintainer + git -C /W/lumen-cli push → allow (own tree via -C)" "allow" "$(_rs lumen-cli-maintainer 'git -C /W/lumen-cli push')"
+
+# ─────────────────────────────────────────────
+# Track 4 — spec gate distinguishes DB-unreachable from no-spec (E)
+# ─────────────────────────────────────────────
+suite "spec gate (Track 4: DB-unreachable vs no-spec)"
+
+T4_CMD='turso db shell mydb "ALTER TABLE foo ADD COLUMN bar TEXT"'
+_t4() {  # $1=db_file_override  -> full hook JSON for eng-platform + a gated db-schema cmd
+  jq -nc --arg c "$T4_CMD" '{tool_name:"Bash",session_id:"s-t4",agent_type:"eng-platform",tool_input:{command:$c}}' \
+    | JUVANT_TEST_DB_FILE="$1" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null
+}
+t_db "DELETE FROM decisions;"
+# Reachable, no approved spec → fail-closed with the missing-spec message.
+out=$(_t4 "$TEST_DB")
+t_assert "no spec → deny" "deny" "$(echo "$out" | jq -r '.permissionDecision')"
+case "$(echo "$out" | jq -r '.permissionDecisionReason')" in
+  *"None found"*) t_assert "no spec → 'None found' (author a spec)" "ok" "ok" ;;
+  *) t_assert "no spec → 'None found' (author a spec)" "ok" "got other msg" ;;
+esac
+# DB unreachable (bad db file) → still deny, but DISTINCT message (do not author a spec).
+out=$(_t4 "/nonexistent/dir/nope.db")
+t_assert "DB unreachable → deny" "deny" "$(echo "$out" | jq -r '.permissionDecision')"
+case "$(echo "$out" | jq -r '.permissionDecisionReason')" in
+  *"unreachable"*) t_assert "DB unreachable → 'unreachable' (not a missing-spec message)" "ok" "ok" ;;
+  *) t_assert "DB unreachable → 'unreachable' (not a missing-spec message)" "ok" "got other msg" ;;
+esac
+# Approved spec present → allow.
+t_db "INSERT INTO decisions (agent,title,category,status,approved_by,approved_at,created_at)
+      VALUES ('eng-platform','schema bump','install-spec','approved','ceo',datetime('now'),datetime('now'));"
+t_assert "approved spec present → allow" "allow" "$(_t4 "$TEST_DB" | jq -r '.permissionDecision')"
+t_db "DELETE FROM decisions;"
 
 # ─────────────────────────────────────────────
 # Summary

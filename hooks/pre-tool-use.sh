@@ -400,7 +400,14 @@ fi
 # POST, so it is gated unless an explicit -X GET is present.
 if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   _T2D_WRITE=0
-  if [[ "$COMMAND" =~ git[[:space:]]+(push|commit|merge) ]]; then
+  # Normalize away git's argument-taking GLOBAL options before matching the
+  # write verb, so a write hidden behind a directory redirect — `git -C
+  # /other push`, `git --work-tree=/other commit` — is still detected. These
+  # options RETARGET the operation to another repo/tree; without stripping
+  # them the verb no longer sits directly after `git ` and the gate is
+  # bypassed entirely (a non-writer agent writes to any repo on disk).
+  _GIT_NORM=$(printf '%s' "$COMMAND" | sed -E 's/(^|[[:space:]])(-C|-c|--git-dir|--work-tree|--namespace|--exec-path)([[:space:]]+|=)[^[:space:]]+/ /g')
+  if [[ "$_GIT_NORM" =~ git[[:space:]]+(push|commit|merge) ]]; then
     _T2D_WRITE=1
   fi
   if [[ "$_T2D_WRITE" -eq 0 && -f "$POLICY" ]]; then
@@ -409,12 +416,20 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
       if [[ "$COMMAND" =~ $_ghp ]]; then _T2D_WRITE=1; break; fi
     done < <(jq -r '.single_writer_gh_patterns[]?' "$POLICY" 2>/dev/null)
   fi
-  # gh api with field flags (-f/-F/--field/--raw-field) is a POST by
-  # default — a write — unless an explicit -X GET / --method GET is given.
+  # gh api is a WRITE unless it is an explicit GET. A request body can be
+  # supplied by field flags (-f/-F/--field/--raw-field) OR by --input <file>;
+  # an explicit non-GET method (-X/--method POST|PUT|PATCH|DELETE) is a write
+  # even with no body flags. The prior check only caught field flags, so
+  # `gh api … --input body.json`, `gh api … --method POST` and `gh api -X
+  # DELETE …` all slipped through. Explicit `-X GET` / `--method GET` stays a
+  # read (escape hatch for forcing query-param reads).
   if [[ "$_T2D_WRITE" -eq 0 ]] \
-     && [[ "$COMMAND" =~ gh[[:space:]]+api.*(-f|-F|--field|--raw-field)([[:space:]]|=) ]] \
-     && [[ ! "$COMMAND" =~ (-X|--method)[[:space:]]+GET ]]; then
-    _T2D_WRITE=1
+     && [[ "$COMMAND" =~ gh[[:space:]]+api ]] \
+     && [[ ! "$COMMAND" =~ (-X|--method)[[:space:]=]+GET ]]; then
+    if [[ "$COMMAND" =~ (-f|-F|--field|--raw-field|--input)([[:space:]]|=) ]] \
+       || [[ "$COMMAND" =~ (-X|--method)[[:space:]=]+(POST|PUT|PATCH|DELETE) ]]; then
+      _T2D_WRITE=1
+    fi
   fi
   if [[ "$_T2D_WRITE" -eq 1 ]]; then
     _T2D_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
@@ -457,6 +472,13 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
               _TGT_REPO="${BASH_REMATCH[1]}"
             fi
             if [[ "$COMMAND" =~ (^|[\;\&[:space:]])cd[[:space:]]+(/[^[:space:]\;\&]+) ]]; then
+              _TGT_TREE="${BASH_REMATCH[2]}"
+            fi
+            # git's own directory redirects target a tree just like `cd` does;
+            # an absolute -C/--work-tree/--git-dir path outside the owned set
+            # must be caught (else `git -C /other-tree push` evades repo-scope
+            # even after passing the role gate). Only the `cd` form was checked.
+            if [[ -z "$_TGT_TREE" && "$COMMAND" =~ (-C|--work-tree|--git-dir)[[:space:]=]+(/[^[:space:]\;\&]+) ]]; then
               _TGT_TREE="${BASH_REMATCH[2]}"
             fi
             if [[ -n "$_TGT_REPO" ]] && ! printf '%s\n' "$_OWNED" | grep -qxF "$_TGT_REPO"; then
@@ -529,10 +551,22 @@ if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
       # shellcheck disable=SC1091
       . "$SCRIPT_DIR/lib/db.sh"
       _T4_CAT_SQL=$(echo "$_T4_REQUIRED_CATS" | tr ',' '\n' | sed "s/.*/'&'/" | tr '\n' ',' | sed 's/,$//')
-      _T4_SPEC_ID=$(juvant_db_query \
-        "SELECT id FROM decisions WHERE category IN ($_T4_CAT_SQL) AND status='approved' AND created_at > datetime('now','-7 days') LIMIT 1;" \
+      # COUNT(*) (not SELECT id) so a SUCCESSFUL query always yields a number
+      # — "0" for no-spec, ">=1" for spec-found. An EMPTY result therefore
+      # means the query did not run (DB unreachable / timed out), which is
+      # distinct from "no approved spec". juvant_db_query's rc cannot tell
+      # these apart (its turso path pipes through grep, whose rc is 1 for both
+      # an empty result and a failure), so we discriminate on the value.
+      _T4_CNT=$(juvant_db_query \
+        "SELECT COUNT(*) FROM decisions WHERE category IN ($_T4_CAT_SQL) AND status='approved' AND created_at > datetime('now','-7 days');" \
         2>/dev/null | grep -E '^[0-9]+$' | head -1 || echo "")
-      if [[ -z "$_T4_SPEC_ID" ]]; then
+      if [[ -z "$_T4_CNT" ]]; then
+        # DB unreachable — cannot verify. Still fail-closed (deny), but with a
+        # DISTINCT, retryable message: do NOT tell the agent to author a spec
+        # (a transient infra hiccup is not a missing-spec condition).
+        DECISION="deny"
+        DENY_REASON="SPEC GATE (FEAT-040 Layer 3): could not verify an approved spec for action class '$_T4_MATCHED_CLASS' — the decisions DB is unreachable (transient infrastructure error, NOT a missing spec). Do not author a new spec; retry shortly, and if it persists surface to eng-platform."
+      elif [[ "$_T4_CNT" == "0" ]]; then
         DECISION="deny"
         DENY_REASON="SPEC GATE (FEAT-040 Layer 3): action class '$_T4_MATCHED_CLASS' requires an approved spec [${_T4_REQUIRED_CATS}] created within 7 days. None found. Author a spec via the appropriate agent, obtain CEO approval, then retry."
       fi
@@ -678,12 +712,20 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
         *:deny) _SP_CATEGORY="unauthorized-access" ;;
         *)      _SP_CATEGORY="access-event" ;;
       esac
-      juvant_db_exec "INSERT INTO security_audit_log
+      # Spool the audit row instead of writing it inline (FEAT-051). The
+      # allow/deny decision was already computed above and does NOT depend on
+      # this write, so it must not sit on the gating path — a synchronous
+      # network INSERT here adds latency to (or, on a degraded backend, stalls)
+      # every sensitive-space tool call. The async append is local and
+      # hang-impossible; drain-audit-spool flushes it to security_audit_log
+      # out-of-band. (This is the very rule the notification block below already
+      # cites; the INSERT had simply not been converted.)
+      juvant_db_exec_async "INSERT INTO security_audit_log
         (auditor, scope, audit_type, layer, finding, severity, category, status)
         VALUES
         ('hook:pre-tool-use', 'company', 'incident', 'agents',
          '$(_t2e_esc "$_SP_FINDING")', 'high', '$(_t2e_esc "$_SP_CATEGORY")', 'open');" \
-        || echo "[pre-tool-use] WARN: failed to write security_audit_log for space-access op" >&2
+        || echo "[pre-tool-use] WARN: failed to spool security_audit_log for space-access op" >&2
 
       _SP_MSG="[SECURITY ALERT] sensitive-space op: space=${_SP_NAME} agent=${ROLE} tool=${TOOL_NAME} decision=${DECISION} expected=${_SP_EXPECTED} (ADR 0025)"
       # Notifications are fire-and-forget — NOT a precondition of the allow/deny
