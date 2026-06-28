@@ -22,6 +22,12 @@
 
 set -euo pipefail
 
+# launchd / cron provide a minimal PATH — APPEND Homebrew dirs so turso/
+# sqlite3/jq are found, without shadowing a test-shimmed or deliberately-
+# first CLI on PATH (mirrors helpers/drain-outbox.sh). The CLI-presence guard
+# below still fails loud if the binary is genuinely absent.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
@@ -36,7 +42,11 @@ export JUVANT_CONFIG="$CONFIG"
 . "$SCRIPT_DIR/../hooks/lib/db.sh"
 juvant_db_resolve
 if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
-  echo "[activity-digest] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
+  echo "[activity-digest] FATAL: no DB provider configured — set .db.provider (or legacy .turso_url) in $CONFIG" >&2
+  exit 1
+fi
+if ! juvant_db_cli_ok; then
+  echo "[activity-digest] FATAL: the '$JUVANT_DB_PROVIDER' DB CLI ($(juvant_db_required_cli)) is not on PATH — re-run helpers/install-schedules.sh so the schedule's PATH includes it." >&2
   exit 1
 fi
 
@@ -58,18 +68,18 @@ FROM agent_actions_log
 WHERE started_at > '$SINCE'
 GROUP BY agent
 ORDER BY calls DESC;
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 # Kill switch events (set_at within window or currently active)
 KILL_EVENTS=$(juvant_db_query_csv "
 SELECT
   CASE WHEN active=1 THEN 'ACTIVE' ELSE 'inactive' END,
   COALESCE(set_at, '-'),
-  REPLACE(COALESCE(reason, '-'), ',', ';')
+  REPLACE(REPLACE(COALESCE(reason, '-'), ',', ';'), '\"', '')
 FROM agent_kill_switch
 WHERE id=1
   AND (active=1 OR set_at > '$SINCE');
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 echo "## Yesterday's agent activity"
 echo ""
@@ -110,7 +120,7 @@ DENIED_AGENTS=$(juvant_db_query_csv "
 SELECT agent, COUNT(*) FROM agent_actions_log
 WHERE status='denied' AND started_at > '$SINCE'
 GROUP BY agent;
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 if [[ -z "$DENIED_AGENTS" ]]; then
   echo "No denied calls. No reconciliation discrepancies."

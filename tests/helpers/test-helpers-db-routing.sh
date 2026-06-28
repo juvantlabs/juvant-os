@@ -152,25 +152,53 @@ for PROVIDER in local turso; do
   hasre "activity-digest renders the per-agent row" "$out" '\| cfo \|'
   has "activity-digest renders denied breakdown" "$out" "- cfo: 1"
 
-  # ── morning-brief: full card pipeline incl. comma-bearing rationale ───────
+  # ── morning-brief: full card pipeline incl. comma- AND pipe-bearing text ──
   fresh_db
-  # Comma in the rationale exercises the CSV comma-strip in the concatenated
-  # decisions query — a naive `IFS=','` parse would corrupt it.
+  # Comma AND a literal '|' in the rationale exercise both strips in the
+  # concatenated decisions query — the '|' is the internal field separator,
+  # so an unstripped '|' would shift fields on the IFS='|' parse.
   sq "INSERT INTO decisions (agent,title,status,rationale,created_at)
-        VALUES ('cfo','Refactor billing','proposed','old path, with commas, is slow', datetime('now','-1 hours'));"
+        VALUES ('cfo','Refactor billing','proposed','old path, with commas | and a pipe, is slow', datetime('now','-1 hours'));"
   sq "INSERT INTO inbound_queue (counterparty_id,agent_owner,content,confidence,status)
         VALUES ('cp1','clo','need reply','unverified','pending');"
   sq "INSERT INTO agent_actions_log (agent,tool_name,args_hash,status,started_at)
         VALUES ('cfo','Read','h','success', datetime('now','-3 hours'));"
+  # Two Type-B denies whose deny_reason contains literal '|' (the real R3
+  # cloud-write message shape). Unstripped, the IFS='|' split would push the
+  # reason tail into the count column → garbled '×' value instead of '2×'.
+  for _i in 1 2; do
+    sq "INSERT INTO agent_actions_log (agent,tool_name,args_hash,status,deny_reason,input_summary,started_at)
+          VALUES ('eng-cloud','Bash','h','denied','R3 cloud-write: az show|list|account, terraform fmt|validate|plan','blocked', datetime('now','-2 hours'));"
+  done
   write_cfg "$PROV" "$URL" "https://stub.invalid/teams-hook"
   CARD="$TMP/card-$PROVIDER.json"
   CURL_CAPTURE="$CARD" out=$(CURL_CAPTURE="$CARD" run morning-brief); rc=$?
   card=$(cat "$CARD" 2>/dev/null || true)
-  has "morning-brief built a card with the decision (comma-rationale survived)" "$card" "Refactor billing"
+  has "morning-brief built a card with the decision (comma+pipe rationale survived)" "$card" "Refactor billing"
   has "morning-brief card includes the queued agent_owner" "$card" "clo"
   has "morning-brief card includes the health agent" "$card" "cfo"
+  has "morning-brief violations show a CLEAN count (pipe in deny_reason stripped)" "$card" "2×"
   has "morning-brief reports success" "$out" "OK — sent brief"
 done
+
+# ── Legacy config: only top-level .turso_url, no .db.* (bug_005 db.sh infer) ──
+echo "=== legacy .turso_url-only config → provider inferred, helper runs ==="
+fresh_db
+sq "INSERT INTO decisions (agent,title,created_at) VALUES ('cfo','Orphan L', datetime('now'));"
+jq -n --arg u "libsql://legacy" '{turso_url:$u}' > "$CONFIG_PATH"   # NO .db.* at all
+out=$(run audit-reconcile); rc=$?
+[[ "$rc" -eq 1 ]] && ok "legacy .turso_url config → helper RUNS (exits 1 on the seeded anomaly, not the FATAL guard)" \
+                  || no "legacy .turso_url config → audit-reconcile exit $rc"
+hasre "legacy config still detects the orphan (provider inferred=turso)" "$out" 'orphan decisions \(possible fabrication\): +1'
+
+# ── CLI-presence guard: missing provider CLI is detected (bug_001) ──────────
+echo "=== juvant_db_cli_ok: missing CLI on PATH → not ok ==="
+cli_missing=$(JUVANT_DB_PROVIDER=turso bash -c 'PATH=""; . "'"$REPO"'/hooks/lib/db.sh"; juvant_db_cli_ok && echo ok || echo missing')
+ok_present=$(JUVANT_DB_PROVIDER=turso bash -c 'PATH="'"$FAKEBIN:$PATH"'"; . "'"$REPO"'/hooks/lib/db.sh"; juvant_db_cli_ok && echo ok || echo missing')
+[[ "$cli_missing" == "missing" ]] && ok "juvant_db_cli_ok → 'missing' when turso CLI absent (empty PATH)" \
+                                  || no "juvant_db_cli_ok with empty PATH returned '$cli_missing'"
+[[ "$ok_present" == "ok" ]] && ok "juvant_db_cli_ok → 'ok' when turso CLI present" \
+                            || no "juvant_db_cli_ok with CLI present returned '$ok_present'"
 
 # ── Guard: no DB provider configured at all → FATAL exit 1 ───────────────────
 echo "=== guard: empty config ==="

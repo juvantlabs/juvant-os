@@ -56,7 +56,11 @@ export JUVANT_CONFIG="$CONFIG"
 . "$SCRIPT_DIR/../hooks/lib/db.sh"
 juvant_db_resolve
 if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
-  echo "[audit-reconcile] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
+  echo "[audit-reconcile] FATAL: no DB provider configured — set .db.provider (or legacy .turso_url) in $CONFIG" >&2
+  exit 1
+fi
+if ! juvant_db_cli_ok; then
+  echo "[audit-reconcile] FATAL: the '$JUVANT_DB_PROVIDER' DB CLI ($(juvant_db_required_cli)) is not on PATH — re-run helpers/install-schedules.sh so the schedule's PATH includes it." >&2
   exit 1
 fi
 

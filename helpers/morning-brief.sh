@@ -15,6 +15,12 @@
 
 set -euo pipefail
 
+# launchd / cron provide a minimal PATH — APPEND Homebrew dirs so turso/
+# sqlite3/jq are found, without shadowing a test-shimmed or deliberately-
+# first CLI on PATH (mirrors helpers/drain-outbox.sh). The CLI-presence guard
+# below still fails loud if the binary is genuinely absent.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 
@@ -42,7 +48,11 @@ export JUVANT_CONFIG="$CONFIG"
 . "$SCRIPT_DIR/../hooks/lib/db.sh"
 juvant_db_resolve
 if [[ -z "${JUVANT_DB_PROVIDER:-}" ]]; then
-  echo "[morning-brief] FATAL: no DB provider configured (.db.provider / .db.url / .turso_url absent in $CONFIG)" >&2
+  echo "[morning-brief] FATAL: no DB provider configured — set .db.provider (or legacy .turso_url) in $CONFIG" >&2
+  exit 1
+fi
+if ! juvant_db_cli_ok; then
+  echo "[morning-brief] FATAL: the '$JUVANT_DB_PROVIDER' DB CLI ($(juvant_db_required_cli)) is not on PATH — re-run helpers/install-schedules.sh so the schedule's PATH includes it." >&2
   exit 1
 fi
 
@@ -63,19 +73,19 @@ SINCE=$(date -u -v-1d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
 # stays one unquoted CSV field — juvant_db_query_csv is header-normalized,
 # so no awk header skip is needed.
 DECISIONS_RAW=$(juvant_db_query_csv "
-SELECT REPLACE(REPLACE(title || '|' || status || '|' ||
-  COALESCE(CASE WHEN status='proposed' THEN substr(rationale,1,100) ELSE '' END,''), ',', ';'), '\"', '')
+SELECT REPLACE(REPLACE(REPLACE(title,'|','/') || '|' || status || '|' ||
+  COALESCE(CASE WHEN status='proposed' THEN REPLACE(substr(rationale,1,100),'|','/') ELSE '' END,''), ',', ';'), '\"', '')
 FROM decisions
 WHERE created_at > '$SINCE'
 ORDER BY created_at DESC LIMIT 8;
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 # ─── Pending queue
 QUEUE_RAW=$(juvant_db_query_csv "
 SELECT agent_owner, COUNT(*) FROM inbound_queue
 WHERE status IN ('pending','escalated')
 GROUP BY agent_owner ORDER BY COUNT(*) DESC;
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 # ─── System health: calls | ok | denied per agent (last 24h)
 HEALTH_RAW=$(juvant_db_query_csv "
@@ -85,22 +95,22 @@ SELECT agent || '|' || COUNT(*) || '|' ||
 FROM agent_actions_log
 WHERE started_at > '$SINCE'
 GROUP BY agent ORDER BY COUNT(*) DESC;
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 # ─── Kill switch (only if active)
 KILLSWITCH_RAW=$(juvant_db_query_csv "
-SELECT REPLACE(COALESCE(reason,'-'), ',', ';'), COALESCE(set_at,'-')
+SELECT REPLACE(REPLACE(COALESCE(reason,'-'), ',', ';'), '\"', ''), COALESCE(set_at,'-')
 FROM agent_kill_switch WHERE id=1 AND active=1;
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 # ─── Scope violations: Type B denials only — not allow-list friction
 VIOLATIONS_RAW=$(juvant_db_query_csv "
-SELECT REPLACE(REPLACE(agent || '|' || deny_reason || '|' || COUNT(*), ',', ';'), '\"', '')
+SELECT REPLACE(REPLACE(agent || '|' || REPLACE(deny_reason,'|','/') || '|' || COUNT(*), ',', ';'), '\"', '')
 FROM agent_actions_log
 WHERE status='denied' AND started_at > '$SINCE'
   AND deny_reason NOT LIKE '%not in agent%allow-list%'
 GROUP BY agent, deny_reason ORDER BY COUNT(*) DESC;
-" 2>/dev/null || true)
+" 2>/dev/null | tr -d '"' || true)
 
 # ─── CSO audit staleness (fail-safe: surface in brief when last full audit is stale)
 AUDIT_STALENESS_DAYS=$(juvant_db_query "
@@ -235,8 +245,8 @@ fi
 # ─── Kill switch (only when active)
 if [[ -n "$KILLSWITCH_RAW" ]]; then
   IFS=',' read -r reason set_at _rest <<< "$KILLSWITCH_RAW"
-  reason=$(echo "$reason" | xargs)
-  set_at=$(echo "$set_at" | xargs)
+  reason=$(trim "$reason")
+  set_at=$(trim "$set_at")
   BODY_ELEMENTS=$(echo "$BODY_ELEMENTS" | jq \
     --arg reason "$reason" --arg set_at "$set_at" \
     '. + [
