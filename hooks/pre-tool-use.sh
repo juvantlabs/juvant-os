@@ -400,7 +400,23 @@ fi
 # POST, so it is gated unless an explicit -X GET is present.
 if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   _T2D_WRITE=0
-  if [[ "$COMMAND" =~ git[[:space:]]+(push|commit|merge) ]]; then
+  # Strip git's argument-taking GLOBAL options so a write verb behind a
+  # directory redirect (`git -C /other push`, `git --work-tree=/other commit`)
+  # is exposed. NOTE: `-c` is deliberately NOT in this list — it is also
+  # bash's own `-c` flag, so stripping it ate the verb in `bash -c 'git push'`
+  # (a regression); and `git -c key=val push` still leaves the verb reachable
+  # by the looser match below, so stripping `-c` was never load-bearing.
+  _GIT_NORM=$(printf '%s' "$COMMAND" | sed -E 's/(^|[[:space:]])(-C|--git-dir|--work-tree|--namespace|--exec-path)([[:space:]]+|=)[^[:space:]]+/ /g')
+  # Match a git WRITE verb that may sit behind ANY number of intervening
+  # tokens — no-arg globals (`--no-pager`, `--bare`), a quoted `-c` value with
+  # internal spaces, or the shell wrapper in `bash -c 'git push'`. Biased to
+  # OVER-detect: a read that merely mentions a verb as a standalone token may
+  # be gated and must be re-issued — the safe direction for a single-writer
+  # gate. (Anchored at a token boundary so `--grep=push` is not a verb.)
+  # Trailing boundary is "non-letter or end" (not just whitespace) so the verb
+  # is still detected when followed by a closing quote (`bash -c 'git push'`),
+  # a `;`, `&`, etc. — while `pushed`/`commits` (verb + letter) do NOT match.
+  if [[ "$_GIT_NORM" =~ git[[:space:]]+([^[:space:]]+[[:space:]]+)*(push|commit|merge)([^[:alpha:]]|$) ]]; then
     _T2D_WRITE=1
   fi
   if [[ "$_T2D_WRITE" -eq 0 && -f "$POLICY" ]]; then
@@ -409,12 +425,36 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
       if [[ "$COMMAND" =~ $_ghp ]]; then _T2D_WRITE=1; break; fi
     done < <(jq -r '.single_writer_gh_patterns[]?' "$POLICY" 2>/dev/null)
   fi
-  # gh api with field flags (-f/-F/--field/--raw-field) is a POST by
-  # default — a write — unless an explicit -X GET / --method GET is given.
-  if [[ "$_T2D_WRITE" -eq 0 ]] \
-     && [[ "$COMMAND" =~ gh[[:space:]]+api.*(-f|-F|--field|--raw-field)([[:space:]]|=) ]] \
-     && [[ ! "$COMMAND" =~ (-X|--method)[[:space:]]+GET ]]; then
-    _T2D_WRITE=1
+  # gh api is a WRITE unless it is an explicit GET. A body can come from field
+  # flags (-f/-F/--field/--raw-field) OR --input <file>; an explicit non-GET
+  # method is a write even with no body. Three traps the naive form fell into,
+  # all closed here:
+  #   - CASE: gh upper-cases the method (strings.ToUpper), so `--method post`
+  #     / `-X delete` are real writes — match case-insensitively (nocasematch;
+  #     bash 3.2-safe, unlike ${v^^}).
+  #   - COMPACT short flag: pflag/curl accept `-XPOST` (no separator) — so the
+  #     -X form allows zero separators; --method (long) still requires one.
+  #   - SCOPE: evaluate each shell SEGMENT (split on ; && || | & and drop a
+  #     trailing # comment) independently, so a sibling read (`&& gh api … -X
+  #     GET`) or a comment can't disable the write check for a real write in
+  #     another segment.
+  if [[ "$_T2D_WRITE" -eq 0 && "$COMMAND" =~ gh[[:space:]]+api ]]; then
+    _gh_body="${COMMAND%%#*}"
+    _gh_body=$(printf '%s' "$_gh_body" | sed -E 's/(&&|\|\||[;|&])/\n/g')
+    shopt -s nocasematch
+    while IFS= read -r _seg; do
+      [[ "$_seg" =~ gh[[:space:]]+api ]] || continue
+      # explicit GET on THIS segment ⇒ a read; leave it alone.
+      if [[ "$_seg" =~ -X[[:space:]=]*GET ]] || [[ "$_seg" =~ --method[[:space:]=]+GET ]]; then
+        continue
+      fi
+      if [[ "$_seg" =~ (-f|-F|--field|--raw-field|--input)([[:space:]]|=) ]] \
+         || [[ "$_seg" =~ -X[[:space:]=]*(POST|PUT|PATCH|DELETE) ]] \
+         || [[ "$_seg" =~ --method[[:space:]=]+(POST|PUT|PATCH|DELETE) ]]; then
+        _T2D_WRITE=1; break
+      fi
+    done <<< "$_gh_body"
+    shopt -u nocasematch
   fi
   if [[ "$_T2D_WRITE" -eq 1 ]]; then
     _T2D_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
@@ -459,7 +499,24 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
             if [[ "$COMMAND" =~ (^|[\;\&[:space:]])cd[[:space:]]+(/[^[:space:]\;\&]+) ]]; then
               _TGT_TREE="${BASH_REMATCH[2]}"
             fi
-            if [[ -n "$_TGT_REPO" ]] && ! printf '%s\n' "$_OWNED" | grep -qxF "$_TGT_REPO"; then
+            # git's own directory redirects target a tree just like `cd` does;
+            # an absolute -C/--work-tree/--git-dir path outside the owned set
+            # must be caught (else `git -C /other-tree push` evades repo-scope
+            # even after passing the role gate). `-C` is parsed AFTER `cd` and
+            # OVERRIDES it (no `-z` guard) — git changes its own CWD via -C
+            # before doing anything, so `cd /owned && git -C /other push`
+            # writes to /other, not /owned; the gate must check /other.
+            if [[ "$COMMAND" =~ (-C|--work-tree|--git-dir)[[:space:]=]+(/[^[:space:]\;\&]+) ]]; then
+              _TGT_TREE="${BASH_REMATCH[2]}"
+            fi
+            # Fail-closed on path traversal: the membership test below is a
+            # string-prefix glob with no path normalization, so `/owned/../x`
+            # would pass it while the kernel resolves it OUTSIDE the owned set.
+            # A '..' segment in a repo target has no legitimate use here.
+            if [[ -n "$_TGT_TREE" && "$_TGT_TREE" =~ (^|/)\.\.(/|$) ]]; then
+              _VIOL="working tree '$_TGT_TREE' (path traversal '..' is not allowed)"
+            fi
+            if [[ -z "$_VIOL" && -n "$_TGT_REPO" ]] && ! printf '%s\n' "$_OWNED" | grep -qxF "$_TGT_REPO"; then
               _VIOL="repo '$_TGT_REPO'"
             fi
             if [[ -z "$_VIOL" && -n "$_TGT_TREE" ]]; then
@@ -529,10 +586,22 @@ if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
       # shellcheck disable=SC1091
       . "$SCRIPT_DIR/lib/db.sh"
       _T4_CAT_SQL=$(echo "$_T4_REQUIRED_CATS" | tr ',' '\n' | sed "s/.*/'&'/" | tr '\n' ',' | sed 's/,$//')
-      _T4_SPEC_ID=$(juvant_db_query \
-        "SELECT id FROM decisions WHERE category IN ($_T4_CAT_SQL) AND status='approved' AND created_at > datetime('now','-7 days') LIMIT 1;" \
+      # COUNT(*) (not SELECT id) so a SUCCESSFUL query always yields a number
+      # — "0" for no-spec, ">=1" for spec-found. An EMPTY result therefore
+      # means the query did not run (DB unreachable / timed out), which is
+      # distinct from "no approved spec". juvant_db_query's rc cannot tell
+      # these apart (its turso path pipes through grep, whose rc is 1 for both
+      # an empty result and a failure), so we discriminate on the value.
+      _T4_CNT=$(juvant_db_query \
+        "SELECT COUNT(*) FROM decisions WHERE category IN ($_T4_CAT_SQL) AND status='approved' AND created_at > datetime('now','-7 days');" \
         2>/dev/null | grep -E '^[0-9]+$' | head -1 || echo "")
-      if [[ -z "$_T4_SPEC_ID" ]]; then
+      if [[ -z "$_T4_CNT" ]]; then
+        # DB unreachable — cannot verify. Still fail-closed (deny), but with a
+        # DISTINCT, retryable message: do NOT tell the agent to author a spec
+        # (a transient infra hiccup is not a missing-spec condition).
+        DECISION="deny"
+        DENY_REASON="SPEC GATE (FEAT-040 Layer 3): could not verify an approved spec for action class '$_T4_MATCHED_CLASS' — the decisions DB is unreachable (transient infrastructure error, NOT a missing spec). Do not author a new spec; retry shortly, and if it persists surface to eng-platform."
+      elif [[ "$_T4_CNT" == "0" ]]; then
         DECISION="deny"
         DENY_REASON="SPEC GATE (FEAT-040 Layer 3): action class '$_T4_MATCHED_CLASS' requires an approved spec [${_T4_REQUIRED_CATS}] created within 7 days. None found. Author a spec via the appropriate agent, obtain CEO approval, then retry."
       fi
@@ -678,12 +747,20 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
         *:deny) _SP_CATEGORY="unauthorized-access" ;;
         *)      _SP_CATEGORY="access-event" ;;
       esac
-      juvant_db_exec "INSERT INTO security_audit_log
+      # Spool the audit row instead of writing it inline (FEAT-051). The
+      # allow/deny decision was already computed above and does NOT depend on
+      # this write, so it must not sit on the gating path — a synchronous
+      # network INSERT here adds latency to (or, on a degraded backend, stalls)
+      # every sensitive-space tool call. The async append is local and
+      # hang-impossible; drain-audit-spool flushes it to security_audit_log
+      # out-of-band. (This is the very rule the notification block below already
+      # cites; the INSERT had simply not been converted.)
+      juvant_db_exec_async "INSERT INTO security_audit_log
         (auditor, scope, audit_type, layer, finding, severity, category, status)
         VALUES
         ('hook:pre-tool-use', 'company', 'incident', 'agents',
          '$(_t2e_esc "$_SP_FINDING")', 'high', '$(_t2e_esc "$_SP_CATEGORY")', 'open');" \
-        || echo "[pre-tool-use] WARN: failed to write security_audit_log for space-access op" >&2
+        || echo "[pre-tool-use] WARN: failed to spool security_audit_log for space-access op" >&2
 
       _SP_MSG="[SECURITY ALERT] sensitive-space op: space=${_SP_NAME} agent=${ROLE} tool=${TOOL_NAME} decision=${DECISION} expected=${_SP_EXPECTED} (ADR 0025)"
       # Notifications are fire-and-forget — NOT a precondition of the allow/deny

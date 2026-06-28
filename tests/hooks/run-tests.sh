@@ -271,6 +271,35 @@ t_assert "product-lead + gh api -f (POST) → deny"  "deny"  "$(_t2d dog-ai-prod
 t_assert "product-lead + gh api -X GET -f → allow" "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r -X GET -f a=b')"
 t_assert "product-lead + git push → deny"          "deny"  "$(_t2d dog-ai-product-lead 'git push')"
 t_assert "wrapped gh write still gated → deny"     "deny"  "$(_t2d dog-ai-product-lead 'bash helpers/with-timeout.sh 60 gh pr merge 7')"
+# E (Track 2d hardening) — write-detection bypass regressions.
+# git directory-redirect: the write verb no longer sits directly after `git `.
+t_assert "non-writer + git -C /tmp/o push → deny"        "deny"  "$(_t2d dog-ai-product-lead 'git -C /tmp/o push')"
+t_assert "non-writer + git --work-tree=/tmp/o commit → deny" "deny" "$(_t2d dog-ai-product-lead 'git --work-tree=/tmp/o commit -m x')"
+# ultrareview #68: indirect-verb bypasses (shell wrapper, no-arg globals,
+# quoted -c value with spaces) must all be caught.
+t_assert "non-writer + bash -c 'git push' → deny"        "deny"  "$(_t2d dog-ai-product-lead "bash -c 'git push'")"
+t_assert "non-writer + sh -c \"git commit\" → deny"      "deny"  "$(_t2d dog-ai-product-lead 'sh -c "git commit -m x"')"
+t_assert "non-writer + git --no-pager push → deny"       "deny"  "$(_t2d dog-ai-product-lead 'git --no-pager push')"
+t_assert "non-writer + git --bare push → deny"           "deny"  "$(_t2d dog-ai-product-lead 'git --bare push')"
+t_assert "non-writer + git -c 'user.name=My Name' push → deny" "deny" "$(_t2d dog-ai-product-lead 'git -c "user.name=My Name" push')"
+# Read controls — common reads must NOT be over-gated.
+t_assert "non-writer + git log --oneline → allow"        "allow" "$(_t2d dog-ai-product-lead 'git log --oneline -5')"
+t_assert "non-writer + git show <sha> → allow"           "allow" "$(_t2d dog-ai-product-lead 'git show abc123')"
+# gh api bodies that aren't field flags, and explicit non-GET methods.
+t_assert "non-writer + gh api --input → deny"            "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --input body.json')"
+t_assert "non-writer + gh api --method POST → deny"      "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --method POST')"
+t_assert "non-writer + gh api -X DELETE → deny"          "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/x -X DELETE')"
+# ultrareview #68: lowercase method, compact short-flag, and sibling/comment
+# -X GET must not disable the write check.
+t_assert "non-writer + gh api --method post (lowercase) → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --method post')"
+t_assert "non-writer + gh api -X delete (lowercase) → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r/x -X delete')"
+t_assert "non-writer + gh api -XPOST (compact) → deny"   "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r -XPOST')"
+t_assert "non-writer + gh api -XDELETE (compact) → deny" "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/x -XDELETE')"
+t_assert "non-writer + gh api --input && sibling -X GET → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r --input b.json && gh api repos/o/r -X GET')"
+t_assert "non-writer + gh api --input # -X GET comment → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r --input b.json # -X GET')"
+# Controls — reads must still pass.
+t_assert "non-writer + gh api (plain GET) → allow"       "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues')"
+t_assert "non-writer + gh api --method GET → allow"      "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r --method GET')"
 t_assert "eng-platform + gh api POST → allow"      "allow" "$(_t2d eng-platform 'gh api orgs/x/repos -X POST')"
 # component maintainer (FEAT-053): single-writer on its own repo; BUG-049
 # normalization maps <slug>-maintainer → maintainer for the allow-list.
@@ -318,6 +347,46 @@ t_assert "eng-lead + owned repo (api) → allow"      "allow" "$(_rs hardys-eng-
 t_assert "eng-lead + owned repo (infra) → allow"    "allow" "$(_rs hardys-eng-lead 'gh api repos/juvantlabs/hardys-infra/pulls -X POST')"
 t_assert "eng-lead + non-owned repo → deny"         "deny"  "$(_rs hardys-eng-lead 'gh pr create --repo juvantlabs/hardys-mobile')"
 t_assert "eng-lead + other-tree git → deny"         "deny"  "$(_rs hardys-eng-lead 'cd /W/elsewhere && git push')"
+# E (Track 2d hardening) — the cross-tree redirect via `git -C` must be seen
+# as a working-tree target (the prior gate only parsed a leading `cd`).
+t_assert "maintainer + git -C /W/other push → deny (cross-tree via -C)"   "deny"  "$(_rs lumen-cli-maintainer 'git -C /W/other push')"
+t_assert "maintainer + git -C /W/lumen-cli push → allow (own tree via -C)" "allow" "$(_rs lumen-cli-maintainer 'git -C /W/lumen-cli push')"
+# ultrareview #68: -C must OVERRIDE a leading `cd` (git changes its own CWD),
+# and a '..' traversal out of the owned tree must be rejected fail-closed.
+t_assert "maintainer + cd owned && git -C /W/other push → deny (-C overrides cd)" "deny" "$(_rs lumen-cli-maintainer 'cd /W/lumen-cli && git -C /W/other push')"
+t_assert "maintainer + git -C /W/lumen-cli/../other push → deny (.. traversal)"   "deny" "$(_rs lumen-cli-maintainer 'git -C /W/lumen-cli/../other push')"
+t_assert "maintainer + cd /W/lumen-cli/../other && git push → deny (.. via cd)"   "deny" "$(_rs lumen-cli-maintainer 'cd /W/lumen-cli/../other && git push')"
+
+# ─────────────────────────────────────────────
+# Track 4 — spec gate distinguishes DB-unreachable from no-spec (E)
+# ─────────────────────────────────────────────
+suite "spec gate (Track 4: DB-unreachable vs no-spec)"
+
+T4_CMD='turso db shell mydb "ALTER TABLE foo ADD COLUMN bar TEXT"'
+_t4() {  # $1=db_file_override  -> full hook JSON for eng-platform + a gated db-schema cmd
+  jq -nc --arg c "$T4_CMD" '{tool_name:"Bash",session_id:"s-t4",agent_type:"eng-platform",tool_input:{command:$c}}' \
+    | JUVANT_TEST_DB_FILE="$1" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null
+}
+t_db "DELETE FROM decisions;"
+# Reachable, no approved spec → fail-closed with the missing-spec message.
+out=$(_t4 "$TEST_DB")
+t_assert "no spec → deny" "deny" "$(echo "$out" | jq -r '.permissionDecision')"
+case "$(echo "$out" | jq -r '.permissionDecisionReason')" in
+  *"None found"*) t_assert "no spec → 'None found' (author a spec)" "ok" "ok" ;;
+  *) t_assert "no spec → 'None found' (author a spec)" "ok" "got other msg" ;;
+esac
+# DB unreachable (bad db file) → still deny, but DISTINCT message (do not author a spec).
+out=$(_t4 "/nonexistent/dir/nope.db")
+t_assert "DB unreachable → deny" "deny" "$(echo "$out" | jq -r '.permissionDecision')"
+case "$(echo "$out" | jq -r '.permissionDecisionReason')" in
+  *"unreachable"*) t_assert "DB unreachable → 'unreachable' (not a missing-spec message)" "ok" "ok" ;;
+  *) t_assert "DB unreachable → 'unreachable' (not a missing-spec message)" "ok" "got other msg" ;;
+esac
+# Approved spec present → allow.
+t_db "INSERT INTO decisions (agent,title,category,status,approved_by,approved_at,created_at)
+      VALUES ('eng-platform','schema bump','install-spec','approved','ceo',datetime('now'),datetime('now'));"
+t_assert "approved spec present → allow" "allow" "$(_t4 "$TEST_DB" | jq -r '.permissionDecision')"
+t_db "DELETE FROM decisions;"
 
 # ─────────────────────────────────────────────
 # post-tool-use-failure.sh — ROLE derivation parity (audit plumbing)

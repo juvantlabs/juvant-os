@@ -53,6 +53,16 @@ cat > "$FAKE_CONFIG" <<JSON
 }
 JSON
 export JUVANT_CONFIG="$FAKE_CONFIG"
+# The Track 2e audit row is spooled (FEAT-051), not written inline, so the
+# row reaches security_audit_log only after a drain. Isolate the spool to the
+# temp dir and provide reset/drain helpers for the audit-row assertions.
+export JUVANT_SPOOL="$TMPROOT/audit-spool.sql"
+
+# Clear both the table AND any pending spooled rows (prior ops in this run
+# spool audit rows too) so each audit block starts from a clean slate.
+_reset_audit() { sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"; rm -f "$JUVANT_SPOOL"; }
+# Flush spooled audit rows into security_audit_log before asserting on them.
+_drain_audit() { bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true; }
 
 # ── Assertion helpers ──
 PASS=0; FAIL=0
@@ -122,9 +132,10 @@ t_assert "absent space_access → ordinary m365 op allowed" "allow" \
 
 echo "=== Condition #1 — security_audit_log fires (expected + unexpected), severity=high ==="
 # Re-run two ops to seed audit rows in a clean DB.
-sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+_reset_audit
 decide lex mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY" >/dev/null   # allowlisted → expected=true
 decide cfo mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY" >/dev/null   # non-allowlisted → expected=false
+_drain_audit
 t_assert "allowlisted op → audit row expected=true" "1" \
   "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%expected=true%';")"
 t_assert "non-allowlisted op → audit row expected=false" "1" \
@@ -147,17 +158,19 @@ t_assert "non-allowlisted cfo + list_members {} (class A, no target) → deny" "
   "$(decide cfo mcp__m365-graph__list_members '{}')"
 
 echo "=== bug_005: precautionary gate-b/d denies do NOT fire a space alert ==="
-sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+_reset_audit
 decide cfo mcp__m365-graph__search_files '{"query":"merger"}' >/dev/null   # gate-b deny, no space evidence
 decide cfo mcp__m365-graph__frobnicate '{}' >/dev/null                     # gate-d deny, no space evidence
+_drain_audit
 t_assert "gate-b + gate-d denies (no evidence) → 0 high-severity audit rows" "0" \
   "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
 
 echo "=== bug_004: audit category derived from (op-class, decision) ==="
-sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+_reset_audit
 decide cfo mcp__m365-graph__get_file_content   "$ARGS_DRIVE_ONLY" >/dev/null  # A:deny → unauthorized-read
 decide cfo mcp__m365-graph__create_sharing_link "$ARGS_DRIVE_ONLY" >/dev/null  # C:deny → unauthorized-escalation
 decide lex mcp__m365-graph__get_file_content   "$ARGS_DRIVE_ONLY" >/dev/null  # A:allow → access-event
+_drain_audit
 t_assert "Class-A deny → category=unauthorized-read" "1" \
   "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='unauthorized-read';")"
 t_assert "Class-C deny → category=unauthorized-escalation" "1" \
