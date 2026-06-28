@@ -275,10 +275,28 @@ t_assert "wrapped gh write still gated → deny"     "deny"  "$(_t2d dog-ai-prod
 # git directory-redirect: the write verb no longer sits directly after `git `.
 t_assert "non-writer + git -C /tmp/o push → deny"        "deny"  "$(_t2d dog-ai-product-lead 'git -C /tmp/o push')"
 t_assert "non-writer + git --work-tree=/tmp/o commit → deny" "deny" "$(_t2d dog-ai-product-lead 'git --work-tree=/tmp/o commit -m x')"
+# ultrareview #68: indirect-verb bypasses (shell wrapper, no-arg globals,
+# quoted -c value with spaces) must all be caught.
+t_assert "non-writer + bash -c 'git push' → deny"        "deny"  "$(_t2d dog-ai-product-lead "bash -c 'git push'")"
+t_assert "non-writer + sh -c \"git commit\" → deny"      "deny"  "$(_t2d dog-ai-product-lead 'sh -c "git commit -m x"')"
+t_assert "non-writer + git --no-pager push → deny"       "deny"  "$(_t2d dog-ai-product-lead 'git --no-pager push')"
+t_assert "non-writer + git --bare push → deny"           "deny"  "$(_t2d dog-ai-product-lead 'git --bare push')"
+t_assert "non-writer + git -c 'user.name=My Name' push → deny" "deny" "$(_t2d dog-ai-product-lead 'git -c "user.name=My Name" push')"
+# Read controls — common reads must NOT be over-gated.
+t_assert "non-writer + git log --oneline → allow"        "allow" "$(_t2d dog-ai-product-lead 'git log --oneline -5')"
+t_assert "non-writer + git show <sha> → allow"           "allow" "$(_t2d dog-ai-product-lead 'git show abc123')"
 # gh api bodies that aren't field flags, and explicit non-GET methods.
 t_assert "non-writer + gh api --input → deny"            "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --input body.json')"
 t_assert "non-writer + gh api --method POST → deny"      "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --method POST')"
 t_assert "non-writer + gh api -X DELETE → deny"          "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/x -X DELETE')"
+# ultrareview #68: lowercase method, compact short-flag, and sibling/comment
+# -X GET must not disable the write check.
+t_assert "non-writer + gh api --method post (lowercase) → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues --method post')"
+t_assert "non-writer + gh api -X delete (lowercase) → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r/x -X delete')"
+t_assert "non-writer + gh api -XPOST (compact) → deny"   "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r -XPOST')"
+t_assert "non-writer + gh api -XDELETE (compact) → deny" "deny"  "$(_t2d dog-ai-product-lead 'gh api repos/o/r/x -XDELETE')"
+t_assert "non-writer + gh api --input && sibling -X GET → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r --input b.json && gh api repos/o/r -X GET')"
+t_assert "non-writer + gh api --input # -X GET comment → deny" "deny" "$(_t2d dog-ai-product-lead 'gh api repos/o/r --input b.json # -X GET')"
 # Controls — reads must still pass.
 t_assert "non-writer + gh api (plain GET) → allow"       "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r/issues')"
 t_assert "non-writer + gh api --method GET → allow"      "allow" "$(_t2d dog-ai-product-lead 'gh api repos/o/r --method GET')"
@@ -333,6 +351,11 @@ t_assert "eng-lead + other-tree git → deny"         "deny"  "$(_rs hardys-eng-
 # as a working-tree target (the prior gate only parsed a leading `cd`).
 t_assert "maintainer + git -C /W/other push → deny (cross-tree via -C)"   "deny"  "$(_rs lumen-cli-maintainer 'git -C /W/other push')"
 t_assert "maintainer + git -C /W/lumen-cli push → allow (own tree via -C)" "allow" "$(_rs lumen-cli-maintainer 'git -C /W/lumen-cli push')"
+# ultrareview #68: -C must OVERRIDE a leading `cd` (git changes its own CWD),
+# and a '..' traversal out of the owned tree must be rejected fail-closed.
+t_assert "maintainer + cd owned && git -C /W/other push → deny (-C overrides cd)" "deny" "$(_rs lumen-cli-maintainer 'cd /W/lumen-cli && git -C /W/other push')"
+t_assert "maintainer + git -C /W/lumen-cli/../other push → deny (.. traversal)"   "deny" "$(_rs lumen-cli-maintainer 'git -C /W/lumen-cli/../other push')"
+t_assert "maintainer + cd /W/lumen-cli/../other && git push → deny (.. via cd)"   "deny" "$(_rs lumen-cli-maintainer 'cd /W/lumen-cli/../other && git push')"
 
 # ─────────────────────────────────────────────
 # Track 4 — spec gate distinguishes DB-unreachable from no-spec (E)

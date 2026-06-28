@@ -400,14 +400,23 @@ fi
 # POST, so it is gated unless an explicit -X GET is present.
 if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   _T2D_WRITE=0
-  # Normalize away git's argument-taking GLOBAL options before matching the
-  # write verb, so a write hidden behind a directory redirect — `git -C
-  # /other push`, `git --work-tree=/other commit` — is still detected. These
-  # options RETARGET the operation to another repo/tree; without stripping
-  # them the verb no longer sits directly after `git ` and the gate is
-  # bypassed entirely (a non-writer agent writes to any repo on disk).
-  _GIT_NORM=$(printf '%s' "$COMMAND" | sed -E 's/(^|[[:space:]])(-C|-c|--git-dir|--work-tree|--namespace|--exec-path)([[:space:]]+|=)[^[:space:]]+/ /g')
-  if [[ "$_GIT_NORM" =~ git[[:space:]]+(push|commit|merge) ]]; then
+  # Strip git's argument-taking GLOBAL options so a write verb behind a
+  # directory redirect (`git -C /other push`, `git --work-tree=/other commit`)
+  # is exposed. NOTE: `-c` is deliberately NOT in this list — it is also
+  # bash's own `-c` flag, so stripping it ate the verb in `bash -c 'git push'`
+  # (a regression); and `git -c key=val push` still leaves the verb reachable
+  # by the looser match below, so stripping `-c` was never load-bearing.
+  _GIT_NORM=$(printf '%s' "$COMMAND" | sed -E 's/(^|[[:space:]])(-C|--git-dir|--work-tree|--namespace|--exec-path)([[:space:]]+|=)[^[:space:]]+/ /g')
+  # Match a git WRITE verb that may sit behind ANY number of intervening
+  # tokens — no-arg globals (`--no-pager`, `--bare`), a quoted `-c` value with
+  # internal spaces, or the shell wrapper in `bash -c 'git push'`. Biased to
+  # OVER-detect: a read that merely mentions a verb as a standalone token may
+  # be gated and must be re-issued — the safe direction for a single-writer
+  # gate. (Anchored at a token boundary so `--grep=push` is not a verb.)
+  # Trailing boundary is "non-letter or end" (not just whitespace) so the verb
+  # is still detected when followed by a closing quote (`bash -c 'git push'`),
+  # a `;`, `&`, etc. — while `pushed`/`commits` (verb + letter) do NOT match.
+  if [[ "$_GIT_NORM" =~ git[[:space:]]+([^[:space:]]+[[:space:]]+)*(push|commit|merge)([^[:alpha:]]|$) ]]; then
     _T2D_WRITE=1
   fi
   if [[ "$_T2D_WRITE" -eq 0 && -f "$POLICY" ]]; then
@@ -416,20 +425,36 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
       if [[ "$COMMAND" =~ $_ghp ]]; then _T2D_WRITE=1; break; fi
     done < <(jq -r '.single_writer_gh_patterns[]?' "$POLICY" 2>/dev/null)
   fi
-  # gh api is a WRITE unless it is an explicit GET. A request body can be
-  # supplied by field flags (-f/-F/--field/--raw-field) OR by --input <file>;
-  # an explicit non-GET method (-X/--method POST|PUT|PATCH|DELETE) is a write
-  # even with no body flags. The prior check only caught field flags, so
-  # `gh api … --input body.json`, `gh api … --method POST` and `gh api -X
-  # DELETE …` all slipped through. Explicit `-X GET` / `--method GET` stays a
-  # read (escape hatch for forcing query-param reads).
-  if [[ "$_T2D_WRITE" -eq 0 ]] \
-     && [[ "$COMMAND" =~ gh[[:space:]]+api ]] \
-     && [[ ! "$COMMAND" =~ (-X|--method)[[:space:]=]+GET ]]; then
-    if [[ "$COMMAND" =~ (-f|-F|--field|--raw-field|--input)([[:space:]]|=) ]] \
-       || [[ "$COMMAND" =~ (-X|--method)[[:space:]=]+(POST|PUT|PATCH|DELETE) ]]; then
-      _T2D_WRITE=1
-    fi
+  # gh api is a WRITE unless it is an explicit GET. A body can come from field
+  # flags (-f/-F/--field/--raw-field) OR --input <file>; an explicit non-GET
+  # method is a write even with no body. Three traps the naive form fell into,
+  # all closed here:
+  #   - CASE: gh upper-cases the method (strings.ToUpper), so `--method post`
+  #     / `-X delete` are real writes — match case-insensitively (nocasematch;
+  #     bash 3.2-safe, unlike ${v^^}).
+  #   - COMPACT short flag: pflag/curl accept `-XPOST` (no separator) — so the
+  #     -X form allows zero separators; --method (long) still requires one.
+  #   - SCOPE: evaluate each shell SEGMENT (split on ; && || | & and drop a
+  #     trailing # comment) independently, so a sibling read (`&& gh api … -X
+  #     GET`) or a comment can't disable the write check for a real write in
+  #     another segment.
+  if [[ "$_T2D_WRITE" -eq 0 && "$COMMAND" =~ gh[[:space:]]+api ]]; then
+    _gh_body="${COMMAND%%#*}"
+    _gh_body=$(printf '%s' "$_gh_body" | sed -E 's/(&&|\|\||[;|&])/\n/g')
+    shopt -s nocasematch
+    while IFS= read -r _seg; do
+      [[ "$_seg" =~ gh[[:space:]]+api ]] || continue
+      # explicit GET on THIS segment ⇒ a read; leave it alone.
+      if [[ "$_seg" =~ -X[[:space:]=]*GET ]] || [[ "$_seg" =~ --method[[:space:]=]+GET ]]; then
+        continue
+      fi
+      if [[ "$_seg" =~ (-f|-F|--field|--raw-field|--input)([[:space:]]|=) ]] \
+         || [[ "$_seg" =~ -X[[:space:]=]*(POST|PUT|PATCH|DELETE) ]] \
+         || [[ "$_seg" =~ --method[[:space:]=]+(POST|PUT|PATCH|DELETE) ]]; then
+        _T2D_WRITE=1; break
+      fi
+    done <<< "$_gh_body"
+    shopt -u nocasematch
   fi
   if [[ "$_T2D_WRITE" -eq 1 ]]; then
     _T2D_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
@@ -477,11 +502,21 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
             # git's own directory redirects target a tree just like `cd` does;
             # an absolute -C/--work-tree/--git-dir path outside the owned set
             # must be caught (else `git -C /other-tree push` evades repo-scope
-            # even after passing the role gate). Only the `cd` form was checked.
-            if [[ -z "$_TGT_TREE" && "$COMMAND" =~ (-C|--work-tree|--git-dir)[[:space:]=]+(/[^[:space:]\;\&]+) ]]; then
+            # even after passing the role gate). `-C` is parsed AFTER `cd` and
+            # OVERRIDES it (no `-z` guard) — git changes its own CWD via -C
+            # before doing anything, so `cd /owned && git -C /other push`
+            # writes to /other, not /owned; the gate must check /other.
+            if [[ "$COMMAND" =~ (-C|--work-tree|--git-dir)[[:space:]=]+(/[^[:space:]\;\&]+) ]]; then
               _TGT_TREE="${BASH_REMATCH[2]}"
             fi
-            if [[ -n "$_TGT_REPO" ]] && ! printf '%s\n' "$_OWNED" | grep -qxF "$_TGT_REPO"; then
+            # Fail-closed on path traversal: the membership test below is a
+            # string-prefix glob with no path normalization, so `/owned/../x`
+            # would pass it while the kernel resolves it OUTSIDE the owned set.
+            # A '..' segment in a repo target has no legitimate use here.
+            if [[ -n "$_TGT_TREE" && "$_TGT_TREE" =~ (^|/)\.\.(/|$) ]]; then
+              _VIOL="working tree '$_TGT_TREE' (path traversal '..' is not allowed)"
+            fi
+            if [[ -z "$_VIOL" && -n "$_TGT_REPO" ]] && ! printf '%s\n' "$_OWNED" | grep -qxF "$_TGT_REPO"; then
               _VIOL="repo '$_TGT_REPO'"
             fi
             if [[ -z "$_VIOL" && -n "$_TGT_TREE" ]]; then
