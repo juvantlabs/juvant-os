@@ -357,9 +357,11 @@ If you must stay on Git Bash (no WSL), you can manually create
 Windows Task Scheduler entries pointing at:
   - C:\\path\\to\\Git\\bin\\bash.exe
   - $REPO_ROOT/helpers/<helper>.sh
-For each of the 5 helpers (turso-backup daily 03:00,
-audit-reconcile weekly Sat 03:00, anomaly-check every 15 min,
-morning-brief daily 08:00, cso-weekly-audit weekly Sun 22:00).
+For each of the 8 scheduled jobs (turso-backup daily 03:00,
+audit-reconcile weekly Sat 03:00, governance-backfill monthly day-1 04:00,
+anomaly-check every 15 min, morning-brief daily 08:00,
+cso-weekly-audit weekly Sun 22:00, drain-audit-spool every 5 min,
+drain-outbox every 15 min) — the same set the launchd/cron paths install.
 The hooks themselves run independently of these schedules.
 fiscal-deadlines.sh is available as an on-demand helper but is not scheduled.
 WINMSG

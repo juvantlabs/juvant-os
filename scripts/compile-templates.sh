@@ -80,6 +80,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# --check-only is a dry-run that must not modify anything. The per-file
+# substitution path honors it (the python writer is gated on CHECK_ONLY),
+# but rewrite_meta() does NOT — it swaps README/CHANGELOG/SECURITY/docs
+# unconditionally and then the footer prints "check-only: no files modified",
+# a destructive lie. Refuse the contradictory combination outright, and fail
+# fast (before the config/jq preconditions) so the error is unambiguous.
+if [[ "$CHECK_ONLY" == "1" && "$DO_REWRITE_META" == "1" ]]; then
+  echo "ERROR: --check-only cannot be combined with --rewrite-meta (rewrite-meta mutates files; check-only must not)." >&2
+  exit 2
+fi
+
 if [[ ! -f "$CONFIG" ]]; then
   echo "ERROR: $CONFIG not found. Run JUVANT_OS.md wizard Step 1 first." >&2
   exit 1

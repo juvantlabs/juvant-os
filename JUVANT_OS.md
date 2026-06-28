@@ -1603,8 +1603,8 @@ bash scripts/seed-matrix.sh
 ```
 
 The script reads the canonical v0 matrix from
-`scripts/templates/v0-agent-tool-matrix.json` (20 rows: 11 company-scope +
-9 project-scope; drift-corrected against `docs/MCP_INVENTORY.md` and
+`scripts/templates/v0-agent-tool-matrix.json` (20 rows: 12 company-scope +
+8 project-scope; drift-corrected against `docs/MCP_INVENTORY.md` and
 `SYSTEM_INVARIANTS.md` §4 carve-outs as of v0.6.6). Each row is INSERTed
 with `version='v0'` and `approved_by='ceo'`.
 
@@ -4653,6 +4653,15 @@ trail. **Company-scope agents only** — no project agents involved.
      into `.claude/settings.json` (preserves instance-specific keys). This is
      how hook-infra fixes reach existing adopters even though
      `.claude/settings.json` itself is on the "never touched" list.
+   - `scripts/templates/v0-agent-tool-matrix.json` changed → surface reminder:
+     *"the canonical v0 matrix changed upstream — the applied JSON is the
+     seed source, not the live table. Have the matrix owner (CTO) review the
+     delta and, if a row genuinely belongs in this instance's baseline, record
+     a `tool-matrix-change` decision and apply it; `seed-matrix.sh` is
+     init-only and is NOT auto-re-run on an existing instance (it would
+     clobber post-init CTO-approved matrix edits)."* The template file syncs,
+     but the running `agent_tool_matrix` rows do not change until an explicit,
+     audited matrix-change decision is applied.
 
 9. **Commit** — `git add <all applied files>` +
    `git commit -m "chore: sync framework files to upstream <tag>"`.
@@ -4685,6 +4694,7 @@ hooks/post-tool-use-failure.sh    hooks/session-start.sh
 hooks/session-end.sh          hooks/stop.sh
 hooks/subagent-start.sh       hooks/subagent-stop.sh
 hooks/post-compact.sh         hooks/pre-compact.sh
+hooks/lib/track-tokens.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh
@@ -4699,6 +4709,7 @@ scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
 scripts/sync-project-globs.sh scripts/governance-backfill.sh
 scripts/seed-matrix.sh        scripts/templates/v0-agent-tool-matrix.json
 scripts/sync-hooks.sh         scripts/templates/hooks-registration.json
+scripts/deadlines.json
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md
@@ -4720,9 +4731,9 @@ agents/projects/*.md          agents/components/maintainer.md
 
 **Files NEVER touched** (instance-specific — skip regardless of diff):
 `.juvant/config.json`, `agents/company/*.md`, `agents/projects/*/`,
-`.claude/agents/*.md`, `.github/CODEOWNERS`, `CLAUDE.md`, `MANIFESTO.md`,
-`README.md`, `SECURITY.md`, `docs/adr/`, `tests/`, `.mcp.json`,
-`.claude/settings.json`.
+`agents/components/*/`, `.claude/agents/*.md`, `.github/CODEOWNERS`,
+`CLAUDE.md`, `MANIFESTO.md`, `README.md`, `SECURITY.md`, `docs/adr/`,
+`tests/`, `.mcp.json`, `.claude/settings.json`.
 
 **Emergency note.** A direct `git fetch upstream && git merge upstream/main`
 is for emergencies only and must be followed by a full CSO post-incident audit.

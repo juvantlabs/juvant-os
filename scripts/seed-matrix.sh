@@ -27,9 +27,10 @@
 #   3   row count mismatch after INSERT (template vs DB)
 #
 # The canonical template is `scripts/templates/v0-agent-tool-matrix.json`.
-# Drift between this file and `agents/company/ca.md` § Default Agent Tool
-# Matrix is detected by Step 8.5 cross-check against
-# `docs/MCP_INVENTORY.md` (see CSO subagent Layer 5 §11 audit).
+# Drift between this file and `agents/company/cto.md` § Default Agent Tool
+# Matrix (the role was `ca` pre-v0.8; renamed CTO) is detected by Step 8.5
+# cross-check against `docs/MCP_INVENTORY.md` (see CSO subagent Layer 5 §11
+# audit).
 
 set -euo pipefail
 

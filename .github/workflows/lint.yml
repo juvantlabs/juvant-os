@@ -122,6 +122,12 @@ jobs:
         run: |
           bash tests/scenarios/lint.sh
 
+      - name: Sync/compile tests
+        run: |
+          # Guards the upstream-sync whitelist completeness, compile-templates
+          # --check-only safety, and v0-matrix doc/JSON count consistency.
+          bash tests/sync/test-sync-compile.sh
+
       - name: Hook tests (FEAT-008 L2)
         run: |
           # jq + sqlite3 already installed in earlier steps. Tests use
