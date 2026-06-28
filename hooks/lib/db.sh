@@ -70,6 +70,15 @@ juvant_db_resolve() {
     JUVANT_DB_PROVIDER=$(jq -r '.db.provider // ""' "$config" 2>/dev/null)
     JUVANT_DB_URL=$(jq -r '.db.url // .turso_url // ""' "$config" 2>/dev/null)
     JUVANT_DB_TOKEN=$(jq -r '.db.auth_token // .turso_token // ""' "$config" 2>/dev/null)
+    # Legacy-config inference: a pre-v0.8 config carries top-level `.turso_url`
+    # with no `.db.provider`. The URL read above already falls back to
+    # `.turso_url`, but the provider would stay empty — so every query/exec
+    # silently no-ops (and the scheduled helpers FATAL-exit). A top-level
+    # `.turso_url` IS a turso config; infer it (mirrors the env inference below).
+    if [[ -z "$JUVANT_DB_PROVIDER" ]] \
+       && [[ -n "$(jq -r '.turso_url // ""' "$config" 2>/dev/null)" ]]; then
+      JUVANT_DB_PROVIDER="turso"
+    fi
   fi
 
   # Env override (cloud paths only).
@@ -97,6 +106,26 @@ juvant_db_resolve() {
       JUVANT_DB_PATH="$stripped"
     fi
   fi
+}
+
+# Returns the CLI binary the resolved provider needs (echoes name; empty if
+# the provider is unknown). Call after juvant_db_resolve.
+juvant_db_required_cli() {
+  case "$JUVANT_DB_PROVIDER" in
+    local)               printf 'sqlite3' ;;
+    turso|azure|aws|gcp) printf 'turso' ;;
+    *)                   printf '' ;;
+  esac
+}
+
+# 0 if the provider's CLI is on PATH, 1 otherwise. Scheduled helpers use this
+# to FAIL LOUD instead of silently emitting empty results when the CLI is
+# missing from a launchd/cron PATH — the db.sh query/exec functions themselves
+# `return 1` quietly (fail-soft, correct for the hook gating path, wrong for a
+# helper that would otherwise ship an empty Teams card as "success").
+juvant_db_cli_ok() {
+  local cli; cli="$(juvant_db_required_cli)"
+  [[ -n "$cli" ]] && command -v "$cli" &>/dev/null
 }
 
 # Execute SQL passed as the first argument.
@@ -249,6 +278,16 @@ juvant_db_query() {
 
 # Read-only query with CSV output (the two CLIs have different flags
 # for CSV — sqlite3 uses `-csv`, turso uses `--output csv`).
+#
+# Header consistency: `turso db shell --output csv` prints a column-name
+# HEADER row above the data; `sqlite3 -csv` (no `-header`) does NOT. Left
+# unequal, a `while IFS=',' read` consumer would process turso's header as
+# a bogus first data row on cloud backends but not on local — a
+# provider-dependent bug (it bit drain-outbox latently). We normalize to
+# HEADER-LESS on BOTH backends by stripping turso's single header line, so
+# every consumer parses rows uniformly with no per-call header skip. (The
+# fake-turso test shim mirrors the real CLI by emitting a header via
+# `sqlite3 -csv -header`, so this path is exercised in CI.)
 juvant_db_query_csv() {
   local sql="$1"
 
@@ -265,7 +304,11 @@ juvant_db_query_csv() {
       if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
         return 1
       fi
-      _juvant_db_run turso db shell --output csv "$JUVANT_DB_URL" "$sql" 2>/dev/null
+      # URL comes first (turso's positional order is `<url> [sql] [flags]`,
+      # and the scalar path above already relies on url-first); `--output csv`
+      # then `$sql`. tail -n +2 drops turso's header row (empty result ⇒
+      # header only ⇒ tail yields nothing, the correct empty output).
+      _juvant_db_run turso db shell "$JUVANT_DB_URL" --output csv "$sql" 2>/dev/null | tail -n +2
       ;;
     *)
       return 1
