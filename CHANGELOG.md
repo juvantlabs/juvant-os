@@ -11,6 +11,17 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session lifecycle hooks never captured stdin** (#69) — the 6 hooks
+  (session-start/end, stop, subagent-start/stop, pre-compact) gated their read
+  on `[ -p /dev/stdin ]` (named-pipe only), but Claude Code delivers the event
+  as a redirect, so `session_id` was never captured and the hooks silently
+  no-op'd ("SessionStart does nothing"). Now read on any non-terminal stdin
+  (`[ ! -t 0 ]`), bounded by a 2s `read -t` (no `timeout(1)` dependency). A
+  redirect-delivered regression test guards it (the prior pipe-based test
+  passed even with the bug).
+
 ## [1.11.0] — 2026-06-29 — Document spaces + outbox + sensitive-space perimeter; guardrail hardening
 
 ### Added
