@@ -1,0 +1,163 @@
+{"ts":"2026-06-29T14:03:26Z","event":"run_start","scenario":"single-project","fixture_version":"3","skill_version":"1.11.0"}
+{"ts":"2026-06-29T14:03:26Z","event":"step_start","step":"1","phase":"identity","total_steps":18}
+{"ts":"2026-06-29T14:03:26Z","event":"input_resolved","step":"1","field":"company_name","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:26Z","event":"input_resolved","step":"1","field":"company_slug","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:26Z","event":"input_resolved","step":"1","field":"company_domain","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1","field":"ceo_name","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1","field":"ceo_pronouns","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1","field":"copyright_holder","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"step_done","step":"1","phase":"identity","duration_s":1.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:03:27Z","event":"step_start","step":"1.5","phase":"doc_storage","total_steps":18}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5","field":"provider","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5","field":"mcp_server","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5","field":"path_pattern","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5","field":"folders","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5","field":"fallback_chain","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"step_done","step":"1.5","phase":"doc_storage","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:03:27Z","event":"step_start","step":"1.5b","phase":"mailboxes","total_steps":18}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5b","field":"cfo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5b","field":"clo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5b","field":"cco","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.5b","field":"cmo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"step_done","step":"1.5b","phase":"mailboxes","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:03:27Z","event":"step_start","step":"1.6","phase":"github_map","total_steps":18}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"ceo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cos","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cfo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"clo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cmo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cco","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"chro","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cso","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cetho","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cto","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"cro","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"vpe","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"input_resolved","step":"1.6","field":"eng-platform","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:03:27Z","event":"step_done","step":"1.6","phase":"github_map","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:10Z","event":"step_start","step":"2","phase":"database","total_steps":18}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"2","field":"provider","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"2","field":"setup_mode","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"2","field":"url","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"2","field":"auth_token","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"checkpoint","step":"2","detail":"schema applied","table_count":29}
+{"ts":"2026-06-29T14:04:10Z","event":"step_done","step":"2","phase":"database","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:10Z","event":"step_start","step":"4","phase":"notifications","total_steps":18}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4","field":"telegram.enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4","field":"telegram.bot_token","source":"fixture","value_redacted":true}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4","field":"telegram.chat_id","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4","field":"telegram.is_operator_personal_channel","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4","field":"telegram.message_time_window","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4","field":"webhooks","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"step_done","step":"4","phase":"notifications","duration_s":0.4,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:10Z","event":"step_start","step":"4.5","phase":"guardrails","total_steps":18}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4.5","field":"confirmation_token.enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4.5","field":"confirmation_token.token","source":"fixture","value_redacted":true}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4.5","field":"anomaly_thresholds.cost_p95_multiplier","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4.5","field":"anomaly_thresholds.tool_call_burst_per_min","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"4.5","field":"audit_log_retention_days","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"step_done","step":"4.5","phase":"guardrails","duration_s":0.4,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:10Z","event":"step_start","step":"5","phase":"counterparties","total_steps":18}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"5","field":"mode","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"5","field":"entries[0]","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:10Z","event":"input_resolved","step":"5","field":"entries[1]","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:22Z","event":"checkpoint","step":"5","detail":"counterparties seeded","rows":2}
+{"ts":"2026-06-29T14:04:22Z","event":"step_done","step":"5","phase":"counterparties","duration_s":0.4,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:38Z","event":"step_start","step":"6","phase":"agent_names","total_steps":18}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cos","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cfo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.clo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cmo","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cco","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.chro","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cso","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cetho","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cto","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.cro","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.vpe","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"agent_names.eng-platform","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"feature_toggles.eng_platform_enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"feature_toggles.cro_enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"feature_toggles.vpe_enabled","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"input_resolved","step":"6","field":"feature_toggles.cloud_provider","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:04:38Z","event":"step_done","step":"6","phase":"agent_names","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:54Z","event":"step_start","step":"7","phase":"compile_templates","total_steps":18}
+{"ts":"2026-06-29T14:04:55Z","event":"checkpoint","step":"7","detail":"compile-templates --scope company","exit_code":0}
+{"ts":"2026-06-29T14:04:55Z","event":"step_done","step":"7","phase":"compile_templates","duration_s":2.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:55Z","event":"step_start","step":"7.5","phase":"render_infra","total_steps":18}
+{"ts":"2026-06-29T14:04:55Z","event":"checkpoint","step":"7.5","detail":"CODEOWNERS rendered","exit_code":0}
+{"ts":"2026-06-29T14:04:55Z","event":"step_done","step":"7.5","phase":"render_infra","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:04:55Z","event":"step_start","step":"7.6","phase":"rewrite_meta","total_steps":18}
+{"ts":"2026-06-29T14:04:56Z","event":"checkpoint","step":"7.6","detail":"per-company files rewritten","exit_code":0}
+{"ts":"2026-06-29T14:04:56Z","event":"step_done","step":"7.6","phase":"rewrite_meta","duration_s":0.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:05:47Z","event":"step_start","step":"8","phase":"seed_matrix","total_steps":18}
+{"ts":"2026-06-29T14:05:48Z","event":"checkpoint","step":"8","detail":"seed-matrix.sh","exit_code":0,"rows":20}
+{"ts":"2026-06-29T14:05:48Z","event":"checkpoint","step":"8","detail":"matrix-seed decision row written","decisions_count":1}
+{"ts":"2026-06-29T14:05:48Z","event":"step_done","step":"8","phase":"seed_matrix","duration_s":0.8,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:05:48Z","event":"step_start","step":"8.5","phase":"mcp_crosscheck","total_steps":18}
+{"ts":"2026-06-29T14:05:48Z","event":"checkpoint","step":"8.5","detail":"v0 matrix passes inventory + boundary checks","findings":0}
+{"ts":"2026-06-29T14:05:48Z","event":"step_done","step":"8.5","phase":"mcp_crosscheck","duration_s":0.3,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:06:45Z","event":"step_start","step":"9","phase":"bootstrap_protocol","total_steps":18}
+{"ts":"2026-06-29T14:06:45Z","event":"input_resolved","step":"9","field":"manifesto_approval_mode","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:06:45Z","event":"checkpoint","step":"9","detail":"manifestos bulk-applied (accept_all_defaults)","manifests":11,"agents_opr":11,"decisions":12}
+{"ts":"2026-06-29T14:07:00Z","event":"subagent_spawn","step":"9.7","subagent":"cso","reason":"bootstrap_baseline audit per SYSTEM_INVARIANTS §1.7"}
+{"ts":"2026-06-29T14:08:33Z","event":"checkpoint","step":"9.8","detail":"bootstrap sealed","manifests_op":11,"agents_op":11,"bootstrap_completed_at":"2026-06-29T14:08:33Z","verdict":"WARN-WITH-CONDITIONS"}
+{"ts":"2026-06-29T14:08:33Z","event":"step_done","step":"9","phase":"bootstrap_protocol","duration_s":60.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:08:53Z","event":"step_start","step":"10","phase":"initial_commit","total_steps":18}
+{"ts":"2026-06-29T14:08:54Z","event":"checkpoint","step":"10","detail":"initial commit (no push in batch CI)","sha":"644d475","push":false}
+{"ts":"2026-06-29T14:08:54Z","event":"step_done","step":"10","phase":"initial_commit","duration_s":2.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:08:54Z","event":"step_start","step":"10.5","phase":"branch_protection","total_steps":18}
+{"ts":"2026-06-29T14:08:54Z","event":"input_resolved","step":"10.5","field":"branch_protection.mode","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:08:54Z","event":"checkpoint","step":"10.5","detail":"branch-protection-spec recorded; skip_in_batch — no gh api call","applied":false}
+{"ts":"2026-06-29T14:08:54Z","event":"step_done","step":"10.5","phase":"branch_protection","duration_s":0.3,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:08:54Z","event":"phase_done","phase":"company","verdict":"WARN-WITH-CONDITIONS","total_steps":18}
+{"ts":"2026-06-29T14:09:21Z","event":"step_start","step":"proj.1","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1","field":"slug","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1","field":"name","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1","field":"description","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"step_start","step":"proj.1.gh","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1.gh","field":"github_repo.mode","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1.gh","field":"github_repo.org_target","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1.gh","field":"github_repo.repo_name","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1.gh","field":"github_repo.visibility","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"checkpoint","step":"proj.1.gh","detail":"skip_in_batch — install-spec recorded, applied=false"}
+{"ts":"2026-06-29T14:09:21Z","event":"step_done","step":"proj.1.gh","phase":"project","duration_s":0.3,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:09:21Z","event":"step_start","step":"proj.1.doc","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1.doc","field":"doc_folder.mode","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.1.doc","field":"doc_folder.path","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"checkpoint","step":"proj.1.doc","detail":"skip_auto_discovery; doc_folder unset"}
+{"ts":"2026-06-29T14:09:21Z","event":"step_done","step":"proj.1.doc","phase":"project","duration_s":0.2,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:09:21Z","event":"step_done","step":"proj.1","phase":"project","duration_s":0.3,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:09:21Z","event":"step_start","step":"proj.2","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.2","field":"database.provider","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.2","field":"database.url","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"input_resolved","step":"proj.2","field":"database.auth_token","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:21Z","event":"checkpoint","step":"proj.2","detail":"per-project DB migrated","table_count":29}
+{"ts":"2026-06-29T14:09:21Z","event":"checkpoint","step":"proj.2","detail":"projects row inserted","rows":1}
+{"ts":"2026-06-29T14:09:21Z","event":"step_done","step":"proj.2","phase":"project","duration_s":0.6,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:09:37Z","event":"step_start","step":"proj.3","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.pca","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.product-lead","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.design-lead","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-lead","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-api","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-backend","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-frontend","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"input_resolved","step":"proj.3","field":"agent_names.eng-ai","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:09:37Z","event":"step_done","step":"proj.3","phase":"project","duration_s":0.3,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:09:37Z","event":"step_start","step":"proj.4","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:09:38Z","event":"checkpoint","step":"proj.4","detail":"compile-templates --scope projects --project=apollo","exit_code":0}
+{"ts":"2026-06-29T14:09:38Z","event":"step_done","step":"proj.4","phase":"project","duration_s":1.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:10:08Z","event":"step_start","step":"proj.5","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:10:08Z","event":"input_resolved","step":"proj.5","field":"bootstrap.manifesto_approval_mode","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:10:08Z","event":"checkpoint","step":"proj.5","detail":"project manifestos bulk-applied to project-apollo.db","manifests":8,"agents":8,"decisions":8}
+{"ts":"2026-06-29T14:10:08Z","event":"subagent_spawn","step":"proj.5.cso","subagent":"cso","reason":"project bootstrap_baseline audit scoped to apollo"}
+{"ts":"2026-06-29T14:11:32Z","event":"checkpoint","step":"proj.5.cso","detail":"CSO audit PASS; project manifests promoted to operational","manifests_op":8,"agents_op":8,"project_verdict":"PASS"}
+{"ts":"2026-06-29T14:11:32Z","event":"step_done","step":"proj.5","phase":"project","duration_s":50.0,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:11:32Z","event":"checkpoint","step":"proj.5.labels","detail":"juvant:decision label creation skipped — no remote in batch CI"}
+{"ts":"2026-06-29T14:11:32Z","event":"step_start","step":"proj.6","phase":"project","total_steps":9}
+{"ts":"2026-06-29T14:11:32Z","event":"input_resolved","step":"proj.6","field":"commit.push","source":"fixture","value_redacted":false}
+{"ts":"2026-06-29T14:11:32Z","event":"checkpoint","step":"proj.6","detail":"project commit (push=false per fixture)","sha":"6c96a9e","push":false}
+{"ts":"2026-06-29T14:11:32Z","event":"step_done","step":"proj.6","phase":"project","duration_s":1.5,"tokens_in":null,"tokens_out":null}
+{"ts":"2026-06-29T14:11:32Z","event":"phase_done","phase":"project","verdict":"PASS","total_steps":9}
+{"ts":"2026-06-29T14:11:47Z","event":"run_complete","verdict":"WARN-WITH-CONDITIONS","company_verdict":"WARN-WITH-CONDITIONS","project_verdict":"PASS","total_duration_s":480,"events_emitted":163,"tokens_total":null,"tool_calls":{"Bash":20,"Task":2,"Read":5,"Edit":0,"Write":0}}
