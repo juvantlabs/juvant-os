@@ -512,17 +512,22 @@ SQL
   #   2. `role` is GLOBALLY UNIQUE, so the project-scope CTO must be renamed to
   #      `pca` BEFORE the company-scope CA takes the `cto` name — otherwise
   #      `ca`→`cto` collides with the still-present project `cto`. Order matters.
-  sql_agents=$(cat <<SQL
+  # The delimiter is QUOTED (<<'SQL') so the body is fully literal — no
+  # parameter/command expansion, and (critically) an apostrophe in a comment
+  # cannot leave an unbalanced single quote that derails the bash
+  # command-substitution parser inside $(cat <<...). The body needs no shell
+  # expansion; keep it that way.
+  sql_agents=$(cat <<'SQL'
 UPDATE agents SET role='pca'          WHERE role='cto' AND scope != 'company';
 UPDATE agents SET role='cto'          WHERE role='ca';
 UPDATE agents SET role='eng-lead'     WHERE role='coo';
 UPDATE agents SET role='design-lead'  WHERE role='cdo';
 UPDATE agents SET role='product-lead' WHERE role='cpo';
 -- Project-VPE: row absorbed by eng-lead; if a project-vpe row still exists
--- with status='active', mark it offboarded (ADR 0014 §2 absorption). Left in
--- place for the audit trail; downstream loaders ignore status='offboarded'.
--- (The agents table has no offboarded_at/offboarded_reason columns — the
--- offboard reason lives in this migration's log + the remediation summary.)
+-- with status='active', mark it offboarded (ADR 0014 section 2 absorption).
+-- Left for the audit trail; downstream loaders ignore status='offboarded'.
+-- (No offboarded_at/offboarded_reason columns exist; the offboard reason is
+-- recorded in this migration log + the remediation summary.)
 UPDATE agents SET status='offboarded'
   WHERE role='vpe' AND scope != 'company' AND status != 'offboarded';
 SQL

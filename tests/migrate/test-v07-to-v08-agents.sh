@@ -13,6 +13,16 @@ PASS=0; FAIL=0
 ck(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1));
       else echo "  FAIL: $1 (expected '$2', got '$3')"; FAIL=$((FAIL+1)); fi; }
 
+# Parse-gate (regression for the main-repo review): the script must be valid
+# bash. shellcheck's parser does NOT catch an unbalanced single quote inside a
+# $(cat <<SQL ...) heredoc — only `bash -n` / runtime does — and exactly that
+# (a `migration's` apostrophe) shipped a migrate.sh that aborted at startup.
+if bash -n "$ROOT/scripts/migrate.sh" 2>/dev/null; then
+  ck "migrate.sh parses (bash -n)" "ok" "ok"
+else
+  ck "migrate.sh parses (bash -n)" "ok" "PARSE ERROR"
+fi
+
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 DB="$TMP/v07.db"
 sqlite3 "$DB" < "$ROOT/scripts/schema.sql"
@@ -24,7 +34,7 @@ sqlite3 "$DB" "INSERT INTO agents (role, scope, status) VALUES
   ('cpo','dog-ai','active'), ('vpe','dog-ai','active');"
 
 # Extract the ACTUAL rename SQL from migrate.sh so the test can never drift.
-AGENTS_SQL=$(awk '/sql_agents=\$\(cat <<SQL/{f=1;next} f&&/^SQL$/{f=0} f' "$ROOT/scripts/migrate.sh")
+AGENTS_SQL=$(awk "/sql_agents=\\\$\\(cat <<'?SQL/{f=1;next} f&&/^SQL\$/{f=0} f" "$ROOT/scripts/migrate.sh")
 [[ -n "$AGENTS_SQL" ]] || { echo "FAIL: could not extract sql_agents from migrate.sh"; exit 1; }
 
 if echo "$AGENTS_SQL" | sqlite3 "$DB" 2>"$TMP/err"; then

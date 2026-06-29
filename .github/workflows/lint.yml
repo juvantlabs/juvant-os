@@ -87,17 +87,25 @@ jobs:
           fi
           echo "OK — no tracked secrets detected"
 
-      - name: Shellcheck — hooks + scripts + helpers
+      - name: Shellcheck + bash -n — hooks + scripts + helpers
         run: |
           # Lint shipped shell scripts. helpers/ is the FEAT-007 deliverable
           # directory; pattern includes it for forward compatibility (nullglob
           # makes the loop a no-op when helpers/ is absent).
+          #
+          # `bash -n` (parse-only) is run ALONGSIDE shellcheck because they use
+          # different parsers and catch different defects: shellcheck's parser
+          # accepted an unbalanced single quote inside a $(cat <<SQL ...)
+          # heredoc that broke the real bash parse of scripts/migrate.sh (a
+          # `migration's` apostrophe), shipping a migration that aborted at
+          # startup. shellcheck green is necessary but not sufficient.
           sudo apt-get install -y shellcheck
           shopt -s nullglob
           fail=0
-          for f in hooks/*.sh scripts/*.sh helpers/*.sh; do
-            echo "::group::shellcheck $f"
+          for f in hooks/*.sh hooks/lib/*.sh scripts/*.sh helpers/*.sh; do
+            echo "::group::lint $f"
             shellcheck "$f" || fail=1
+            bash -n "$f" || { echo "bash -n FAILED: $f"; fail=1; }
             echo "::endgroup::"
           done
           [ "$fail" = 0 ]
