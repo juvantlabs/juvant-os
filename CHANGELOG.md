@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.11.0] — 2026-06-29 — Document spaces + outbox + sensitive-space perimeter; guardrail hardening
+
 ### Added
 
 - **ADR 0023** — provider-neutral document **spaces** (= §4 scopes). Default
@@ -22,6 +24,20 @@ All written artifacts in English. No exceptions.
   side-effecting MCP operations (approval inside the queue; per-operation
   activation via rubric, not per-MCP). New `helpers/drain-outbox.sh` (readiness
   surfacer; dispatch agent-mediated). Tracker ARCH-014.
+- **ADR 0025 + Track 2e (ARCH-015)** — document-space access control: MCP-scope
+  is a sequenced prerequisite of promotion, access-aware `resolve_space`, and a
+  hook-enforced perimeter for sensitive (Universal-CONFIDENTIAL) spaces. The
+  per-operation deny-list was proven in an instance then harvested into the
+  framework hook as `pre-tool-use.sh` **Track 2e** (policy-driven from
+  instance-local `.security.space_access[]`), with the standing canary
+  `tests/hooks/test-space-access-policy.sh` wired into CI.
+- **ADR 0026** — authorization is a verifiable record, not a message: closes the
+  direct-CEO approval deadlock.
+- **ADR 0027** — separate the framework agent **template** from compiled output
+  (canon via INCLUDE + instance overlay).
+- **ADR 0021 / ADR 0022** — branch protection admins-exempt for single-identity
+  repos; remote authenticated MCP servers via `mcp-remote` + `dotenv-cli` stdio
+  bridge.
 
 ### Changed
 
@@ -32,6 +48,47 @@ All written artifacts in English. No exceptions.
   CMO Content Scheduling Protocol now stages through the `outbox` (justified by
   the CEO-approval-before-publish invariant; any plan cap / rotating queue is
   instance config, not framework).
+- **Scheduled helpers route through `hooks/lib/db.sh`** (#65) — `anomaly-check`,
+  `audit-reconcile`, `morning-brief`, `cso-weekly-audit`, `activity-digest` are
+  now provider-agnostic (turso/cloud **or** local sqlite), timeout-bounded, and
+  read the canonical `.db.url` key (with `.turso_url` fallback + legacy-config
+  provider inference). They previously read the legacy `.turso_url` key only and
+  FATAL-exited on v0.8 configs / silently no-op'd on local-sqlite adopters. Add
+  a provider-aware CLI-presence guard so a missing CLI fails loud instead of
+  shipping an empty Teams brief as "success".
+- **upstream-sync hygiene** (#67) — whitelist gaps closed
+  (`hooks/lib/track-tokens.sh`, `scripts/deadlines.json`, `agents/components/*/`
+  never-touched); `compile-templates.sh --check-only` refuses to combine with
+  the file-mutating `--rewrite-meta`; matrix/doc-drift corrections.
+- Single-identity branch-protection rule is `required_approving_review_count=0`,
+  not 1-with-admin-exempt (#55).
+
+### Fixed
+
+- **Hook audit-trail plumbing** (#66) — `post-tool-use-failure.sh` derived ROLE
+  differently from the pre/post pair, so failed subagent tool-calls stayed
+  `pending` forever; `post-compact.sh` truncated multi-line session snapshots
+  (`tail -n 1` + turso whitespace-strip) — now base64 round-tripped;
+  `drain-audit-spool.sh` re-queued the whole batch on a partial failure,
+  duplicating audit rows — now drains one statement at a time.
+- **`turso-backup.sh`** (#63) — the spec-class `ARCHIVAL-` retention grep matched
+  nothing (`.dump` is positional; no bare `spec` category), so spec-decision
+  history was silently subject to rolling deletion.
+- **`install-schedules.sh`** (#64) — `audit-reconcile` ran on Sunday on macOS
+  (launchd `Weekday 7` = Sunday, not Saturday), colliding with `cso-weekly-audit`.
+
+### Security
+
+- **Track 2d single-writer write-detection hardened** (#68) — closed confirmed
+  bypasses where a non-writer agent could perform git/gh writes: `git -C <path>`
+  / `--work-tree` directory-redirect (incl. `cd`-override and `..` traversal on
+  the repo-scope check), `bash -c 'git push'` and other indirect-verb forms, and
+  `gh api` writes via `--input` / lowercase or compact `--method`/`-X` /
+  sibling-or-comment `-X GET`. **Track 4** spec-gate now distinguishes a missing
+  spec from a DB-unreachable blip (no longer mis-instructs the agent to author a
+  duplicate spec). **Track 2e** sensitive-space audit row moved off the gating
+  path (async spool, FEAT-051). Comprehensive regression suite added
+  (`tests/hooks/run-tests.sh`, 76 assertions; space-access canary, 26).
 
 ## [1.10.0] — 2026-06-22 — Repo-scoped write gate + compile --scope component
 
