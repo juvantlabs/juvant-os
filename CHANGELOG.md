@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.11.1] — 2026-06-29 — Session lifecycle hooks capture stdin (redirect fix)
+
 ### Fixed
 
 - **Session lifecycle hooks never captured stdin** (#69) — the 6 hooks
