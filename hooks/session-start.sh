@@ -17,8 +17,13 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Read event JSON from stdin (may be empty on some Claude Code versions)
 EVENT_JSON=""
-if [ -p /dev/stdin ]; then
-  EVENT_JSON=$(cat -)
+# Claude Code delivers the event JSON on stdin as a REDIRECT, not necessarily
+# a named pipe — the old `[ -p /dev/stdin ]` guard was false for a redirect,
+# so the event was never read (session_id lost; the hook silently no-op'd).
+# Read whenever stdin is not a terminal, bounded by a 2s read timeout so a
+# non-EOF stdin can never hang the hook (no `timeout(1)` dep — absent on macOS).
+if [ ! -t 0 ]; then
+  IFS= read -r -d "" -t 2 EVENT_JSON 2>/dev/null || true
 fi
 
 # shellcheck disable=SC1091

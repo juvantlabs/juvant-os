@@ -90,6 +90,18 @@ t_assert "sets agents.status=active" "active" "$status"
 sid=$(t_db "SELECT session_id FROM agents WHERE role='cos';")
 t_assert "writes session_id from event" "sess-1" "$sid"
 
+# Regression (#61): Claude Code delivers the event on stdin as a REDIRECT, not
+# a named pipe. The old `[ -p /dev/stdin ]` guard was false for a redirect →
+# EVENT_JSON empty → session_id never captured (the hook silently no-op'd).
+# Deliver via `< file` and assert it is still captured. (The pipe-based test
+# above passed even with the bug, which is why it went unnoticed.)
+t_reset_agents
+t_seed_agent "cos" "inactive"
+printf '%s' '{"session_id":"sess-redir-9"}' > "$TMPROOT/ev-ss.json"
+AGENT_ROLE=cos bash "$HOOKS_DIR/session-start.sh" < "$TMPROOT/ev-ss.json"
+sid=$(t_db "SELECT session_id FROM agents WHERE role='cos';")
+t_assert "captures session_id via redirected (non-pipe) stdin" "sess-redir-9" "$sid"
+
 # Fail-soft when no Turso creds.
 unset TURSO_URL TURSO_TOKEN
 echo '{}' | AGENT_ROLE=cos bash "$HOOKS_DIR/session-start.sh" 2>/dev/null
