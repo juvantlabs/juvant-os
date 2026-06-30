@@ -23,10 +23,11 @@ All written artifacts in English. No exceptions.
   "direct"/"non-relay" message — a channel that does not exist — and **deadlocked
   on every CEO-gated action** (a relayed approval was refused as carrying no
   authority, with no way to obtain an "authoritative" one). Added the clause to
-  all 14 remaining templates (cco, cfo, chro, clo, cmo, cos, cro, cso, cto, vpe;
-  pca, product-lead, design-lead, eng-lead). The clause also closes the relayer
-  side: an agent that relays a CEO approval onward must materialize it as the
-  verifiable record. 17/17 now carry it. (A reference invariant in a shared doc
+  all 18 remaining templates (cco, cfo, chro, clo, cmo, cos, cro, cso, cto, vpe;
+  pca, product-lead, design-lead, eng-lead, eng-ai, eng-api, eng-backend,
+  eng-frontend). The clause also closes the relayer side: an agent that relays a
+  CEO approval onward must materialize it as the verifiable record. 21/21 agent
+  templates now carry it. (A reference invariant in a shared doc
   is necessary but not sufficient — the rule must be in each agent's own
   manifesto to resolve the runtime "relayed ⇒ no authority" annotation.)
 
