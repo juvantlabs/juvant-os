@@ -78,16 +78,28 @@ if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
   # BUG-048: route through db.sh's juvant_db_query (hard-timeout wrapped per
   # BUG-046) instead of calling `turso db shell` directly — a direct call has
   # no time bound and can hang session end on a network stall.
-  _count() { juvant_db_query "$1" 2>/dev/null | tail -1 | tr -d ' \r'; }
+  #
+  # BUG-051: collapse the three independent wrap-up COUNT(*)s into ONE
+  # round-trip. session-end runs at the exit-teardown boundary; three serial
+  # Turso calls (each bounded per-query by JUVANT_DB_TIMEOUT) can sum past the
+  # window Claude Code grants shutdown hooks, so the hook is cancelled
+  # mid-flight ("Hook cancelled"). One row = one network round-trip. The three
+  # counts are packed into a single cell with a '|' delimiter — which survives
+  # juvant_db_query's ' \t' whitespace-strip on the turso path (unlike a
+  # multi-column row, whose separators would be collapsed) — so the column
+  # order is fixed and positional parsing is safe.
+  WRAP_RAW=$(juvant_db_query \
+    "SELECT (SELECT COUNT(*) FROM inbound_queue WHERE agent_owner='cos' AND status='pending')
+         || '|' ||
+            (SELECT COUNT(*) FROM decisions WHERE status='proposed'
+             AND created_at > datetime('now','-24 hours'))
+         || '|' ||
+            (SELECT COUNT(*) FROM messages WHERE notify_ceo=1 AND status='unread');" \
+    2>/dev/null | tail -1 | tr -d ' \r')
 
-  PENDING_QUEUE=$(_count \
-    "SELECT COUNT(*) FROM inbound_queue WHERE agent_owner='cos' AND status='pending';")
-  PROPOSED_DECISIONS=$(_count \
-    "SELECT COUNT(*) FROM decisions WHERE status='proposed'
-     AND created_at > datetime('now','-24 hours');")
-  UNREAD_CEO=$(_count \
-    "SELECT COUNT(*) FROM messages WHERE notify_ceo=1 AND status='unread';")
-
+  # `read` returns non-zero at EOF (empty result when the DB is unreachable);
+  # `|| true` keeps `set -e` from aborting while still assigning what parsed.
+  IFS='|' read -r PENDING_QUEUE PROPOSED_DECISIONS UNREAD_CEO <<< "$WRAP_RAW" || true
   PENDING_QUEUE=${PENDING_QUEUE:-0}
   PROPOSED_DECISIONS=${PROPOSED_DECISIONS:-0}
   UNREAD_CEO=${UNREAD_CEO:-0}

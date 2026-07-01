@@ -13,6 +13,18 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- **BUG-051 — `session-end.sh` could be cancelled at exit ("Hook cancelled").**
+  The SessionEnd hook issued the three FEAT-035 wrap-up `COUNT(*)` queries as
+  three *serial* Turso round-trips. Each is bounded per-call by the db.sh
+  hard-timeout (BUG-046), but nothing bounded their sum — on a slow/stalled
+  cloud provider the serial total could exceed the window Claude Code grants
+  shutdown hooks, so the runtime cancelled the hook mid-flight. No data was ever
+  at risk (agent-status, token-usage finalization, and the wrap-up reminder are
+  all best-effort; the underlying queue/decisions/messages persist
+  independently), but the finalization was skipped. Collapsed the three counts
+  into **one** query returning a single `|`-delimited cell — one network
+  round-trip — with a regression test asserting a single wrap-up round-trip and
+  correct per-source reminder counts.
 - **ADR-0026 anti-deadlock clause was missing from 14 of 17 agent templates.**
   The invariant — authorization is a verifiable *record* (`approved` `decisions`
   row / ratified `juvant:decision` / Track-1 token), there is no direct CEO→agent
