@@ -131,6 +131,47 @@ t_assert "writes agent_token_usage row from transcript" "1" "$rows"
 ended=$(t_db "SELECT ended_at FROM agent_token_usage WHERE session_id='sess-finalize-1';")
 t_assert "ended_at populated" "true" "$([[ -n "$ended" ]] && echo true || echo false)"
 
+# BUG-051: the three FEAT-035 wrap-up COUNT(*)s must collapse into ONE Turso
+# round-trip. session-end runs at the exit-teardown boundary; three serial
+# calls can sum past the window Claude Code grants shutdown hooks and get
+# cancelled ("Hook cancelled"). We swap in a logging `turso` shim (one line
+# per invocation, newlines flattened) and assert exactly one query touches the
+# count tables — and that that single query carries all three — while the
+# reminder still lands with the correct per-source counts.
+t_db "DELETE FROM messages; DELETE FROM inbound_queue; DELETE FROM decisions;"
+# Seed observable unsaved work: 2 pending queue, 1 proposed decision, 1 unread CEO.
+t_db "INSERT INTO inbound_queue (counterparty_id, agent_owner, content, confidence, status)
+      VALUES ('cp1','cos','x','unknown','pending'),('cp2','cos','y','unknown','pending');"
+t_db "INSERT INTO decisions (agent, title, status) VALUES ('cos','pending thing','proposed');"
+t_db "INSERT INTO messages (from_agent, to_agent, type, content, notify_ceo, status)
+      VALUES ('x','cos','escalation','{}',1,'unread');"
+
+WRAP_LOG="$TMPROOT/turso-calls.log"
+: > "$WRAP_LOG"
+cat > "$FAKE_BIN/turso" <<EOF
+#!/usr/bin/env bash
+printf '%s ' "\$@" | tr '\n' ' ' >> "$WRAP_LOG"; printf '\n' >> "$WRAP_LOG"
+exec bash "$SCRIPT_DIR/fake-turso.sh" "\$@"
+EOF
+chmod +x "$FAKE_BIN/turso"
+
+wrap_event=$(jq -n --arg sid "sess-wrap-1" '{session_id:$sid}')
+echo "$wrap_event" | AGENT_ROLE=cos bash "$HOOKS_DIR/session-end.sh" 2>/dev/null
+
+wrap_roundtrips=$(grep -c 'FROM inbound_queue' "$WRAP_LOG")
+t_assert "BUG-051: single wrap-up round-trip (not 3)" "1" "$wrap_roundtrips"
+combined=$(grep 'FROM inbound_queue' "$WRAP_LOG" | grep -c 'FROM decisions.*FROM messages')
+t_assert "BUG-051: all three counts in one query" "1" "$combined"
+
+reminder=$(t_db "SELECT content FROM messages WHERE type='session-wrap-reminder' ORDER BY id DESC LIMIT 1;")
+t_assert "wrap reminder: pending_queue"      "2" "$(echo "$reminder" | jq -r '.pending_queue')"
+t_assert "wrap reminder: proposed_decisions" "1" "$(echo "$reminder" | jq -r '.proposed_decisions')"
+t_assert "wrap reminder: unread_ceo_messages" "1" "$(echo "$reminder" | jq -r '.unread_ceo_messages')"
+
+# Restore the plain shim so later suites are unaffected by call logging.
+cp "$SCRIPT_DIR/fake-turso.sh" "$FAKE_BIN/turso"
+chmod +x "$FAKE_BIN/turso"
+
 # ─────────────────────────────────────────────
 # stop.sh — UPSERT idempotency
 # ─────────────────────────────────────────────
