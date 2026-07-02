@@ -13,6 +13,23 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- **BUG-052 — `agent_actions_log` rows leak as `pending` forever (audit
+  under-reporting).** Async / fire-and-forget tools (`SendMessage`,
+  `ExitPlanMode`) get no synchronous `PostToolUse`, so the finalizing UPDATE in
+  `post-tool-use.sh` never matches their `pending` row (empirically:
+  `SendMessage` 0 finalized across all history); spool tail-loss on
+  SIGKILL/hook-timeout leaks a further ~5-10% of sync-tool rows. The work always
+  completed — only the audit close-out was lost — but Layer-5 agent-action
+  telemetry and cost/ranking inputs under-reported, and `audit-reconcile` kept
+  alarming on the backlog. Added a boundary reconcile in
+  `helpers/drain-audit-spool.sh`: after a successful drain — the one point where
+  every spooled INSERT/UPDATE is in the DB — it finalizes `pending` rows older
+  than 1h to a new terminal status `terminated`. Deliberately placed in the
+  drainer, **not** in `session-end.sh` / `subagent-stop.sh`, where the current
+  session's audit rows are still in the spool (drained only at the next
+  session-start) and a DB sweep would miss exactly the rows it must close.
+  Regression test covers the sweep, the 1h in-flight grace, and non-mutation of
+  finalized rows.
 - **BUG-051 — `session-end.sh` could be cancelled at exit ("Hook cancelled").**
   The SessionEnd hook issued the three FEAT-035 wrap-up `COUNT(*)` queries as
   three *serial* Turso round-trips. Each is bounded per-call by the db.sh

@@ -516,6 +516,42 @@ t_assert "'one' was applied exactly once across both drains" "1" \
   "$(t_db "SELECT COUNT(*) FROM messages WHERE from_agent='drain-t' AND content='one';")"
 
 # ─────────────────────────────────────────────
+# drain-audit-spool.sh — BUG-052 orphaned-pending reconcile
+# ─────────────────────────────────────────────
+# Async / fire-and-forget tools (SendMessage, ExitPlanMode) get no synchronous
+# PostToolUse, so post-tool-use.sh never finalizes their 'pending' audit row;
+# spool tail-loss on SIGKILL does the same. After a successful drain — the one
+# point where every spooled INSERT/UPDATE is in the DB — the drainer sweeps
+# 'pending' rows older than 1h to 'terminated'. A recent (in-flight) pending
+# row and any already-finalized row must be left untouched.
+suite "drain-audit-spool.sh (BUG-052 orphaned-pending reconcile)"
+
+t_db "DELETE FROM agent_actions_log;"
+# old orphan (2h): async tool whose PostToolUse never fired
+t_db "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,started_at)
+      VALUES ('s-old','cos','SendMessage','h1','pending', datetime('now','-2 hours'));"
+# recent pending (5 min): a genuinely in-flight action — must stay pending
+t_db "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,started_at)
+      VALUES ('s-live','cos','Bash','h2','pending', datetime('now','-5 minutes'));"
+# already-finalized success (2h): must stay success
+t_db "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,started_at,ended_at)
+      VALUES ('s-done','cto','Read','h3','success', datetime('now','-2 hours'), datetime('now','-2 hours'));"
+
+rm -f "$JUVANT_SPOOL"
+# non-empty spool with a valid statement so the drain reaches the reconcile block
+echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-r','x','task','trigger');" > "$JUVANT_SPOOL"
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
+
+t_assert "BUG-052: old orphan pending → terminated" "terminated" \
+  "$(t_db "SELECT status FROM agent_actions_log WHERE session_id='s-old';")"
+t_assert "BUG-052: terminated row gets ended_at" "true" \
+  "$([[ -n "$(t_db "SELECT ended_at FROM agent_actions_log WHERE session_id='s-old';")" ]] && echo true || echo false)"
+t_assert "BUG-052: recent in-flight pending untouched" "pending" \
+  "$(t_db "SELECT status FROM agent_actions_log WHERE session_id='s-live';")"
+t_assert "BUG-052: finalized success untouched" "success" \
+  "$(t_db "SELECT status FROM agent_actions_log WHERE session_id='s-done';")"
+
+# ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
 echo

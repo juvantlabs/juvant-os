@@ -670,7 +670,11 @@ CREATE TABLE IF NOT EXISTS agent_actions_log (
   result_hash   TEXT,
   -- SHA-256 of canonical-JSON result; NULL on failure or in-flight.
   status        TEXT NOT NULL,
-  -- 'pending' | 'success' | 'failure' | 'denied'
+  -- 'pending' | 'success' | 'failure' | 'denied' | 'terminated'
+  -- 'terminated' (BUG-052): a 'pending' row finalized by the drainer's
+  -- post-drain boundary reconcile because no PostToolUse ever closed it —
+  -- async / fire-and-forget tools (no synchronous PostToolUse) or spool
+  -- tail-loss on SIGKILL / hook-timeout.
   deny_reason   TEXT,
   -- non-NULL when status='denied' (Track 2 deny-list match,
   -- per-agent allow-list miss, or other PreToolUse veto).
