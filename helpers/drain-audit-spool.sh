@@ -84,6 +84,30 @@ rm -f "$WORK"
 
 if [[ "$FAILED" -eq 0 ]]; then
   echo "[drain-audit-spool] drained $APPLIED statement(s) to $JUVANT_DB_PROVIDER"
+
+  # BUG-052: finalize orphaned 'pending' rows the PostToolUse UPDATE never
+  # closed. Two sources: (1) async / fire-and-forget tools (SendMessage,
+  # ExitPlanMode) for which Claude Code emits no synchronous PostToolUse, so
+  # the finalizing UPDATE in post-tool-use.sh never matches; (2) spool
+  # tail-loss on SIGKILL / hook-timeout. This reconcile runs HERE — right after
+  # a successful drain, the one point where every spooled INSERT ('pending')
+  # and UPDATE ('success'/'failure') is in the DB and true orphans are visible.
+  # It deliberately does NOT live in session-end.sh / subagent-stop.sh: there
+  # the current session's audit rows are still in the spool (drained only at
+  # the NEXT session-start), so a DB sweep there would miss exactly the rows it
+  # must close. Threshold 1h == audit-reconcile's stuck-pending definition and
+  # is far longer than any real in-flight tool call, so a live action of the
+  # just-started session is never swept. (Edge case: a concurrent session with
+  # a genuine >1h in-flight action would be marked 'terminated'; benign — this
+  # is forensic telemetry, and a late PostToolUse UPDATE simply no-ops against
+  # the already-closed row since it targets status='pending'.)
+  _NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
+  juvant_db_exec "UPDATE agent_actions_log
+    SET status='terminated', ended_at='$_NOW'
+    WHERE status='pending'
+      AND started_at < datetime('now','-1 hour');" \
+    || echo "[drain-audit-spool] WARN: orphaned-pending reconcile failed" >&2
+
   exit 0
 fi
 
