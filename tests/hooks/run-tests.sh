@@ -220,18 +220,26 @@ t_db "DELETE FROM messages;"
 # 1. Universal deny (rm -rf /).
 event_json='{"tool_name":"Bash","session_id":"sess-pt-1","tool_input":{"command":"rm -rf /"}}'
 out=$(echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
-reason=$(echo "$out" | jq -r '.permissionDecisionReason')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
+reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')
 t_assert "universal deny → permissionDecision=deny" "deny" "$decision"
 case "$reason" in
   *"universal deny-list match"*) t_assert "universal deny → reason cites universal deny-list" "ok" "ok" ;;
   *) t_assert "universal deny → reason cites universal deny-list" "ok" "got: $reason" ;;
 esac
+# BUG-053: the decision MUST be emitted in the hookSpecificOutput wrapper — the
+# only form Claude Code 2.x honors for PreToolUse (the legacy top-level form is
+# silently ignored for MCP tools → deny logged but tool executes). Lock the
+# shape so it can never regress to the top-level form.
+t_assert "BUG-053: deny uses hookSpecificOutput wrapper (hookEventName=PreToolUse)" "PreToolUse" \
+  "$(echo "$out" | jq -r '.hookSpecificOutput.hookEventName')"
+t_assert "BUG-053: no legacy top-level permissionDecision key" "null" \
+  "$(echo "$out" | jq -r '.permissionDecision')"
 
 # 2. Allow-list hit (cos → git).
 event_json='{"tool_name":"Bash","session_id":"sess-pt-2","tool_input":{"command":"git status"}}'
 out=$(echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "allow-list hit (cos:git) → allow" "allow" "$decision"
 
 # 3. Allow-list miss → static deny (handbook ADR 0004 Track 2).
@@ -240,7 +248,7 @@ t_assert "allow-list hit (cos:git) → allow" "allow" "$decision"
 # bash_oneshot_grants consumption is FEAT-025, deferred to v1.1.
 event_json='{"tool_name":"Bash","session_id":"sess-pt-3","tool_input":{"command":"terraform plan"}}'
 out=$(echo "$event_json" | AGENT_ROLE=eng-frontend bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "allow-list miss → deny" "deny" "$decision"
 # FEAT-051: the audit row is spooled (off the gating path), not written
 # inline. Assert it lands first in the spool, then reaches the DB after a
@@ -261,7 +269,7 @@ t_assert "drain empties the spool" "no" \
 # falls through to the per-role allow-list and gets denied.
 event_json='{"tool_name":"Bash","session_id":"sess-pt-4","tool_input":{"command":"git status"}}'
 out=$(echo "$event_json" | AGENT_ROLE=ghost-role bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "unknown role → deny" "deny" "$decision"
 
 # 5. Agent-role deny (R3 defense-in-depth, v1.5.1+): cloud-mutating verbs
@@ -271,8 +279,8 @@ t_assert "unknown role → deny" "deny" "$decision"
 t_seed_agent "eng-platform" "active"
 event_json='{"tool_name":"Bash","session_id":"sess-pt-5","tool_input":{"command":"az ad app create --display-name foo"}}'
 out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
-reason=$(echo "$out" | jq -r '.permissionDecisionReason')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
+reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')
 t_assert "agent role + az write → deny" "deny" "$decision"
 case "$reason" in
   *"agent-role deny-list match"*) t_assert "agent role + az write → reason cites R3" "ok" "ok" ;;
@@ -283,19 +291,19 @@ esac
 # is the only legitimate write path; read-only az is fine for spec authors).
 event_json='{"tool_name":"Bash","session_id":"sess-pt-5b","tool_input":{"command":"az account show"}}'
 out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "agent role + az read → allow" "allow" "$decision"
 
 # 5c. Same role, terraform plan — read-only, must pass.
 event_json='{"tool_name":"Bash","session_id":"sess-pt-5c","tool_input":{"command":"terraform plan"}}'
 out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "agent role + terraform plan → allow" "allow" "$decision"
 
 # 5d. Same role, terraform apply — must be denied via R3.
 event_json='{"tool_name":"Bash","session_id":"sess-pt-5d","tool_input":{"command":"terraform apply -auto-approve"}}'
 out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
-decision=$(echo "$out" | jq -r '.permissionDecision')
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "agent role + terraform apply → deny" "deny" "$decision"
 
 # ─────────────────────────────────────────────
@@ -309,7 +317,7 @@ suite "single-writer gate (Track 2d: git + gh)"
 _t2d() {  # $1=agent_type  $2=command  -> prints decision
   jq -nc --arg c "$2" --arg a "$1" \
     '{tool_name:"Bash",session_id:"sess-t2d",agent_type:$a,tool_input:{command:$c}}' \
-    | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.permissionDecision'
+    | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision'
 }
 
 # project writer (prefixed) — allowed (needs BUG-049 normalization to even
@@ -362,7 +370,7 @@ t_assert "maintainer + npm test → allow"           "allow" "$(_t2d engram-main
 t_assert "maintainer + gh pr view → allow"         "allow" "$(_t2d engram-maintainer 'gh pr view 1')"
 # main thread (no agent_type) bypasses the gate
 _t2d_mt=$(echo '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"gh pr create --title x"}}' \
-  | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.permissionDecision')
+  | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "main thread + gh write → allow (bypass)" "allow" "$_t2d_mt"
 
 # ─────────────────────────────────────────────
@@ -387,7 +395,7 @@ JSON
 _rs() {  # $1=agent_type $2=command -> decision (with the repo-scope fixture)
   JUVANT_CONFIG="$RS_CFG" jq -nc --arg c "$2" --arg a "$1" \
     '{tool_name:"Bash",session_id:"s",agent_type:$a,tool_input:{command:$c}}' \
-    | JUVANT_CONFIG="$RS_CFG" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.permissionDecision'
+    | JUVANT_CONFIG="$RS_CFG" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision'
 }
 # maintainer (N=1)
 t_assert "maintainer + own-tree git push → allow"   "allow" "$(_rs lumen-cli-maintainer 'cd /W/lumen-cli && git push')"
@@ -423,22 +431,22 @@ _t4() {  # $1=db_file_override  -> full hook JSON for eng-platform + a gated db-
 t_db "DELETE FROM decisions;"
 # Reachable, no approved spec → fail-closed with the missing-spec message.
 out=$(_t4 "$TEST_DB")
-t_assert "no spec → deny" "deny" "$(echo "$out" | jq -r '.permissionDecision')"
-case "$(echo "$out" | jq -r '.permissionDecisionReason')" in
+t_assert "no spec → deny" "deny" "$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')"
+case "$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')" in
   *"None found"*) t_assert "no spec → 'None found' (author a spec)" "ok" "ok" ;;
   *) t_assert "no spec → 'None found' (author a spec)" "ok" "got other msg" ;;
 esac
 # DB unreachable (bad db file) → still deny, but DISTINCT message (do not author a spec).
 out=$(_t4 "/nonexistent/dir/nope.db")
-t_assert "DB unreachable → deny" "deny" "$(echo "$out" | jq -r '.permissionDecision')"
-case "$(echo "$out" | jq -r '.permissionDecisionReason')" in
+t_assert "DB unreachable → deny" "deny" "$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')"
+case "$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')" in
   *"unreachable"*) t_assert "DB unreachable → 'unreachable' (not a missing-spec message)" "ok" "ok" ;;
   *) t_assert "DB unreachable → 'unreachable' (not a missing-spec message)" "ok" "got other msg" ;;
 esac
 # Approved spec present → allow.
 t_db "INSERT INTO decisions (agent,title,category,status,approved_by,approved_at,created_at)
       VALUES ('eng-platform','schema bump','install-spec','approved','ceo',datetime('now'),datetime('now'));"
-t_assert "approved spec present → allow" "allow" "$(_t4 "$TEST_DB" | jq -r '.permissionDecision')"
+t_assert "approved spec present → allow" "allow" "$(_t4 "$TEST_DB" | jq -r '.hookSpecificOutput.permissionDecision')"
 t_db "DELETE FROM decisions;"
 
 # ─────────────────────────────────────────────
