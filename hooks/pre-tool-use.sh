@@ -838,8 +838,15 @@ juvant_db_exec_async "INSERT INTO agent_actions_log
 if [[ "$DECISION" == "deny" ]]; then
   jq -n --arg reason "$DENY_REASON" \
     '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
-else
-  jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "allow"}}'
+  # BUG-053 defense-in-depth: ALSO hard-block via exit code 2 — the mechanism
+  # Claude Code honors UNIFORMLY for built-in AND MCP tools, independent of any
+  # stdout JSON-schema evolution. After a P0 silent-bypass (deny logged but not
+  # enforced because the legacy top-level form was ignored), the security deny
+  # path must not ride on stdout-schema honoring alone. CC surfaces hook stderr
+  # to the model, so the reason is echoed there for the exit-2 path.
+  printf '%s\n' "$DENY_REASON" >&2
+  exit 2
 fi
 
+jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "allow"}}'
 exit 0
