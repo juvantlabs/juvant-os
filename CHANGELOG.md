@@ -30,7 +30,12 @@ All written artifacts in English. No exceptions.
   wrapper shape (`hookEventName=PreToolUse`) and the absence of the legacy
   top-level key; migrated all decision-reading tests to the new JSON path.
   End-to-end enforcement must still be verified live per instance (a unit test
-  cannot prove Claude Code honors the decision).
+  cannot prove Claude Code honors the decision). **Defense-in-depth:** a deny now
+  ALSO hard-blocks via **exit code 2** (reason on stderr) — the mechanism Claude
+  Code honors uniformly for built-in and MCP tools, independent of any stdout
+  JSON-schema evolution — so the security deny no longer rides on schema-honoring
+  alone. A live instance retest confirmed the whole PreToolUse gate (not just
+  MCP) was advisory-only on CC 2.1.201 before this fix.
 - **BUG-052 — `agent_actions_log` rows leak as `pending` forever (audit
   under-reporting).** Async / fire-and-forget tools (`SendMessage`,
   `ExitPlanMode`) get no synchronous `PostToolUse`, so the finalizing UPDATE in

@@ -235,6 +235,14 @@ t_assert "BUG-053: deny uses hookSpecificOutput wrapper (hookEventName=PreToolUs
   "$(echo "$out" | jq -r '.hookSpecificOutput.hookEventName')"
 t_assert "BUG-053: no legacy top-level permissionDecision key" "null" \
   "$(echo "$out" | jq -r '.permissionDecision')"
+# BUG-053 defense-in-depth: deny ALSO hard-blocks via exit code 2 (honored
+# uniformly by CC for built-in + MCP, independent of stdout schema).
+echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
+t_assert "BUG-053: deny hard-blocks via exit code 2" "2" "$?"
+# allow must stay exit 0.
+echo '{"tool_name":"Bash","session_id":"sx","tool_input":{"command":"git status"}}' \
+  | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
+t_assert "BUG-053: allow stays exit 0" "0" "$?"
 
 # 2. Allow-list hit (cos → git).
 event_json='{"tool_name":"Bash","session_id":"sess-pt-2","tool_input":{"command":"git status"}}'
