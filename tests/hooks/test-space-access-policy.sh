@@ -77,7 +77,7 @@ decide() {
   local ev; ev=$(jq -n --arg t "$tool" --argjson a "$args" \
     '{tool_name:$t, tool_input:$a, session_id:"sess-sa", agent_type:""}')
   echo "$ev" | AGENT_ROLE="$role" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null \
-    | jq -r '.permissionDecision'
+    | jq -r '.hookSpecificOutput.permissionDecision'
 }
 
 # Pre-built arg payloads (jq-constructed → always valid JSON, no shell escaping).

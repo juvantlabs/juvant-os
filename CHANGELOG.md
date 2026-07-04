@@ -13,6 +13,24 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- **BUG-053 (SECURITY) — PreToolUse deny was silently unenforced (legacy output
+  format).** `hooks/pre-tool-use.sh` emitted the decision in the legacy
+  top-level form `{"permissionDecision":"deny",…}`. Claude Code 2.x honors a
+  deny only in the `hookSpecificOutput` wrapper
+  (`{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",…}}`);
+  the top-level form is **silently ignored for MCP (`mcp__*`) tools** — the hook
+  fired and logged `status='denied'`, but the tool executed anyway. Since this
+  is the single shared emission path, the same gap applies to the Bash
+  single-writer / deny-list gate. Live-caught by an instance smoke test: a
+  non-allowlisted agent created a folder in a Universal-CONFIDENTIAL space
+  (Track-2e / ADR 0025) despite a correct deny being computed and logged. The
+  existing hook tests asserted the *script's* stdout, not Claude Code's
+  enforcement, so a static "coverage confirmed" review missed it. Migrated allow
+  and deny to the `hookSpecificOutput` wrapper; added a regression asserting the
+  wrapper shape (`hookEventName=PreToolUse`) and the absence of the legacy
+  top-level key; migrated all decision-reading tests to the new JSON path.
+  End-to-end enforcement must still be verified live per instance (a unit test
+  cannot prove Claude Code honors the decision).
 - **BUG-052 — `agent_actions_log` rows leak as `pending` forever (audit
   under-reporting).** Async / fire-and-forget tools (`SendMessage`,
   `ExitPlanMode`) get no synchronous `PostToolUse`, so the finalizing UPDATE in

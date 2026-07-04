@@ -5,9 +5,9 @@
 # Two responsibilities per handbook ADR 0004:
 #
 #   Track 2 — gate Bash via universal deny-list + per-agent allow-list.
-#     Pattern source: hooks/bash-policy.json. On match, output
-#     {"permissionDecision":"deny"} which Claude Code honors as a hard
-#     block (the tool call never executes).
+#     Pattern source: hooks/bash-policy.json. On match, output the
+#     hookSpecificOutput deny wrapper (see "Output decision" below) which
+#     Claude Code honors as a hard block (the tool call never executes).
 #
 #   Track 3 — write a 'pending' row to agent_actions_log BEFORE the
 #     tool runs, so the audit trail exists independent of what the
@@ -18,9 +18,9 @@
 # Stdin: Claude Code event JSON
 #   { "session_id": "...", "tool_name": "Bash"|...,
 #     "tool_input": { ... } }
-# Stdout: decision JSON
-#   { "permissionDecision": "allow"|"deny",
-#     "permissionDecisionReason": "..." }
+# Stdout: decision JSON (Claude Code 2.x hookSpecificOutput wrapper — BUG-053)
+#   { "hookSpecificOutput": { "hookEventName": "PreToolUse",
+#     "permissionDecision": "allow"|"deny", "permissionDecisionReason": "..." } }
 #
 # Env vars: TURSO_URL, TURSO_TOKEN (fallback to .juvant/config.json)
 #           AGENT_ROLE (set by Skill at session boot)
@@ -828,11 +828,18 @@ juvant_db_exec_async "INSERT INTO agent_actions_log
 # ─────────────────────────────────────────────
 # Output decision
 # ─────────────────────────────────────────────
+# BUG-053: emit the `hookSpecificOutput` wrapper — the ONLY form Claude Code 2.x
+# honors for a PreToolUse permission decision. The legacy TOP-LEVEL
+# {"permissionDecision":"deny",...} form is silently IGNORED for MCP (mcp__*)
+# tools: the hook fired and logged status='denied', but the tool executed
+# anyway — a silent bypass of the Track-2e sensitive-space gate (and, since this
+# is the single shared emission path, of the Bash single-writer / deny-list gate
+# too). Both built-in and MCP tools require the wrapper with hookEventName.
 if [[ "$DECISION" == "deny" ]]; then
   jq -n --arg reason "$DENY_REASON" \
-    '{permissionDecision: "deny", permissionDecisionReason: $reason}'
+    '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $reason}}'
 else
-  jq -n '{permissionDecision: "allow"}'
+  jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "allow"}}'
 fi
 
 exit 0
