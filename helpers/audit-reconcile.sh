@@ -82,51 +82,65 @@ STALE_SINCE=$(date -u -v-${STALE_DAYS}d +"%Y-%m-%d %H:%M:%S" 2>/dev/null \
 #
 # STRICT bounds (§4c maintenance-writer carve-out — this helper is not an agent
 # and bypasses Track 2b, so the bound lives here + in the schema trigger):
-#   • pr-spec only, company scope (this DB), status approved → executed only;
-#   • close ONLY when EXACTLY ONE merged PR in the company repo references
-#     `decisions#<id>` in its body (deterministic link per ADR-0028 D2);
+#   • pr-spec + gh-issue-spec, company scope (this DB), approved → executed only;
+#   • close ONLY when EXACTLY ONE company-repo artifact references `decisions#<id>`
+#     in its body (deterministic link per ADR-0028 D2) — a MERGED PR for pr-spec,
+#     an EXISTING issue (any state) for gh-issue-spec;
 #   • write ONLY the close-set (status, executed_at,
 #     executed_by='audit-reconcile', source_ref); NEVER INSERT, never any other
 #     field;
 #   • anything ambiguous (0 or >1 match, gh absent/unauth, repo unresolved,
-#     non-pr-spec) is left untouched → still surfaced by the Anomaly-4 alert.
+#     other category) is left untouched → still surfaced by the Anomaly-4 alert.
 # The schema trigger decisions_executed_requires_executor_upd is the storage
 # -layer backstop: it ABORTs any executed transition lacking source_ref.
+# (juvantlabs/juvant-os-pm#147 item 2: per-project-DB reconcile is out of scope —
+# this pass runs on the company DB only; project pr-specs live in project DBs.)
 AUTO_CLOSED=0
 _AC_REPO=$(jq -r '
   (.github_repos[0])
   // (if .github_repo then (.github_repo.org + "/" + .github_repo.repo_name) else "" end)
   // ""' "$CONFIG" 2>/dev/null || echo "")
 if [[ -n "$_AC_REPO" ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-  while IFS= read -r _AC_ID; do
+  while IFS='|' read -r _AC_ID _AC_CAT; do
     [[ "$_AC_ID" =~ ^[0-9]+$ ]] || continue
-    _AC_HITS=$(gh pr list --repo "$_AC_REPO" --state merged \
-      --search "decisions#${_AC_ID} in:body" \
-      --json number,mergedAt 2>/dev/null || echo "[]")
+    # Dispatch by category: pr-spec → merged PR; gh-issue-spec → existing issue.
+    # "executed" for a gh-issue-spec = the issue was CREATED (any state), so the
+    # created-at timestamp is the execution time.
+    case "$_AC_CAT" in
+      pr-spec)
+        _AC_HITS=$(gh pr list --repo "$_AC_REPO" --state merged \
+          --search "decisions#${_AC_ID} in:body" --json number,mergedAt 2>/dev/null || echo "[]")
+        _AC_TKEY="mergedAt" ;;
+      gh-issue-spec)
+        _AC_HITS=$(gh issue list --repo "$_AC_REPO" --state all \
+          --search "decisions#${_AC_ID} in:body" --json number,createdAt 2>/dev/null || echo "[]")
+        _AC_TKEY="createdAt" ;;
+      *) continue ;;
+    esac
     [[ "$(echo "$_AC_HITS" | jq 'length' 2>/dev/null || echo 0)" == "1" ]] || continue
     _AC_NUM=$(echo "$_AC_HITS" | jq -r '.[0].number' 2>/dev/null || echo "")
-    _AC_MERGED=$(echo "$_AC_HITS" | jq -r '.[0].mergedAt' 2>/dev/null || echo "")
-    [[ "$_AC_NUM" =~ ^[0-9]+$ && -n "$_AC_MERGED" ]] || continue
-    if juvant_db_exec "UPDATE decisions SET status='executed', executed_by='audit-reconcile', executed_at='${_AC_MERGED}', source_ref='${_AC_REPO}#${_AC_NUM}' WHERE id=${_AC_ID} AND status='approved' AND category='pr-spec';" >/dev/null 2>&1; then
+    _AC_TIME=$(echo "$_AC_HITS" | jq -r --arg k "$_AC_TKEY" '.[0][$k]' 2>/dev/null || echo "")
+    [[ "$_AC_NUM" =~ ^[0-9]+$ && -n "$_AC_TIME" ]] || continue
+    if juvant_db_exec "UPDATE decisions SET status='executed', executed_by='audit-reconcile', executed_at='${_AC_TIME}', source_ref='${_AC_REPO}#${_AC_NUM}' WHERE id=${_AC_ID} AND status='approved' AND category='${_AC_CAT}';" >/dev/null 2>&1; then
       AUTO_CLOSED=$((AUTO_CLOSED + 1))
-      echo "[audit-reconcile] auto-closed decisions#${_AC_ID} → ${_AC_REPO}#${_AC_NUM} (merged ${_AC_MERGED})" | tee -a "$_LOG" >&2
+      echo "[audit-reconcile] auto-closed decisions#${_AC_ID} (${_AC_CAT}) → ${_AC_REPO}#${_AC_NUM} (${_AC_TIME})" | tee -a "$_LOG" >&2
     fi
   done < <(juvant_db_query "
-    SELECT id FROM decisions
-    WHERE category = 'pr-spec' AND status = 'approved'
+    SELECT id || '|' || category FROM decisions
+    WHERE category IN ('pr-spec','gh-issue-spec') AND status = 'approved'
       AND created_at < '$STALE_SINCE';
-  " 2>/dev/null | { grep -E '^[0-9]+$' || true; })
+  " 2>/dev/null | { grep -E '^[0-9]+\|' || true; })
 elif [[ -z "$_AC_REPO" ]]; then
   # BUG-057 (juvantlabs/juvant-os-pm#144): never fail-open silently. If the company repo is unresolved but
-  # there ARE stale approved pr-specs that Layer 2 could have closed, WARN so
-  # the config gap (github_repos not populated by company-init) is visible.
+  # there ARE stale approved pr/issue-specs that Layer 2 could have closed, WARN
+  # so the config gap (github_repos not populated by company-init) is visible.
   _AC_STALE_PR=$(juvant_db_query "
     SELECT COUNT(*) FROM decisions
-    WHERE category = 'pr-spec' AND status = 'approved'
+    WHERE category IN ('pr-spec','gh-issue-spec') AND status = 'approved'
       AND created_at < '$STALE_SINCE';
   " 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1)
   if [[ "${_AC_STALE_PR:-0}" -gt 0 ]]; then
-    echo "[audit-reconcile] WARN: ${_AC_STALE_PR} stale approved pr-spec(s) but .github_repos is unresolved in $CONFIG — Layer 2 auto-close cannot run (ARCH-017 BUG-057). Populate github_repos." | tee -a "$_LOG" >&2
+    echo "[audit-reconcile] WARN: ${_AC_STALE_PR} stale approved pr/issue-spec(s) but .github_repos is unresolved in $CONFIG — Layer 2 auto-close cannot run (ARCH-017 BUG-057). Populate github_repos." | tee -a "$_LOG" >&2
   fi
 fi
 
@@ -196,7 +210,7 @@ STALE_SPECS=${STALE_SPECS:-0}
 TOTAL_ANOMALIES=$((ORPHAN_DECISIONS + STUCK_PENDING + SCOPE_VIOLATIONS + STALE_SPECS))
 
 echo "[audit-reconcile] window: last ${WINDOW_DAYS} days"
-echo "[audit-reconcile] auto-closed stale pr-specs (Layer 2, ADR 0028): $AUTO_CLOSED"
+echo "[audit-reconcile] auto-closed stale pr/issue-specs (Layer 2, ADR 0028): $AUTO_CLOSED"
 echo "[audit-reconcile] orphan decisions (possible fabrication):  $ORPHAN_DECISIONS"
 echo "[audit-reconcile] stuck pending (possible hook failure):     $STUCK_PENDING"
 echo "[audit-reconcile] scope-boundary violations §4c (proj→co):  $SCOPE_VIOLATIONS"

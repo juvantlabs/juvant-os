@@ -59,13 +59,20 @@ cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
 cat > "$FAKEBIN/gh" <<'GH'
 #!/usr/bin/env bash
 if [[ "$1" == "auth" && "$2" == "status" ]]; then exit 0; fi
+search=""; prev=""
+for a in "$@"; do [[ "$prev" == "--search" ]] && search="$a"; prev="$a"; done
+id="${search#*decisions#}"; id="${id%% *}"
 if [[ "$1" == "pr" && "$2" == "list" ]]; then
-  search=""; prev=""
-  for a in "$@"; do [[ "$prev" == "--search" ]] && search="$a"; prev="$a"; done
-  id="${search#*decisions#}"; id="${id%% *}"
   case "$id" in
     1) echo '[{"number":101,"mergedAt":"2026-07-10T12:00:00Z"}]' ;;
     4) echo '[{"number":201,"mergedAt":"2026-07-10T12:00:00Z"},{"number":202,"mergedAt":"2026-07-11T12:00:00Z"}]' ;;
+    *) echo '[]' ;;
+  esac
+  exit 0
+fi
+if [[ "$1" == "issue" && "$2" == "list" ]]; then
+  case "$id" in
+    5) echo '[{"number":301,"createdAt":"2026-07-09T09:00:00Z"}]' ;;
     *) echo '[]' ;;
   esac
   exit 0
@@ -98,8 +105,9 @@ echo "=== A: selective auto-close ==="
 fresh_db; write_cfg
 seed_spec 1 pr-spec        # exactly one merged PR → CLOSE
 seed_spec 2 pr-spec        # no matching PR → stay approved
-seed_spec 3 gh-issue-spec  # matching id but not pr-spec → stay approved
+seed_spec 3 gh-issue-spec  # no matching issue → stay approved
 seed_spec 4 pr-spec        # two merged PRs (ambiguous) → stay approved
+seed_spec 5 gh-issue-spec  # exactly one existing issue → CLOSE (#147 item 2)
 out=$(run)
 
 eq "id1 pr-spec + 1 merged PR → executed" \
@@ -107,13 +115,16 @@ eq "id1 pr-spec + 1 merged PR → executed" \
    "$(sq "SELECT status||'|'||executed_by||'|'||source_ref FROM decisions WHERE id=1;")"
 eq "id1 executed_at = PR mergedAt" "2026-07-10T12:00:00Z" \
    "$(sq "SELECT executed_at FROM decisions WHERE id=1;")"
+eq "id5 gh-issue-spec + 1 existing issue → executed (createdAt)" \
+   "executed|audit-reconcile|$REPOSLUG#301|2026-07-09T09:00:00Z" \
+   "$(sq "SELECT status||'|'||executed_by||'|'||source_ref||'|'||executed_at FROM decisions WHERE id=5;")"
 eq "id2 pr-spec, no PR → stays approved" "approved" \
    "$(sq "SELECT status FROM decisions WHERE id=2;")"
-eq "id3 gh-issue-spec (not pr-spec) → stays approved" "approved" \
+eq "id3 gh-issue-spec, no matching issue → stays approved" "approved" \
    "$(sq "SELECT status FROM decisions WHERE id=3;")"
 eq "id4 pr-spec, ambiguous (2 PRs) → stays approved" "approved" \
    "$(sq "SELECT status FROM decisions WHERE id=4;")"
-has "reports exactly 1 auto-close" "$out" "auto-closed stale pr-specs (Layer 2, ADR 0028): 1"
+has "reports exactly 2 auto-closes (pr + issue)" "$out" "auto-closed stale pr/issue-specs (Layer 2, ADR 0028): 2"
 has "remaining stale count reflects post-close reality (id2,3,4)" "$out" \
    "stale gh-issue/pr specs (>3d unexecuted): 3"
 

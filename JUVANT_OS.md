@@ -4125,6 +4125,14 @@ Before executing ANY spec, Eng Lead verifies:
 3. **Format completeness** — required fields present in `rationale` payload
    (e.g. `pr-spec` must contain branch name, base, title, body, files+diffs;
    `gh-issue-spec` must contain title, body, labels, optional milestone).
+   For `pr-spec` and `gh-issue-spec`, the PR / issue **body MUST reference the
+   originating decision as `decisions#<id>`** (ARCH-017 D2, juvantlabs/juvant-os-pm#147).
+   This is the deterministic link the spec-marking enforcement relies on: the
+   Layer-2 reconciler (`helpers/audit-reconcile.sh`) and the Layer-1 gate
+   (`hooks/lib/spec-marking-gate.sh`) recover the spec↔artifact pairing by
+   finding the merged PR / created issue whose body carries `decisions#<id>`.
+   REJECT if absent — without it the row cannot be auto-closed and drifts back
+   to `approved` after the artifact lands.
 4. **Universal CONFIDENTIAL invariant (§5)** — no item from the universal list
    appears in the spec payload.
 5. **Linked artifact integrity** — referenced commits exist, referenced issues exist,
@@ -4154,6 +4162,8 @@ WHERE id=?;
 
    ```bash
    # PR (write) — eng-lead / eng-platform only (Track-2d single-writer gate)
+   # The body file <f> MUST contain "decisions#<id>" (ARCH-017 D2) so the
+   # merged PR is recoverable by the spec-marking reconciler + Layer-1 gate.
    bash helpers/with-timeout.sh 90 gh pr create --repo <org>/<repo> \
      --base <base> --head <branch> --title "<t>" --body-file <f>
    # PR review with inline comments (the op that hung most under the old MCP)
