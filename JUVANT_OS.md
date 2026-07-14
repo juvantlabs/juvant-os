@@ -4694,7 +4694,7 @@ trail. **Company-scope agents only** — no project agents involved.
    - `scripts/compile-templates.sh` changed →
      re-run `bash scripts/compile-templates.sh --scope company`.
    - `scripts/migrate.sh` **or** `scripts/schema.sql` changed → surface reminder:
-     *"schema changed — re-run `bash scripts/migrate.sh schema-apply` to apply any new tables or column patches (idempotent; `CREATE TABLE IF NOT EXISTS`)."* A new table (e.g. `outbox`, ADR 0024) only reaches an existing instance's DB once this is run.
+     *"schema changed — re-run `bash scripts/migrate.sh` to apply any new tables or column patches (idempotent; `CREATE TABLE IF NOT EXISTS`)."* The bare invocation defaults to schema-apply; there is no `schema-apply` argument (migrate.sh accepts only flags — `--project`, `--from/--to`, `--dry-run`). For a project DB, use `bash scripts/migrate.sh --project=<slug>`. A new table (e.g. `outbox`, ADR 0024) only reaches an existing instance's DB once this is run.
    - `scripts/templates/hooks-registration.json` changed (FEAT-050) →
      run `bash scripts/sync-hooks.sh` to reconcile the framework hook block
      into `.claude/settings.json` (preserves instance-specific keys). This is
