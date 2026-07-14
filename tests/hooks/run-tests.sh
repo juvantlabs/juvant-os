@@ -499,6 +499,32 @@ t_assert "maintainer + git -C /W/lumen-cli/../other push → deny (.. traversal)
 t_assert "maintainer + cd /W/lumen-cli/../other && git push → deny (.. via cd)"   "deny" "$(_rs lumen-cli-maintainer 'cd /W/lumen-cli/../other && git push')"
 
 # ─────────────────────────────────────────────
+# BUG-056 (#143) — Track-2b honors JUVANT_CONFIG (parity with Track 2c/2d/2e)
+# ─────────────────────────────────────────────
+suite "Track-2b config resolution (BUG-056)"
+
+B56_CFG="$TMPROOT/bug056-config.json"
+cat > "$B56_CFG" <<'JSON'
+{ "turso_db_name": "company-b56", "turso_url": "libsql://company-b56.turso.io", "projects": {} }
+JSON
+
+# A project-scope agent writing to the company DB must be denied by Track-2b §4c.
+# The guard can only match the company DB name if it reads JUVANT_CONFIG — with
+# the old hardcoded path it read a config without this DB → no match → allow.
+# eng-frontend carries turso (BUG-055), so the command clears the allow-list and
+# actually reaches Track-2b.
+b56_out=$(JUVANT_CONFIG="$B56_CFG" jq -nc \
+  --arg c 'turso db shell company-b56 "UPDATE t SET x=1"' --arg a 'dog-ai-eng-frontend' \
+  '{tool_name:"Bash",session_id:"s-b56",agent_type:$a,tool_input:{command:$c}}' \
+  | JUVANT_CONFIG="$B56_CFG" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+t_assert "BUG-056: Track-2b reads JUVANT_CONFIG → project→company write denied" "deny" \
+  "$(echo "$b56_out" | jq -r '.hookSpecificOutput.permissionDecision')"
+case "$(echo "$b56_out" | jq -r '.hookSpecificOutput.permissionDecisionReason')" in
+  *"§4c"*) t_assert "BUG-056: denial cites the §4c scope boundary" "ok" "ok" ;;
+  *) t_assert "BUG-056: denial cites the §4c scope boundary" "ok" "got other reason" ;;
+esac
+
+# ─────────────────────────────────────────────
 # Track 4 — spec gate distinguishes DB-unreachable from no-spec (E)
 # ─────────────────────────────────────────────
 suite "spec gate (Track 4: DB-unreachable vs no-spec)"

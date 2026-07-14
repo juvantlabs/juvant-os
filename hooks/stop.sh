@@ -63,4 +63,23 @@ track_main_session_usage \
   "$PRINCIPAL_ID" "$PROJECT_SLUG" "" \
   || true
 
+# ── Layer 1 (ADR 0028 / ARCH-017): capture-at-execution gate (shared lib) ──
+# Main-thread coverage: if a PR merged this session references an approved,
+# still-unmarked pr-spec, block the turn until the agent closes the row. No role
+# filter (main thread is not a single subagent). Shared logic with
+# subagent-stop.sh; BUG-057 warn + BUG-058 spool-drain handled in the lib.
+if [[ -f "$SCRIPT_DIR/lib/spec-marking-gate.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/spec-marking-gate.sh"
+  # NOTE: do NOT swallow the gate's stderr — the BUG-057 unresolved-repo WARN
+  # must stay visible. stdout is the block reason (captured); stderr flows out.
+  _L1_REASON="$(spec_marking_gate "$SESSION_ID" "" || echo "")"
+  if [[ -n "$_L1_REASON" ]]; then
+    jq -nc --arg r "$_L1_REASON" '{decision:"block", reason:$r}' 2>/dev/null \
+      || printf '{"decision":"block","reason":"spec-marking gate: an approved pr-spec is unmarked after its PR merged"}\n'
+    echo "$_L1_REASON" >&2
+    exit 2
+  fi
+fi
+
 exit 0

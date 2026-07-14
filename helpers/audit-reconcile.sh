@@ -116,6 +116,18 @@ if [[ -n "$_AC_REPO" ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev
     WHERE category = 'pr-spec' AND status = 'approved'
       AND created_at < '$STALE_SINCE';
   " 2>/dev/null | { grep -E '^[0-9]+$' || true; })
+elif [[ -z "$_AC_REPO" ]]; then
+  # BUG-057 (juvantlabs/juvant-os-pm#144): never fail-open silently. If the company repo is unresolved but
+  # there ARE stale approved pr-specs that Layer 2 could have closed, WARN so
+  # the config gap (github_repos not populated by company-init) is visible.
+  _AC_STALE_PR=$(juvant_db_query "
+    SELECT COUNT(*) FROM decisions
+    WHERE category = 'pr-spec' AND status = 'approved'
+      AND created_at < '$STALE_SINCE';
+  " 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1)
+  if [[ "${_AC_STALE_PR:-0}" -gt 0 ]]; then
+    echo "[audit-reconcile] WARN: ${_AC_STALE_PR} stale approved pr-spec(s) but .github_repos is unresolved in $CONFIG — Layer 2 auto-close cannot run (ARCH-017 BUG-057). Populate github_repos." | tee -a "$_LOG" >&2
+  fi
 fi
 
 # Anomaly 1: decisions rows with no matching agent_actions_log in same

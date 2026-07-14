@@ -294,7 +294,10 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   if echo "$_T2B_CMD" | grep -qiE \
       '\b(INSERT|UPDATE|DELETE|REPLACE)\b|CREATE[[:space:]]+TABLE|ALTER[[:space:]]+TABLE|DROP[[:space:]]+TABLE'; then
 
-    _CFG="$SCRIPT_DIR/../.juvant/config.json"
+    # BUG-056 (juvantlabs/juvant-os-pm#143): honor JUVANT_CONFIG like Track 2c/2d/2e — the hardcoded path
+    # ignored the override, silently bypassing Track-2b in any fixture/testco
+    # run and mis-resolving in future multi-config scenarios.
+    _CFG="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
     _COMPANY_URL=$(jq -r '.turso_url // ""'      "$_CFG" 2>/dev/null || echo "")
     _COMPANY_DB=$(jq -r '.turso_db_name // ""'   "$_CFG" 2>/dev/null || echo "")
 
