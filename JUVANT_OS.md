@@ -1314,19 +1314,26 @@ Collect:
 - **Morning Brief time** (default `08:00 Europe/Rome`). Used to configure the
   Desktop Scheduled Task in Phase 7 (separate setup).
 
-Resulting `.juvant/config.json` notifications block:
+Resulting `.juvant/config.json` notifications block. **These keys live UNDER a
+top-level `notifications` object** — the shipped code reads them as
+`.notifications.teams_webhooks.<key>`, `.notifications.telegram_bot_token`, etc.
+Writing them at the document root leaves every read empty (`// ""`) and silently
+disables all Telegram/Teams sends (the BUG-057 failure mode). Write the wrapper
+exactly as shown:
 
 ```json
 {
-  "telegram_bot_token": "<bot-token>",
-  "telegram_chat_id": "<numeric-chat-id>",
-  "teams_webhooks": {
-    "approvals": "https://<tenant>.webhook.office.com/...",
-    "ops": "https://<tenant>.webhook.office.com/...",
-    "system": "https://<tenant>.webhook.office.com/..."
-  },
-  "morning_brief_time": "08:00",
-  "morning_brief_tz": "Europe/Rome"
+  "notifications": {
+    "telegram_bot_token": "<bot-token>",
+    "telegram_chat_id": "<numeric-chat-id>",
+    "teams_webhooks": {
+      "approvals": "https://<tenant>.webhook.office.com/...",
+      "ops": "https://<tenant>.webhook.office.com/...",
+      "system": "https://<tenant>.webhook.office.com/..."
+    },
+    "morning_brief_time": "08:00",
+    "morning_brief_tz": "Europe/Rome"
+  }
 }
 ```
 
