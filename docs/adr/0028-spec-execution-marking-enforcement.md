@@ -2,13 +2,15 @@
 
 ## Status
 
-Proposed (2026-07-14). Tracks **ARCH-017** (juvantlabs/juvant-os-pm#142).
+Accepted (2026-07-14). Tracks **ARCH-017** (juvantlabs/juvant-os-pm#142).
 Extends the **ARCH-013 governance protocol** in `JUVANT_OS.md` ("after
 execution — mark `status='executed'` immediately; never leave an executed spec
 as `approved`") from an *agent-remembered rule* to a *mechanically enforced*
-one. Direction ratified (layered: capture-at-execution primary + reconciler
-backstop). Sub-decision **D4 (§4 compliance) is resolved** (verified below);
-**D1, D2, D3, D5 remain open** for ratification before implementation.
+one. Layered direction ratified (capture-at-execution primary + reconciler
+backstop); all five sub-decisions resolved (D4 verified below; D1/D2/D3/D5
+ratified — see §"Sub-decisions"). Implementation ships in two cuts:
+**Layer 2 (reconciler backstop) first** (lowest risk, silences the audit
+noise), then **Layer 1 (Stop-hook)**.
 
 ## Context
 
@@ -123,20 +125,31 @@ config edits, Terraform, and gh writes each land differently), so atomic
 coupling would require wrapping every modality; high-touch and brittle for
 marginal gain over Layer 1. It may be revisited per-modality later.
 
-## Open sub-decisions (to ratify before implementation)
+## Sub-decisions (all ratified 2026-07-14)
 
-- **D1 — Layer-1 landing signal.** How does the Stop-hook know an artifact
-  landed in-session? Options: (a) scan `agent_actions_log` this session for
-  write verbs (`gh pr merge`, `git push`, `terraform apply`) referencing the
-  spec; (b) require agents to record a `spec_id` on the landing action.
-- **D2 — Layer-2 link-recovery source of truth.** Canonicalize the
-  spec↔artifact link: mandate `decisions#<id>` in PR/commit bodies (make it a
-  `pr-spec` template requirement) so recovery is deterministic, vs. best-effort
-  heuristics.
-- **D3 — reconciler close vs. orphan-check.** Exclude `executed_by
-  ='audit-reconcile'` from Anomaly 1, or have the reconciler write an
-  `agent_actions_log` antecedent for its close. (Prefer the exclusion — a
-  synthetic antecedent muddies the ground-truth log.)
+- **D1 — Layer-1 landing signal. RATIFIED → (a).** The Stop-hook scans
+  `agent_actions_log` for this session for write verbs (`gh pr merge`,
+  `git push`, `terraform apply`) referencing the spec. No new mandatory field
+  on the landing action.
+- **D2 — Layer-2 link-recovery source of truth. RATIFIED.** Canonicalize the
+  spec↔artifact link: **`decisions#<id>` is required in the PR body** (a
+  `pr-spec` authoring-template requirement), so Layer-2 recovery is a
+  deterministic search rather than a heuristic. Legacy rows without the
+  reference are simply not recovered → they stay alert-only (safe degradation).
+- **D3 — reconciler close vs. orphan-check. RATIFIED, and largely subsumed by
+  the D4 never-INSERT bound.** Anomaly 1 keys on a row's `created_at`
+  antecedent; the reconciler close is an **UPDATE** (never INSERT), so it does
+  not change `created_at` and cannot manufacture an orphan. The
+  `executed_by='audit-reconcile'` tag is nonetheless excluded from Anomaly 1 as
+  belt-and-suspenders against a future regression that would make the close
+  INSERT a confirmation row. No synthetic `agent_actions_log` antecedent is
+  written (it would muddy the ground-truth log); reconciler closes are audited
+  via the tag + the helper's own run log.
+- **D5 — Layer-1 false-block escape hatch. RATIFIED.** If an artifact landed
+  but the spec link is genuinely unknown, the Stop-hook surfaces-to-CoS and
+  lets the session end (degrading to Layer 2) rather than deadlocking — the
+  BUG-039 self-remediating-deny lesson (never name a remedy the agent cannot
+  perform in-session).
 - **D4 — §4 compliance. RESOLVED (verified against SYSTEM_INVARIANTS §4/§4b/
   §4c/§4d, 2026-07-14).** Findings:
   - **§4 single-writer does not apply.** Single-writer governs repo/cloud/npm
