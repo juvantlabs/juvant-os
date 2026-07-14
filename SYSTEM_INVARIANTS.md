@@ -553,6 +553,20 @@ writing to company DB via self-declaration when an originating spec lives there.
 Observed breach: decisions#72 and #77 in company-juvant authored by
 eng-lead/Ship and product-lead/Traction (2026-05-18).
 
+**Exception — `audit-reconcile` maintenance close (ADR 0028).** The
+`helpers/audit-reconcile.sh` scheduled helper MAY UPDATE a `decisions` row in
+its own DB scope from `approved`→`executed`, but **only** for the verifiable
+subset (a `pr-spec` whose linked PR is merged and references `decisions#<id>` in
+its body), writing **only** the close-set (`status`, `executed_at`,
+`executed_by='audit-reconcile'`, `source_ref`) and **never** INSERTing or
+mutating any other field. It is a bounded maintenance writer, not an agent; its
+closes are tagged (`executed_by='audit-reconcile'`) and auditable. It runs
+outside Track 2b (direct DB via cron), so the bound is enforced in the helper's
+own logic + tests and by the schema trigger
+`decisions_executed_requires_executor_upd` (which ABORTs any executed
+transition lacking `source_ref`). This does not widen the agent write-boundary:
+no agent gains any capability.
+
 ### §4d — Project-Scoped Decision Authorship
 
 The **author** of a `decisions` row is determined by the scope of the
