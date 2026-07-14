@@ -1,0 +1,187 @@
+# ADR 0028 — Close the spec-execution marking gap: capture the artifact link at execution, reconcile only the verifiable subset
+
+## Status
+
+Proposed (2026-07-14). Tracks **ARCH-017** (juvantlabs/juvant-os-pm#142).
+Extends the **ARCH-013 governance protocol** in `JUVANT_OS.md` ("after
+execution — mark `status='executed'` immediately; never leave an executed spec
+as `approved`") from an *agent-remembered rule* to a *mechanically enforced*
+one. Direction ratified (layered: capture-at-execution primary + reconciler
+backstop); the specific mechanism sub-decisions below are open for ratification
+before implementation.
+
+## Context
+
+The `decisions` table is the governance source of truth. An approved spec is
+executed (PR merged, config edited, Terraform applied), after which its row is
+meant to close: `status='executed'`, `executed_at`, `executed_by`,
+`source_ref`. In practice the closing `UPDATE` is a **separate,
+agent-remembered step** with no mechanical coupling to the artifact landing, so
+it is routinely skipped. The DB then reads `approved`/unexecuted while the
+artifact is already live.
+
+Observed in a live adopter instance:
+
+- A config-fix spec whose target config was already in the fixed state, row
+  still `approved` — nearly triggered a redundant re-apply.
+- Five infra `pr-spec`s: all PRs merged, branches deleted, every row still
+  `approved`.
+- Two "orphan" decisions: executed specs with no `agent_actions_log`
+  antecedent, surfaced by audit-reconcile as *possible fabrication*.
+
+The DB is trusted by downstream automation, so the drift is not cosmetic:
+
+1. **audit-reconcile false positives** — Anomaly 1 (orphan/fabrication) and
+   Anomaly 4 (stale gh-issue/pr specs) in `helpers/audit-reconcile.sh` fire on
+   already-done work; the noise masks real anomalies.
+2. **Phantom pending work** — boot/status reads show completed specs as open →
+   risk of re-executing done work.
+3. **CSO gating stalls** — an incident held open pending a remediation whose
+   spec-row said unexecuted, though the fix was already live (observed: a
+   ~10-day-late incident closure). The gate keyed on the row, not reality.
+
+`helpers/audit-reconcile.sh` today **detects** these (Anomaly 1 + Anomaly 4)
+and alerts — its Anomaly 4 comment already names the root cause: *"Eng Lead
+created the GH artifact but skipped the source_ref / status UPDATE."* It does
+not close anything.
+
+### The load-bearing constraint the naive fix misses
+
+The reason the row is unmarked is the **same** reason a pure after-the-fact
+reconciler struggles to close it: the field that links spec → artifact
+(`source_ref`) is exactly the field that was never written. An after-the-fact
+job must *reconstruct* a link that was lost. This has two consequences:
+
+- The link is recoverable **only** when the artifact independently encodes the
+  spec identity — e.g. a `pr-spec` whose PR body/commit references
+  `decisions#NNN` or `Closes …`, or a deterministic branch-name convention.
+- For `config-fix` / `terraform-spec`, "artifact present" is heterogeneous and
+  often not machine-checkable. Auto-closing on **inference** there introduces
+  the **reverse integrity risk**: marking `executed` a spec that was not — a
+  new, opposite governance hole. The universal invariant "never fabricate an
+  `executed` row" must not be traded away to fix "never leave `executed`
+  unmarked."
+
+This is why the three options in the report are **not equivalent
+alternatives**, and why the answer is layered rather than a single pick.
+
+## Decision
+
+Adopt a **two-layer** mechanism. Capture the link when it is known; reconcile
+only where it can be recovered without inference.
+
+### Layer 1 (primary) — capture-at-execution via Stop-hook enforcement
+
+The link (`source_ref`) is present in-session at the moment of execution. Force
+it to be written **before the executing agent's session can end**, rather than
+relying on memory.
+
+- Extend the Stop / SubagentStop hook: at session end, if an agent has an
+  in-scope `decisions` row that is `approved` **and** whose artifact has
+  demonstrably landed within the session (e.g. a `gh pr merge` / `git push` /
+  `terraform apply` action recorded in `agent_actions_log` for this session
+  referencing the spec), **block the stop** with a self-remediating message
+  instructing the agent to run the closing `UPDATE` (`status='executed'`,
+  `executed_at`, `executed_by`, `source_ref`).
+- This attacks the cause, not the symptom, and leaves **zero drift window** for
+  in-session executions.
+- **Coverage limit** (explicit, not silent): it cannot cover an artifact that
+  lands **outside** an agent session — most importantly a PR the CEO merges by
+  hand. Those fall to Layer 2.
+
+### Layer 2 (backstop) — reconciler auto-close of the verifiable subset only
+
+Extend `helpers/audit-reconcile.sh` from *detect-and-alert* to
+*detect-then-auto-close-**iff**-verifiable*:
+
+- **Auto-close** a stale `approved` `pr-spec`/`gh-issue-spec` **only** when the
+  linked artifact is unambiguously verifiable *and* recoverable: the referenced
+  PR/issue is merged/closed **and** the spec↔artifact link is machine-derivable
+  (PR body or a commit contains `decisions#<id>` / `Closes <ref>`, or the
+  branch matches the recorded convention). Write `status='executed'`,
+  `executed_at=<merge time>`, `source_ref=<discovered artifact>`,
+  `executed_by='audit-reconcile'`.
+- **Alert only, never close** every ambiguous case (no recoverable link;
+  `config-fix`/`terraform-spec`; any category without a machine-checkable
+  artifact). This preserves the no-fabrication invariant.
+- **Distinguishability**: an auto-closed row is tagged (`executed_by
+  ='audit-reconcile'` + a note in `source_ref`) so audits can tell a
+  reconciler close from an agent close.
+- **Orphan-check consistency**: a reconciler-authored close must **not** then
+  trip Anomaly 1 (orphan/fabrication). Anomaly 1's query is amended to exclude
+  `executed_by='audit-reconcile'` closes (the same way it already tolerates
+  `agent='cos'`/`'unknown'`), OR the reconciler writes its own
+  `agent_actions_log` antecedent for the close. (Sub-decision D3 below.)
+
+### Layer 0 (rule, unchanged) — ARCH-013 stays
+
+ARCH-013's "mark executed immediately" remains the norm agents follow. Layers 1
+and 2 are the enforcement/backstop that make compliance mechanical rather than
+voluntary. Rejected as *primary*: **Option 1 (atomic close in the executor
+path)** — there is no single execution chokepoint (PR merge is often the CEO;
+config edits, Terraform, and gh writes each land differently), so atomic
+coupling would require wrapping every modality; high-touch and brittle for
+marginal gain over Layer 1. It may be revisited per-modality later.
+
+## Open sub-decisions (to ratify before implementation)
+
+- **D1 — Layer-1 landing signal.** How does the Stop-hook know an artifact
+  landed in-session? Options: (a) scan `agent_actions_log` this session for
+  write verbs (`gh pr merge`, `git push`, `terraform apply`) referencing the
+  spec; (b) require agents to record a `spec_id` on the landing action.
+- **D2 — Layer-2 link-recovery source of truth.** Canonicalize the
+  spec↔artifact link: mandate `decisions#<id>` in PR/commit bodies (make it a
+  `pr-spec` template requirement) so recovery is deterministic, vs. best-effort
+  heuristics.
+- **D3 — reconciler close vs. orphan-check.** Exclude `executed_by
+  ='audit-reconcile'` from Anomaly 1, or have the reconciler write an
+  `agent_actions_log` antecedent for its close. (Prefer the exclusion — a
+  synthetic antecedent muddies the ground-truth log.)
+- **D4 — single-writer (§4) compliance.** `audit-reconcile.sh` writing
+  `decisions` is a company-scope write. Confirm the scheduled-maintenance
+  writer is permitted under SYSTEM_INVARIANTS §4 (single-writer-per-scope), or
+  route the close through the sanctioned company-scope writer.
+- **D5 — Layer-1 false-block guard.** The Stop-hook must not trap an agent on a
+  spec it cannot close (e.g. artifact landed but link genuinely unknown) — it
+  needs a documented escape (surface-to-CoS) so it degrades to Layer 2 rather
+  than deadlocking, echoing the BUG-039 self-remediating-deny lesson.
+
+## Consequences
+
+**Positive**
+
+- In-session executions close with zero drift (Layer 1); out-of-session
+  artifacts with recoverable links close within one reconcile cycle (Layer 2).
+- audit-reconcile Anomaly 1/4 counts converge on *genuinely* open/unauthorized
+  rows — the noise that masked the ~10-day incident stall goes away.
+- The no-fabrication invariant is preserved: nothing is auto-closed on
+  inference.
+
+**Negative / cost**
+
+- Two enforcement surfaces to maintain (Stop-hook + reconciler) instead of one.
+- Layer 2 coverage is bounded by link-recoverability; `config-fix`/Terraform
+  specs still rely on Layer 1 or manual close (surfaced by alert, not silently
+  dropped).
+- D2 may add a `pr-spec` template requirement (`decisions#<id>` in PR body),
+  a small authoring-flow change.
+
+## Acceptance criteria
+
+- After a spec's artifact lands **in-session**, its `decisions` row reaches
+  `executed` with `executed_at` + `source_ref` without a separate manual step
+  (Layer 1).
+- A merged `pr-spec` with a recoverable link but `approved` row is
+  auto-reconciled to `executed` within one cycle, tagged
+  `executed_by='audit-reconcile'` (Layer 2).
+- An ambiguous / non-verifiable stale spec is **alerted, never auto-closed**.
+- A reconciler-authored close does **not** raise an Anomaly 1
+  orphan/fabrication alert.
+- audit-reconcile stale-spec / orphan counts reflect only genuinely-open or
+  genuinely-unauthorized rows.
+
+## Affected surfaces
+
+`helpers/audit-reconcile.sh` (Anomaly 1 + 4), the Stop / SubagentStop hook, the
+ARCH-013 protocol section in `JUVANT_OS.md`, the `pr-spec` authoring flow (D2),
+and `SYSTEM_INVARIANTS.md` §4 (D4 confirmation).
