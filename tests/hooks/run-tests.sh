@@ -355,6 +355,38 @@ decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "BUG-054: single-line array not misread → allow (cos:git)" "allow" "$decision"
 
 # ─────────────────────────────────────────────
+# BUG-055 (juvantlabs/juvant-os-pm#141) — turso tier-parity in allow-list
+# Static invariants over hooks/bash-policy.json so the drift that left
+# cto/design-lead/eng-frontend without turso cannot silently reappear.
+# ─────────────────────────────────────────────
+suite "BUG-055: bash-policy ↔ matrix turso consistency"
+
+_pol_has() {  # $1=role $2=binary -> yes|no
+  jq -r --arg r "$1" --arg b "$2" \
+    '(.agent_allow[$r] // []) | if index($b) then "yes" else "no" end' \
+    "$HOOKS_DIR/bash-policy.json"
+}
+
+# Root-cause invariant (drift-proof, future-role-proof): every role the
+# governance matrix (v0-agent-tool-matrix.json mcp_servers) grants turso
+# MUST carry turso in the enforcement allow-list. This is the exact
+# consistency that broke — cto/design-lead/eng-frontend had turso in the
+# matrix but not the policy, so their DB reads were denied.
+while IFS= read -r _mr; do
+  [[ -z "$_mr" ]] && continue
+  t_assert "BUG-055: matrix grants turso ⇒ policy allows it ($_mr)" "yes" "$(_pol_has "$_mr" turso)"
+done < <(jq -r '.rows[] | select((.mcp_servers // []) | index("turso")) | .role' \
+  "$ROOT_DIR/scripts/templates/v0-agent-tool-matrix.json")
+
+# Behavioral end-to-end: cto now resolves a turso read behind an inline
+# env-prefix (ties BUG-054 parse + BUG-055 allow-list together) → allow.
+t_seed_agent "cto" "active"
+event_json='{"tool_name":"Bash","session_id":"sess-pt-55","tool_input":{"command":"TURSO_DATABASE_URL=libsql://x.turso.io turso db shell company-juvant"}}'
+out=$(echo "$event_json" | AGENT_ROLE=cto bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
+t_assert "BUG-055: cto inline env-prefix turso read → allow" "allow" "$decision"
+
+# ─────────────────────────────────────────────
 # single-writer gate (Track 2d: git + gh writes) — FEAT-047 + FEAT-052
 # Also exercises BUG-049 role normalization (project-prefixed agent_type).
 # NOTE: the gate keys on event.agent_type; the bypass triggers when it is
