@@ -82,11 +82,11 @@ merge_sql(){ printf "INSERT INTO agent_actions_log (session_id,agent,tool_name,a
 seed_merge(){ sq "$(merge_sql "$1" "$2")"; }                 # → straight to DB
 spool_merge(){ printf '%s\n' "$(merge_sql "$1" "$2")" > "$SPOOL"; }  # → async spool only
 
-# run <hook> [no-gh] → sets RC/OUT/ERR
+# run <hook> [no-gh|with-gh] [subagent-role] → sets RC/OUT/ERR
 run(){
-  local hook="$1" mode="${2:-with-gh}" path ev
+  local hook="$1" mode="${2:-with-gh}" arole="${3:-eng-lead}" path ev
   path="$FAKEBIN:$PATH"; [[ "$mode" == "no-gh" ]] && path="/usr/bin:/bin"
-  if [[ "$hook" == "subagent-stop.sh" ]]; then ev='{"agent_type":"eng-lead","session_id":"'"$SESS"'"}'
+  if [[ "$hook" == "subagent-stop.sh" ]]; then ev='{"agent_type":"'"$arole"'","session_id":"'"$SESS"'"}'
   else ev='{"session_id":"'"$SESS"'","transcript_path":"'"$TMP/.juvant/transcript.jsonl"'"}'; fi
   OUT=$( echo "$ev" | PATH="$path" JUVANT_CONFIG="$CONFIG_PATH" JUVANT_TEST_DB_FILE="$DBFILE" \
          JUVANT_DB_TIMEOUT=15 bash "$TMP/hooks/$hook" 2>"$TMP/err" ); RC=$?
@@ -128,6 +128,14 @@ has "spooled merge → block names the spec" "$OUT" "decisions#1"
 eq "spool was drained by the gate" "1" \
    "$(sq "SELECT COUNT(*) FROM agent_actions_log WHERE session_id='$SESS';")"
 
+# BUG-060 interim guard: a merge against a DIFFERENT (project) repo → no block —
+# the gate resolved the company repo and must not fetch an unrelated company PR#N.
+fresh_db; write_cfg; seed_spec 1 approved
+sq "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,input_summary,started_at)
+    VALUES ('$SESS','eng-lead','Bash','h','success','gh pr merge 55 --repo other/project-web --squash',datetime('now','-5 minutes'));"
+run subagent-stop.sh
+eq "merge against a different (project) repo → no block (interim guard)" "0" "$RC"
+
 # ── BUG-057: repo unresolved but a merge seen → WARN, fail-open ──────────────
 echo "=== BUG-057: unresolved repo → WARN, not silence ==="
 fresh_db; write_cfg no-repo; seed_spec 1 approved; seed_merge "$SESS" 55
@@ -146,38 +154,47 @@ fresh_db; write_cfg; seed_spec 1 approved; run stop.sh
 eq "stop.sh: no merge → no block" "0" "$RC"
 
 # ── Path 1 (ADR 0029) — artifact-less executions via a stamped spec_id ──────
-echo "=== ADR-0029: stamped spec_id gate (artifact-less) ==="
-aspec_sql(){ # session id  → a success Bash action carrying spec_id
-  printf "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,input_summary,spec_id,started_at) VALUES ('%s','eng-lead','Bash','h','success','JUVANT_EXECUTING_SPEC=%s az keyvault set',%s,datetime('now','-5 minutes'));" "$1" "$2" "$2"
+# BUG-060 interim guard (ADR 0030): Path 1 hits the company DB, so it acts only
+# for a company-scope session (eng-platform / main-thread). A project role
+# (eng-lead) references a project-DB decision id that collides → fail-open.
+echo "=== ADR-0029 + BUG-060 guard: stamped spec_id gate ==="
+aspec_sql(){ # session id [role]  → a success Bash action carrying spec_id
+  printf "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,input_summary,spec_id,started_at) VALUES ('%s','%s','Bash','h','success','JUVANT_EXECUTING_SPEC=%s az keyvault set',%s,datetime('now','-5 minutes'));" "$1" "${3:-eng-platform}" "$2" "$2"
 }
-seed_aspec(){ sq "$(aspec_sql "$1" "$2")"; }
-spool_aspec(){ printf '%s\n' "$(aspec_sql "$1" "$2")" > "$SPOOL"; }
+seed_aspec(){ sq "$(aspec_sql "$1" "$2" "${3:-eng-platform}")"; }
+spool_aspec(){ printf '%s\n' "$(aspec_sql "$1" "$2" "${3:-eng-platform}")" > "$SPOOL"; }
 
-# 1. stamped spec_id + approved decision → block (names the spec).
-fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7
-run subagent-stop.sh
-eq "stamped spec_id, approved → exit 2 (block)" "2" "$RC"
+# 1. company-scope (eng-platform) stamped spec_id + approved decision → block.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+run subagent-stop.sh with-gh eng-platform
+eq "company role, stamped spec_id, approved → exit 2 (block)" "2" "$RC"
 has "block names the stamped spec" "$OUT" "decisions#7"
 
 # 2. KEY: Path 1 is pure-DB → blocks even with gh ABSENT (no PR to recover).
-fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7
-run subagent-stop.sh no-gh
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+run subagent-stop.sh no-gh eng-platform
 eq "stamped spec_id blocks with gh absent (pure-DB path)" "2" "$RC"
 
-# 3. decision already executed → no block.
+# 3. BUG-060 GUARD: project role (eng-lead) stamped spec_id → NO block (fail-open,
+#    the id could be a colliding project-DB decision, not this company row).
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-lead
+run subagent-stop.sh with-gh eng-lead
+eq "project role, stamped spec_id → no block (interim guard fail-open)" "0" "$RC"
+
+# 4. decision already executed → no block.
 fresh_db; write_cfg
 sq "INSERT INTO decisions (id,agent,title,category,status,executed_by,executed_at,source_ref,approved_by,approved_at,created_at)
-    VALUES (8,'eng-lead','S','pr-spec','executed','eng-lead',datetime('now'),'$REPOSLUG#9','ceo',datetime('now','-1 days'),datetime('now','-1 days'));"
-seed_aspec "$SESS" 8; run subagent-stop.sh
+    VALUES (8,'eng-platform','S','pr-spec','executed','eng-platform',datetime('now'),'$REPOSLUG#9','ceo',datetime('now','-1 days'),datetime('now','-1 days'));"
+seed_aspec "$SESS" 8 eng-platform; run subagent-stop.sh with-gh eng-platform
 eq "stamped spec_id but decision executed → no block" "0" "$RC"
 
-# 4. BUG-058: the stamped action is SPOOLED (not yet in DB) → gate drains, blocks.
-fresh_db; write_cfg; seed_spec 7 approved; spool_aspec "$SESS" 7
-run subagent-stop.sh
+# 5. BUG-058: the stamped action is SPOOLED (not yet in DB) → gate drains, blocks.
+fresh_db; write_cfg; seed_spec 7 approved; spool_aspec "$SESS" 7 eng-platform
+run subagent-stop.sh with-gh eng-platform
 eq "spooled stamped action (no manual drain) → still blocks" "2" "$RC"
 
-# 5. main-thread Stop covers it too.
-fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7
+# 6. main-thread Stop (empty role = company) covers it too.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
 run stop.sh
 eq "stop.sh: stamped spec_id → block" "2" "$RC"
 
