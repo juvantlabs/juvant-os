@@ -4715,7 +4715,7 @@ hooks/post-tool-use-failure.sh    hooks/session-start.sh
 hooks/session-end.sh          hooks/stop.sh
 hooks/subagent-start.sh       hooks/subagent-stop.sh
 hooks/post-compact.sh         hooks/pre-compact.sh
-hooks/lib/track-tokens.sh
+hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh
