@@ -175,25 +175,63 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
         fi
         [[ "$_ft_line" == \#* ]] && continue
         _ft_tok="${_ft_line%% *}"
-        _ft_tok="${_ft_tok##*/}"   # strip path prefix (e.g. /opt/homebrew/bin/git → git)
-        case "$_ft_tok" in
-          for|while|until|if|case|do|then|else|elif|\
-          fi|done|function|local|declare|readonly|typeset) continue ;;
-        esac
-        # Variable assignment (token contains '='): skip, but:
-        # • If it opens a multi-line array (VAR=( with no ) on same line),
-        #   enter array-skip mode so element lines aren't treated as commands.
-        # • If it embeds $(cmd …), salvage cmd as the binary to check.
+        # BUG-054 (juvantlabs/juvant-os-pm#140): the assignment (*=*) check MUST
+        # run BEFORE the ##*/ path-strip. The old order stripped the path first,
+        # which ate '=' out of an inline env-prefix token whose value contained
+        # a '/' — e.g. TURSO_DATABASE_URL=libsql://host/db collapsed to the
+        # fragment "db" — so the assignment branch never fired and the fragment
+        # was treated as a binary and denied against the allow-list. Handle
+        # assignments, then URL schemes, then strip confirmed binaries.
+        #
+        # Variable assignment (token contains '='):
+        # • VAR=( with no ) on this line → enter array-skip mode.
+        # • VAR=$(cmd …) → salvage cmd as the binary to check.
+        # • VAR=(a b) single-line array → a var assignment, no binary. Skip.
+        # • VAR=val [VAR2=val2 …] binary args → advance past ALL leading
+        #   assignment tokens and resolve the real binary.
         if [[ "$_ft_tok" == *=* ]]; then
           if [[ "$_ft_line" == *"("* && "$_ft_line" != *")"* ]]; then
             _ft_in_array=1
+            continue
           fi
           if [[ "$_ft_line" =~ \$\(([^[:space:]\|\&\;\)]+) ]]; then
             FIRST_TOKEN="${BASH_REMATCH[1]##*/}"
             break
           fi
-          continue
+          if [[ "$_ft_tok" == *"("* ]]; then
+            continue
+          fi
+          # Inline env-prefix(es): skip every leading VAR=val token, then take
+          # the next token as the binary. Loop (not a single hop) so
+          # A=1 B=2 binary resolves to 'binary', not to 'B=2'.
+          _ft_rest="$_ft_line"
+          while [[ "$_ft_rest" == *" "* ]]; do
+            _ft_head="${_ft_rest%% *}"
+            [[ "$_ft_head" != *=* || "$_ft_head" == *"("* ]] && break
+            _ft_rest="${_ft_rest#* }"
+            while [[ "${_ft_rest:0:1}" == " " || "${_ft_rest:0:1}" == $'\t' ]]; do
+              _ft_rest="${_ft_rest:1}"
+            done
+          done
+          _ft_head="${_ft_rest%% *}"
+          if [[ -z "$_ft_head" || "$_ft_head" == *=* ]]; then
+            continue   # only assignments on this line, no binary
+          fi
+          _ft_tok="$_ft_head"   # fall through to URL-scheme check + path-strip
         fi
+        # URL-scheme token (libsql://, https://, …): not a valid binary name.
+        # Capture it raw for deny:parse: below rather than mangling via ##*/
+        # (which would strip the scheme and silently misidentify the tail).
+        if [[ "$_ft_tok" == *"://"* ]]; then
+          FIRST_TOKEN="$_ft_tok"
+          break
+        fi
+        # Path-strip ONLY confirmed non-assignment binary tokens.
+        _ft_tok="${_ft_tok##*/}"   # /opt/homebrew/bin/git → git
+        case "$_ft_tok" in
+          for|while|until|if|case|do|then|else|elif|\
+          fi|done|function|local|declare|readonly|typeset) continue ;;
+        esac
         FIRST_TOKEN="$_ft_tok"
         break
       done <<< "$COMMAND"
@@ -202,30 +240,40 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
       # before falling through to per-role allow-list. Without this,
       # the Skill's `cd /tmp/... && sqlite3 ...` compound commands
       # got denied on `cd` even though sqlite3 was in cso allow-list.
-      UNIVERSAL_OK=$(jq -r --arg bin "$FIRST_TOKEN" \
-        '(.universal_allow // []) | index($bin) // empty' \
-        "$POLICY" 2>/dev/null || echo "")
-      if [[ -z "$UNIVERSAL_OK" ]]; then
-        ALLOW_OK=$(jq -r --arg role "$LOOKUP_ROLE" --arg bin "$FIRST_TOKEN" '
-          . as $doc |
-          [
-            ($doc.agent_allow[$role] // [])[] |
-            if startswith("@") then
-              ($doc.tiers[ltrimstr("@")] // [])[]
-            else
-              .
-            end
-          ] | index($bin) // empty
-        ' "$POLICY" 2>/dev/null || echo "")
-        if [[ -z "$ALLOW_OK" ]]; then
-          DECISION="deny"
-          # BUG-039: self-remediating deny message — diagnostic prefix +
-          # no-retry + native-tool remedy. Interim materialization of the
-          # FEAT-025 deny contract until its full escalate-deny flow lands
-          # (juvantlabs/juvant-os-pm#110). The old message ("Escalate to CoS
-          # for tool-matrix-change") drove a ~50x retry-loop on file-IO-via-
-          # shell because it named a remedy the agent cannot perform in-session.
-          DENY_REASON="deny:allow-list:$FIRST_TOKEN — binary not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Do NOT retry: repeating this command will never pass. If this is file I/O (cat/tee/heredoc, python3 -c, node -e fs.*), use the Write/Edit/Read tools instead — they are always available and not gated. For a genuine remote read (e.g. 'gh api .../contents'), that is read-only and legitimate — surface it rather than abandoning. Otherwise surface this denial to your parent (CoS) for a tool-matrix-change; do not work around it. Refs: FEAT-025 BUG-039 juvantlabs/juvant-os-pm#110"
+      # BUG-054 (juvantlabs/juvant-os-pm#140): tokens that remain unparseable
+      # after all handling above (still contain '=' or a URL scheme '://')
+      # get deny:parse: — distinct from deny:allow-list: ("valid binary, not
+      # permitted"). Guard so they never reach the jq binary-lookup, which
+      # would return a misleading allow/deny on a mangled token.
+      if [[ -n "$FIRST_TOKEN" && ( "$FIRST_TOKEN" == *=* || "$FIRST_TOKEN" == *"://"* ) ]]; then
+        DECISION="deny"
+        DENY_REASON="deny:parse:$FIRST_TOKEN — token is not a valid binary (contains '=' or URL scheme '://'); cannot determine the command to check against the allow-list. Re-issue with an explicit binary (e.g. 'turso db shell …' rather than a bare URL or an env-only line). Refs: juvantlabs/juvant-os-pm#140 BUG-054"
+      else
+        UNIVERSAL_OK=$(jq -r --arg bin "$FIRST_TOKEN" \
+          '(.universal_allow // []) | index($bin) // empty' \
+          "$POLICY" 2>/dev/null || echo "")
+        if [[ -z "$UNIVERSAL_OK" ]]; then
+          ALLOW_OK=$(jq -r --arg role "$LOOKUP_ROLE" --arg bin "$FIRST_TOKEN" '
+            . as $doc |
+            [
+              ($doc.agent_allow[$role] // [])[] |
+              if startswith("@") then
+                ($doc.tiers[ltrimstr("@")] // [])[]
+              else
+                .
+              end
+            ] | index($bin) // empty
+          ' "$POLICY" 2>/dev/null || echo "")
+          if [[ -z "$ALLOW_OK" ]]; then
+            DECISION="deny"
+            # BUG-039: self-remediating deny message — diagnostic prefix +
+            # no-retry + native-tool remedy. Interim materialization of the
+            # FEAT-025 deny contract until its full escalate-deny flow lands
+            # (juvantlabs/juvant-os-pm#110). The old message ("Escalate to CoS
+            # for tool-matrix-change") drove a ~50x retry-loop on file-IO-via-
+            # shell because it named a remedy the agent cannot perform in-session.
+            DENY_REASON="deny:allow-list:$FIRST_TOKEN — binary not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Do NOT retry: repeating this command will never pass. If this is file I/O (cat/tee/heredoc, python3 -c, node -e fs.*), use the Write/Edit/Read tools instead — they are always available and not gated. For a genuine remote read (e.g. 'gh api .../contents'), that is read-only and legitimate — surface it rather than abandoning. Otherwise surface this denial to your parent (CoS) for a tool-matrix-change; do not work around it. Refs: FEAT-025 BUG-039 juvantlabs/juvant-os-pm#110"
+          fi
         fi
       fi
     fi
