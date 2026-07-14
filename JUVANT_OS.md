@@ -1140,6 +1140,27 @@ The wizard prompt is light: ask once for the CEO's GitHub handle, then for
 each role surface "(default: `<ceo-handle>`)" and accept Enter for default
 or a different handle for override.
 
+**Also record the per-company repo slug** in the same step. The company fork
+lives at `<org>/<company-repo>` (the repo created per Step 7 / the
+`git push --mirror` in the adoption flow). Write it to `.juvant/config.json` as
+a top-level `github_repos` array:
+
+```json
+{
+  "github_repos": ["<org>/<company-repo>"]
+}
+```
+
+**Why (ARCH-017 BUG-057 (juvantlabs/juvant-os-pm#144)):** the ARCH-017 spec-marking enforcement resolves the
+company repo from `.github_repos[0]` — Layer 1 (`hooks/lib/spec-marking-gate.sh`,
+via the Stop / SubagentStop hooks) and Layer 2 (`helpers/audit-reconcile.sh`).
+If `github_repos` is absent, **both layers fail open** (Layer 1 never blocks,
+Layer 2 never auto-closes) — the enforcement ships inert. Populate this at
+company-init so the feature is live without a manual edit. (Both surfaces now
+emit a one-line `WARN` when a merge/stale-spec is seen but the repo is
+unresolved, so a future gap is no longer silent — but the fix is to set the
+field here.)
+
 ### Wizard — Step 2: Database setup
 
 Ask:
