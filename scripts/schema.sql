@@ -683,6 +683,13 @@ CREATE TABLE IF NOT EXISTS agent_actions_log (
   -- Mandatory for status='denied' (FEAT-040 Layer 1d).
   -- Set at INSERT time by pre-tool-use.sh for all rows so that
   -- rows later updated to 'failure' already carry the summary.
+  spec_id       INTEGER,
+  -- ARCH-017 / ADR 0029: soft reference to decisions.id, set when the agent
+  -- runs a Bash landing command prefixed `JUVANT_EXECUTING_SPEC=<id> …`.
+  -- Lets the Layer-1 spec-marking gate cover artifact-less executions (no PR /
+  -- issue to recover a link from). Nullable, no FK (keeps the append-only
+  -- audit write cheap/local). Idempotent migration:
+  --   ALTER TABLE agent_actions_log ADD COLUMN spec_id INTEGER;
   started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
   ended_at      DATETIME
 );

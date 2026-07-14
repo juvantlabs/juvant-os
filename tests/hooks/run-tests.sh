@@ -525,6 +525,29 @@ case "$(echo "$b56_out" | jq -r '.hookSpecificOutput.permissionDecisionReason')"
 esac
 
 # ─────────────────────────────────────────────
+# ADR 0029 — JUVANT_EXECUTING_SPEC=<id> stamps agent_actions_log.spec_id
+# (artifact-less spec-marking signal for the Layer-1 gate)
+# ─────────────────────────────────────────────
+suite "ADR-0029: JUVANT_EXECUTING_SPEC → spec_id stamp"
+
+t_db "DELETE FROM agent_actions_log;"
+rm -f "$JUVANT_SPOOL"
+event_json='{"tool_name":"Bash","session_id":"sess-0029","tool_input":{"command":"JUVANT_EXECUTING_SPEC=42 git status"}}'
+echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
+t_assert "ADR-0029: env-prefix → spec_id=42 on the audit row" "42" \
+  "$(t_db "SELECT spec_id FROM agent_actions_log WHERE session_id='sess-0029';")"
+
+# Control: no prefix → spec_id column omitted from the INSERT → NULL (byte-identical
+# common path, no migration dependency).
+rm -f "$JUVANT_SPOOL"
+event_json='{"tool_name":"Bash","session_id":"sess-0029b","tool_input":{"command":"git status"}}'
+echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
+t_assert "ADR-0029: no prefix → spec_id NULL" "" \
+  "$(t_db "SELECT spec_id FROM agent_actions_log WHERE session_id='sess-0029b';")"
+
+# ─────────────────────────────────────────────
 # Track 4 — spec gate distinguishes DB-unreachable from no-spec (E)
 # ─────────────────────────────────────────────
 suite "spec gate (Track 4: DB-unreachable vs no-spec)"
