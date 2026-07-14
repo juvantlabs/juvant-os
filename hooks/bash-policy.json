@@ -82,7 +82,7 @@
     "chro":         ["git", "gh", "turso", "@read_utils"],
     "cetho":        ["git", "gh", "turso", "@read_utils"],
     "cro":          ["git", "gh", "turso", "@read_utils"],
-    "cto":          ["git", "gh", "@read_utils", "@infra_cli"],
+    "cto":          ["git", "gh", "turso", "@read_utils", "@infra_cli"],
     "cso":          ["git", "gh", "gpg", "shellcheck", "sqlite3", "turso", "python3", "@read_utils"],
     "vpe":          ["git", "gh", "turso", "@read_utils"],
     "eng-platform": ["git", "gh", "turso", "terraform", "tflint", "checkov", "shellcheck", "npm", "npx", "node", "@read_utils", "@infra_cli"],
@@ -91,12 +91,12 @@
 
     "pca":          ["git", "gh", "node", "turso", "@read_utils"],
     "product-lead": ["git", "gh", "turso", "@read_utils"],
-    "design-lead":  ["git", "gh", "node", "npm", "@read_utils"],
+    "design-lead":  ["git", "gh", "node", "npm", "turso", "@read_utils"],
     "eng-lead":     ["git", "gh", "npm", "npx", "node", "turso", "@read_utils", "@infra_cli"],
 
     "eng-api":      ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "@read_utils"],
     "eng-backend":  ["npm", "npx", "node", "python", "python3", "pip", "pip3", "git", "pytest", "tsc", "vitest", "turso", "@read_utils"],
-    "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "@read_utils"],
+    "eng-frontend": ["npm", "npx", "node", "git", "tsc", "vitest", "eslint", "turso", "@read_utils"],
     "eng-ai":       ["python", "python3", "pip", "pip3", "git", "pytest", "turso", "@read_utils"],
 
     "maintainer":   ["git", "gh", "npm", "npx", "node", "python", "python3", "pip", "pip3", "pytest", "tsc", "vitest", "eslint", "shellcheck", "@read_utils"]
