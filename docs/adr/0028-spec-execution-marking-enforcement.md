@@ -7,8 +7,8 @@ Extends the **ARCH-013 governance protocol** in `JUVANT_OS.md` ("after
 execution — mark `status='executed'` immediately; never leave an executed spec
 as `approved`") from an *agent-remembered rule* to a *mechanically enforced*
 one. Direction ratified (layered: capture-at-execution primary + reconciler
-backstop); the specific mechanism sub-decisions below are open for ratification
-before implementation.
+backstop). Sub-decision **D4 (§4 compliance) is resolved** (verified below);
+**D1, D2, D3, D5 remain open** for ratification before implementation.
 
 ## Context
 
@@ -137,10 +137,32 @@ marginal gain over Layer 1. It may be revisited per-modality later.
   ='audit-reconcile'` from Anomaly 1, or have the reconciler write an
   `agent_actions_log` antecedent for its close. (Prefer the exclusion — a
   synthetic antecedent muddies the ground-truth log.)
-- **D4 — single-writer (§4) compliance.** `audit-reconcile.sh` writing
-  `decisions` is a company-scope write. Confirm the scheduled-maintenance
-  writer is permitted under SYSTEM_INVARIANTS §4 (single-writer-per-scope), or
-  route the close through the sanctioned company-scope writer.
+- **D4 — §4 compliance. RESOLVED (verified against SYSTEM_INVARIANTS §4/§4b/
+  §4c/§4d, 2026-07-14).** Findings:
+  - **§4 single-writer does not apply.** Single-writer governs repo/cloud/npm
+    (`eng-platform`, `eng-lead`); `decisions` is deliberately *multi-writer*
+    (every agent authors specs there).
+  - **§4d authorship is not implicated.** The reconciler **authors nothing** —
+    it transitions the `status` of a row already authored by the correct agent
+    and already `approved`. Recording that an approved decision's artifact
+    landed ≠ authoring a decision.
+  - **§4c is the real constraint** (it names `decisions` explicitly) and
+    presumes rows are mutated by accountable *company-scope agents*; a scheduled
+    helper is not an agent. **Resolution: a bounded §4c maintenance carve-out**
+    for `audit-reconcile` — it MAY UPDATE `decisions` `approved → executed`
+    **only** for the verifiable subset, writing **only** the close-set
+    (`status`, `executed_at`, `executed_by='audit-reconcile'`, `source_ref`),
+    **never** INSERT and never any other field. Do **not** route the close
+    through the scope writer (a spec-to-close-a-spec is circular). Per §4c's
+    spec-execution pattern, a project `pr-spec`'s confirmation lives in the
+    project DB, so the carve-out applies **per scope** where the reconciler runs.
+  - **Enforcement note (load-bearing).** The reconciler calls `juvant_db`
+    directly via launchd/cron — it does **not** pass through PreToolUse /
+    Track 2b, so no hook gates its writes. The close's safety (subset test,
+    field allow-list, never-INSERT) must live in the reconciler's own logic and
+    a dedicated test — it cannot be delegated to the tool-gate. `SYSTEM_
+    INVARIANTS.md` §4c gains a one-line maintenance-writer carve-out documenting
+    this bound.
 - **D5 — Layer-1 false-block guard.** The Stop-hook must not trap an agent on a
   spec it cannot close (e.g. artifact landed but link genuinely unknown) — it
   needs a documented escape (surface-to-CoS) so it degrades to Layer 2 rather
