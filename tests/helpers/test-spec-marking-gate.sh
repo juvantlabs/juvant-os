@@ -145,6 +145,42 @@ has "stop.sh block emits decision=block" "$OUT" '"decision":"block"'
 fresh_db; write_cfg; seed_spec 1 approved; run stop.sh
 eq "stop.sh: no merge → no block" "0" "$RC"
 
+# ── Path 1 (ADR 0029) — artifact-less executions via a stamped spec_id ──────
+echo "=== ADR-0029: stamped spec_id gate (artifact-less) ==="
+aspec_sql(){ # session id  → a success Bash action carrying spec_id
+  printf "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,input_summary,spec_id,started_at) VALUES ('%s','eng-lead','Bash','h','success','JUVANT_EXECUTING_SPEC=%s az keyvault set',%s,datetime('now','-5 minutes'));" "$1" "$2" "$2"
+}
+seed_aspec(){ sq "$(aspec_sql "$1" "$2")"; }
+spool_aspec(){ printf '%s\n' "$(aspec_sql "$1" "$2")" > "$SPOOL"; }
+
+# 1. stamped spec_id + approved decision → block (names the spec).
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7
+run subagent-stop.sh
+eq "stamped spec_id, approved → exit 2 (block)" "2" "$RC"
+has "block names the stamped spec" "$OUT" "decisions#7"
+
+# 2. KEY: Path 1 is pure-DB → blocks even with gh ABSENT (no PR to recover).
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7
+run subagent-stop.sh no-gh
+eq "stamped spec_id blocks with gh absent (pure-DB path)" "2" "$RC"
+
+# 3. decision already executed → no block.
+fresh_db; write_cfg
+sq "INSERT INTO decisions (id,agent,title,category,status,executed_by,executed_at,source_ref,approved_by,approved_at,created_at)
+    VALUES (8,'eng-lead','S','pr-spec','executed','eng-lead',datetime('now'),'$REPOSLUG#9','ceo',datetime('now','-1 days'),datetime('now','-1 days'));"
+seed_aspec "$SESS" 8; run subagent-stop.sh
+eq "stamped spec_id but decision executed → no block" "0" "$RC"
+
+# 4. BUG-058: the stamped action is SPOOLED (not yet in DB) → gate drains, blocks.
+fresh_db; write_cfg; seed_spec 7 approved; spool_aspec "$SESS" 7
+run subagent-stop.sh
+eq "spooled stamped action (no manual drain) → still blocks" "2" "$RC"
+
+# 5. main-thread Stop covers it too.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7
+run stop.sh
+eq "stop.sh: stamped spec_id → block" "2" "$RC"
+
 echo "───────────────────────────────────"
 echo "  spec-marking-gate: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1

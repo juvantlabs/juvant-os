@@ -21,22 +21,20 @@ spec_marking_gate() {
   local session_id="$1" role="${2:-}"
   [[ -n "$session_id" ]] || return 0
 
-  local hooks_dir cfg spool repo sums sum pr body id st sess_esc role_pred
+  local hooks_dir cfg spool repo sums sum pr body id st sess_esc role_pred sid
   hooks_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   cfg="${JUVANT_CONFIG:-$hooks_dir/../.juvant/config.json}"
-  [[ -f "$cfg" ]]                 || return 0
-  command -v jq >/dev/null 2>&1   || return 0
-  command -v gh >/dev/null 2>&1   || return 0
-  gh auth status >/dev/null 2>&1  || return 0
+  [[ -f "$cfg" ]]               || return 0
+  command -v jq >/dev/null 2>&1 || return 0
 
-  # BUG-058: the triggering merge is written to the FEAT-051 async audit spool, so
-  # it may not be in agent_actions_log yet at stop time. Drain first so a merge
-  # that just happened is guaranteed visible to the query below. Scoped tightly —
-  # only when the spool actually holds a merge action — so a per-turn Stop hook
-  # does not pay a drain on the common (no-merge) path. The drainer is idempotent
-  # + crash-safe, so an occasional false-positive drain is harmless.
+  # BUG-058: a just-happened landing signal is written to the FEAT-051 async
+  # audit spool and may not be in agent_actions_log yet at stop time. Drain first
+  # so it is visible to the queries below — for BOTH signals: a `gh pr merge`
+  # (ADR 0028) and a `JUVANT_EXECUTING_SPEC=<id>`-stamped command (ADR 0029).
+  # Scoped to spools that actually hold such a signal, so a per-turn Stop hook
+  # pays nothing on the common path. The drainer is idempotent + crash-safe.
   spool="$(juvant_spool_path 2>/dev/null || echo "")"
-  if [[ -n "$spool" && -s "$spool" ]] && grep -qi 'merge' "$spool" 2>/dev/null; then
+  if [[ -n "$spool" && -s "$spool" ]] && grep -qiE 'merge|JUVANT_EXECUTING_SPEC' "$spool" 2>/dev/null; then
     bash "$hooks_dir/../helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true
   fi
 
@@ -45,6 +43,29 @@ spec_marking_gate() {
   if [[ -n "$role" && "$role" != "unknown" ]]; then
     role_pred="AND agent = '$(printf '%s' "$role" | sed "s/'/''/g")'"
   fi
+
+  # ── Path 1 (ADR 0029): artifact-less executions via a stamped spec_id ────────
+  # A Bash landing command prefixed `JUVANT_EXECUTING_SPEC=<id>` stamped that id
+  # onto its audit row. If any such spec is still 'approved', the execution left
+  # it unmarked → block. Pure-DB: needs NO gh/repo, so it runs even when those
+  # are unavailable. A missing spec_id column (un-migrated DB) makes the query
+  # error → empty → fail-open. Satisfiable: the agent knows the id it stamped.
+  while IFS= read -r sid; do
+    [[ "$sid" =~ ^[0-9]+$ ]] || continue
+    st="$(juvant_db_query "SELECT status FROM decisions WHERE id=$sid;" \
+      2>/dev/null | { grep -E '^[a-z]+$' || true; } | tail -1)"
+    if [[ "$st" == "approved" ]]; then
+      printf '%s' "decisions#${sid} was executed this session (JUVANT_EXECUTING_SPEC=${sid}) but its row is still 'approved'. Per ARCH-013, close it before you finish: UPDATE decisions SET status='executed', executed_by='${role:-cos}', executed_at=CURRENT_TIMESTAMP WHERE id=${sid} AND status='approved' — and set source_ref too if the category requires it (deployment/install/release/branch-protection/secret-rotation/eng-platform-spec; the schema trigger enforces this). If it was NOT actually executed, surface it to CoS instead."
+      return 0
+    fi
+  done < <(juvant_db_query "
+    SELECT DISTINCT spec_id FROM agent_actions_log
+    WHERE session_id = '$sess_esc' $role_pred AND spec_id IS NOT NULL;
+  " 2>/dev/null || true)
+
+  # ── Path 2 (ADR 0028): PR-body recovery for pr-spec (needs gh + repo) ────────
+  command -v gh >/dev/null 2>&1  || return 0
+  gh auth status >/dev/null 2>&1 || return 0
 
   # Candidate PR-merge actions in this session (input_summary carries the raw
   # Bash command; role filter scopes a subagent, absent for the main thread).

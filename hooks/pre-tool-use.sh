@@ -866,14 +866,30 @@ ROLE_ESC=$(sql_escape "$ROLE")
 TOOL_ESC=$(sql_escape "$TOOL_NAME")
 INPUT_SUMMARY_ESC=$(sql_escape "$INPUT_SUMMARY")
 
+# ARCH-017 / ADR 0029: if the agent ran a Bash landing command prefixed
+# `JUVANT_EXECUTING_SPEC=<id> …`, stamp that decision id onto the audit row so
+# the Layer-1 spec-marking gate can cover artifact-less executions (no PR/issue
+# to recover a link from). The signal is read from the COMMAND text (an inline
+# env-prefix — no real env needed, scoped-by-construction to this one command).
+# Only Bash carries it (Edit/Write have no per-call channel — out of scope, ADR
+# 0029 S2). Include the column ONLY when set, so the common audit write stays
+# byte-identical and needs no migration dependency.
+_SPEC_COL=""; _SPEC_VAL=""
+if [[ "$TOOL_NAME" == "Bash" ]]; then
+  _SPEC_RAW=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
+  if [[ "$_SPEC_RAW" =~ JUVANT_EXECUTING_SPEC=([0-9]+) ]]; then
+    _SPEC_COL=", spec_id"; _SPEC_VAL=", ${BASH_REMATCH[1]}"
+  fi
+fi
+
 # FEAT-051: spool the audit INSERT instead of executing it inline. This
 # write is NOT a precondition for the allow/deny decision below, so it
 # must not sit on the tool gating path. Spooled rows are drained to the
 # DB out-of-band (helpers/drain-audit-spool.sh via session-start.sh).
 juvant_db_exec_async "INSERT INTO agent_actions_log
-  (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary)
+  (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary${_SPEC_COL})
   VALUES
-  ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL, '$INPUT_SUMMARY_ESC');" \
+  ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL, '$INPUT_SUMMARY_ESC'${_SPEC_VAL});" \
   || echo "[pre-tool-use] WARN: failed to spool agent_actions_log row" >&2
 
 # ─────────────────────────────────────────────

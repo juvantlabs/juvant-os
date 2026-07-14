@@ -4133,6 +4133,15 @@ Before executing ANY spec, Eng Lead verifies:
    finding the merged PR / created issue whose body carries `decisions#<id>`.
    REJECT if absent — without it the row cannot be auto-closed and drifts back
    to `approved` after the artifact lands.
+   For **artifact-less spec categories executed via a Bash command** (no PR /
+   issue to carry a `decisions#<id>` — e.g. `secret-rotation-spec`,
+   `install-spec`, `deployment-spec` run locally, `tool-matrix-change`), the
+   execution step MUST run its landing command prefixed
+   `JUVANT_EXECUTING_SPEC=<id> …` (ARCH-017 ADR 0029). `pre-tool-use.sh` stamps
+   that id onto the audit row so the Layer-1 gate can force the close. REJECT an
+   execution plan for such a spec that lacks the prefix. (Pure `Edit`/`Write`
+   landings cannot carry the signal and are out of scope — run the landing as a
+   Bash command to make it gate-able.)
 4. **Universal CONFIDENTIAL invariant (§5)** — no item from the universal list
    appears in the spec payload.
 5. **Linked artifact integrity** — referenced commits exist, referenced issues exist,
