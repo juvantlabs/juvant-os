@@ -314,6 +314,46 @@ out=$(echo "$event_json" | AGENT_ROLE=eng-platform bash "$HOOKS_DIR/pre-tool-use
 decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
 t_assert "agent role + terraform apply → deny" "deny" "$decision"
 
+# ─── BUG-054 (juvantlabs/juvant-os-pm#140) — inline env-prefix / URL parse ───
+# 6. Inline env-prefix whose value carries a URL scheme (cso holds turso).
+#    TURSO_DATABASE_URL=libsql://x.turso.io turso db shell …
+#    Pre-fix: ##*/ ran first, collapsing the token to a fragment ("turso.io")
+#    that no longer matched *=*, so it was treated as a binary → deny.
+#    Post-fix: *=* detected first → skip the prefix → binary "turso" → allow.
+event_json='{"tool_name":"Bash","session_id":"sess-pt-6","tool_input":{"command":"TURSO_DATABASE_URL=libsql://x.turso.io turso db shell company-juvant"}}'
+out=$(echo "$event_json" | AGENT_ROLE=cso bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
+t_assert "BUG-054: inline env-prefix (cso:turso) → allow" "allow" "$decision"
+
+# 6b. DOUBLE env-prefix — the edge case the loop (not a single hop) fixes.
+#     A=1 TURSO_DATABASE_URL=libsql://x turso … must still resolve to 'turso'.
+event_json='{"tool_name":"Bash","session_id":"sess-pt-6b","tool_input":{"command":"FOO=bar TURSO_DATABASE_URL=libsql://x.turso.io turso db shell c"}}'
+out=$(echo "$event_json" | AGENT_ROLE=cso bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
+t_assert "BUG-054: double env-prefix (cso:turso) → allow" "allow" "$decision"
+
+# 6c. Naked URL as the first token → deny:parse: (not deny:allow-list:).
+#     libsql://x.turso.io "SELECT 1" — no binary, just a URL literal.
+#     Pre-fix: ##*/ mangled it to "x.turso.io" → deny:allow-list.
+#     Post-fix: ://-detection captures it raw → deny:parse:.
+event_json='{"tool_name":"Bash","session_id":"sess-pt-6c","tool_input":{"command":"libsql://x.turso.io \"SELECT 1\""}}'
+out=$(echo "$event_json" | AGENT_ROLE=cso bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
+reason=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')
+t_assert "BUG-054: naked URL first token → deny" "deny" "$decision"
+case "$reason" in
+  deny:parse:*) t_assert "BUG-054: naked URL → deny:parse: prefix" "ok" "ok" ;;
+  *) t_assert "BUG-054: naked URL → deny:parse: prefix" "ok" "got: $reason" ;;
+esac
+
+# 6d. Regression: a single-line array assignment (WHITELIST=(git gh)) followed
+#     by a real command must NOT be misread as binary 'gh'. The array token is
+#     a var assignment (skipped); the binary is the git on the next statement.
+event_json='{"tool_name":"Bash","session_id":"sess-pt-6d","tool_input":{"command":"WHITELIST=(git gh)\ngit status"}}'
+out=$(echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+decision=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')
+t_assert "BUG-054: single-line array not misread → allow (cos:git)" "allow" "$decision"
+
 # ─────────────────────────────────────────────
 # single-writer gate (Track 2d: git + gh writes) — FEAT-047 + FEAT-052
 # Also exercises BUG-049 role normalization (project-prefixed agent_type).
