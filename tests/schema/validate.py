@@ -18,6 +18,7 @@ Does NOT cover behavior of hooks/seed paths — see tests/hooks/.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -250,6 +251,44 @@ backfill = upgrade_conn.execute(
 check("upgrade backfills project_maturity_history for existing project", backfill == 1)
 
 upgrade_conn.close()
+
+# ─────────────────────────────────────────────
+# decisions.category allowlist consistency (BUG-063). The category-check trigger
+# enumeration is duplicated across scripts/schema.sql (INS + UPD triggers) and
+# scripts/migrate.sh (the DROP+CREATE patch pairs, ×2 for local + turso). They
+# MUST enumerate the identical value set — a drift silently aborts writers whose
+# category exists in one surface but not the enforcing one (this class has bitten
+# twice: BUG-055 turso allow-list, BUG-063 CSO categories).
+print("\n=== decisions.category allowlist consistency (BUG-063) ===")
+_cat_re = re.compile(r"NEW\.category NOT IN \((.*?)\)", re.S)
+_val_re = re.compile(r"'([a-z][a-z-]*)'")
+
+
+def _cat_sets(text: str) -> list[frozenset[str]]:
+    return [frozenset(_val_re.findall(m.group(1))) for m in _cat_re.finditer(text)]
+
+
+_schema_sets = _cat_sets(SCHEMA_PATH.read_text())
+_migrate_sets = _cat_sets((ROOT / "scripts" / "migrate.sh").read_text())
+_all_sets = _schema_sets + _migrate_sets
+check(
+    "found the category enumerations (schema.sql ×2, migrate.sh ×2+)",
+    len(_schema_sets) == 2 and len(_migrate_sets) >= 2,
+    f"schema={len(_schema_sets)} migrate={len(_migrate_sets)}",
+)
+_canon = _schema_sets[0] if _schema_sets else frozenset()
+_drift = [sorted(s ^ _canon) for s in _all_sets if s != _canon]
+check(
+    "every category enumeration agrees (schema.sql ⇄ migrate.sh, INS ⇄ UPD)",
+    all(s == _canon for s in _all_sets),
+    f"drift vs schema INS: {_drift}",
+)
+_required = {"system-audit", "incident-response", "security-remediation"}
+check(
+    "CSO-required categories present (system-audit/incident-response/security-remediation)",
+    _required <= _canon,
+    f"missing: {sorted(_required - _canon)}",
+)
 
 # ─────────────────────────────────────────────
 print("\n===================================================")

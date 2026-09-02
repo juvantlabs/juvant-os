@@ -3185,7 +3185,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a top-level column: never use `WHERE category=` or `SELECT category`. For filtering: `json_extract(content, '$.category')`. For inserting: include as a key inside `json_object('category', '...')`** |
-| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'` — `arch-decision`: architectural decision, durable rationale, no GH action; `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
+| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'\|'legal'\|'product'\|'business'\|'system-audit'\|'incident-response'\|'security-remediation'` — `arch-decision`: architectural decision, durable rationale, no GH action; `system-audit`/`incident-response`/`security-remediation`: CSO audit + incident records (agents/company/cso.md); `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
@@ -3963,12 +3963,16 @@ state change — NOT clarification turns or housekeeping):
                           approved_by, approved_at, created_at)
    VALUES (?, ?, ?, ?, 'proposed', NULL, NULL, CURRENT_TIMESTAMP);
    ```
-   `category` MUST be one of the schema-documented values (model-override,
-   tool-matrix-change, pr-spec, gh-issue-spec, gh-project-update-spec,
-   gh-milestone-spec, install-spec, branch-protection-spec, release-spec,
-   deployment-spec, secret-rotation-spec, eng-output-held, disclosure-unavailable,
-   bootstrap-action, cascade-escalation, cascade-postmortem, model-override,
-   skill-gap, migration-watch).
+   `category` MUST be one of the schema-documented canonical values (kept in
+   lockstep with the `decisions_category_check_*` triggers in scripts/schema.sql
+   + scripts/migrate.sh): model-override, tool-matrix-change, pr-spec,
+   gh-issue-spec, gh-project-update-spec, gh-milestone-spec, install-spec,
+   branch-protection-spec, release-spec, deployment-spec, secret-rotation-spec,
+   eng-output-held, disclosure-unavailable, bootstrap-action, cascade-escalation,
+   cascade-postmortem, skill-gap, migration-watch, upstream-sync-proposal,
+   eng-platform-spec, arch-decision, operational-violation, kb-orphan-review,
+   legal, product, business, system-audit, incident-response,
+   security-remediation.
 
 5. **Cascade fired** → see "Disclosure fallback cascade" below.
 
