@@ -158,6 +158,11 @@ run_schema_apply() {
       else
         DB_PATH="$DB_URL"
       fi
+      if [[ "$DRY_RUN" == "1" ]]; then
+        echo "$(dry) would apply $SCHEMA to local SQLite ($SCOPE_LABEL): $DB_PATH"
+        echo "$(dry) would then apply idempotent schema patches (ALTER TABLE ADD COLUMN + trigger DROP/CREATE) — NO write performed"
+        return 0
+      fi
       mkdir -p "$(dirname "$DB_PATH")"
       echo "Applying schema to local SQLite ($SCOPE_LABEL): $DB_PATH"
       sqlite3 "$DB_PATH" < "$SCHEMA"
@@ -174,6 +179,11 @@ run_schema_apply() {
         echo "ERROR: turso CLI not found."
         echo "Install: brew install tursodatabase/tap/turso"
         exit 1
+      fi
+      if [[ "$DRY_RUN" == "1" ]]; then
+        echo "$(dry) would apply $SCHEMA to ($SCOPE_LABEL): $DB_URL"
+        echo "$(dry) would then apply idempotent schema patches (ALTER TABLE ADD COLUMN + trigger DROP/CREATE) — NO write performed"
+        return 0
       fi
       echo "Applying schema to ($SCOPE_LABEL): $DB_URL"
       turso db shell "$DB_URL" < "$SCHEMA"
