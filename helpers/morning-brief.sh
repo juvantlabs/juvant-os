@@ -31,7 +31,7 @@ if [[ -f "$_LOG" ]]; then
   if [[ "${_total:-0}" -gt 7 ]]; then
     _skip=$(( _total - 7 ))
     awk -v skip="$_skip" '/^=== RUN /{n++} n>skip{print}' \
-      "$_LOG" > "${_LOG}.tmp" && mv "${_LOG}.tmp" "$_LOG"
+      "$_LOG" > "${_LOG}.tmp" && cat "${_LOG}.tmp" > "$_LOG" && rm -f "${_LOG}.tmp"
   fi
 fi
 echo "=== RUN $(date -u +%Y%m%dT%H%M%SZ) ===" >> "$_LOG"
