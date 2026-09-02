@@ -192,7 +192,8 @@ BEGIN
     'bootstrap-action','cascade-escalation','cascade-postmortem',
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
     'arch-decision','operational-violation','kb-orphan-review',
-    'legal','product','business'
+    'legal','product','business',
+    'system-audit','incident-response','security-remediation'
   );
 END;
 
@@ -210,7 +211,8 @@ BEGIN
     'bootstrap-action','cascade-escalation','cascade-postmortem',
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
     'arch-decision','operational-violation','kb-orphan-review',
-    'legal','product','business'
+    'legal','product','business',
+    'system-audit','incident-response','security-remediation'
   );
 END;
 
