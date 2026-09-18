@@ -260,7 +260,8 @@ juvant_db_query() {
       if [[ -z "$JUVANT_DB_PATH" ]] || ! command -v sqlite3 &>/dev/null; then
         return 1
       fi
-      _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql" 2>/dev/null
+      # No 2>/dev/null (BUG-065 audit): a sqlite3 error surfaces + returns non-zero.
+      _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql"
       ;;
     turso|azure|aws|gcp)
       if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
@@ -268,7 +269,9 @@ juvant_db_query() {
       fi
       # turso db shell pads scalar output with whitespace; strip it so
       # callers can compare COUNT(*) results with == without false mismatches.
-      _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql" 2>/dev/null | tr -d ' \t' | grep -v '^$'
+      # No 2>/dev/null (BUG-065 audit): the CLI's error text reaches stderr
+      # instead of being swallowed (stdout still flows through tr|grep).
+      _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql" | tr -d ' \t' | grep -v '^$'
       ;;
     *)
       return 1
@@ -276,18 +279,17 @@ juvant_db_query() {
   esac
 }
 
-# Read-only query with CSV output (the two CLIs have different flags
-# for CSV — sqlite3 uses `-csv`, turso uses `--output csv`).
+# Read-only query with header-less CSV output, uniform across providers.
 #
-# Header consistency: `turso db shell --output csv` prints a column-name
-# HEADER row above the data; `sqlite3 -csv` (no `-header`) does NOT. Left
-# unequal, a `while IFS=',' read` consumer would process turso's header as
-# a bogus first data row on cloud backends but not on local — a
-# provider-dependent bug (it bit drain-outbox latently). We normalize to
-# HEADER-LESS on BOTH backends by stripping turso's single header line, so
-# every consumer parses rows uniformly with no per-call header skip. (The
-# fake-turso test shim mirrors the real CLI by emitting a header via
-# `sqlite3 -csv -header`, so this path is exercised in CI.)
+# local  → `sqlite3 -csv` (no -header): header-less, RFC-style quote-when-needed.
+# cloud  → the libsql HTTP `/v2/pipeline` API (JSON), formatted to the SAME CSV.
+#          BUG-065: the turso CLI has NO CSV output mode — `--output csv` never
+#          existed (verified against `turso db shell --help`, v1.0.26). The old
+#          code passed that nonexistent flag and `2>/dev/null`-swallowed the
+#          `unknown flag` error, so EVERY cloud CSV read returned empty and
+#          silently — disabling the anomaly detector and emitting false
+#          all-clears. Errors are now surfaced (a guardrail that fails must say
+#          so); an empty result is distinguishable from a failure (rc 0 vs 1).
 juvant_db_query_csv() {
   local sql="$1"
 
@@ -298,17 +300,51 @@ juvant_db_query_csv() {
       if [[ -z "$JUVANT_DB_PATH" ]] || ! command -v sqlite3 &>/dev/null; then
         return 1
       fi
-      _juvant_db_run sqlite3 -csv "$JUVANT_DB_PATH" "$sql" 2>/dev/null
+      # No 2>/dev/null: a sqlite3 error surfaces on stderr and returns non-zero.
+      _juvant_db_run sqlite3 -csv "$JUVANT_DB_PATH" "$sql"
       ;;
     turso|azure|aws|gcp)
-      if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
+      if [[ -z "$JUVANT_DB_URL" ]]; then
+        echo "[db.sh] juvant_db_query_csv: no DB URL resolved" >&2
         return 1
       fi
-      # URL comes first (turso's positional order is `<url> [sql] [flags]`,
-      # and the scalar path above already relies on url-first); `--output csv`
-      # then `$sql`. tail -n +2 drops turso's header row (empty result ⇒
-      # header only ⇒ tail yields nothing, the correct empty output).
-      _juvant_db_run turso db shell "$JUVANT_DB_URL" --output csv "$sql" 2>/dev/null | tail -n +2
+      local _dep _http _req _resp _err
+      for _dep in curl jq; do
+        command -v "$_dep" >/dev/null 2>&1 || {
+          echo "[db.sh] juvant_db_query_csv: '$_dep' required for the libsql HTTP read, not found" >&2
+          return 1
+        }
+      done
+      _http="${JUVANT_DB_URL/#libsql:\/\//https://}"   # libsql:// → https://; http(s):// kept
+      _req=$(jq -n --arg sql "$sql" \
+        '{requests:[{type:"execute",stmt:{sql:$sql}},{type:"close"}]}')
+      if [[ -n "$JUVANT_DB_TOKEN" ]]; then
+        _resp=$(_juvant_db_run curl -sS -H "Authorization: Bearer $JUVANT_DB_TOKEN" \
+          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
+          echo "[db.sh] juvant_db_query_csv: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
+          return 1; }
+      else
+        _resp=$(_juvant_db_run curl -sS \
+          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
+          echo "[db.sh] juvant_db_query_csv: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
+          return 1; }
+      fi
+      if ! jq -e . >/dev/null 2>&1 <<<"$_resp"; then
+        echo "[db.sh] juvant_db_query_csv: non-JSON response from $_http/v2/pipeline: $(printf '%.160s' "$_resp")" >&2
+        return 1
+      fi
+      _err=$(jq -r 'first(.results[]? | select(.type=="error") | .error.message) // ""' <<<"$_resp")
+      if [[ -n "$_err" ]]; then
+        echo "[db.sh] juvant_db_query_csv: DB error: $_err" >&2
+        return 1
+      fi
+      # Header-less CSV matching `sqlite3 -csv` (quote a field iff it holds
+      # a comma, double-quote, CR or LF; NULL → empty field).
+      jq -r '
+        def csvf: if (type == "string" and test("[\",\r\n]"))
+                  then "\"" + gsub("\"";"\"\"") + "\"" else tostring end;
+        .results[0].response.result.rows[]? | map((.value // "") | csvf) | join(",")
+      ' <<<"$_resp"
       ;;
     *)
       return 1

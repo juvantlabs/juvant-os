@@ -61,19 +61,10 @@ cp "$REPO/hooks/lib/db.sh" "$TMP/hooks/lib/"
 printf '#!/usr/bin/env bash\ncat >/dev/null 2>&1 || true\nexit 0\n' > "$TMP/hooks/notification.sh"
 chmod +x "$TMP/hooks/notification.sh"
 
-# turso shim + curl-capture shim on a front PATH.
+# turso shim + a dual-role curl shim (serves the libsql /v2/pipeline DB reads for
+# juvant_db_query_csv AND captures notification payloads to $CURL_CAPTURE).
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
-cat > "$FAKEBIN/curl" <<'CURL'
-#!/usr/bin/env bash
-# Capture the AdaptiveCard payload (the value after -d) to $CURL_CAPTURE.
-prev=""
-for a in "$@"; do
-  [[ "$prev" == "-d" ]] && printf '%s' "$a" > "${CURL_CAPTURE:-/dev/null}"
-  prev="$a"
-done
-exit 0
-CURL
-chmod +x "$FAKEBIN/curl"
+cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 
 DBFILE="$TMP/.juvant/state.db"
 CONFIG_PATH="$TMP/.juvant/config.json"
