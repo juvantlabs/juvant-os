@@ -302,6 +302,32 @@ else
   echo "    SKIP: (x) jq strptime not available"
 fi
 
+# ── (xi) Actions fresh + sparse surfaces EMPTY → NO finding (fresh bootstrap) ──
+# An empty sparse surface (messages / session_snapshots never written) is
+# NEUTRAL, not a ~20k-day silence. A fresh/quiet instance must not raise a false
+# HIGH divergent-silence. (Regression for the review finding.)
+echo "=== (xi) fresh actions + empty sparse → no finding ==="
+fresh_db; write_cfg; clear_spool
+sq "INSERT INTO agent_actions_log (agent,tool_name,args_hash,status,started_at) VALUES ('cos','Bash','h','success', datetime('now'));"
+out=$(CONTINUITY_WARN_DAYS=14 CONTINUITY_FAIL_DAYS=30 run)
+if has_category "$out" "audit-surface-continuity-gap" || has_category "$out" "audit-surface-divergent-silence"; then
+  no "(xi) fresh actions + empty sparse → unexpected continuity finding (false HIGH)"
+else
+  ok "(xi) fresh actions + empty sparse → no false continuity finding"
+fi
+
+# ── (xii) Broken reader → fail-safe HIGH (never a silent all-clear) ──────────
+# A surface that cannot be read (missing table / unreachable DB) must RAISE — the
+# grep+`${:-0}` used to coerce a failed read to 0 = "fresh". (Regression for the
+# review finding.)
+echo "=== (xii) broken reader → fail-safe HIGH ==="
+fresh_db; write_cfg; clear_spool; seed_all_fresh
+sq "DROP TABLE session_snapshots;"
+out=$(CONTINUITY_WARN_DAYS=14 CONTINUITY_FAIL_DAYS=30 run)
+sev=$(find_sev "$out" "audit-continuity-reader-error")
+if [[ "$sev" == "high" ]]; then ok "(xii) broken reader → HIGH audit-continuity-reader-error"
+else no "(xii) broken reader → expected high reader-error, got '${sev}'"; fi
+
 echo "───────────────────────────────────"
 echo "  continuity-predicate: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]] || exit 1

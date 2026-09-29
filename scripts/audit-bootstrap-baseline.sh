@@ -198,16 +198,39 @@ audit_layer_1_access() {
     "SELECT COALESCE(MAX(started_at), '1970-01-01 00:00:00') FROM agent_actions_log;" \
     | tail -1 | tr -d '[:space:]' || true)
 
-  local gap_action gap_message gap_snapshot
+  # agent_actions_log is the PRIMARY (continuous) surface: an EMPTY log is itself
+  # a signal (nothing logged, not even bootstrap actions), so it keeps the epoch
+  # baseline → empty reads as a large gap and is flagged. The SPARSE surfaces
+  # (messages, session_snapshots) below use a 'now' baseline + a row-count so an
+  # empty one is NEUTRAL (never-written), not a false ~20k-day silence.
+  local gap_action gap_message gap_snapshot cnt_message cnt_snapshot
   gap_action=$(juvant_db_query \
     "SELECT CAST(julianday('now') - julianday(COALESCE(MAX(started_at),'1970-01-01 00:00:00')) AS INTEGER) FROM agent_actions_log;" \
     | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
   gap_message=$(juvant_db_query \
-    "SELECT CAST(julianday('now') - julianday(COALESCE(MAX(created_at),'1970-01-01 00:00:00')) AS INTEGER) FROM messages;" \
+    "SELECT CAST(julianday('now') - julianday(COALESCE(MAX(created_at),'now')) AS INTEGER) FROM messages;" \
     | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
   gap_snapshot=$(juvant_db_query \
-    "SELECT CAST(julianday('now') - julianday(COALESCE(MAX(created_at),'1970-01-01 00:00:00')) AS INTEGER) FROM session_snapshots;" \
+    "SELECT CAST(julianday('now') - julianday(COALESCE(MAX(created_at),'now')) AS INTEGER) FROM session_snapshots;" \
     | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
+  # Row counts decide sparse-surface eligibility: a never-written surface (0 rows)
+  # is neutral, not silent.
+  cnt_message=$(juvant_db_query "SELECT COUNT(*) FROM messages;" \
+    | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
+  cnt_snapshot=$(juvant_db_query "SELECT COUNT(*) FROM session_snapshots;" \
+    | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
+
+  # Fail-safe on a broken reader. The grep + `${:-0}` below would coerce a FAILED
+  # read (missing table / unreachable DB → empty output) to 0 = "fresh" — a silent
+  # all-clear, the exact fail-open this repo guards against. With the COALESCE→'now'
+  # baseline a SUCCESSFUL read of ANY surface (even an empty table) yields a numeric
+  # gap; so an EMPTY value here means the read itself failed. Raise, don't pass.
+  if [[ -z "$gap_action" || -z "$gap_message" || -z "$gap_snapshot" || -z "$cnt_message" || -z "$cnt_snapshot" ]]; then
+    emit "access" "high" \
+      "Audit-continuity predicate could not read a DB write surface (agent_actions_log='${gap_action}' messages='${gap_message}' session_snapshots='${gap_snapshot}' cnt_message='${cnt_message}' cnt_snapshot='${cnt_snapshot}' — an empty value is a FAILED read, not a fresh signal). Fail-safe raise: verify DB reachability and that the audit tables exist." \
+      "audit-continuity-reader-error"
+    return 0
+  fi
 
   local halt_json halt_covered=0
   halt_json=$(juvant_db_query \
@@ -229,35 +252,41 @@ audit_layer_1_access() {
     ' <<<"$halt_json" 2>/dev/null || echo 0)
   fi
 
-  local sev="" silent_count=0 worst_gap
-  worst_gap="${gap_action:-0}"
-  [[ "${gap_message:-0}" -gt "${worst_gap:-0}" ]] && worst_gap="${gap_message}"
-  [[ "${gap_snapshot:-0}" -gt "${worst_gap:-0}" ]] && worst_gap="${gap_snapshot}"
-  [[ "${gap_action:-0}"   -ge "$CONTINUITY_WARN_DAYS" ]] && silent_count=$((silent_count + 1))
-  [[ "${gap_message:-0}"  -ge "$CONTINUITY_WARN_DAYS" ]] && silent_count=$((silent_count + 1))
-  [[ "${gap_snapshot:-0}" -ge "$CONTINUITY_WARN_DAYS" ]] && silent_count=$((silent_count + 1))
+  # Weigh continuity over ELIGIBLE surfaces only: the primary (always) plus each
+  # sparse surface that has rows. An empty sparse surface is neutral (never
+  # written), so it neither adds a false silence nor masks a real one. Consensus
+  # (every eligible surface silent) = a genuine continuity gap; a mix (some
+  # eligible silent, some fresh) = a divergent broken-subsystem signal.
+  local sev="" eligible=1 silent=0 worst_gap=0 _md _sd
+  [[ "$gap_action" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$gap_action" -gt "$worst_gap" ]] && worst_gap="$gap_action"; }
+  if [[ "$cnt_message" -gt 0 ]]; then
+    eligible=$((eligible+1)); _md="${gap_message}d"
+    [[ "$gap_message" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$gap_message" -gt "$worst_gap" ]] && worst_gap="$gap_message"; }
+  else _md="empty"; fi
+  if [[ "$cnt_snapshot" -gt 0 ]]; then
+    eligible=$((eligible+1)); _sd="${gap_snapshot}d"
+    [[ "$gap_snapshot" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$gap_snapshot" -gt "$worst_gap" ]] && worst_gap="$gap_snapshot"; }
+  else _sd="empty"; fi
 
-  if [[ "${gap_action:-0}" -ge "$CONTINUITY_WARN_DAYS" ]] && [[ -s "$spool_file" ]]; then
+  if [[ "$gap_action" -ge "$CONTINUITY_WARN_DAYS" ]] && [[ -s "$spool_file" ]]; then
     emit "access" "info" \
       "agent_actions_log latest=${latest_action} (gap=${gap_action}d) but audit spool has pending rows — Track 3 running async (FEAT-051), drain gap not continuity gap." \
       "track-3-async-pending"
-  elif [[ "$halt_covered" == "1" ]] && [[ "$silent_count" -eq 3 ]]; then
+  elif [[ "$halt_covered" == "1" ]] && [[ "$silent" -ge 1 && "$silent" -eq "$eligible" ]]; then
     emit "access" "info" \
-      "Continuity gap covered by declared halt_windows (latest_action=${latest_action}, gap=${gap_action}d, all three DB write surfaces silent — consistent with declared closure)." \
+      "Continuity gap covered by declared halt_windows (latest_action=${latest_action}, gap=${gap_action}d, all ${eligible} eligible DB write surface(s) silent — consistent with declared closure)." \
       "audit-surface-continuity-covered"
-  elif [[ "$silent_count" -eq 3 ]]; then
-    if   [[ "${worst_gap:-0}" -ge "$CONTINUITY_FAIL_DAYS" ]]; then sev="high"
-    elif [[ "${worst_gap:-0}" -ge "$CONTINUITY_WARN_DAYS" ]]; then sev="medium"
+  elif [[ "$silent" -ge 1 && "$silent" -eq "$eligible" ]]; then
+    if   [[ "$worst_gap" -ge "$CONTINUITY_FAIL_DAYS" ]]; then sev="high"
+    elif [[ "$worst_gap" -ge "$CONTINUITY_WARN_DAYS" ]]; then sev="medium"
     fi
     [[ -n "$sev" ]] && emit "access" "$sev" \
-      "Audit-surface continuity gap: DB layer silent (agent_actions_log=${gap_action}d, messages=${gap_message}d, session_snapshots=${gap_snapshot}d; thresholds warn=${CONTINUITY_WARN_DAYS}d fail=${CONTINUITY_FAIL_DAYS}d). Not covered by declared halt_windows. Either declare via CoS or investigate." \
+      "Audit-surface continuity gap: DB layer silent (agent_actions_log=${gap_action}d, messages=${_md}, session_snapshots=${_sd}; all ${eligible} eligible surface(s) silent; thresholds warn=${CONTINUITY_WARN_DAYS}d fail=${CONTINUITY_FAIL_DAYS}d). Not covered by declared halt_windows. Either declare via CoS or investigate." \
       "audit-surface-continuity-gap"
-  elif [[ "$silent_count" -ge 1 ]]; then
-    if   [[ "${worst_gap:-0}" -ge "$CONTINUITY_FAIL_DAYS" ]]; then sev="high"
-    elif [[ "${worst_gap:-0}" -ge "$CONTINUITY_WARN_DAYS" ]]; then sev="high"
-    fi
-    [[ -n "$sev" ]] && emit "access" "$sev" \
-      "DIVERGENT continuity gap (broken subsystem class #137): agent_actions_log=${gap_action}d, messages=${gap_message}d, session_snapshots=${gap_snapshot}d. Only $silent_count of 3 DB surfaces silent — likely a broken write path within the DB layer, not a genuine silence. Verify pre-tool-use hook, PreCompact hook, or agent insert paths." \
+  elif [[ "$silent" -ge 1 ]]; then
+    sev="high"
+    emit "access" "$sev" \
+      "DIVERGENT continuity gap (broken subsystem class #137): agent_actions_log=${gap_action}d, messages=${_md}, session_snapshots=${_sd}. ${silent} of ${eligible} eligible DB surfaces silent — likely a broken write path within the DB layer, not a genuine silence. Verify pre-tool-use hook, PreCompact hook, or agent insert paths." \
       "audit-surface-divergent-silence"
   fi
 }
