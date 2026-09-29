@@ -66,20 +66,27 @@ fi
 TEAMS_URL=$(jq -r '.notifications.teams_webhooks.ops // ""' "$CONFIG" 2>/dev/null || echo "")
 COMPANY=$(jq -r '.company.name // .company_name // "Juvant OS"' "$CONFIG" 2>/dev/null || echo "Juvant OS")
 
-# ── Staleness check ──────────────────────────────────────────────────────────
-# Returns 1 if last audit is older than 7 days, 0 if fresh.
+# ── Staleness + continuity check ─────────────────────────────────────────────
+# decisions#277: replaced hard-coded 7d threshold with env-tunable
+# CONTINUITY_WARN_DAYS/FAIL and added agent_actions_log gap so a dead DB
+# write path cannot masquerade as a healthy audit surface.
+CONT_FAIL_DAYS="${CONTINUITY_FAIL_DAYS:-30}"
 STALENESS_DAYS=$(juvant_db_query "
 SELECT CAST(julianday('now') - julianday(MAX(created_at)) AS INTEGER)
 FROM security_audit_log
 WHERE audit_type IN ('5-layer','bootstrap_baseline');
 " 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d ' ' || true)
+GAP_ACTION=$(juvant_db_query \
+  "SELECT CAST(julianday('now') - julianday(COALESCE(MAX(started_at),'1970-01-01 00:00:00')) AS INTEGER) FROM agent_actions_log;" \
+  2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
 
 STALENESS_DAYS="${STALENESS_DAYS:-99}"   # treat missing/unreachable as very stale (fail-safe)
+GAP_ACTION="${GAP_ACTION:-99}"
 
-echo "[cso-weekly-audit] days since last 5-layer/bootstrap audit: ${STALENESS_DAYS}"
+echo "[cso-weekly-audit] cadence: audit=${STALENESS_DAYS}d, actions=${GAP_ACTION}d (thresholds warn=${CONTINUITY_WARN_DAYS:-14}d fail=${CONT_FAIL_DAYS}d)"
 
-if [[ "$STALENESS_DAYS" -le 7 ]]; then
-  echo "[cso-weekly-audit] OK — last audit within cadence (${STALENESS_DAYS}d ≤ 7d)"
+if [[ "$STALENESS_DAYS" -le "${CONTINUITY_WARN_DAYS:-14}" ]] && [[ "$GAP_ACTION" -le "${CONTINUITY_WARN_DAYS:-14}" ]]; then
+  echo "[cso-weekly-audit] OK — audit + actions both within cadence"
   exit 0
 fi
 
@@ -95,14 +102,14 @@ VALUES (
   'cso-weekly-audit',
   'cos',
   'escalation',
-  'CSO 5-layer audit overdue (${STALENESS_DAYS}d stale): the weekly CSO security audit has not run in ${STALENESS_DAYS} days (threshold: 7d). Dispatch the CSO 5-layer audit from the main thread (Task subagent_type=cso) per JUVANT_OS.md §9.7. Source: cso-weekly-audit.sh scheduled helper.',
+  'CSO cadence signal: last audit ${STALENESS_DAYS}d, latest action_log ${GAP_ACTION}d (warn=${CONTINUITY_WARN_DAYS:-14}d fail=${CONT_FAIL_DAYS}d). Dispatch CSO 5-layer audit from main thread. If action_log gap dominates, verify Track-3 write path AND whether the silence is a declared window in master_context.halt_windows.',
   'critical',
   1,
   '${NOW}'
 );
 " || echo "[cso-weekly-audit] WARN: failed to write messages escalation row" >&2
 
-echo "[cso-weekly-audit] ALERT: audit stale (${STALENESS_DAYS}d) — messages escalation row written for cos (notify_ceo=1)"
+echo "[cso-weekly-audit] ALERT: audit stale (audit=${STALENESS_DAYS}d, actions=${GAP_ACTION}d) — messages escalation row written for cos (notify_ceo=1)"
 
 # ── Teams notification ───────────────────────────────────────────────────────
 if [[ -z "$TEAMS_URL" ]]; then
