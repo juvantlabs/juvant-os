@@ -695,6 +695,121 @@ t_assert "BUG-052: finalized success untouched" "success" \
   "$(t_db "SELECT status FROM agent_actions_log WHERE session_id='s-done';")"
 
 # ─────────────────────────────────────────────
+# BUG-066 / decisions#272 — turso SQL payload false-positive denials
+#
+# Root cause: universal deny_patterns and Track 2d write-detection matched
+# the ENTIRE command string, including SQL string literals passed as arguments
+# to `turso db shell`. Prose inside rationale/VALUES columns that happened to
+# mention shell binary names (shutdown, reboot, halt), git write verbs
+# (commit, push, merge), or SQL DDL keywords (TRUNCATE TABLE, DROP TABLE)
+# triggered the deny even though no actual lifecycle/write/DDL action was
+# being attempted.
+#
+# Fix: when FIRST_TOKEN is `turso` and the invocation is `db shell` / `db exec`,
+# skip universal deny_patterns and Track 2d write-detection; check the extracted
+# SQL payload against sql_deny_patterns (anchored DDL patterns) instead.
+#
+# Test layout:
+#   False-positive regressions (a)-(c): these were denied before, must ALLOW.
+#   True-positive confirmations (d)-(g): legitimate denials must still DENY.
+# ─────────────────────────────────────────────
+suite "BUG-066: turso SQL payload false-positive denials (decisions#272)"
+
+t_seed_agent "eng-platform" "active"
+
+_bug066() {  # $1=command -> decision
+  jq -nc --arg c "$1" --arg a "eng-platform" \
+    '{tool_name:"Bash",session_id:"sess-b66",agent_type:$a,tool_input:{command:$c}}' \
+    | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision'
+}
+
+# ── False-positive regressions (should ALLOW after fix) ──────────────────
+
+# (a) INSERT where the rationale column mentions the power-off binary in prose.
+#     Before fix: universal deny_patterns matched "shutdown" inside the VALUES string.
+t_assert "BUG-066 (a): INSERT with 'shutdown' in prose column → allow" "allow" \
+  "$(_bug066 'turso db shell company-juvant "INSERT INTO decisions (agent,title,rationale) VALUES ('"'"'eng-platform'"'"','"'"'runbook'"'"','"'"'the shutdown procedure requires a maintenance window'"'"')"')"
+
+# (b) INSERT where the rationale describes a git write flow.
+#     Before fix: Track 2d matched "git commit" in the VALUES string.
+t_assert "BUG-066 (b): INSERT with 'git commit' in prose column → allow" "allow" \
+  "$(_bug066 'turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'fix: git commit the upstream changes to main'"'"')"')"
+
+# (c) INSERT where the rationale mentions a DDL keyword.
+#     Before fix: deny_patterns matched "TRUNCATE TABLE" inside the VALUES string.
+t_assert "BUG-066 (c): INSERT with TRUNCATE TABLE in prose column → allow" "allow" \
+  "$(_bug066 'turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'we TRUNCATE TABLE sessions in the nightly runbook'"'"')"')"
+
+# ── True-positive confirmations (must still DENY after fix) ──────────────
+
+# (d) Direct DDL against turso: payload begins with DROP TABLE → sql_deny_patterns.
+t_assert "BUG-066 (d): turso db shell DROP TABLE → deny (sql_deny_patterns)" "deny" \
+  "$(_bug066 'turso db shell company-juvant "DROP TABLE users"')"
+
+# (e) Direct TRUNCATE: payload begins with TRUNCATE TABLE → sql_deny_patterns.
+t_assert "BUG-066 (e): turso db shell TRUNCATE TABLE → deny (sql_deny_patterns)" "deny" \
+  "$(_bug066 'turso db shell company-juvant "TRUNCATE TABLE sessions"')"
+
+# (f) Direct invocation of the power-off binary as the FIRST_TOKEN (non-turso):
+#     the deny_patterns still fire when shutdown is an actual shell command.
+#     Invoked as main-thread (no agent_type) so the allow-list is bypassed; the
+#     universal deny fires first regardless of role.
+shutdown_event='{"tool_name":"Bash","session_id":"sess-b66f","tool_input":{"command":"shutdown now"}}'
+out_f=$(echo "$shutdown_event" | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+t_assert "BUG-066 (f): shutdown as FIRST_TOKEN → deny (deny_patterns still fires)" "deny" \
+  "$(echo "$out_f" | jq -r '.hookSpecificOutput.permissionDecision')"
+
+# (g) Lifecycle binary at a non-first position in a compound shell command.
+#     COMMAND = `echo "test" && shutdown -h now`  (not a turso SQL invocation).
+#     deny_patterns apply full-string and catch "shutdown" after && .
+shutdown_cpd_event='{"tool_name":"Bash","session_id":"sess-b66g","tool_input":{"command":"echo \"test\" && shutdown -h now"}}'
+out_g=$(echo "$shutdown_cpd_event" | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+t_assert "BUG-066 (g): shutdown in compound cmd (non-turso) → deny (full-string deny_patterns)" "deny" \
+  "$(echo "$out_g" | jq -r '.hookSpecificOutput.permissionDecision')"
+
+# (h) Inline env-prefix turso invocation with a prose INSERT (BUG-054 + BUG-066 combined).
+#     TURSO_DATABASE_URL=libsql://x.turso.io turso db shell … "INSERT … 'shutdown…'"
+t_assert "BUG-066 (h): env-prefix turso + shutdown in prose → allow (env-prefix FIRST_TOKEN detection)" "allow" \
+  "$(_bug066 'TURSO_DATABASE_URL=libsql://x.turso.io turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'the shutdown procedure'"'"')"')"
+
+# ── Under-deny bypasses closed (review hardening of decisions#272) ───────
+# The original single-`^`-anchor sql_deny_patterns missed (1) statement-stacking
+# and (2) the scope='global' escalation rule (which lives in deny_patterns, the
+# loop skipped in turso mode). These MUST deny, and via the sql-deny path
+# (reason prefix `turso:sql`) — NOT incidentally via the Track-4 spec gate. The
+# isolating cases therefore use verbs Track 4 does not full-string match
+# (TRUNCATE, DROP USER) plus the scope rule.
+_bug066r() {  # $1=command -> "decision|reason"
+  local o; o=$(jq -nc --arg c "$1" --arg a "eng-platform" \
+    '{tool_name:"Bash",session_id:"sess-b66r",agent_type:$a,tool_input:{command:$c}}' \
+    | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+  printf '%s|%s' "$(echo "$o" | jq -r '.hookSpecificOutput.permissionDecision')" \
+                 "$(echo "$o" | jq -r '.hookSpecificOutput.permissionDecisionReason')"
+}
+_via_sql() { case "$1" in turso:sql*) echo ok ;; *) echo "got: $1" ;; esac; }
+
+# (i) statement-stacked TRUNCATE — Track 4 does not match TRUNCATE, so a deny
+#     here proves the per-statement sql-deny path fired (not the spec gate).
+_r=$(_bug066r 'turso db shell company-juvant "SELECT 1; TRUNCATE TABLE sessions"')
+t_assert "BUG-066 (i): stacked TRUNCATE → deny"        "deny" "${_r%%|*}"
+t_assert "BUG-066 (i): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
+# (j) statement-stacked DROP USER — Track 4 matches only DROP TABLE/DATABASE.
+_r=$(_bug066r 'turso db shell company-juvant "SELECT 1; DROP USER admin"')
+t_assert "BUG-066 (j): stacked DROP USER → deny"       "deny" "${_r%%|*}"
+t_assert "BUG-066 (j): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
+# (k) scope='global' escalation via turso — the rule lost in turso mode pre-fix.
+_r=$(_bug066r 'turso db shell company-juvant "UPDATE decisions SET scope='"'"'global'"'"' WHERE id=1"')
+t_assert "BUG-066 (k): UPDATE scope=global → deny"     "deny" "${_r%%|*}"
+t_assert "BUG-066 (k): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
+# (l) stacked scope='global' after a benign leading statement (per-statement).
+_r=$(_bug066r 'turso db shell company-juvant "SELECT 1; UPDATE decisions SET scope='"'"'global'"'"' WHERE id=2"')
+t_assert "BUG-066 (l): stacked scope=global → deny"    "deny" "${_r%%|*}"
+t_assert "BUG-066 (l): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
+# ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
 echo

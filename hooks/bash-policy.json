@@ -44,6 +44,14 @@
     "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
   ],
 
+  "_sql_deny_patterns_comment": "BUG-066 / decisions#272: DDL-destructive patterns for SQL payloads. Applied ONLY when FIRST_TOKEN is turso and the invocation is db shell/exec. Patterns are anchored (^) so prose inside SQL string literals (INSERT INTO … VALUES ('DROP TABLE foo')) does not trigger them — only a statement that BEGINS with the destructive keyword fires. For non-turso SQL executors (psql, sqlite3), deny_patterns still apply full-string and catch DROP TABLE anywhere in the command.",
+
+  "sql_deny_patterns": [
+    "^[[:space:]]*(DROP)[[:space:]]+(DATABASE|SCHEMA|TABLE|USER|ROLE)",
+    "^[[:space:]]*(TRUNCATE)[[:space:]]+TABLE",
+    "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
+  ],
+
   "_single_writer_gh_comment": "FEAT-052 — single-writer §4 gate for GitHub writes via the gh CLI. With the deprecated github MCP removed, gh is the GitHub mechanism and gh is broadly allow-listed, so WRITE operations must be restricted to the single writer per scope (eng-lead at project scope, eng-platform at company scope) — exactly like git push/commit/merge in Track 2d. pre-tool-use.sh Track 2d matches the Bash command against these patterns; a match by any non-eng-lead/eng-platform subagent is denied (main operator thread is exempt, same as the git gate). Read-only gh (view/list/diff/checks/status, api GET, repo clone/view, release download) is NOT listed and stays open to all gh-allowed agents. gh api with field flags (-f/-F/--field/--raw-field) defaults to POST, so it is gated unless an explicit -X GET is present — that special case is handled in pre-tool-use.sh, not here. Verb-explicit (ERE has no negative lookahead); additions are cheap.",
 
   "single_writer_gh_patterns": [
