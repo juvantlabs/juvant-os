@@ -112,15 +112,72 @@ DENY_REASON=""
 if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
   COMMAND=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""')
 
-  # Universal deny-list
-  while IFS= read -r pattern; do
-    [[ -z "$pattern" || "$pattern" == "null" ]] && continue
-    if [[ "$COMMAND" =~ $pattern ]]; then
-      DECISION="deny"
-      DENY_REASON="universal deny-list match: $pattern (handbook ADR 0004 Track 2)"
-      break
+  # ── decisions#272 (BUG-066): turso SQL mode detection ─────────────────────
+  # When FIRST_TOKEN is turso (after stripping inline env-prefix assignments)
+  # and the invocation is `turso db shell/exec <db> <SQL>`, the meaningful
+  # denial surface is the SQL payload — not the full shell command string.
+  # In this mode the universal deny_patterns (shell-binary oriented, matching
+  # anywhere in the command string) are skipped to prevent false-positive
+  # denials on prose inside SQL VALUES/rationale columns that happens to
+  # mention names of shell binaries (e.g. "the shutdown procedure", "git commit
+  # fixes this", "we TRUNCATE TABLE in the runbook"). sql_deny_patterns
+  # (bash-policy.json) are checked against the extracted SQL payload instead.
+  # Track 2d write-verb detection is also skipped in this mode: the SQL payload
+  # is not a shell command and cannot invoke git or gh write operations.
+  # Option A (FIRST_TOKEN routing) + Option C (sql_deny_patterns for payload).
+  _TURSO_SQL_MODE=0
+  _TURSO_SQL_PAYLOAD=""
+  _dft_line=""
+  read -r _dft_line <<< "$COMMAND"
+  # Strip leading whitespace from the first line.
+  while [[ "${_dft_line:0:1}" == " " || "${_dft_line:0:1}" == $'\t' ]]; do _dft_line="${_dft_line:1}"; done
+  _dft_tok="${_dft_line%% *}"
+  # Advance past inline VAR=val env-prefix tokens to find the first real binary.
+  while [[ "$_dft_tok" == *=* && "$_dft_line" == *" "* ]]; do
+    _dft_line="${_dft_line#* }"
+    while [[ "${_dft_line:0:1}" == " " || "${_dft_line:0:1}" == $'\t' ]]; do _dft_line="${_dft_line:1}"; done
+    _dft_tok="${_dft_line%% *}"
+  done
+  _dft_tok="${_dft_tok##*/}"  # strip any path prefix (e.g. /usr/local/bin/turso → turso)
+  if [[ "$_dft_tok" == "turso" ]] && \
+     [[ "$COMMAND" =~ turso[[:space:]]+db[[:space:]]+(shell|exec)[[:space:]] ]]; then
+    _TURSO_SQL_MODE=1
+    # Extract the SQL payload: everything after `turso db shell/exec <dbname> `.
+    _TURSO_SQL_PAYLOAD=$(printf '%s' "$COMMAND" | \
+      sed -E 's/.*turso[[:space:]]+db[[:space:]]+(shell|exec)[[:space:]]+[^[:space:]"]+[[:space:]]*//')
+    # Strip enclosing double-quotes when present (turso accepts bare or quoted SQL).
+    if [[ "$_TURSO_SQL_PAYLOAD" == '"'*'"' ]]; then
+      _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD#\"}"
+      _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD%\"}"
     fi
-  done < <(jq -r '.deny_patterns[]?' "$POLICY" 2>/dev/null)
+  fi
+
+  # Universal deny-list (skipped in turso SQL mode; sql_deny_patterns applied instead)
+  if [[ "$_TURSO_SQL_MODE" -eq 0 ]]; then
+    while IFS= read -r pattern; do
+      [[ -z "$pattern" || "$pattern" == "null" ]] && continue
+      if [[ "$COMMAND" =~ $pattern ]]; then
+        DECISION="deny"
+        DENY_REASON="universal deny-list match: $pattern (handbook ADR 0004 Track 2)"
+        break
+      fi
+    done < <(jq -r '.deny_patterns[]?' "$POLICY" 2>/dev/null)
+  fi
+
+  # SQL deny-list: DDL-destructive patterns checked against the turso SQL
+  # payload only. Anchored at statement start (^) so that DDL verbs appearing
+  # inside SQL string literals (INSERT INTO … VALUES ('DROP TABLE foo')) do
+  # not trigger a false denial. (decisions#272 Option C)
+  if [[ "$DECISION" == "allow" && "$_TURSO_SQL_MODE" -eq 1 ]]; then
+    while IFS= read -r pattern; do
+      [[ -z "$pattern" || "$pattern" == "null" ]] && continue
+      if [[ "$_TURSO_SQL_PAYLOAD" =~ $pattern ]]; then
+        DECISION="deny"
+        DENY_REASON="turso:sql deny-list match: $pattern (handbook ADR 0004 Track 2)"
+        break
+      fi
+    done < <(jq -r '.sql_deny_patterns[]?' "$POLICY" 2>/dev/null)
+  fi
 
   # Agent-role deny-list (R3 defense-in-depth, security incident class:
   # framework-bug-enabled agent cloud-writes). Applies to any real agent
@@ -451,6 +508,12 @@ fi
 # POST, so it is gated unless an explicit -X GET is present.
 if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   _T2D_WRITE=0
+  # decisions#272 (BUG-066): skip write-verb detection entirely for turso SQL
+  # payloads. The SQL payload cannot invoke git or gh; prose in VALUES columns
+  # that describes single-writer operations ("the git commit fixes…", "gh pr
+  # create for…") would false-positive against these patterns. _TURSO_SQL_MODE
+  # is set by Track 2 detection above; default to 0 when Track 2 did not run.
+  if [[ "${_TURSO_SQL_MODE:-0}" -eq 0 ]]; then
   # Strip git's argument-taking GLOBAL options so a write verb behind a
   # directory redirect (`git -C /other push`, `git --work-tree=/other commit`)
   # is exposed. NOTE: `-c` is deliberately NOT in this list — it is also
@@ -507,6 +570,7 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
     done <<< "$_gh_body"
     shopt -u nocasematch
   fi
+  fi  # _TURSO_SQL_MODE guard (decisions#272 BUG-066) — end of write-detection block
   if [[ "$_T2D_WRITE" -eq 1 ]]; then
     _T2D_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
     if [[ -n "$_T2D_AGENT_TYPE" ]]; then
