@@ -207,6 +207,20 @@ ORPHAN_DECISIONS=${ORPHAN_DECISIONS:-0}
 STUCK_PENDING=${STUCK_PENDING:-0}
 SCOPE_VIOLATIONS=${SCOPE_VIOLATIONS:-0}
 STALE_SPECS=${STALE_SPECS:-0}
+
+# decisions#277: continuity summary — informational only, not in TOTAL_ANOMALIES.
+# The CSO 5-layer audit is the alert channel; this line carries the signal for
+# eyeball audits of the reconcile log.
+CONT_WARN_DAYS="${CONTINUITY_WARN_DAYS:-14}"
+CONT_FAIL_DAYS="${CONTINUITY_FAIL_DAYS:-30}"
+LATEST_ACTION=$(juvant_db_query \
+  "SELECT COALESCE(MAX(started_at), '1970-01-01 00:00:00') FROM agent_actions_log;" \
+  2>/dev/null | tail -1 | tr -d '[:space:]' || true)
+GAP_ACTION=$(juvant_db_query \
+  "SELECT CAST(julianday('now') - julianday(COALESCE(MAX(started_at),'1970-01-01 00:00:00')) AS INTEGER) FROM agent_actions_log;" \
+  2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
+echo "[audit-reconcile] continuity: agent_actions_log latest=${LATEST_ACTION} gap=${GAP_ACTION:-?}d (warn=${CONT_WARN_DAYS}d fail=${CONT_FAIL_DAYS}d)"
+
 TOTAL_ANOMALIES=$((ORPHAN_DECISIONS + STUCK_PENDING + SCOPE_VIOLATIONS + STALE_SPECS))
 
 echo "[audit-reconcile] window: last ${WINDOW_DAYS} days"
