@@ -1,0 +1,100 @@
+{
+  "_comment": "Example .juvant/config.json — canon_verification block (decisions#275).",
+
+  "github_repos": [
+    "your-org/your-project-pm",
+    "your-org/your-project-infra"
+  ],
+
+  "canon_verification": {
+    "_comment_enabled": "Opt-in flag. Default false. Set true to activate the verifier.",
+    "enabled": true,
+
+    "_comment_canon_paths": [
+      "Array of paths to adopter canon markdown files.",
+      "Paths are relative to the repo root where verify-canon.py runs.",
+      "Upstream (juvantlabs/juvant-os) ships no canon paths — this block",
+      "lives entirely in the adopter's fork or config overlay.",
+      "Cross-repo: if canon lives in a sibling repo, use a CI checkout step",
+      "to place it at a known relative path before running the verifier."
+    ],
+    "canon_paths": [
+      "docs/common/pm/project-management-canon.md"
+    ],
+
+    "_comment_check_classes": [
+      "Subset of the nine perimeter check classes to activate.",
+      "Omit this key to activate all nine classes.",
+      "Classes requiring external tools (4-9) are silently skipped if the",
+      "required tool is unavailable or the required config key is absent."
+    ],
+    "check_classes": [
+      "decisions_category",
+      "decisions_status",
+      "knowledge_base_category",
+      "gh_project_fields",
+      "gh_milestones",
+      "gh_mutations",
+      "agent_role_slugs",
+      "mcp_server_names",
+      "turso_db_names"
+    ],
+
+    "_comment_gh_project_id": [
+      "GitHub ProjectV2 node ID — required for check class 4 (gh_project_fields).",
+      "Retrieve with: gh api graphql -f query='{ viewer { projectsV2(first:10)",
+      "{ nodes { id title } } } }'"
+    ],
+    "gh_project_id": "PVT_kwDOABC123",
+
+    "_comment_github_repos": [
+      "Inherited from the top-level github_repos array for milestone lookups",
+      "(check class 5). Defined once at top level; referenced here for clarity."
+    ]
+  },
+
+  "_schema_reference": {
+    "check_class_1_decisions_category": {
+      "system_surface": "scripts/schema.sql — decisions_category_check_ins/upd triggers",
+      "extraction": "backtick spans matching kebab-case in a 'decisions.category' context",
+      "verdict_fail": "span absent from the trigger NOT IN allowlist"
+    },
+    "check_class_2_decisions_status": {
+      "system_surface": "decisions.status enum (schema comment, line 140)",
+      "valid_values": ["proposed", "approved", "rejected", "executed", "superseded"],
+      "extraction": "backtick single-word spans in a 'decisions.status' context"
+    },
+    "check_class_3_knowledge_base_category": {
+      "system_surface": "knowledge_base.category enum (schema comment, line 558)",
+      "valid_values": ["strategic", "technical", "skill", "research"],
+      "extraction": "backtick single-word spans in a 'knowledge_base.category' context"
+    },
+    "check_class_4_gh_project_fields": {
+      "system_surface": "GitHub ProjectV2 fields (gh api graphql introspection)",
+      "requires": "gh_project_id in canon_verification block",
+      "extraction": "backtick field-name spans in a 'board field' / 'project field' context"
+    },
+    "check_class_5_gh_milestones": {
+      "system_surface": "GitHub milestone titles (gh api /repos/{owner}/{repo}/milestones)",
+      "requires": "github_repos in top-level config",
+      "extraction": "backtick spans in a 'milestone' context"
+    },
+    "check_class_6_gh_mutations": {
+      "system_surface": "GitHub GraphQL mutation names (__schema introspection)",
+      "extraction": "backtick camelCase spans in a 'mutation' / 'graphql' context"
+    },
+    "check_class_7_agent_role_slugs": {
+      "system_surface": "agents/ directory (*.md stems and subdirectory names)",
+      "extraction": "backtick kebab-case spans in an 'agent role' context"
+    },
+    "check_class_8_mcp_server_names": {
+      "system_surface": ".claude/settings.json mcpServers keys + docs/MCP_INVENTORY.md",
+      "extraction": "backtick kebab-case spans in an 'MCP server' context"
+    },
+    "check_class_9_turso_db_names": {
+      "system_surface": "turso db list (first column of output)",
+      "requires": "turso CLI authenticated",
+      "extraction": "backtick kebab-case spans in a 'turso db' context"
+    }
+  }
+}
