@@ -129,13 +129,25 @@ juvant_db_cli_ok() {
 }
 
 # Execute SQL passed as the first argument.
-# Returns 1 if no usable backend (no provider configured or missing
-# CLI), 0 on success, non-zero on SQL error.
+#
+# Cloud (turso/azure/aws/gcp): libsql HTTP /v2/pipeline (BUG-065-symmetric
+# write path, decisions#276). The CLI is no longer used for cloud writes — it
+# silently swallowed persistent-auth expiry in non-debug mode,
+# indistinguishable from success. Explicit rc + stderr distinguishes transport
+# failure from DB error from success.
+#
+# Fallback (cloud, transport failure only): append the statement to
+# .juvant/audit-spool.sql so drain-audit-spool.sh retries it out of band.
+# A DB-level error (constraint, syntax) is NOT spooled — that must fail loud
+# so callers see and fix it. Only transport failures (network, auth, HTTP
+# 5xx) get the durable fallback.
+#
+# Returns 0 on direct success (write applied and confirmed by the server).
+# Returns 1 on any failure: transport failure (statement spooled for drain
+# retry if possible), spool write failure, or DB error (not eligible for spool).
 juvant_db_exec() {
   local sql="$1"
-
   juvant_db_resolve
-
   case "$JUVANT_DB_PROVIDER" in
     local)
       if [[ -z "$JUVANT_DB_PATH" ]] || ! command -v sqlite3 &>/dev/null; then
@@ -144,17 +156,49 @@ juvant_db_exec() {
       if [[ "${JUVANT_DB_DEBUG:-0}" == "1" ]]; then
         _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql"
       else
-        _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql" >/dev/null 2>&1
+        # stdout suppressed; stderr is NOT redirected so SQL errors surface.
+        _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql" >/dev/null
       fi
       ;;
     turso|azure|aws|gcp)
-      if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
+      if [[ -z "$JUVANT_DB_URL" ]]; then
+        echo "[db.sh] juvant_db_exec: no DB URL resolved" >&2
         return 1
       fi
-      if [[ "${JUVANT_DB_DEBUG:-0}" == "1" ]]; then
-        _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql"
+      local _dep _http _req _resp _rc _http_code _body _err
+      for _dep in curl jq; do
+        command -v "$_dep" >/dev/null 2>&1 || {
+          echo "[db.sh] juvant_db_exec: \"$_dep\" required for the libsql HTTP write, not found" >&2
+          return 1
+        }
+      done
+      _http="${JUVANT_DB_URL/#libsql:\/\//https://}"
+      _req=$(jq -n --arg sql "$sql" \
+        '{requests:[{type:"execute",stmt:{sql:$sql}},{type:"close"}]}')
+      if [[ -n "$JUVANT_DB_TOKEN" ]]; then
+        _resp=$(_juvant_db_run curl -sS -w "\n%{http_code}" \
+          -H "Authorization: Bearer $JUVANT_DB_TOKEN" \
+          -H "Content-Type: application/json" \
+          --data "$_req" "$_http/v2/pipeline" 2>&1); _rc=$?
       else
-        _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql" >/dev/null 2>&1
+        _resp=$(_juvant_db_run curl -sS -w "\n%{http_code}" \
+          -H "Content-Type: application/json" \
+          --data "$_req" "$_http/v2/pipeline" 2>&1); _rc=$?
+      fi
+      _http_code=$(printf "%s" "$_resp" | awk 'END{print}')
+      _body=$(printf "%s" "$_resp" | sed '$d')
+      if [[ "$_rc" -ne 0 ]] || [[ ! "$_http_code" =~ ^2[0-9][0-9]$ ]] || \
+         ! jq -e . >/dev/null 2>&1 <<<"$_body"; then
+        echo "[db.sh] juvant_db_exec: transport failure (rc=$_rc, http=$_http_code); spooling for retry" >&2
+        # Spool the statement for drain-audit-spool.sh retry; return 1 regardless so
+        # callers know this call did not land inline (even if durably queued).
+        _juvant_spool_fallback "$sql" || true
+        return 1
+      fi
+      _err=$(jq -r 'first(.results[]? | select(.type=="error") | .error.message) // ""' <<<"$_body")
+      if [[ -n "$_err" ]]; then
+        echo "[db.sh] juvant_db_exec: DB error: $_err" >&2
+        return 1
       fi
       ;;
     *)
@@ -194,6 +238,27 @@ juvant_spool_path() {
   fi
   local config="${JUVANT_CONFIG:-${SCRIPT_DIR}/../.juvant/config.json}"
   printf '%s' "$(dirname "$config")/audit-spool.sql"
+}
+
+# Spool a failed cloud write for out-of-band retry (decisions#276). Reuses the
+# FEAT-051 spool so drain-audit-spool.sh already drives it; unifies helper +
+# hook write durability on the same audit surface.
+# Single-line collapse for atomic O_APPEND (see juvant_db_exec_async comment).
+_juvant_spool_fallback() {
+  local sql="$1"
+  local spool spool_dir oneline
+  spool="$(juvant_spool_path)"
+  spool_dir="$(dirname "$spool")"
+  if [[ ! -d "$spool_dir" ]]; then
+    echo "[db.sh] _juvant_spool_fallback: spool dir $spool_dir missing — statement lost" >&2
+    return 1
+  fi
+  oneline=$(printf "%s" "$sql" | tr "\n" " ")
+  if printf "%s\n" "$oneline" >> "$spool" 2>/dev/null; then
+    return 0
+  fi
+  echo "[db.sh] _juvant_spool_fallback: could not write to spool $spool — statement lost" >&2
+  return 1
 }
 
 juvant_db_exec_async() {
