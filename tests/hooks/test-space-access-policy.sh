@@ -29,6 +29,10 @@ sqlite3 "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"
 
 FAKE_BIN="$TMPROOT/bin"; mkdir -p "$FAKE_BIN"
 cp "$SCRIPT_DIR/fake-turso.sh" "$FAKE_BIN/turso"; chmod +x "$FAKE_BIN/turso"
+# decisions#276: juvant_db_exec cloud writes now use libsql HTTP /v2/pipeline
+# (curl) instead of the turso CLI. Stub curl so audit writes land in the
+# same local SQLite file — same fix as tests/hooks/run-tests.sh.
+cp "$SCRIPT_DIR/fake-libsql-curl.sh" "$FAKE_BIN/curl"; chmod +x "$FAKE_BIN/curl"
 export PATH="$FAKE_BIN:$PATH"
 export JUVANT_TEST_DB_FILE="$TEST_DB"
 export TURSO_URL="libsql://test.fake"
