@@ -39,6 +39,11 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 SCRIPT_DIR="$REPO_ROOT/hooks"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/hooks/lib/db.sh"
+# Disable juvant_db_exec's own spool fallback: this script is the drain and
+# is the single source of re-queueing (REMAINING+merge). Two spoolers on the
+# same statement produce duplicate audit rows — the invariant this script is
+# designed to prevent.
+export JUVANT_DB_EXEC_NO_SPOOL=1
 
 # Single source of truth for the spool path (honors JUVANT_SPOOL).
 SPOOL="$(juvant_spool_path)"
