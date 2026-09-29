@@ -26,6 +26,12 @@ FAKE_BIN="$TMPROOT/bin"
 mkdir -p "$FAKE_BIN"
 cp "$SCRIPT_DIR/fake-turso.sh" "$FAKE_BIN/turso"
 chmod +x "$FAKE_BIN/turso"
+# decisions#276: juvant_db_exec cloud writes now use libsql HTTP /v2/pipeline
+# (curl) instead of the turso CLI. Stub curl so hook tests write to the same
+# local SQLite file they always did — test behaviour is unchanged, harness
+# now covers both the read (juvant_db_query_csv) and write (juvant_db_exec) paths.
+cp "$SCRIPT_DIR/fake-libsql-curl.sh" "$FAKE_BIN/curl"
+chmod +x "$FAKE_BIN/curl"
 
 export PATH="$FAKE_BIN:$PATH"
 export JUVANT_TEST_DB_FILE="$TEST_DB"

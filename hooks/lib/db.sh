@@ -190,9 +190,12 @@ juvant_db_exec() {
       if [[ "$_rc" -ne 0 ]] || [[ ! "$_http_code" =~ ^2[0-9][0-9]$ ]] || \
          ! jq -e . >/dev/null 2>&1 <<<"$_body"; then
         echo "[db.sh] juvant_db_exec: transport failure (rc=$_rc, http=$_http_code); spooling for retry" >&2
-        # Spool the statement for drain-audit-spool.sh retry; return 1 regardless so
-        # callers know this call did not land inline (even if durably queued).
-        _juvant_spool_fallback "$sql" || true
+        # Skip spool when the caller is drain-audit-spool.sh (JUVANT_DB_EXEC_NO_SPOOL=1):
+        # the drain has its own REMAINING+merge re-queue logic and is the single
+        # source of re-queueing — two spoolers on the same statement = duplicates.
+        if [[ "${JUVANT_DB_EXEC_NO_SPOOL:-0}" != "1" ]]; then
+          _juvant_spool_fallback "$sql" || true
+        fi
         return 1
       fi
       _err=$(jq -r 'first(.results[]? | select(.type=="error") | .error.message) // ""' <<<"$_body")
