@@ -57,6 +57,41 @@ if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
   exit 0
 fi
 
+# Pre-drain backup: timestamped copy before the atomic rename so that a
+# mid-drain failure (SIGKILL, disk-full on apply, hung backend) leaves a
+# recoverable snapshot.  Fail-closed: if the backup directory cannot be
+# created, the copy fails, or the integrity check fails, leave the spool
+# intact and defer to the next run rather than risking silent loss of
+# queued audit rows.  Override JUVANT_BACKUP_DIR to redirect backups
+# (useful in tests).  Override DRAIN_BACKUP_RETAIN to change the
+# retention window (default: 7 most-recent backups).
+_BACKUP_DIR="${JUVANT_BACKUP_DIR:-$(dirname "$SPOOL")/backups}"
+mkdir -p "$_BACKUP_DIR" 2>/dev/null || {
+  echo "[drain-audit-spool] WARN: cannot create backup dir $_BACKUP_DIR; aborting drain" >&2
+  exit 0
+}
+_BACKUP="$_BACKUP_DIR/audit-spool.$(date -u +%Y%m%dT%H%M%SZ).sql"
+cp "$SPOOL" "$_BACKUP" 2>/dev/null || {
+  echo "[drain-audit-spool] WARN: backup failed ($SPOOL → $_BACKUP); aborting drain" >&2
+  exit 0
+}
+# Integrity check: line counts of source and backup must agree.
+# tr strips the leading whitespace that BSD/macOS wc -l pads into its output.
+_SRC_LINES=$(wc -l < "$SPOOL"    | tr -d '[:space:]')
+_BAK_LINES=$(wc -l < "$_BACKUP"  | tr -d '[:space:]')
+if [[ "$_SRC_LINES" -ne "$_BAK_LINES" ]]; then
+  echo "[drain-audit-spool] WARN: backup integrity check failed (src=${_SRC_LINES} bak=${_BAK_LINES}); aborting drain" >&2
+  rm -f "$_BACKUP"
+  exit 0
+fi
+# Retention prune: keep the most-recent N backups; delete anything older.
+_BACKUP_RETAIN="${DRAIN_BACKUP_RETAIN:-7}"
+# ls -1t lists newest-first; tail skips the N we keep and feeds the rest to rm.
+# shellcheck disable=SC2012
+ls -1t "$_BACKUP_DIR"/audit-spool.*.sql 2>/dev/null \
+  | tail -n "+$(( _BACKUP_RETAIN + 1 ))" \
+  | while IFS= read -r _old; do rm -f "$_old"; done
+
 # Atomically claim the current batch so concurrent writers (which open the
 # spool fresh per append) start a new file instead of racing the drain.
 WORK="$SPOOL.draining.$$"
