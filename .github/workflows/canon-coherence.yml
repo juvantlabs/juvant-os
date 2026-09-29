@@ -1,0 +1,96 @@
+name: Canon coherence
+
+# Triggered on pull requests and nightly on main.
+#
+# Opt-in per adopter: set canon_verification.enabled=true in
+# .juvant/config.json. When absent or enabled=false the verifier exits 0
+# immediately — this job always passes in upstream (juvantlabs/juvant-os)
+# where no adopter config exists.
+#
+# Gate policy (decisions#275):
+#   - PR trigger: BLOCKING — a PR to the canon-repo that introduces an
+#     unfollowable identifier claim must not merge.
+#   - Schedule trigger: NON-BLOCKING — nightly drift detection; failures
+#     open an issue tagged `canon-drift` rather than blocking code merges.
+#
+# SCHEMA-HOLDING REPO NOTE: this workflow MUST NOT gate PRs on
+# juvantlabs/juvant-os itself (schema is sovereign; schema PRs must not
+# be blocked by adopter canon coherence). It is inert here because
+# juvantlabs/juvant-os carries no .juvant/config.json.
+#
+# ADOPTER SETUP:
+#   1. Copy this file to your canon-repo's .github/workflows/.
+#   2. In the "Check out juvant-os framework" step, un-comment the block
+#      and pin to the framework SHA your fork tracks.
+#   3. Set canon_verification.enabled=true in .juvant/config.json.
+#   4. Optionally narrow the paths: filter to your canon file paths so the
+#      job only runs on relevant PR changes.
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *'   # nightly at 03:00 UTC
+  workflow_dispatch:       # manual run for initial adopter setup
+
+# CCS-1: cancel stale in-progress runs on the same ref.
+concurrency:
+  group: canon-coherence-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify canon coherence
+    runs-on: ubuntu-latest
+    # 10 min upper bound: gh API introspection + turso list add latency.
+    timeout-minutes: 10
+
+    # Read-only permissions. Checks 4/5/6 (GH API) require read:project +
+    # read:org if the project is org-level. The default GITHUB_TOKEN covers
+    # same-org repos; cross-org queries need an explicit PAT secret.
+    permissions:
+      contents: read
+      issues: write    # for nightly drift: opening a canon-drift issue
+
+    steps:
+      - name: Check out canon repo
+        uses: actions/checkout@v4
+
+      # ADOPTER: un-comment and set ref to the pinned framework SHA.
+      # - name: Check out juvant-os framework
+      #   uses: actions/checkout@v4
+      #   with:
+      #     repository: juvantlabs/juvant-os
+      #     ref: <pinned-sha>
+      #     path: .juvant-os-framework
+
+      - name: Run canon coherence verifier
+        id: verify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # ADOPTER: if framework is in .juvant-os-framework/, use:
+        # run: python3 .juvant-os-framework/tests/verify-canon.py --json
+        run: python3 tests/verify-canon.py --json
+
+      - name: Upload structured results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canon-coherence-results
+          path: canon-coherence-results.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # Nightly only: open a tracking issue on drift so no code PR is held.
+      - name: Open canon-drift issue on nightly failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "canon-drift: coherence check failed $(date -u +%Y-%m-%d)" \
+            --body "$(cat canon-coherence-results.json 2>/dev/null \
+                      | python3 -c 'import json,sys; rs=json.load(sys.stdin); \
+                        print(chr(10).join(f\"{r[\"verdict\"].upper()} [{r[\"system_surface\"]}]: {r[\"claim\"]}  ({r[\"source_location\"]}){chr(10)}  {r[\"detail\"]}\" for r in rs if r[\"verdict\"]!=\"pass\"))' \
+                      || echo 'see workflow artifacts for details')" \
+            --label "canon-drift"

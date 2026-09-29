@@ -123,6 +123,7 @@ jobs:
         run: |
           pip install --quiet pyyaml
           python3 tests/schema/validate.py
+          python3 tests/verify-canon.py --self-test
           bash tests/migrate/test-v07-to-v08-agents.sh
           bash tests/migrate/test-dry-run-no-write.sh
           bash tests/helpers/test-turso-backup-archival.sh
