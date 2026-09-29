@@ -766,6 +766,43 @@ t_assert "BUG-066 (g): shutdown in compound cmd (non-turso) → deny (full-strin
 t_assert "BUG-066 (h): env-prefix turso + shutdown in prose → allow (env-prefix FIRST_TOKEN detection)" "allow" \
   "$(_bug066 'TURSO_DATABASE_URL=libsql://x.turso.io turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'the shutdown procedure'"'"')"')"
 
+# ── Under-deny bypasses closed (review hardening of decisions#272) ───────
+# The original single-`^`-anchor sql_deny_patterns missed (1) statement-stacking
+# and (2) the scope='global' escalation rule (which lives in deny_patterns, the
+# loop skipped in turso mode). These MUST deny, and via the sql-deny path
+# (reason prefix `turso:sql`) — NOT incidentally via the Track-4 spec gate. The
+# isolating cases therefore use verbs Track 4 does not full-string match
+# (TRUNCATE, DROP USER) plus the scope rule.
+_bug066r() {  # $1=command -> "decision|reason"
+  local o; o=$(jq -nc --arg c "$1" --arg a "eng-platform" \
+    '{tool_name:"Bash",session_id:"sess-b66r",agent_type:$a,tool_input:{command:$c}}' \
+    | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+  printf '%s|%s' "$(echo "$o" | jq -r '.hookSpecificOutput.permissionDecision')" \
+                 "$(echo "$o" | jq -r '.hookSpecificOutput.permissionDecisionReason')"
+}
+_via_sql() { case "$1" in turso:sql*) echo ok ;; *) echo "got: $1" ;; esac; }
+
+# (i) statement-stacked TRUNCATE — Track 4 does not match TRUNCATE, so a deny
+#     here proves the per-statement sql-deny path fired (not the spec gate).
+_r=$(_bug066r 'turso db shell company-juvant "SELECT 1; TRUNCATE TABLE sessions"')
+t_assert "BUG-066 (i): stacked TRUNCATE → deny"        "deny" "${_r%%|*}"
+t_assert "BUG-066 (i): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
+# (j) statement-stacked DROP USER — Track 4 matches only DROP TABLE/DATABASE.
+_r=$(_bug066r 'turso db shell company-juvant "SELECT 1; DROP USER admin"')
+t_assert "BUG-066 (j): stacked DROP USER → deny"       "deny" "${_r%%|*}"
+t_assert "BUG-066 (j): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
+# (k) scope='global' escalation via turso — the rule lost in turso mode pre-fix.
+_r=$(_bug066r 'turso db shell company-juvant "UPDATE decisions SET scope='"'"'global'"'"' WHERE id=1"')
+t_assert "BUG-066 (k): UPDATE scope=global → deny"     "deny" "${_r%%|*}"
+t_assert "BUG-066 (k): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
+# (l) stacked scope='global' after a benign leading statement (per-statement).
+_r=$(_bug066r 'turso db shell company-juvant "SELECT 1; UPDATE decisions SET scope='"'"'global'"'"' WHERE id=2"')
+t_assert "BUG-066 (l): stacked scope=global → deny"    "deny" "${_r%%|*}"
+t_assert "BUG-066 (l): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
+
 # ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────

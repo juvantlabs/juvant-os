@@ -164,19 +164,37 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     done < <(jq -r '.deny_patterns[]?' "$POLICY" 2>/dev/null)
   fi
 
-  # SQL deny-list: DDL-destructive patterns checked against the turso SQL
-  # payload only. Anchored at statement start (^) so that DDL verbs appearing
-  # inside SQL string literals (INSERT INTO … VALUES ('DROP TABLE foo')) do
-  # not trigger a false denial. (decisions#272 Option C)
-  if [[ "$DECISION" == "allow" && "$_TURSO_SQL_MODE" -eq 1 ]]; then
-    while IFS= read -r pattern; do
-      [[ -z "$pattern" || "$pattern" == "null" ]] && continue
-      if [[ "$_TURSO_SQL_PAYLOAD" =~ $pattern ]]; then
-        DECISION="deny"
-        DENY_REASON="turso:sql deny-list match: $pattern (handbook ADR 0004 Track 2)"
-        break
-      fi
-    done < <(jq -r '.sql_deny_patterns[]?' "$POLICY" 2>/dev/null)
+  # SQL deny-list: destructive / privilege-escalating patterns checked against
+  # the turso SQL payload, PER STATEMENT (split on ';'). Closes two under-deny
+  # holes found reviewing decisions#272's original single-anchor approach:
+  #   • per-statement — a destructive verb after statement stacking
+  #     (`SELECT 1; DROP TABLE x`, `SELECT 1; TRUNCATE …`) is caught, not only a
+  #     verb that heads the whole payload;
+  #   • DROP/TRUNCATE patterns stay `^`-anchored *within each statement*, so a
+  #     verb inside a string literal (VALUES ('DROP TABLE foo')) is not a
+  #     statement head and does NOT false-deny;
+  #   • the `scope='global'` escalation rule lives in deny_patterns, but that
+  #     loop is SKIPPED in turso mode — so it MUST be mirrored in
+  #     sql_deny_patterns (position-independent within a statement) or the
+  #     escalation guard is lost for the primary DB-write path.
+  # Guard on a non-empty payload: a bare `turso db shell <db>` (interactive open,
+  # no SQL arg) yields an empty payload; iterating an empty array under `set -u`
+  # would abort the hook (→ empty decision, a fail-open crash). Nothing to deny
+  # when there is no SQL, so skip.
+  if [[ "$DECISION" == "allow" && "$_TURSO_SQL_MODE" -eq 1 && -n "$_TURSO_SQL_PAYLOAD" ]]; then
+    _sql_norm="${_TURSO_SQL_PAYLOAD//$'\n'/ }"
+    IFS=';' read -ra _sql_stmts <<< "$_sql_norm"
+    for _sql_stmt in "${_sql_stmts[@]}"; do
+      [[ "$DECISION" == "deny" ]] && break
+      while IFS= read -r pattern; do
+        [[ -z "$pattern" || "$pattern" == "null" ]] && continue
+        if [[ "$_sql_stmt" =~ $pattern ]]; then
+          DECISION="deny"
+          DENY_REASON="turso:sql deny-list match: $pattern (handbook ADR 0004 Track 2)"
+          break
+        fi
+      done < <(jq -r '.sql_deny_patterns[]?' "$POLICY" 2>/dev/null)
+    done
   fi
 
   # Agent-role deny-list (R3 defense-in-depth, security incident class:
