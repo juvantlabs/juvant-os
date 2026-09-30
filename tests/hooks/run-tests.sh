@@ -816,6 +816,172 @@ t_assert "BUG-066 (l): stacked scope=global → deny"    "deny" "${_r%%|*}"
 t_assert "BUG-066 (l): denied via sql-deny path"       "ok"   "$(_via_sql "${_r#*|}")"
 
 # ─────────────────────────────────────────────
+# BUG-072 — turso SQL mode disarms guardrails it was never meant to reach
+#
+# decisions#272 (BUG-066) introduced _TURSO_SQL_MODE: when the command is a
+# `turso db shell|exec` invocation, skip the universal deny_patterns and the
+# Track 2d single-writer gate, and check the extracted SQL payload against
+# sql_deny_patterns instead. The exemption was correct in intent and wrong in
+# extent, on two independent surfaces.
+#
+#   ACTIVATION. The test was "first token is turso" AND "the string contains
+#   `turso db shell|exec `" — the second matching ANYWHERE. Both hold for a
+#   compound command whose turso half is a decoy, so an eight-character prefix
+#   disarmed the ENTIRE universal deny-list and the §4 single-writer gate, for
+#   every role — and `turso` is allow-listed for every agent, because it is the
+#   DB write path. Fix: activate only for a single simple command (no shell
+#   control operator outside quotes), head-anchored.
+#
+#   EXTRACTION. The payload sed could not see a QUOTED db argument (its class
+#   excluded `"`, so it returned the string unchanged and the payload became
+#   the whole command), stripped only enclosing DOUBLE quotes from the SQL, and
+#   used a greedy `.*` that consumed up to the LAST `turso db shell ` in the
+#   string. Each defeats the `^`-anchored sql_deny_patterns; the greedy one
+#   defeats even the position-independent scope='global' rule. Fix: a
+#   head-anchored match that understands a quoted db argument, and which FAILS
+#   CLOSED — no identifiable invocation head, no exemption.
+#
+# Every assertion below is red against the pre-fix hook.
+# ─────────────────────────────────────────────
+suite "BUG-072: turso SQL mode over-reach (activation + extraction)"
+
+t_reset_agents
+t_seed_agent "eng-platform" "active"
+t_seed_agent "cto" "active"
+
+_b72() {  # $1=command [$2=role] -> "decision|reason"
+  local o; o=$(jq -nc --arg c "$1" --arg a "${2:-eng-platform}" \
+    '{tool_name:"Bash",session_id:"sess-b72",agent_type:$a,tool_input:{command:$c}}' \
+    | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+  printf '%s|%s' "$(echo "$o" | jq -r '.hookSpecificOutput.permissionDecision')" \
+                 "$(echo "$o" | jq -r '.hookSpecificOutput.permissionDecisionReason' | tr '\n' ' ')"
+}
+# Path discriminators: a deny is only meaningful if it came from the layer
+# under test, not incidentally from the Track-4 spec gate.
+_via_universal() { case "$1" in "universal deny-list"*) echo ok ;; *) echo "got: ${1:0:46}" ;; esac; }
+_via_writer()    { case "$1" in "SINGLE-WRITER"*)       echo ok ;; *) echo "got: ${1:0:46}" ;; esac; }
+_via_sqldeny()   { case "$1" in turso:sql*)             echo ok ;; *) echo "got: ${1:0:46}" ;; esac; }
+
+# ── Activation: a compound command is not a turso invocation ─────────────
+# The turso half is identical and harmless in every case; only the tail differs.
+_B72_HEAD='turso db shell company-juvant "SELECT 1"'
+
+_r=$(_b72 "$_B72_HEAD"' && sudo systemctl stop nginx')
+t_assert "BUG-072 (a): turso && sudo → deny"            "deny" "${_r%%|*}"
+t_assert "BUG-072 (a): via universal deny-list"         "ok"   "$(_via_universal "${_r#*|}")"
+
+_r=$(_b72 "$_B72_HEAD"' && gh repo delete juvantlabs/juvant-os --yes')
+t_assert "BUG-072 (b): turso && gh repo delete → deny"  "deny" "${_r%%|*}"
+t_assert "BUG-072 (b): via universal deny-list"         "ok"   "$(_via_universal "${_r#*|}")"
+
+# The tail is itself a turso destructive verb — turso mode was shielding it.
+_r=$(_b72 "$_B72_HEAD"' && turso db destroy company-juvant')
+t_assert "BUG-072 (c): turso && turso db destroy → deny" "deny" "${_r%%|*}"
+t_assert "BUG-072 (c): via universal deny-list"          "ok"  "$(_via_universal "${_r#*|}")"
+
+_r=$(_b72 "$_B72_HEAD"' | sudo tee /etc/hosts')
+t_assert "BUG-072 (d): turso | sudo tee → deny"         "deny" "${_r%%|*}"
+t_assert "BUG-072 (d): via universal deny-list"         "ok"   "$(_via_universal "${_r#*|}")"
+
+_r=$(_b72 "$_B72_HEAD"' ; shutdown -h now')
+t_assert "BUG-072 (e): turso ; shutdown → deny"         "deny" "${_r%%|*}"
+t_assert "BUG-072 (e): via universal deny-list"         "ok"   "$(_via_universal "${_r#*|}")"
+
+# Newline is a command separator exactly like `;`.
+_r=$(_b72 "$_B72_HEAD"'
+sudo systemctl stop nginx')
+t_assert "BUG-072 (f): turso NEWLINE sudo → deny"       "deny" "${_r%%|*}"
+t_assert "BUG-072 (f): via universal deny-list"         "ok"   "$(_via_universal "${_r#*|}")"
+
+# Command substitution is live inside double quotes — the scanner must see it
+# even though it sits within the SQL string.
+_r=$(_b72 'turso db shell company-juvant "SELECT '"'"'$(gh repo delete juvantlabs/juvant-os --yes)'"'"'"')
+t_assert "BUG-072 (g): \$( ) inside dquoted SQL → deny" "deny" "${_r%%|*}"
+t_assert "BUG-072 (g): via universal deny-list"         "ok"   "$(_via_universal "${_r#*|}")"
+
+_r=$(_b72 'turso db shell company-juvant "SELECT '"'"'`gh repo delete juvantlabs/juvant-os --yes`'"'"'"')
+t_assert "BUG-072 (h): backtick inside dquoted SQL → deny" "deny" "${_r%%|*}"
+t_assert "BUG-072 (h): via universal deny-list"            "ok" "$(_via_universal "${_r#*|}")"
+
+# Track 2d: the §4 single-writer gate was skipped in turso mode too. `cto` is
+# GitHub-read-only, so a bare `git push` / `gh pr merge` denies; the turso
+# prefix must not change that.
+_r=$(_b72 "$_B72_HEAD"' && git push origin main' cto)
+t_assert "BUG-072 (i): turso && git push (cto) → deny"  "deny" "${_r%%|*}"
+t_assert "BUG-072 (i): via SINGLE-WRITER §4 gate"       "ok"   "$(_via_writer "${_r#*|}")"
+
+_r=$(_b72 "$_B72_HEAD"' && gh pr merge 1 --squash' cto)
+t_assert "BUG-072 (j): turso && gh pr merge (cto) → deny" "deny" "${_r%%|*}"
+t_assert "BUG-072 (j): via SINGLE-WRITER §4 gate"         "ok"  "$(_via_writer "${_r#*|}")"
+
+# ── Extraction: single, exclusively-turso commands ───────────────────────
+# Each of these IS a legitimate turso invocation; the exemption applies, and
+# sql_deny_patterns must actually see the SQL. TRUNCATE and scope='global' are
+# used as probes because Track 4 does not full-string match them — so a deny
+# here can only have come from the sql-deny path.
+
+# Quoted DB argument — the form JUVANT_OS.md documents.
+_r=$(_b72 'turso db shell "libsql://x.turso.io" "TRUNCATE TABLE sessions"')
+t_assert "BUG-072 (k): quoted db arg + TRUNCATE → deny" "deny" "${_r%%|*}"
+t_assert "BUG-072 (k): via sql-deny path"               "ok"   "$(_via_sqldeny "${_r#*|}")"
+
+_r=$(_b72 'turso db shell "$TURSO_DATABASE_URL" "TRUNCATE TABLE sessions"')
+t_assert "BUG-072 (l): \$VAR db arg + TRUNCATE → deny"  "deny" "${_r%%|*}"
+t_assert "BUG-072 (l): via sql-deny path"               "ok"   "$(_via_sqldeny "${_r#*|}")"
+
+# DROP via a quoted db arg denied before this fix ONLY through the Track-4
+# spec gate; the reason assertion is what makes this case meaningful.
+_r=$(_b72 'turso db shell "libsql://x.turso.io" "DROP TABLE users"')
+t_assert "BUG-072 (m): quoted db arg + DROP → deny"     "deny" "${_r%%|*}"
+t_assert "BUG-072 (m): via sql-deny path, not spec gate" "ok"  "$(_via_sqldeny "${_r#*|}")"
+
+# SQL in single quotes — only double quotes were stripped before.
+_r=$(_b72 "turso db shell company-juvant 'TRUNCATE TABLE sessions'")
+t_assert "BUG-072 (n): single-quoted SQL + TRUNCATE → deny" "deny" "${_r%%|*}"
+t_assert "BUG-072 (n): via sql-deny path"                   "ok"  "$(_via_sqldeny "${_r#*|}")"
+
+# Decoy `turso db shell` placed AFTER the verb: the greedy `.*` stripped the
+# verb out of the payload entirely before any pattern ran.
+_r=$(_b72 'turso db shell company-juvant "TRUNCATE TABLE sessions; SELECT '"'"'turso db shell zz'"'"'"')
+t_assert "BUG-072 (o): decoy after TRUNCATE → deny"     "deny" "${_r%%|*}"
+t_assert "BUG-072 (o): via sql-deny path"               "ok"   "$(_via_sqldeny "${_r#*|}")"
+
+# …and it defeated even the position-independent escalation rule.
+_r=$(_b72 'turso db shell company-juvant "UPDATE decisions SET scope='"'"'global'"'"' WHERE id=1; SELECT '"'"'turso db shell zz'"'"'"')
+t_assert "BUG-072 (p): decoy after scope=global → deny" "deny" "${_r%%|*}"
+t_assert "BUG-072 (p): via sql-deny path"               "ok"   "$(_via_sqldeny "${_r#*|}")"
+
+# ── The BUG-066 exemption must survive intact ────────────────────────────
+# Every one of these is a single turso invocation carrying prose or SQL that
+# the universal deny-list would false-positive on. They must still ALLOW.
+_b72a() { local _o; _o=$(_b72 "$1" "${2:-eng-platform}"); printf '%s' "${_o%%|*}"; }
+
+t_assert "BUG-072 (q): prose shutdown, bare db → allow" "allow" \
+  "$(_b72a 'turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'the shutdown procedure'"'"')"')"
+# New capability: with extraction fixed, the QUOTED db form gets the exemption
+# it never actually had (pre-fix it fell through to the spec gate).
+t_assert "BUG-072 (r): prose shutdown, quoted db → allow" "allow" \
+  "$(_b72a 'turso db shell "libsql://x.turso.io" "INSERT INTO decisions (rationale) VALUES ('"'"'the shutdown procedure'"'"')"')"
+t_assert "BUG-072 (s): prose git commit → allow" "allow" \
+  "$(_b72a 'turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'fix: git commit the upstream changes to main'"'"')"')"
+t_assert "BUG-072 (t): prose TRUNCATE TABLE → allow" "allow" \
+  "$(_b72a 'turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'we TRUNCATE TABLE sessions in the nightly runbook'"'"')"')"
+# A `;` INSIDE the quoted SQL is statement stacking, not a shell separator.
+t_assert "BUG-072 (u): stacked SELECT inside quotes → allow" "allow" \
+  "$(_b72a 'turso db shell company-juvant "SELECT 1; SELECT 2"')"
+# A newline INSIDE the quoted SQL is data, not a separator.
+t_assert "BUG-072 (v): newline inside quoted SQL → allow" "allow" \
+  "$(_b72a 'turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'line one
+line two, the shutdown procedure'"'"')"')"
+t_assert "BUG-072 (w): env-prefix + prose → allow" "allow" \
+  "$(_b72a 'TURSO_DATABASE_URL=libsql://x.turso.io turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'the shutdown procedure'"'"')"')"
+t_assert "BUG-072 (x): absolute path to binary + prose → allow" "allow" \
+  "$(_b72a '/opt/homebrew/bin/turso db shell company-juvant "INSERT INTO decisions (rationale) VALUES ('"'"'the shutdown procedure'"'"')"')"
+# Bare interactive open: empty payload, must not abort the hook (BUG-066 guard).
+t_assert "BUG-072 (y): bare interactive open → allow" "allow" \
+  "$(_b72a 'turso db shell company-juvant')"
+
+# ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
 echo
