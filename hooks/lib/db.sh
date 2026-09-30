@@ -317,7 +317,30 @@ juvant_db_exec_stdin() {
   esac
 }
 
-# Read-only query that captures stdout (default text output).
+# Read-only query that captures stdout (default text output), uniform across
+# providers: no header row, columns joined by '|', one row per line — i.e. the
+# shape `sqlite3` prints in its default list mode.
+#
+# BUG-071: the cloud branch used to be
+#   `turso db shell <url> <sql> | tr -d ' \t' | grep -v '^$'`
+# which was wrong in four independent ways:
+#   1. the CLI's column HEADER was returned as data, so every scalar read was a
+#      two-line string and `[[ "$(juvant_db_query 'SELECT COUNT(*) …')" == "0" ]]`
+#      could never match (and `-gt`/`-eq` on it is a bash syntax error, not a
+#      comparison);
+#   2. an EMPTY result set still yielded the header, so `[[ -n "$out" ]]` — the
+#      idiomatic "did this return anything" test — was true for zero rows;
+#   3. `tr -d ' \t'` applied to the whole stream, not to the CLI's padding, so
+#      every text column silently lost its internal spaces;
+#   4. the pipeline's rc was `grep`'s, so "no rows" and "the read failed" were
+#      the same rc 1 — and under a caller's `set -e` a failed read aborted the
+#      script with no message at all.
+# Same family as BUG-065 (juvant_db_query_csv): a guardrail that fails must say
+# so, and an empty result must be distinguishable from a failure.
+#
+# Returns 0 with the rows on stdout; 0 with EMPTY stdout for an empty result
+# set; 1 + a message on stderr for a transport failure, a non-JSON response or
+# a DB-level error.
 juvant_db_query() {
   local sql="$1"
 
@@ -332,14 +355,43 @@ juvant_db_query() {
       _juvant_db_run sqlite3 "$JUVANT_DB_PATH" "$sql"
       ;;
     turso|azure|aws|gcp)
-      if [[ -z "$JUVANT_DB_URL" ]] || ! command -v turso &>/dev/null; then
+      if [[ -z "$JUVANT_DB_URL" ]]; then
+        echo "[db.sh] juvant_db_query: no DB URL resolved" >&2
         return 1
       fi
-      # turso db shell pads scalar output with whitespace; strip it so
-      # callers can compare COUNT(*) results with == without false mismatches.
-      # No 2>/dev/null (BUG-065 audit): the CLI's error text reaches stderr
-      # instead of being swallowed (stdout still flows through tr|grep).
-      _juvant_db_run turso db shell "$JUVANT_DB_URL" "$sql" | tr -d ' \t' | grep -v '^$'
+      local _dep _http _req _resp _err
+      for _dep in curl jq; do
+        command -v "$_dep" >/dev/null 2>&1 || {
+          echo "[db.sh] juvant_db_query: '$_dep' required for the libsql HTTP read, not found" >&2
+          return 1
+        }
+      done
+      _http="${JUVANT_DB_URL/#libsql:\/\//https://}"   # libsql:// → https://; http(s):// kept
+      _req=$(jq -n --arg sql "$sql" \
+        '{requests:[{type:"execute",stmt:{sql:$sql}},{type:"close"}]}')
+      if [[ -n "$JUVANT_DB_TOKEN" ]]; then
+        _resp=$(_juvant_db_run curl -sS -H "Authorization: Bearer $JUVANT_DB_TOKEN" \
+          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
+          echo "[db.sh] juvant_db_query: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
+          return 1; }
+      else
+        _resp=$(_juvant_db_run curl -sS \
+          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
+          echo "[db.sh] juvant_db_query: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
+          return 1; }
+      fi
+      if ! jq -e . >/dev/null 2>&1 <<<"$_resp"; then
+        echo "[db.sh] juvant_db_query: non-JSON response from $_http/v2/pipeline: $(printf '%.160s' "$_resp")" >&2
+        return 1
+      fi
+      _err=$(jq -r 'first(.results[]? | select(.type=="error") | .error.message) // ""' <<<"$_resp")
+      if [[ -n "$_err" ]]; then
+        echo "[db.sh] juvant_db_query: DB error: $_err" >&2
+        return 1
+      fi
+      # `sqlite3` list mode: '|'-joined columns, NULL → empty field, no header.
+      # An empty result set prints nothing and returns 0.
+      jq -r '.results[0].response.result.rows[]? | map(.value // "") | join("|")' <<<"$_resp"
       ;;
     *)
       return 1

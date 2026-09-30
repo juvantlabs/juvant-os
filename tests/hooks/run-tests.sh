@@ -137,13 +137,19 @@ t_assert "writes agent_token_usage row from transcript" "1" "$rows"
 ended=$(t_db "SELECT ended_at FROM agent_token_usage WHERE session_id='sess-finalize-1';")
 t_assert "ended_at populated" "true" "$([[ -n "$ended" ]] && echo true || echo false)"
 
-# BUG-051: the three FEAT-035 wrap-up COUNT(*)s must collapse into ONE Turso
+# BUG-051: the three FEAT-035 wrap-up COUNT(*)s must collapse into ONE DB
 # round-trip. session-end runs at the exit-teardown boundary; three serial
 # calls can sum past the window Claude Code grants shutdown hooks and get
-# cancelled ("Hook cancelled"). We swap in a logging `turso` shim (one line
-# per invocation, newlines flattened) and assert exactly one query touches the
+# cancelled ("Hook cancelled"). We swap in a logging shim (one line per
+# invocation, newlines flattened) and assert exactly one query touches the
 # count tables — and that that single query carries all three — while the
 # reminder still lands with the correct per-source counts.
+#
+# BUG-071: the probe logs `curl`, not `turso`. Cloud reads go through the
+# libsql HTTP /v2/pipeline API, so the SQL now travels in curl's --data body;
+# instrumenting the `turso` CLI would count zero round-trips and assert
+# nothing. What is being tested — one round-trip carrying all three counts —
+# is unchanged.
 t_db "DELETE FROM messages; DELETE FROM inbound_queue; DELETE FROM decisions;"
 # Seed observable unsaved work: 2 pending queue, 1 proposed decision, 1 unread CEO.
 t_db "INSERT INTO inbound_queue (counterparty_id, agent_owner, content, confidence, status)
@@ -152,14 +158,14 @@ t_db "INSERT INTO decisions (agent, title, status) VALUES ('cos','pending thing'
 t_db "INSERT INTO messages (from_agent, to_agent, type, content, notify_ceo, status)
       VALUES ('x','cos','escalation','{}',1,'unread');"
 
-WRAP_LOG="$TMPROOT/turso-calls.log"
+WRAP_LOG="$TMPROOT/db-calls.log"
 : > "$WRAP_LOG"
-cat > "$FAKE_BIN/turso" <<EOF
+cat > "$FAKE_BIN/curl" <<EOF
 #!/usr/bin/env bash
 printf '%s ' "\$@" | tr '\n' ' ' >> "$WRAP_LOG"; printf '\n' >> "$WRAP_LOG"
-exec bash "$SCRIPT_DIR/fake-turso.sh" "\$@"
+exec bash "$SCRIPT_DIR/fake-libsql-curl.sh" "\$@"
 EOF
-chmod +x "$FAKE_BIN/turso"
+chmod +x "$FAKE_BIN/curl"
 
 wrap_event=$(jq -n --arg sid "sess-wrap-1" '{session_id:$sid}')
 echo "$wrap_event" | AGENT_ROLE=cos bash "$HOOKS_DIR/session-end.sh" 2>/dev/null
@@ -175,8 +181,8 @@ t_assert "wrap reminder: proposed_decisions" "1" "$(echo "$reminder" | jq -r '.p
 t_assert "wrap reminder: unread_ceo_messages" "1" "$(echo "$reminder" | jq -r '.unread_ceo_messages')"
 
 # Restore the plain shim so later suites are unaffected by call logging.
-cp "$SCRIPT_DIR/fake-turso.sh" "$FAKE_BIN/turso"
-chmod +x "$FAKE_BIN/turso"
+cp "$SCRIPT_DIR/fake-libsql-curl.sh" "$FAKE_BIN/curl"
+chmod +x "$FAKE_BIN/curl"
 
 # ─────────────────────────────────────────────
 # stop.sh — UPSERT idempotency
