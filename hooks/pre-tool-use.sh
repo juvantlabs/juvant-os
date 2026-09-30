@@ -125,6 +125,75 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
   # Track 2d write-verb detection is also skipped in this mode: the SQL payload
   # is not a shell command and cannot invoke git or gh write operations.
   # Option A (FIRST_TOKEN routing) + Option C (sql_deny_patterns for payload).
+  #
+  # ── BUG-072 ──────────────────────────────────────────────────────────────
+  # Turso SQL mode is a HOLE PUNCHED IN TWO GUARDRAILS, so it must only open
+  # for a command that is EXCLUSIVELY a turso invocation. The original
+  # activation test was "first token is turso" AND "the string contains
+  # `turso db shell|exec `" — the second condition matching ANYWHERE. Both
+  # hold for a compound command whose turso half is a decoy:
+  #
+  #   turso db shell db "SELECT 1" && rm -rf / --no-preserve-root
+  #   turso db shell db "SELECT 1" && gh repo delete <org>/<repo> --yes
+  #   turso db shell db "SELECT 1" && turso db destroy <db>
+  #   turso db shell db "SELECT 1" | sudo tee /etc/hosts
+  #   turso db shell db "SELECT 1" && git push origin main    ← §4 single-writer
+  #
+  # Every one of those was allowed. An eight-character prefix disarmed the
+  # ENTIRE universal deny-list and the Track 2d single-writer gate for any
+  # role — and `turso` is allow-listed for every agent, because it is the
+  # DB write path. Track 2d's own `gh api` check already evaluates each
+  # shell SEGMENT separately for exactly this reason (see below); the flaw
+  # was letting a whole-command mode decide before any segmenting happened.
+  #
+  # Fix: activate only when the command is a single simple command — no shell
+  # control operator (| & ; < > newline, backtick, $( ) outside quotes. A `;`
+  # INSIDE the quoted SQL is untouched (statement stacking still works, and
+  # sql_deny_patterns still split on it); an UNQUOTED `;` is a real shell
+  # separator, which is precisely the case that must not qualify.
+  #
+  # Consequence, deliberate: heredoc and redirect forms
+  # (`turso db shell "$URL" < schema.sql`, `… <<SQL … SQL`) no longer enter
+  # turso mode and are checked against the full deny-list like any other
+  # command. Pass SQL as a quoted argument — the form the framework uses
+  # everywhere — to keep the BUG-066 prose exemption.
+  # SC2016 / SC1003 are intentional here: every pattern in this scanner is a
+  # LITERAL shell metacharacter (including the two-character `$(` and a lone
+  # backslash), so single quotes are exactly right — nothing may expand.
+  # shellcheck disable=SC2016,SC1003
+  _juvant_cmd_is_simple() {
+    local _s="$1" _i _c _q=''
+    local _n=${#_s}
+    # Fast path: no operator character anywhere → nothing to scan for.
+    case "$_s" in
+      *'|'*|*'&'*|*';'*|*'<'*|*'>'*|*'`'*|*'$('*|*$'\n'*) ;;
+      *) return 0 ;;
+    esac
+    for (( _i=0; _i<_n; _i++ )); do
+      _c="${_s:_i:1}"
+      if [[ "$_q" == "'" ]]; then
+        [[ "$_c" == "'" ]] && _q=''
+        continue
+      fi
+      if [[ "$_q" == '"' ]]; then
+        # Command substitution IS live inside double quotes.
+        case "$_c" in
+          '\') (( _i++ )) ;;
+          '"') _q='' ;;
+          '`') return 1 ;;
+          '$') [[ "${_s:_i+1:1}" == '(' ]] && return 1 ;;
+        esac
+        continue
+      fi
+      case "$_c" in
+        "'"|'"') _q="$_c" ;;
+        '\')     (( _i++ )) ;;
+        '|'|'&'|';'|'<'|'>'|'`'|$'\n') return 1 ;;
+        '$')     [[ "${_s:_i+1:1}" == '(' ]] && return 1 ;;
+      esac
+    done
+    return 0
+  }
   _TURSO_SQL_MODE=0
   _TURSO_SQL_PAYLOAD=""
   _dft_line=""
@@ -139,16 +208,53 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     _dft_tok="${_dft_line%% *}"
   done
   _dft_tok="${_dft_tok##*/}"  # strip any path prefix (e.g. /usr/local/bin/turso → turso)
+  # BUG-072: the invocation regex is anchored at the HEAD of the command (after
+  # env-prefix stripping, allowing an absolute path to the binary) rather than
+  # matched anywhere, and the command must be a single simple command.
   if [[ "$_dft_tok" == "turso" ]] && \
-     [[ "$COMMAND" =~ turso[[:space:]]+db[[:space:]]+(shell|exec)[[:space:]] ]]; then
+     _juvant_cmd_is_simple "$COMMAND" && \
+     [[ "$_dft_line" =~ ^([^[:space:]]*/)?turso[[:space:]]+db[[:space:]]+(shell|exec)[[:space:]] ]]; then
     _TURSO_SQL_MODE=1
-    # Extract the SQL payload: everything after `turso db shell/exec <dbname> `.
-    _TURSO_SQL_PAYLOAD=$(printf '%s' "$COMMAND" | \
-      sed -E 's/.*turso[[:space:]]+db[[:space:]]+(shell|exec)[[:space:]]+[^[:space:]"]+[[:space:]]*//')
-    # Strip enclosing double-quotes when present (turso accepts bare or quoted SQL).
-    if [[ "$_TURSO_SQL_PAYLOAD" == '"'*'"' ]]; then
-      _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD#\"}"
-      _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD%\"}"
+    # ── BUG-072, second surface: payload extraction ──────────────────────────
+    # The exemption is only sound if the thing handed to sql_deny_patterns is
+    # ACTUALLY the SQL. The previous `sed -E 's/.*turso…shell…[^[:space:]"]+…//'`
+    # failed that three ways, each of which let a destructive statement through
+    # as `allow` while the universal deny-list stayed skipped:
+    #
+    #   • QUOTED DB ARG — the class `[^[:space:]"]+` excludes the quote, so the
+    #     whole expression failed to match and sed returned the string
+    #     UNCHANGED. The payload became the entire command, starting with
+    #     "turso", so the `^`-anchored DROP/TRUNCATE patterns could never fire.
+    #       turso db shell "$TURSO_DATABASE_URL" "TRUNCATE TABLE sessions" → allow
+    #     That is the form JUVANT_OS.md itself documents.
+    #   • SINGLE-QUOTED SQL — only enclosing DOUBLE quotes were stripped, so the
+    #     payload began with `'` and the `^`-anchored patterns missed again.
+    #       turso db shell mydb 'TRUNCATE TABLE sessions' → allow
+    #   • GREEDY `.*` — it consumed up to the LAST `turso db shell ` in the
+    #     string, so a decoy inside the SQL, placed after the verb, strips the
+    #     verb out of the payload before any pattern sees it. This defeats even
+    #     the position-independent scope='global' escalation rule:
+    #       turso db shell mydb "UPDATE decisions SET scope='global' WHERE id=1;
+    #                            SELECT 'turso db shell zz'" → allow
+    #
+    # Replaced with a HEAD-ANCHORED match that understands a quoted DB argument,
+    # and — the load-bearing part — FAILS CLOSED: if the invocation head cannot
+    # be identified, we do not know what the SQL is, so the exemption is not
+    # granted and the universal deny-list runs on the full command.
+    _turso_head_re="^([^[:space:]]+=[^[:space:]]*[[:space:]]+)*([^[:space:]]*/)?turso[[:space:]]+db[[:space:]]+(shell|exec)[[:space:]]+(\"[^\"]*\"|'[^']*'|[^[:space:]]+)([[:space:]]+|$)"
+    if [[ "$COMMAND" =~ $_turso_head_re ]]; then
+      _TURSO_SQL_PAYLOAD="${COMMAND:${#BASH_REMATCH[0]}}"
+      # Strip enclosing quotes, either kind (turso accepts bare or quoted SQL).
+      if [[ "$_TURSO_SQL_PAYLOAD" == '"'*'"' ]]; then
+        _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD#\"}"
+        _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD%\"}"
+      elif [[ "$_TURSO_SQL_PAYLOAD" == "'"*"'" ]]; then
+        _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD#\'}"
+        _TURSO_SQL_PAYLOAD="${_TURSO_SQL_PAYLOAD%\'}"
+      fi
+    else
+      _TURSO_SQL_MODE=0
+      _TURSO_SQL_PAYLOAD=""
     fi
   fi
 
