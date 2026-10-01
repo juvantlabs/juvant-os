@@ -256,6 +256,46 @@ echo '{"tool_name":"Bash","session_id":"sx","tool_input":{"command":"git status"
   | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
 t_assert "BUG-053: allow stays exit 0" "0" "$?"
 
+# BUG-073: the rm/kill universal-deny rules once used the PCRE shorthand `\s`,
+# which bash's ERE engine does NOT treat as whitespace — the trailing `(\s|$)`
+# anchor matched only a literal `s` or end-of-string. The bare forms were caught
+# (via `$`), but the operative destructive forms slipped through the floor:
+# `rm -rf / --no-preserve-root` (the ONLY form modern coreutils actually deletes
+# root for), `rm -rf /` inside a `$(…)` command substitution (anchor `/)`), and
+# `kill -9 1 <arg>`. Fixed by anchoring the target to a TOKEN BOUNDARY, not just
+# whitespace: for rm, `/` followed by any non-path char `[^a-zA-Z0-9._/~-]` or EOL
+# (so `/`, `/ `, `/)`, `/;`, `/*` deny but `/home`, `/srv`, `/tmp/x` do not); for
+# kill, PID `1` followed by a non-digit or EOL (so `1`, `1 `, `1;` deny but `10`,
+# `1234` do not). Guards against a regression to `\s` and against the anchor
+# recognizing only whitespace.
+_bug073_deny=(
+  "rm -rf / --no-preserve-root"
+  "rm -rf / -v"
+  "rm -rf /*"                                 # root wildcard
+  "echo hi && rm -rf / --no-preserve-root"    # compound: floor applies, decoy or not
+  "turso db shell db \"SELECT \$(rm -rf /)\"" # cmd-sub: #97 de-scopes, floor catches rm -rf /)
+  "kill -9 1 -s KILL"
+  "kill -9 1; echo done"                      # PID 1 followed by ';'
+)
+for _b73 in "${_bug073_deny[@]}"; do
+  _b73_out=$(jq -nc --arg c "$_b73" '{tool_name:"Bash",session_id:"b73",tool_input:{command:$c}}' \
+    | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+  t_assert "BUG-073: deny → [$_b73]" "deny" \
+    "$(echo "$_b73_out" | jq -r '.hookSpecificOutput.permissionDecision')"
+done
+# The same fix must NOT over-match: the old `/(\s|$)` false-denied `rm -rf /srv`
+# because the literal `s` in the broken `\s` matched `/s`. `rm` is not allow-listed
+# for any role, so the command is still denied — but the REASON must now be the
+# allow-list, never the universal rule. Asserting on the reason isolates the
+# universal-pattern behavior from the orthogonal allow-list gate.
+_b73_srv=$(jq -nc '{tool_name:"Bash",session_id:"b73",tool_input:{command:"rm -rf /srv"}}' \
+  | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
+_b73_srv_reason=$(echo "$_b73_srv" | jq -r '.hookSpecificOutput.permissionDecisionReason')
+case "$_b73_srv_reason" in
+  *"universal deny-list match"*) t_assert "BUG-073: rm -rf /srv no longer false-matches universal rule" "ok" "got universal: $_b73_srv_reason" ;;
+  *) t_assert "BUG-073: rm -rf /srv no longer false-matches universal rule" "ok" "ok" ;;
+esac
+
 # 2. Allow-list hit (cos → git).
 event_json='{"tool_name":"Bash","session_id":"sess-pt-2","tool_input":{"command":"git status"}}'
 out=$(echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null)
