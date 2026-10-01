@@ -17,7 +17,7 @@
   ],
 
   "deny_patterns": [
-    "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+/(\\s|$)",
+    "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+/([^a-zA-Z0-9._/~-]|$)",
     "(^|[^a-zA-Z])rm[[:space:]]+-rf[[:space:]]+~",
     "(^|[^a-zA-Z])dd[[:space:]].*of=/dev/(sd|nvme|disk|hd)",
     "(^|[^a-zA-Z])mkfs\\.",
@@ -39,7 +39,7 @@
     "(^|[^a-zA-Z])shutdown([[:space:]]|$)",
     "(^|[^a-zA-Z])reboot([[:space:]]|$)",
     "(^|[^a-zA-Z])halt([[:space:]]|$)",
-    "(^|[^a-zA-Z])kill[[:space:]]+-9[[:space:]]+1(\\s|$)",
+    "(^|[^a-zA-Z])kill[[:space:]]+-9[[:space:]]+1([^0-9]|$)",
     "npm[[:space:]]+unpublish",
     "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
   ],
