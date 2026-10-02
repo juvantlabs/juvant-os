@@ -184,20 +184,34 @@ failure back to author with execution-state-so-far.
 
 **Step 4 — Confirm in Turso.**
 
-Insert a `decisions` row category `gh-execution-confirmed` (or the appropriate `*-execution-confirmed`
-category) with:
+Confirmation is a **status transition on the originating spec row** — never a new row. There is no
+`*-execution-confirmed` category and the schema does not permit one: the category allowlist triggers
+reject it. Update the spec row you just executed:
 
-- Pointer to the originating spec row.
-- Resulting GitHub URL(s) (PR url, issue url, project card url, etc.).
-- Commit SHA(s) if applicable.
-- Execution timestamp.
-- Status: `success` | `partial` (with steps completed) | `failed` (with failure point).
+```sql
+UPDATE decisions
+   SET status      = 'executed',
+       executed_by = 'eng-lead',
+       executed_at = CURRENT_TIMESTAMP,
+       source_ref  = '<org>/<repo>#<N>'
+ WHERE id = <originating spec id>;
+```
+
+- `source_ref` is the canonical pointer to the artifact produced — `<org>/<repo>#<N>` for an issue or
+  PR, or a commit SHA / release tag where no issue number applies.
+- `executed_by`, `executed_at` and `source_ref` are all mandatory. The
+  `decisions_executed_requires_executor_upd` trigger ABORTs the update if any of them is NULL, so a
+  spec row cannot reach `executed` without recording who executed it, when, and what it produced.
+- `executed` means the spec landed. **Partial or failed execution does not transition the row** —
+  leave the spec row in its current status and route the failure back to the author (Step 5) with the
+  execution-state-so-far, as a `spec-rejected` row where the spec itself was unexecutable.
 
 **Step 5 — Notify.**
 
-The author of the spec reads the `*-execution-confirmed` row to update their own state (e.g. Product Lead
-updates the canonical backlog row's `github_issue_url` from your confirmation). CoS sees the
-confirmation in the routine `decisions` sweep.
+The author of the spec reads the transitioned spec row to update their own state — the spec they
+authored now carries `status='executed'` plus your `executed_by` / `executed_at` / `source_ref` (e.g.
+Product Lead updates the canonical backlog row's `github_issue_url` from the spec row's `source_ref`).
+CoS sees the transition in the routine `decisions` sweep.
 
 ---
 
@@ -388,8 +402,10 @@ After every meaningful exchange:
 
 1. `INSERT INTO messages (agent='eng-lead', scope='{{PROJECT_NAME}}', role, priority, content, parent_id, action_required, created_at)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
-3. If a spec was executed: `INSERT INTO decisions` category `*-execution-confirmed` with full
-   confirmation payload (URLs, SHAs, status). Author of the spec reads this to update their own state.
+3. If a spec was executed: `UPDATE decisions SET status='executed', executed_by='eng-lead',
+   executed_at=CURRENT_TIMESTAMP, source_ref='<org>/<repo>#<N>' WHERE id=<spec id>` — transition the
+   originating spec row, do NOT insert a confirmation row. Author of the spec reads that row to update
+   their own state.
 4. If a spec was REJECTED: `INSERT INTO decisions` category `spec-rejected` with the failed
    verification check. Author reads and remediates.
 5. If a deployment happened: `INSERT INTO decisions` category `deployment` with full payload.

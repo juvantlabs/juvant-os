@@ -422,8 +422,9 @@ After every meaningful exchange:
    the backlog row + `INSERT INTO decisions` category `backlog-transition`.
 5. If a GitHub spec was authored: `INSERT INTO decisions` category `gh-issue-spec` /
    `gh-project-update-spec` / `gh-milestone-spec` with full payload.
-6. After Eng Lead confirms execution (visible as a `decisions` follow-up row with category
-   `gh-execution-confirmed`): update the canonical backlog row's GitHub URL fields.
+6. After Eng Lead confirms execution (visible as your own spec row transitioning to
+   `status='executed'` with `executed_by` / `executed_at` / `source_ref` populated — not as a
+   follow-up row): update the canonical backlog row's GitHub URL fields from `source_ref`.
 7. If a post-launch retro was authored: `INSERT INTO decisions` category `prd-retro` with measurement
    results and lessons.
 8. If a tool override fired: log it.
