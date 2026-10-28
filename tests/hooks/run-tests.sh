@@ -1024,6 +1024,25 @@ t_assert "BUG-072 (y): bare interactive open → allow" "allow" \
 # ─────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# config-change.sh — ConfigChange forensic logging (FEAT-062)
+# ─────────────────────────────────────────────
+suite "config-change.sh (FEAT-062)"
+
+t_db "DELETE FROM agent_actions_log WHERE tool_name='ConfigChange';"
+cc_event=$(jq -n '{session_id:"sess-cc-1", hook_event_name:"ConfigChange", source:"project_settings", file_path:"/repo/.claude/settings.json"}')
+echo "$cc_event" | bash "$HOOKS_DIR/config-change.sh" 2>/dev/null
+t_assert "ConfigChange hook exits 0 (non-blocking)" "0" "$?"
+t_assert "logs a ConfigChange row to agent_actions_log" "1" \
+  "$(t_db "SELECT count(*) FROM agent_actions_log WHERE tool_name='ConfigChange' AND status='success';")"
+t_assert "row carries source + file in input_summary" "config change: project_settings (settings.json)" \
+  "$(t_db "SELECT input_summary FROM agent_actions_log WHERE tool_name='ConfigChange' LIMIT 1;")"
+t_assert "row agent='system' + session captured" "system|sess-cc-1" \
+  "$(t_db "SELECT agent||'|'||session_id FROM agent_actions_log WHERE tool_name='ConfigChange' LIMIT 1;")"
+# Resilience: an empty/garbled event must still exit 0 and never break the session.
+printf '' | bash "$HOOKS_DIR/config-change.sh" 2>/dev/null
+t_assert "empty event still exits 0 (observational, never blocks)" "0" "$?"
+
 echo
 echo "==================================================="
 TOTAL=$((PASS+FAIL))
