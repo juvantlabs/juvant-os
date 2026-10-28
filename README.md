@@ -39,7 +39,7 @@ JUVANT_OS.md            ← The Skill. The orchestrator. The only entry point.
 agents/company/         ← Company-scope agent source templates
 agents/projects/        ← Project-scope agent source templates
 .claude/agents/         ← Symlinks into agents/<scope>/ — runtime registration
-hooks/                  ← 7 lifecycle bash scripts
+hooks/                  ← 12 lifecycle bash scripts (guardrails + audit log)
 scripts/schema.sql      ← Turso database schema
 helpers/                ← Scheduled scripts populating Turso queues
 ```
@@ -63,23 +63,23 @@ cd ~/contoso → claude   (manages Contoso Ltd)
 
 | Role | Default name | Model | Domain |
 |---|---|---|---|
-| CoS | Atlas | Opus 4.7 | Orchestration, routing, CEO proxy |
-| CFO | Theos | Sonnet 4.6 | Finance, banking, invoices |
-| CLO | Lex | Opus 4.7 | Legal, contracts, IP, disclosure |
-| CMO | Mira | Sonnet 4.6 | Brand, marketing, communications |
-| CCO | Clio | Sonnet 4.6 | Sales, partnerships, revenue |
-| CHRO | Sage | Sonnet 4.6 | People, agent ranking, versioning |
-| CSO | Shield | Opus 4.7 | Security, system audit |
-| CEthO | Vera | Opus 4.7 | AI ethics, disclosure ethics |
-| CTO | Arch | Opus 4.7 | Agent tool matrix, cross-project tech standards |
+| CoS | Atlas | Opus 5.5 | Orchestration, routing, CEO proxy |
+| CFO | Theos | Sonnet 5.5 | Finance, banking, invoices |
+| CLO | Lex | Opus 5.5 | Legal, contracts, IP, disclosure |
+| CMO | Mira | Sonnet 5.5 | Brand, marketing, communications |
+| CCO | Clio | Sonnet 5.5 | Sales, partnerships, revenue |
+| CHRO | Sage | Sonnet 5.5 | People, agent ranking, versioning |
+| CSO | Shield | Opus 5.5 | Security, system audit |
+| CEthO | Vera | Opus 5.5 | AI ethics, disclosure ethics |
+| CTO | Arch | Opus 5.5 | Agent tool matrix, cross-project tech standards |
 
 **Toggle-gated (3, enabled at company init):**
 
 | Role | Default name | Model | Default | Domain |
 |---|---|---|---|---|
-| eng-platform | Hephaestus | Sonnet 4.6 | **on** | Company-scope sole writer: repos, cloud control plane, npm |
-| CRO | Lumen | Sonnet 4.6 | off | Research synthesis with mandatory citation discipline |
-| VPE | Helm | Sonnet 4.6 | off | Cross-project engineering aggregator (recommended for ≥2 active projects) |
+| eng-platform | Hephaestus | Sonnet 5.5 | **on** | Company-scope sole writer: repos, cloud control plane, npm |
+| CRO | Lumen | Sonnet 5.5 | off | Research synthesis with mandatory citation discipline |
+| VPE | Helm | Sonnet 5.5 | off | Cross-project engineering aggregator (recommended for ≥2 active projects) |
 
 ### Project scope
 
@@ -87,14 +87,14 @@ cd ~/contoso → claude   (manages Contoso Ltd)
 
 | Role | Model | Domain |
 |---|---|---|
-| PCA | Sonnet 4.6 | Project Chief Architect — tech direction and Tier 1 manifesto approval |
-| Product Lead | Sonnet 4.6 | Product direction, PRDs, GitHub spec authoring |
-| Design Lead | Sonnet 4.6 | Design system, UX research, accessibility |
-| Eng Lead | Sonnet 4.6 | Sole GitHub writer at project scope; engineering execution and delegation |
-| Eng/API | Haiku 4.5 | Endpoints, OpenAPI |
-| Eng/Backend | Haiku 4.5 | Business logic, services |
-| Eng/Frontend | Haiku 4.5 | UI components |
-| Eng/AI | Haiku 4.5 | Models, pipelines |
+| PCA | Sonnet 5.5 | Project Chief Architect — tech direction and Tier 1 manifesto approval |
+| Product Lead | Sonnet 5.5 | Product direction, PRDs, GitHub spec authoring |
+| Design Lead | Sonnet 5.5 | Design system, UX research, accessibility |
+| Eng Lead | Sonnet 5.5 | Sole GitHub writer at project scope; engineering execution and delegation |
+| Eng/API | Haiku 5.5 | Endpoints, OpenAPI |
+| Eng/Backend | Haiku 5.5 | Business logic, services |
+| Eng/Frontend | Haiku 5.5 | UI components |
+| Eng/AI | Haiku 5.5 | Models, pipelines |
 
 ---
 
@@ -224,6 +224,10 @@ git push
 Hooks and helpers are bash. The MCP servers under `juvantlabs/*-mcp-server`
 run via `npx` on Node ≥ 20 and are fully cross-platform.
 
+**Claude Code v2.1.295+ is required** for the fail-closed PreToolUse gate
+(`onFailure: "block"`, FEAT-061). On older clients the field is silently
+ignored and a hook that fails to start lets the tool call through.
+
 ---
 
 ## Roadmap
@@ -236,6 +240,7 @@ run via `npx` on Node ≥ 20 and are fully cross-platform.
 | **v1.0** | Full company + multi-project initialization, stable migration from v0.7, M365 document storage, scheduled Morning Brief and fiscal helpers | ✅ |
 | **v1.1** | Teams meeting transcript analysis, framework sync operation, Knowledge Sync Pipeline | ✅ |
 | **v1.11** | Provider-neutral document spaces + third-party access (ADR 0023), outbound action queue (ADR 0024), sensitive-space hook perimeter (ADR 0025/Track 2e), abstract `social` role; guardrail hardening | ✅ |
+| **v1.12** | Agents on the Claude 5.5 line with per-agent `effort`; fail-closed PreToolUse gate, guardrail-config tamper floor (Track 2f) and ConfigChange forensic logging; spec-execution marking (ADR 0028–0030); libsql HTTP DB layer; ADRs 0031–0033 | ✅ |
 | **v2.0** | Always-on cloud agents (Azure), External Portal, Webhook Services, Teams Meeting Bot, M365 mail automation | Planned — requires cloud infrastructure |
 
 Roadmap detail and open issues are tracked in the private project management
