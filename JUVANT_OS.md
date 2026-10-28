@@ -4688,7 +4688,12 @@ trail. **Company-scope agents only** — no project agents involved.
    assumptions.
 
 7. **Apply approved files** — `git checkout upstream/main -- <file>` for each
-   approved file.
+   approved file. Use exactly this form (or `git restore --source=upstream/main
+   -- <file>`) for `hooks/*.sh`, `hooks/lib/*.sh` and `hooks/bash-policy.json`:
+   the Track 2f tamper floor denies every other write to those files, and allows
+   this one only while `upstream` is the canonical `juvantlabs/juvant-os` remote
+   (decisions#300). The SessionStart integrity check then verifies every
+   guardrail file is content that upstream has shipped.
 
 8. **Post-apply steps** (auto-executed, no additional CEO input):
    - Any `helpers/*.sh` or `hooks/*.sh` changed →
@@ -4762,6 +4767,7 @@ hooks/subagent-start.sh       hooks/subagent-stop.sh
 hooks/post-compact.sh         hooks/pre-compact.sh
 hooks/config-change.sh
 hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
+hooks/lib/hooks-integrity.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh

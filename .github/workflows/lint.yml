@@ -185,6 +185,8 @@ jobs:
           # decisions#298/#300: the PreToolUse registration wrapper blocks
           # (exit 2) when pre-tool-use.sh is missing, executed as CC runs it.
           bash tests/hooks/test-pretooluse-wrapper.sh
+          # decisions#300 item 13: SessionStart guardrail integrity check.
+          bash tests/hooks/test-hooks-integrity.sh
 
       - name: Helper tests
         run: |

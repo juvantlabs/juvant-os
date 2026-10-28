@@ -1059,22 +1059,246 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
        [[ "$_gr_origin" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]] && _fw_dev=1 ;;
   esac
   if [[ "$_fw_dev" -eq 0 ]]; then
+    # A guardrail path: a gate script, the deny-list, or the hooks/ / hooks/lib/
+    # directory (or a glob over it) as a whole. decisions#300 item 9: the test
+    # suites under tests/hooks/ are NOT guardrails — they are instance-editable
+    # (a 2-line fix to tests/hooks/test-*.sh was blocked by the old
+    # `(^|/)hooks/` match).
     _gr_path_re='(^|/)hooks/([^/]+\.sh|lib/[^/]+\.sh|bash-policy\.json)$'
+    _gr_dir_re='(^|/)hooks(/lib)?/?$|(^|/)hooks/(lib/)?\*$'
+    _gr_in_hooks=0   # set while a preceding `cd hooks` segment is in effect
+    _gr_is_path() {
+      local p="$1"
+      [[ -n "$p" ]] || return 1
+      if [[ "$p" =~ (^|/)tests/hooks(/|$) ]]; then return 1; fi
+      if [[ "$p" =~ $_gr_path_re || "$p" =~ $_gr_dir_re ]]; then return 0; fi
+      # Relative to a `cd hooks` earlier in the same command.
+      if [[ "$_gr_in_hooks" == 1 ]] && [[ "$p" =~ ^([^/]+\.sh|bash-policy\.json|\*|lib/?|lib/[^/]+\.sh|lib/\*)$ ]]; then
+        return 0
+      fi
+      return 1
+    }
     if [[ "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Edit" ]]; then
       _gr_tgt=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
-      if [[ -n "$_gr_tgt" && "$_gr_tgt" =~ $_gr_path_re ]]; then
+      if _gr_is_path "$_gr_tgt"; then
         DECISION="deny"
         DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064): $TOOL_NAME to '$_gr_tgt' is denied in a deployed instance — the hook gate scripts and bash-policy.json change via upstream sync, not live agent edits. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
       fi
     else
-      # Bash: deny a write operator (redirect / tee / in-place sed) whose target
-      # is a guardrail file — closes `echo … > hooks/bash-policy.json`, which the
-      # per-agent allow-list alone would pass (FIRST_TOKEN=echo).
+      # Bash (decisions#300 item 4, security_audit_log#148b). The original
+      # floor only matched a redirect / tee / `sed -i` naming the file, so
+      # `git checkout|restore|rm|mv`, `cp x hooks/…`, `find hooks -delete`,
+      # `cd hooks && rm …` and interpreter writes (python3/node/perl
+      # `open('hooks/…','w')`) all passed. The scan is now:
+      #   1. raw scan — an interpreter, `bash -c`, `eval`, command
+      #      substitution or a heredoc in a command that mentions a guardrail
+      #      path → deny (their write target lives inside code we don't parse);
+      #   2. per segment (split on unquoted ; & | newline ( ) `) — a segment
+      #      that references a guardrail path is allowed only for a recognised
+      #      read-only verb; any redirect onto a guardrail path → deny.
+      # The single sanctioned Bash write is the upstream-sync apply step
+      # (JUVANT_OS.md "Upstream sync" step 7): `git checkout upstream/main --
+      # <file>` / `git restore --source=upstream/main`, and only while the
+      # `upstream` remote is the canonical juvantlabs/juvant-os.
+      # Residual (detection, not prevention — the SessionStart integrity check,
+      # hooks/lib/hooks-integrity.sh, catches the result): paths assembled at
+      # runtime (`f=hooks; rm "$f/x.sh"`), `patch`/`git apply`/archive
+      # extraction whose targets live inside a file.
       _gr_cmd=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
-      _gr_bash_re='(>[[:space:]]*|tee[[:space:]]+(-a[[:space:]]+)?|sed[[:space:]]+-i[[:space:]]+([^[:space:]]+[[:space:]]+)*)[^[:space:]|;&]*hooks/([^/[:space:]]+\.sh|lib/[^/[:space:]]+\.sh|bash-policy\.json)'
-      if [[ "$_gr_cmd" =~ $_gr_bash_re ]]; then
-        DECISION="deny"
-        DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064): Bash write to a hook gate script / bash-policy.json is denied in a deployed instance. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+      _GR_DENY_WHY=""
+
+      # Raw substring scan: any guardrail path in the text, quotes included,
+      # except under tests/hooks/.
+      _gr_raw_ref() {
+        local s="$1"
+        local re='([^[:space:]"'"'"'(),=:;`]*)hooks/([A-Za-z0-9_.*-]+\.sh|lib/[A-Za-z0-9_.*-]+\.sh|bash-policy\.json|lib/?|\*)'
+        while [[ "$s" =~ $re ]]; do
+          if [[ "${BASH_REMATCH[1]}" != *tests/ ]]; then return 0; fi
+          s="${s#*"${BASH_REMATCH[0]}"}"
+        done
+        return 1
+      }
+
+      # `git checkout upstream/main -- …` / `git restore --source=upstream/main …`
+      # against the canonical upstream remote.
+      _gr_upstream_restore() {
+        local a prev="" src="" u
+        for a in "$@"; do
+          case "$a" in --source=*) src="${a#--source=}" ;; esac
+          if [[ "$prev" == "--source" || "$prev" == "-s" ]]; then src="$a"; fi
+          if [[ "$a" == "upstream/main" && -z "$src" ]]; then src="$a"; fi
+          prev="$a"
+        done
+        [[ "$src" == "upstream/main" ]] || return 1
+        u=$(git -C "$SCRIPT_DIR/.." remote get-url upstream 2>/dev/null || echo "")
+        [[ "$u" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]]
+      }
+
+      # Evaluate one segment (shell words, quotes removed; redirect targets in
+      # _GR_REDIR). Returns 0 = deny (reason in _GR_DENY_WHY), 1 = fine.
+      _gr_eval_segment() {
+        local i=0 x verb sub has=0 last prev=""
+        local -a w=() args=()
+        [[ $# -gt 0 ]] && w=("$@")
+        for x in ${_GR_REDIR[@]+"${_GR_REDIR[@]}"}; do
+          if _gr_is_path "$x"; then _GR_DENY_WHY="output redirect onto '$x'"; return 0; fi
+        done
+        # Skip inline assignments and transparent wrappers to the real verb.
+        while [[ $i -lt ${#w[@]} ]]; do
+          x="${w[$i]}"
+          if [[ "$x" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then i=$((i + 1)); continue; fi
+          case "${x##*/}" in
+            command|env|nice|nohup|time|exec|xargs|builtin) i=$((i + 1)); continue ;;
+          esac
+          break
+        done
+        [[ $i -lt ${#w[@]} ]] || return 1
+        verb="${w[$i]##*/}"
+        [[ $((i + 1)) -lt ${#w[@]} ]] && args=("${w[@]:$((i + 1))}")
+        case "$verb" in
+          cd|pushd)
+            _gr_in_hooks=0
+            if [[ ${#args[@]} -gt 0 ]] && [[ "${args[0]}" =~ (^|/)hooks(/lib)?/?$ ]] \
+               && ! [[ "${args[0]}" =~ (^|/)tests/hooks ]]; then
+              _gr_in_hooks=1
+            fi
+            return 1 ;;
+        esac
+        for x in ${args[@]+"${args[@]}"}; do
+          if _gr_is_path "$x"; then has=1; break; fi
+        done
+        [[ "$has" == 1 ]] || return 1
+        case "$verb" in
+          cat|less|more|head|tail|grep|egrep|fgrep|rg|ag|wc|diff|cmp|comm|\
+          shasum|sha1sum|sha256sum|md5|md5sum|cksum|stat|file|ls|tree|bat|\
+          shellcheck|jq|echo|printf|test|'['|realpath|readlink|basename|dirname|\
+          sort|uniq|cut|tr|source|.)
+            return 1 ;;
+          bash|sh|zsh|dash|ksh)
+            # Executing a hook script reads it; inline -c code is caught by the
+            # raw scan above.
+            return 1 ;;
+          sed)
+            for x in "${args[@]}"; do
+              if [[ "$x" == --in-place* ]] || [[ "$x" =~ ^-[a-zA-Z]*i ]]; then
+                _GR_DENY_WHY="sed in-place edit"; return 0
+              fi
+            done
+            return 1 ;;
+          find)
+            for x in "${args[@]}"; do
+              case "$x" in
+                -delete|-exec|-execdir|-ok|-okdir|-fprint|-fprint0|-fprintf|-fls)
+                  _GR_DENY_WHY="find $x over a guardrail path"; return 0 ;;
+              esac
+            done
+            return 1 ;;
+          cp|rsync|install|ln)
+            # Reading a guardrail file into a copy elsewhere is fine; the
+            # destination (last operand, or -t / --target-directory) is not.
+            last="${args[${#args[@]}-1]}"
+            if _gr_is_path "$last"; then _GR_DENY_WHY="$verb onto '$last'"; return 0; fi
+            for x in "${args[@]}"; do
+              if [[ "$prev" == "-t" ]] && _gr_is_path "$x"; then _GR_DENY_WHY="$verb -t '$x'"; return 0; fi
+              if [[ "$x" == --target-directory=* ]] && _gr_is_path "${x#*=}"; then _GR_DENY_WHY="$verb $x"; return 0; fi
+              prev="$x"
+            done
+            return 1 ;;
+          git)
+            sub=""
+            for x in "${args[@]}"; do
+              if [[ "$prev" == "-C" || "$prev" == "-c" || "$prev" == "--git-dir" || "$prev" == "--work-tree" ]]; then prev="$x"; continue; fi
+              if [[ "$x" != -* ]]; then sub="$x"; break; fi
+              prev="$x"
+            done
+            case "$sub" in
+              status|diff|log|show|blame|annotate|ls-files|ls-tree|cat-file|grep|\
+              rev-parse|add|commit|fetch|describe|shortlog|whatchanged|hash-object|\
+              check-ignore|check-attr)
+                return 1 ;;
+              checkout|restore)
+                if _gr_upstream_restore "${args[@]}"; then return 1; fi
+                _GR_DENY_WHY="git $sub of a guardrail path (only a restore from the canonical upstream/main is allowed — Upstream sync step 7)"
+                return 0 ;;
+              *)
+                _GR_DENY_WHY="git ${sub:-<?>} on a guardrail path"; return 0 ;;
+            esac ;;
+          *)
+            _GR_DENY_WHY="'$verb' on a guardrail path (not a recognised read-only command)"
+            return 0 ;;
+        esac
+      }
+
+      # Quote-aware split into segments of words; evaluate each.
+      # SC1003: the lone-backslash patterns are literal by design.
+      # shellcheck disable=SC1003
+      _gr_scan_bash() {
+        local s="$1" n=${#1} i=0 c q="" word="" inword=0 expect_redir=0
+        local -a words=()
+        _GR_REDIR=()
+        while [[ $i -lt $n ]]; do
+          c="${s:$i:1}"
+          if [[ -n "$q" ]]; then
+            if [[ "$c" == "$q" ]]; then
+              q=""
+            elif [[ "$q" == '"' && "$c" == '\' ]]; then
+              i=$((i + 1)); word+="${s:$i:1}"
+            else
+              word+="$c"
+            fi
+            i=$((i + 1)); continue
+          fi
+          case "$c" in
+            "'"|'"') q="$c"; inword=1 ;;
+            '\') i=$((i + 1)); word+="${s:$i:1}"; inword=1 ;;
+            ' '|$'\t'|';'|'|'|'&'|$'\n'|'('|')'|'`'|'>'|'<')
+              if [[ -n "$word" || "$inword" == 1 ]]; then
+                if [[ "$expect_redir" == 1 ]]; then _GR_REDIR+=("$word"); expect_redir=0
+                else words+=("$word"); fi
+              fi
+              word=""; inword=0
+              case "$c" in
+                ' '|$'\t'|'<') ;;
+                '>')
+                  # >>, >| ; >&N / >&- duplicate an fd (no file target).
+                  if [[ "${s:$((i + 1)):1}" == '>' || "${s:$((i + 1)):1}" == '|' ]]; then i=$((i + 1)); fi
+                  if [[ "${s:$((i + 1)):1}" == '&' ]]; then
+                    i=$((i + 1))
+                    while [[ "${s:$((i + 1)):1}" =~ [0-9-] ]]; do i=$((i + 1)); done
+                  else
+                    expect_redir=1
+                  fi ;;
+                *)
+                  if _gr_eval_segment ${words[@]+"${words[@]}"}; then return 0; fi
+                  words=(); _GR_REDIR=(); expect_redir=0 ;;
+              esac ;;
+            *) word+="$c"; inword=1 ;;
+          esac
+          i=$((i + 1))
+        done
+        if [[ -n "$word" || "$inword" == 1 ]]; then
+          if [[ "$expect_redir" == 1 ]]; then _GR_REDIR+=("$word"); else words+=("$word"); fi
+        fi
+        _gr_eval_segment ${words[@]+"${words[@]}"}
+      }
+
+      if [[ "$_gr_cmd" == *hooks* || "$_gr_cmd" == *bash-policy* ]]; then
+        _gr_interp_re='(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua|eval)([[:space:]]|$)|(^|[^A-Za-z0-9_.-])(bash|sh|zsh|dash|ksh)[[:space:]]+-[A-Za-z]*c'
+        # Heredoc `<<` (not a `<<<` here-string, which only feeds stdin).
+        _gr_heredoc_re='(^|[^<])<<-?[^<]'
+        # SC2016: '$(' and '`' are literal metacharacters to look for.
+        # shellcheck disable=SC2016
+        if _gr_raw_ref "$_gr_cmd" && { [[ "$_gr_cmd" =~ $_gr_interp_re ]] || [[ "$_gr_cmd" =~ $_gr_heredoc_re ]] || [[ "$_gr_cmd" == *'$('* || "$_gr_cmd" == *'`'* ]]; }; then
+          _GR_DENY_WHY="interpreter / inline code / command substitution / heredoc in a command that references a guardrail file"
+        elif _gr_scan_bash "$_gr_cmd"; then
+          :
+        else
+          _GR_DENY_WHY=""
+        fi
+        if [[ -n "$_GR_DENY_WHY" ]]; then
+          DECISION="deny"
+          DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064): Bash write to a hook gate script / bash-policy.json is denied in a deployed instance — $_GR_DENY_WHY. These files change only via upstream sync (git checkout upstream/main -- <file>). Read-only access (cat/grep/diff/git diff/log/show, running a hook) is allowed. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+        fi
       fi
     fi
   fi

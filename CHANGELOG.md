@@ -38,6 +38,36 @@ All written artifacts in English. No exceptions.
     drain time. Fixes skew in orphan checks, continuity-gap and halt-window
     attribution.
 
+### Security
+
+- **Track 2f tamper floor covers every write path it missed (decisions#300 items
+  4 + 9, security_audit_log#148b).** The floor matched only a redirect / `tee` /
+  `sed -i` naming a guardrail file, so `git checkout|restore|rm|mv`, `cp`/`ln`
+  onto a hook, `rm -rf hooks/lib`, `find hooks … -delete`, `cd hooks && rm …`,
+  compound commands and interpreter writes (`python3 -c "open('hooks/…','w')"`,
+  `node -e`, `perl -pi`, heredoc-fed interpreters, `bash -c`, `$(…)`) all passed
+  — the interpreter route was exercised for real on 2026-10-28. The Bash check is
+  now a quote-aware per-segment scan: a segment that references a guardrail path
+  (file, `hooks/`/`hooks/lib/` directory or glob) is allowed only for a
+  recognised read-only verb (`cat`/`grep`/`diff`/`shellcheck`, `git
+  diff|log|show|status|add|commit`, running a hook…), any redirect onto one is
+  denied, and an interpreter / inline code / substitution / heredoc in a command
+  that mentions one is denied outright. The single sanctioned write is the
+  Upstream sync apply step, `git checkout upstream/main -- <file>` (or `git
+  restore --source=upstream/main`), and only while `upstream` is the canonical
+  `juvantlabs/juvant-os` remote. **Item 9:** `tests/hooks/` is no longer matched
+  (the old `(^|/)hooks/` regex blocked a 2-line test fix on the adopter repo).
+- **SessionStart guardrail integrity check (decisions#300 item 13 — the
+  detection half of security_audit_log#148).** New `hooks/lib/hooks-integrity.sh`,
+  called from `session-start.sh`: every `hooks/*.sh`, `hooks/lib/*.sh` and
+  `hooks/bash-policy.json` must be a blob that `hooks/` has held somewhere in
+  `upstream/main` history (canonical upstream remote), so an instance behind
+  upstream passes while any byte upstream never shipped — committed or not —
+  fails; a deleted guardrail file fails too. No recorded baseline to re-record.
+  Without a canonical `upstream/main` ref it falls back to working-tree-vs-HEAD.
+  Findings go to SessionStart stdout (session context, for CoS to surface) and an
+  `agent_actions_log` row (`tool_name='HooksIntegrity'`); never blocks. Skipped in
+  framework dev (same tri-state as Track 2f). Added to the sync whitelist.
 
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 

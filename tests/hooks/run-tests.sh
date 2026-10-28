@@ -1087,6 +1087,88 @@ t_assert "2f adopter: Write .claude/settings.json → not 2f (excluded)" "no" \
 t_assert "2f adopter: cat hook > /tmp (read, not write) → not 2f" "no" \
   "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"cat hooks/pre-tool-use.sh > /tmp/x"}}')"
 
+# decisions#300 item 9: tests/hooks/ is NOT a guardrail — instance-editable.
+t_assert "2f adopter: Edit tests/hooks/x.sh → allow (not 2f)" "no" \
+  "$(_t2f 0 '{"tool_name":"Edit","session_id":"s","tool_input":{"file_path":"tests/hooks/test-m365-legal-ip-policy.sh","old_string":"a","new_string":"b"}}')"
+t_assert "2f adopter: Write /abs/tests/hooks/run-tests.sh → allow (not 2f)" "no" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"/repo/tests/hooks/run-tests.sh","content":"x"}}')"
+t_assert "2f adopter: sed -i tests/hooks/x.sh → allow (not 2f)" "no" \
+  "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"sed -i s/a/b/ tests/hooks/test-m365-legal-ip-policy.sh"}}')"
+
+# decisions#300 item 4 (security_audit_log#148b): git / file-op verbs, compound
+# commands and interpreter writes. Operator role (empty) so the per-agent
+# allow-list can't pre-empt the Track 2f verdict.
+_t2fb() {
+  local ev out rsn
+  ev=$(jq -cn --arg c "$1" '{tool_name:"Bash",session_id:"s",tool_input:{command:$c}}')
+  out=$(echo "$ev" | JUVANT_FRAMEWORK_DEV=0 AGENT_ROLE="" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null || true)
+  rsn=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+  if [[ "$rsn" == *"Track 2f"* ]]; then echo "yes"; else echo "no"; fi
+}
+for _c in \
+  'git checkout HEAD~3 -- hooks/pre-tool-use.sh' \
+  'git restore hooks/bash-policy.json' \
+  'git rm hooks/lib/db.sh' \
+  'git mv hooks/stop.sh hooks/stop.bak' \
+  'git status && git checkout -- hooks/pre-tool-use.sh' \
+  'ls; rm hooks/pre-tool-use.sh' \
+  'cat x | cp /tmp/evil.sh hooks/pre-tool-use.sh' \
+  'mv hooks/bash-policy.json /tmp/' \
+  'rm -rf hooks/lib' \
+  'find hooks -name "*.sh" -delete' \
+  'cd hooks && rm pre-tool-use.sh' \
+  'chmod -x hooks/pre-tool-use.sh' \
+  'ln -sf /tmp/x hooks/pre-tool-use.sh' \
+  'echo x >> "hooks/bash-policy.json"' \
+  "python3 -c \"open('hooks/pre-tool-use.sh','w').write('')\"" \
+  "node -e 'require(\"fs\").writeFileSync(\"hooks/lib/db.sh\",\"\")'" \
+  'perl -pi -e "s/deny/allow/" hooks/pre-tool-use.sh' \
+  "$(printf 'python3 - <<%s\nopen("hooks/bash-policy.json","w")\nPY' "'PY'")" \
+  'bash -c "rm hooks/stop.sh"' \
+  'echo $(rm hooks/stop.sh)' \
+  ; do
+  t_assert "2f adopter: deny — ${_c//$'\n'/ ⏎ }" "yes" "$(_t2fb "$_c")"
+done
+for _c in \
+  'git diff HEAD upstream/main -- hooks/pre-tool-use.sh' \
+  'git add hooks/pre-tool-use.sh && git commit -m "chore: sync hooks/pre-tool-use.sh"' \
+  'git log --oneline -- hooks/' \
+  'grep -n deny hooks/pre-tool-use.sh 2>&1 | head' \
+  'shellcheck hooks/*.sh hooks/lib/*.sh' \
+  "bash hooks/pre-tool-use.sh <<< '{}'" \
+  'cp hooks/pre-tool-use.sh /tmp/backup.sh' \
+  'cd hooks && ls' \
+  'gh pr create --title "fix hooks/pre-tool-use.sh" --body "touches hooks"' \
+  'bash tests/hooks/run-tests.sh' \
+  ; do
+  t_assert "2f adopter: allow (read) — $_c" "no" "$(_t2fb "$_c")"
+done
+
+# The one sanctioned Bash write: Upstream sync step 7, from the canonical
+# upstream only. Run against a scratch copy of hooks/ with its own remotes.
+_t2f_up="$(mktemp -d)"
+cp -R "$HOOKS_DIR" "$_t2f_up/hooks"
+git -C "$_t2f_up" init -q
+git -C "$_t2f_up" remote add origin https://github.com/acme/instance.git
+git -C "$_t2f_up" remote add upstream https://github.com/juvantlabs/juvant-os.git
+_t2f_upc() {
+  local ev rsn
+  ev=$(jq -cn --arg c "$1" '{tool_name:"Bash",session_id:"s",tool_input:{command:$c}}')
+  rsn=$(echo "$ev" | JUVANT_FRAMEWORK_DEV=0 AGENT_ROLE="" bash "$_t2f_up/hooks/pre-tool-use.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null || true)
+  if [[ "$rsn" == *"Track 2f"* ]]; then echo yes; else echo no; fi
+}
+t_assert "2f sync: git checkout upstream/main -- hook (canonical upstream) → allow" "no" \
+  "$(_t2f_upc 'git checkout upstream/main -- hooks/pre-tool-use.sh')"
+t_assert "2f sync: git restore --source=upstream/main (canonical) → allow" "no" \
+  "$(_t2f_upc 'git restore --source=upstream/main hooks/lib/db.sh')"
+t_assert "2f sync: git checkout origin/main -- hook → deny" "yes" \
+  "$(_t2f_upc 'git checkout origin/main -- hooks/pre-tool-use.sh')"
+git -C "$_t2f_up" remote set-url upstream https://github.com/evil/juvant-os.git
+t_assert "2f sync: upstream/main from a NON-canonical upstream → deny" "yes" \
+  "$(_t2f_upc 'git checkout upstream/main -- hooks/pre-tool-use.sh')"
+rm -rf "$_t2f_up"
+
 # Framework-dev exempt (=1): guardrail edits are allowed.
 t_assert "2f framework-dev: Write bash-policy.json → not 2f (exempt)" "no" \
   "$(_t2f 1 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"hooks/bash-policy.json","content":"{}"}}')"
