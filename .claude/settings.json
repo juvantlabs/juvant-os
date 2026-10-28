@@ -85,7 +85,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'r=\"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}\"; [[ -f \"$r/hooks/pre-tool-use.sh\" ]] && exec bash \"$r/hooks/pre-tool-use.sh\"; exit 0'"
+            "command": "bash -c 'r=\"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}\"; [[ -f \"$r/hooks/pre-tool-use.sh\" ]] && exec bash \"$r/hooks/pre-tool-use.sh\"; exit 0'",
+            "onFailure": "block"
           }
         ]
       }
