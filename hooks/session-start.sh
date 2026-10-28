@@ -30,6 +30,32 @@ fi
 . "$SCRIPT_DIR/lib/db.sh"
 juvant_db_resolve
 
+# decisions#300 item 13 (security_audit_log#148, detection half): guardrail
+# tree integrity. Runs before the DB check so a DB-less session still sees it.
+# SessionStart stdout is added to the session context, so the warning reaches
+# the main thread (CoS), which must surface it to the CEO. Never blocks.
+if [[ -f "$SCRIPT_DIR/lib/hooks-integrity.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/hooks-integrity.sh"
+  _HI_RC=0
+  _HI_OUT=$(juvant_hooks_integrity_check "$REPO_ROOT") || _HI_RC=$?
+  if [[ "$_HI_RC" -eq 1 ]]; then
+    _HI_LIST=$(printf '%s' "$_HI_OUT" | grep -v '^baseline:' | paste -sd ';' - | sed 's/;/; /g')
+    echo "SECURITY WARNING (hooks integrity, decisions#300): guardrail files differ from the canonical upstream content — ${_HI_LIST}. The PreToolUse gate may have been tampered with. Surface this to the CEO and the CSO before any other work; restore with 'git checkout upstream/main -- <file>' once reviewed."
+    echo "[session-start] SECURITY WARNING: hooks integrity check failed: ${_HI_LIST}" >&2
+    if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
+      _HI_SUM=$(printf 'hooks integrity: %s' "$_HI_LIST" | cut -c1-200 | sed "s/'/''/g")
+      _HI_HASH=$(printf '%s' "$_HI_OUT" | shasum -a 256 2>/dev/null | cut -d' ' -f1)
+      juvant_db_exec_async "INSERT INTO agent_actions_log
+        (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at)
+        VALUES (NULL, 'system', 'HooksIntegrity', '${_HI_HASH:-no-hash}', 'failed',
+                'guardrail files not from canonical upstream (decisions#300 item 13)',
+                '$_HI_SUM', '$(date -u +"%Y-%m-%d %H:%M:%S")');" \
+        || echo "[session-start] WARN: failed to spool hooks-integrity row" >&2
+    fi
+  fi
+fi
+
 if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
   echo "[session-start] WARN: No db.provider configured. Skipping status update." >&2
   exit 0
