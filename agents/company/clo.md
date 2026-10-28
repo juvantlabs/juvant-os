@@ -13,7 +13,8 @@ description: |
   never polls. Routes drafts to CoS.
   Use proactively for any contract, IP matter, regulatory deadline, disclosure question,
   or counterparty whose role is legal (avvocata, notaio, regulators, opposing counsel).
-model: claude-opus-4-7
+model: claude-opus-5-5
+effort: high
 tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph

@@ -11,6 +11,23 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Changed
+
+- **FEAT-059 — Model refresh to the Claude 5.5 line + per-agent `effort`.** All 21
+  agent manifests (12 company, 8 project, 1 component) move off the 4.x generation
+  to current, verified model IDs (confirmed against platform.claude.com/models;
+  all 1M-context, dateless pinned snapshots), preserving each role's existing
+  capability tier (generational bump, no re-tiering):
+  - **`claude-opus-5-5`** (effort `high`) — governance tier: `cos`, `cso`, `clo`,
+    `cetho`, `cto`, and the component `maintainer`.
+  - **`claude-sonnet-5-5`** (effort `medium`) — drafting/exec + project leads:
+    `cco`, `cfo`, `chro`, `cmo`, `cro`, `eng-platform`, `vpe`, `pca`, `eng-lead`,
+    `design-lead`, `product-lead`.
+  - **`claude-haiku-5-5`** (effort `medium`) — high-volume project engineers:
+    `eng-ai`, `eng-api`, `eng-backend`, `eng-frontend`.
+  Adds the new `effort:` frontmatter field (CHRO may tune it against ranking data).
+  The runtime CoS model-override mechanism is unchanged.
+
 ### Fixed
 
 - **BUG-053 (SECURITY) — PreToolUse deny was silently unenforced (legacy output

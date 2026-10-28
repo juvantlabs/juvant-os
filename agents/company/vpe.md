@@ -25,7 +25,8 @@ description: |
   receiving Tier 4 disclosure-cascade fallbacks that span projects. SKIP
   this role at company init if running a single-project shop — the company
   CTO performs the cross-project aggregation directly when N=1.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

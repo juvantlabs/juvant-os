@@ -13,7 +13,8 @@ description: |
   Use proactively when: a new tool is proposed, a project is launching and needs
   tech baseline confirmation, drift between actual agent usage and the matrix is
   detected, or cross-project tech standards need arbitration.
-model: claude-opus-4-7
+model: claude-opus-5-5
+effort: high
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

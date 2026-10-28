@@ -14,7 +14,8 @@ description: |
   Use proactively when: Eng Lead delegates a backend ticket, business-logic design
   questions arise, data model needs evolution, query optimization is required,
   or cross-discipline boundary needs backend input.
-model: claude-haiku-4-5-20251001
+model: claude-haiku-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

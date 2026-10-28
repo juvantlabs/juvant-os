@@ -27,7 +27,8 @@ description: |
   detected, secrets pattern needs progression (3a → 3b), a project's infra
   drifts from company-scope baselines, or a canonical helper needs an npm
   version cut (FEAT-024 path).
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

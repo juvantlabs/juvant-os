@@ -12,7 +12,8 @@ description: |
   contact, no inbound mail.
   Use proactively for: monthly ranking publication, agent manifesto approval flows,
   periodic version drift, agent offboarding initiation.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 skills: []
 channels: []

@@ -20,7 +20,8 @@ description: |
   (independent) on project visual identity, brand-architecture maintenance across the company
   brand portfolio, press inquiries (received via the press mailbox), crisis-comms preparation,
   PR scheduling.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph

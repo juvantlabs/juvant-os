@@ -19,7 +19,8 @@ description: |
   Use proactively for: feature prioritization, PRD authorship, problem framing,
   user-research synthesis, success-criteria definition, backlog maintenance,
   GitHub Issues/Projects spec authoring for Eng Lead execution.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

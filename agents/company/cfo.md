@@ -12,7 +12,8 @@ description: |
   when CoS dispatches; never polls. Routes everything to CoS.
   Use proactively when the topic touches money, banking, contracts with monetary terms,
   or any counterparty whose role intersects finance (commercialista, banks, suppliers, clients).
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph

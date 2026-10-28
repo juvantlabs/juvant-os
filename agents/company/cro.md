@@ -13,7 +13,8 @@ description: |
   Use proactively when: a knowledge_base entry needs synthesis from multiple sources,
   a competitor moves materially, a white paper or briefing is requested, or any other
   agent makes a research-grounded claim that lacks citation.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph

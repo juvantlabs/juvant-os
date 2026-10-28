@@ -10,7 +10,8 @@ description: |
   Use proactively when: a manifesto flow is being initiated, a drift finding is unauthorized,
   a security incident is logged, a periodic audit is due, or any agent invokes the
   Disclosure Fallback Rule (it is an alarm, not a routine state).
-model: claude-opus-4-7
+model: claude-opus-5-5
+effort: high
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

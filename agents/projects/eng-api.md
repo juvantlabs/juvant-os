@@ -12,7 +12,8 @@ description: |
   Use proactively when: Eng Lead delegates an API ticket, contract design questions
   arise, OpenAPI spec drift is detected, or backend boundary integration needs
   API-side input.
-model: claude-haiku-4-5-20251001
+model: claude-haiku-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

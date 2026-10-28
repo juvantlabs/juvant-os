@@ -16,7 +16,8 @@ description: |
   Use proactively for: project-scope architectural decisions, project agent
   manifesto reviews, exception requests, cross-functional coordination at the
   project level.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github
