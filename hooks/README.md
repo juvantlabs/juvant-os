@@ -39,6 +39,13 @@ third layer, for the case where the script never gets to emit anything.
 - **Live smoke (run once in a real session, per the "verify gates live" rule):**
   temporarily make `pre-tool-use.sh` `exit 1` at the top, attempt a trivially
   allowed Bash command, confirm it is **blocked** (not run), then revert.
+- **Missing script fails closed (decisions#298).** `onFailure` only covers a
+  script that starts and fails. The registration wrapper used to be
+  `[[ -f script ]] && exec script; exit 0`, so a *deleted or renamed*
+  `pre-tool-use.sh` made the wrapper itself return 0 (allow) and every gate
+  (allow-lists, single-writer, scope, Track 3) went dark. The PreToolUse wrapper
+  now prints a message to stderr and `exit 2` when the script is absent. The
+  observational hooks keep `exit 0` (a missing session hook must not wedge a session).
 
 ## ConfigChange forensics (FEAT-062)
 
