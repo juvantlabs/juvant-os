@@ -24,6 +24,20 @@ All written artifacts in English. No exceptions.
   exactly as Claude Code does, from both the template and `.claude/settings.json`:
   script missing → exit 2 (blocked) with a stderr reason; present script's verdict
   passed through; observational wrappers still exit 0 on a missing script.
+- **Audit-trail integrity (decisions#298, CSO audit 2026-10-28 L1-F1/L1-F2).**
+  - `helpers/drain-audit-spool.sh` now re-claims batches stranded by a drain that
+    was killed mid-loop (`audit-spool.sql.draining.<pid>` / `.merge.<pid>`). A file
+    is stale when its owner pid is gone or it is older than
+    `DRAIN_STALE_MAX_AGE_MIN` (default 60); a live drain's file is never touched.
+    Stale batches are applied before the live spool with an idempotence guard
+    (session + agent + tool + args_hash, plus `started_at` when present) so a
+    partially-applied batch does not duplicate rows. Originals are preserved as
+    `backups/audit-stale.*` (newest 20 kept); a WARN names every reclaimed batch.
+  - `hooks/pre-tool-use.sh` stamps an explicit `started_at` (hook clock, UTC) on the
+    spooled `agent_actions_log` INSERT, so rows carry the action time instead of the
+    drain time. Fixes skew in orphan checks, continuity-gap and halt-window
+    attribution.
+
 
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 

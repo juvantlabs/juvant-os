@@ -600,6 +600,31 @@ t_assert "ADR-0029: no prefix → spec_id NULL" "" \
   "$(t_db "SELECT spec_id FROM agent_actions_log WHERE session_id='sess-0029b';")"
 
 # ─────────────────────────────────────────────
+# decisions#298 (L1-F2): spooled audit INSERT carries the hook-clock started_at
+# ─────────────────────────────────────────────
+suite "decisions#298: audit row started_at is action time, not drain time"
+
+t_db "DELETE FROM agent_actions_log;"
+rm -f "$JUVANT_SPOOL"
+echo '{"tool_name":"Bash","session_id":"sess-298ts","tool_input":{"command":"git status"}}' \
+  | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
+t_assert "spooled INSERT names the started_at column" "1" \
+  "$(grep -c "input_summary, started_at" "$JUVANT_SPOOL" 2>/dev/null || echo 0)"
+sleep 2   # a drain delay: DB default CURRENT_TIMESTAMP would now be >= 2s later
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
+t_assert "row started_at predates the drain (not stamped at drain time)" "1" \
+  "$(t_db "SELECT COUNT(*) FROM agent_actions_log WHERE session_id='sess-298ts' AND started_at <= datetime('now','-1 second');")"
+t_assert "started_at uses the same UTC format as ended_at" "1" \
+  "$(t_db "SELECT COUNT(*) FROM agent_actions_log WHERE session_id='sess-298ts' AND started_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]';")"
+# A denied call is stamped too, and the spec_id variant keeps its column order.
+rm -f "$JUVANT_SPOOL"
+echo '{"tool_name":"Bash","session_id":"sess-298sp","tool_input":{"command":"JUVANT_EXECUTING_SPEC=298 git status"}}' \
+  | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
+t_assert "spec_id variant still lands with started_at" "298" \
+  "$(t_db "SELECT spec_id FROM agent_actions_log WHERE session_id='sess-298sp' AND started_at IS NOT NULL;")"
+
+# ─────────────────────────────────────────────
 # Track 4 — spec gate distinguishes DB-unreachable from no-spec (E)
 # ─────────────────────────────────────────────
 suite "spec gate (Track 4: DB-unreachable vs no-spec)"
