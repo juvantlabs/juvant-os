@@ -1025,6 +1025,50 @@ t_assert "BUG-072 (y): bare interactive open → allow" "allow" \
 # Summary
 # ─────────────────────────────────────────────
 # ─────────────────────────────────────────────
+# Track 2f — guardrail-config tamper floor (FEAT-064)
+# ─────────────────────────────────────────────
+suite "Track 2f: guardrail tamper floor (FEAT-064)"
+
+# Returns "yes" iff the decision is a deny attributed to Track 2f. $1 = value of
+# JUVANT_FRAMEWORK_DEV (0 = enforce/adopter-sim, 1 = framework-dev exempt).
+_t2f() {
+  local out dec rsn
+  out=$(echo "$2" | JUVANT_FRAMEWORK_DEV="$1" AGENT_ROLE=cso bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null || true)
+  dec=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+  rsn=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+  if [[ "$dec" == "deny" && "$rsn" == *"Track 2f"* ]]; then echo "yes"; else echo "no"; fi
+}
+
+# Adopter (enforce): guardrail Write/Edit and Bash writes are denied by Track 2f.
+t_assert "2f adopter: Write bash-policy.json → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"hooks/bash-policy.json","content":"{}"}}')"
+t_assert "2f adopter: Edit pre-tool-use.sh (abs path) → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Edit","session_id":"s","tool_input":{"file_path":"/x/hooks/pre-tool-use.sh","old_string":"a","new_string":"b"}}')"
+t_assert "2f adopter: Write hooks/lib/db.sh → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"hooks/lib/db.sh","content":"x"}}')"
+t_assert "2f adopter: echo > bash-policy.json → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"echo x > hooks/bash-policy.json"}}')"
+t_assert "2f adopter: tee hook → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"echo x | tee hooks/pre-tool-use.sh"}}')"
+t_assert "2f adopter: sed -i hook → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"sed -i s/a/b/ hooks/bash-policy.json"}}')"
+
+# Adopter: must NOT over-block — non-guardrail file, settings.json (Skill edits
+# it; excluded), and a read-then-redirect-elsewhere are all free of Track 2f.
+t_assert "2f adopter: Write non-guardrail file → not 2f" "no" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"docs/notes.md","content":"x"}}')"
+t_assert "2f adopter: Write .claude/settings.json → not 2f (excluded)" "no" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":".claude/settings.json","content":"{}"}}')"
+t_assert "2f adopter: cat hook > /tmp (read, not write) → not 2f" "no" \
+  "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"cat hooks/pre-tool-use.sh > /tmp/x"}}')"
+
+# Framework-dev exempt (=1): guardrail edits are allowed.
+t_assert "2f framework-dev: Write bash-policy.json → not 2f (exempt)" "no" \
+  "$(_t2f 1 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"hooks/bash-policy.json","content":"{}"}}')"
+t_assert "2f framework-dev: echo > hook → not 2f (exempt)" "no" \
+  "$(_t2f 1 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"echo x > hooks/pre-tool-use.sh"}}')"
+
+# ─────────────────────────────────────────────
 # config-change.sh — ConfigChange forensic logging (FEAT-062)
 # ─────────────────────────────────────────────
 suite "config-change.sh (FEAT-062)"

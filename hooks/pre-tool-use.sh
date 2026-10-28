@@ -1025,6 +1025,56 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
 fi
 
 # ─────────────────────────────────────────────
+# Track 2f — guardrail-config tamper floor (FEAT-064)
+# ─────────────────────────────────────────────
+# In a deployed instance the structural-safety files — the PreToolUse gate
+# scripts (hooks/*.sh, hooks/lib/*.sh) and the universal deny-list
+# (hooks/bash-policy.json) — are framework artifacts that arrive via upstream
+# sync, never by a live agent edit. Deny Write/Edit AND Bash writes that target
+# them, so an agent cannot weaken its own guardrails mid-session. The deny is
+# itself audit-logged by Track 3 below (the attempt leaves a forensic trail).
+#
+# NOT covered here: .claude/settings.json — the Skill legitimately edits its
+# permissions.allow / additionalDirectories at bootstrap and project-add. Its
+# changes are instead RECORDED by the ConfigChange forensic hook (FEAT-062):
+# prevention for the hook files, detection for settings.json.
+#
+# Adopter-scoped — framework development of these very files happens in the
+# upstream repo. JUVANT_FRAMEWORK_DEV is tri-state:
+#   1     → exempt (framework dev / fork contributor)
+#   0     → enforce (the test suite uses this to simulate an adopter)
+#   unset → auto: exempt iff `origin` is the canonical upstream juvantlabs/juvant-os
+if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Edit" || "$TOOL_NAME" == "Bash" ) ]]; then
+  _fw_dev=0
+  case "${JUVANT_FRAMEWORK_DEV:-auto}" in
+    1) _fw_dev=1 ;;
+    0) _fw_dev=0 ;;
+    *) _gr_origin=$(git -C "$SCRIPT_DIR/.." remote get-url origin 2>/dev/null || echo "")
+       [[ "$_gr_origin" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]] && _fw_dev=1 ;;
+  esac
+  if [[ "$_fw_dev" -eq 0 ]]; then
+    _gr_path_re='(^|/)hooks/([^/]+\.sh|lib/[^/]+\.sh|bash-policy\.json)$'
+    if [[ "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Edit" ]]; then
+      _gr_tgt=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
+      if [[ -n "$_gr_tgt" && "$_gr_tgt" =~ $_gr_path_re ]]; then
+        DECISION="deny"
+        DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064): $TOOL_NAME to '$_gr_tgt' is denied in a deployed instance — the hook gate scripts and bash-policy.json change via upstream sync, not live agent edits. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+      fi
+    else
+      # Bash: deny a write operator (redirect / tee / in-place sed) whose target
+      # is a guardrail file — closes `echo … > hooks/bash-policy.json`, which the
+      # per-agent allow-list alone would pass (FIRST_TOKEN=echo).
+      _gr_cmd=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
+      _gr_bash_re='(>[[:space:]]*|tee[[:space:]]+(-a[[:space:]]+)?|sed[[:space:]]+-i[[:space:]]+([^[:space:]]+[[:space:]]+)*)[^[:space:]|;&]*hooks/([^/[:space:]]+\.sh|lib/[^/[:space:]]+\.sh|bash-policy\.json)'
+      if [[ "$_gr_cmd" =~ $_gr_bash_re ]]; then
+        DECISION="deny"
+        DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064): Bash write to a hook gate script / bash-policy.json is denied in a deployed instance. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+      fi
+    fi
+  fi
+fi
+
+# ─────────────────────────────────────────────
 # Track 3 — append-only audit log
 # ─────────────────────────────────────────────
 # Routes via hooks/lib/db.sh so Local SQLite adopters get audit-log
