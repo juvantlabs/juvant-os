@@ -110,6 +110,24 @@ All written artifacts in English. No exceptions.
   marker; documented in `JUVANT_OS.md` (spec 5-check, item 3). Residual: `agent_id` is not
   persisted, so two concurrent same-type subagents in one session share the role
   key. Path 2 (PR-merge recovery) is unchanged.
+### Fixed
+
+- **Declared pause windows are now honoured by every audit surface
+  (decisions#300 item 15; closes decisions#269 / decisions#270).** Only the CSO
+  bootstrap audit consulted `master_context.halt_windows`; `cso-weekly-audit.sh`
+  merely named the key in its alert text and `audit-reconcile.sh` ignored it,
+  so a declared 17-day closure raised a CRITICAL cadence alert. The window logic
+  now lives in one shared lib, `hooks/lib/pause-windows.sh` (added to the
+  framework whitelist), used by `scripts/audit-bootstrap-baseline.sh`,
+  `helpers/cso-weekly-audit.sh` and `helpers/audit-reconcile.sh` with identical
+  semantics: a gap fully covered by declared window(s) raises no alert; a
+  partially covered gap is judged on its **uncovered** portion only (this also
+  fixes the old rule that a window had to run through *today*, so a closure that
+  ended yesterday no longer alerts); activity dated *inside* a window (e.g. rows
+  replayed from a stranded spool) is reported as INFO, never as an alarm; with
+  no windows key, behaviour is unchanged. A malformed declaration suppresses
+  nothing. The key is `halt_windows` (the BUG-070 note in 1.12.0 said
+  `pause_windows`; corrected — nothing ever read or wrote that name).
 
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 
@@ -253,7 +271,7 @@ All written artifacts in English. No exceptions.
   continuity check fired on any empty table. It now measures a windowed gap
   across `agent_actions_log` / `messages` / `session_snapshots`
   (`CONTINUITY_WARN_DAYS=14`, `CONTINUITY_FAIL_DAYS=30`), honours a non-empty
-  spool, and suppresses declared `pause_windows`.
+  spool, and suppresses declared `halt_windows`.
 - **BUG-064 (SAFETY) — `migrate.sh --dry-run` wrote the database.** In the
   default schema-apply mode `--dry-run` was ignored: the schema and trigger
   DROP/CREATE were applied and "success" printed. Dry-run now writes nothing.

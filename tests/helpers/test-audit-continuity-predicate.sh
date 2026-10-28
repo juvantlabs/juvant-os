@@ -56,6 +56,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/scripts" "$TMP/hooks/lib" "$TMP/.juvant"
 cp "$REPO/scripts/audit-bootstrap-baseline.sh" "$TMP/scripts/"
 cp "$REPO/hooks/lib/db.sh"                     "$TMP/hooks/lib/"
+cp "$REPO/hooks/lib/pause-windows.sh"          "$TMP/hooks/lib/"
 
 DBFILE="$TMP/.juvant/state.db"
 CONFIG_PATH="$TMP/.juvant/config.json"

@@ -4775,7 +4775,7 @@ hooks/post-tool-use-failure.sh    hooks/session-start.sh
 hooks/session-end.sh          hooks/stop.sh
 hooks/subagent-start.sh       hooks/subagent-stop.sh
 hooks/post-compact.sh         hooks/pre-compact.sh
-hooks/config-change.sh
+hooks/config-change.sh        hooks/lib/pause-windows.sh
 hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
 hooks/lib/hooks-integrity.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh

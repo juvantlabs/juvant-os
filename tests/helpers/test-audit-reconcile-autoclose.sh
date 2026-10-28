@@ -46,7 +46,7 @@ trap 'rm -rf "$TMP" "$FAKEBIN"' EXIT
 
 mkdir -p "$TMP/helpers" "$TMP/hooks/lib" "$TMP/.juvant/logs"
 cp "$REPO/helpers/audit-reconcile.sh" "$TMP/helpers/"
-cp "$REPO/hooks/lib/db.sh" "$TMP/hooks/lib/"
+cp "$REPO/hooks/lib/db.sh" "$REPO/hooks/lib/pause-windows.sh" "$TMP/hooks/lib/"
 printf '#!/usr/bin/env bash\ncat >/dev/null 2>&1 || true\nexit 0\n' > "$TMP/hooks/notification.sh"
 chmod +x "$TMP/hooks/notification.sh"
 
