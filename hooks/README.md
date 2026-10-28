@@ -50,4 +50,25 @@ running session from hot-reloading the change (verified live, 2026-10-28). So
 blocking here is not tamper *prevention*; this hook's job is **detection** (every
 change is recorded even when it isn't prevented). Tamper *prevention* belongs at
 the PreToolUse write-deny layer (deny `Write`/`Edit` of the guardrail files),
-which is already fail-closed — tracked as a separate adopter-scoped issue.
+which is already fail-closed — see the guardrail tamper floor below.
+
+## Guardrail tamper floor (FEAT-064)
+
+`pre-tool-use.sh` **Track 2f** denies `Write`/`Edit` (and Bash writes — output
+redirect, `tee`, in-place `sed`) that target the structural-safety files: the
+hook gate scripts (`hooks/*.sh`, `hooks/lib/*.sh`) and the universal deny-list
+(`hooks/bash-policy.json`). In a deployed instance those arrive via upstream
+sync, never by a live agent edit, so an agent cannot weaken its own guardrails
+mid-session. The deny is itself audit-logged (Track 3). It inherits the Track 2f
+= fail-closed behavior of the `onFailure:"block"` registration above.
+
+`.claude/settings.json` is **not** covered — the Skill legitimately edits its
+`permissions.allow` / `additionalDirectories` at bootstrap/project-add; its
+changes are instead *recorded* by the ConfigChange hook (prevention for the hook
+files, detection for settings.json).
+
+**Adopter-scoped.** Framework development of these very files happens in the
+upstream repo, so it is exempt. `JUVANT_FRAMEWORK_DEV` is tri-state: `1` = exempt
+(framework dev / fork contributor), `0` = enforce (used by the test suite to
+simulate an adopter), unset = auto (exempt iff `origin` is the canonical upstream
+`juvantlabs/juvant-os`).

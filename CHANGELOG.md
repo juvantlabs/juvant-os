@@ -38,6 +38,20 @@ All written artifacts in English. No exceptions.
   check enforces the field on PreToolUse, its absence on observational hooks (where
   Claude Code ignores it), and settings↔template hook-block parity. See `hooks/README.md`.
 
+- **FEAT-064 (SECURITY) — guardrail-config tamper floor.** `pre-tool-use.sh`
+  Track 2f denies `Write`/`Edit` and Bash writes (redirect / `tee` / in-place
+  `sed`) targeting the structural-safety files — the hook gate scripts
+  (`hooks/*.sh`, `hooks/lib/*.sh`) and the universal deny-list
+  (`hooks/bash-policy.json`) — so an agent cannot weaken its own guardrails
+  mid-session (closes e.g. `echo … > hooks/bash-policy.json`, which the per-agent
+  allow-list alone passes via `FIRST_TOKEN=echo`). The deny is audit-logged
+  (Track 3) and inherits the FEAT-061 fail-closed posture. `.claude/settings.json`
+  is intentionally excluded (the Skill edits its `permissions.allow` /
+  `additionalDirectories` legitimately; its changes are recorded by the
+  ConfigChange hook — FEAT-062). Adopter-scoped via tri-state
+  `JUVANT_FRAMEWORK_DEV` (1 exempt / 0 enforce / unset auto-detect `origin`).
+  Hook suite 208/208.
+
 - **FEAT-062 — ConfigChange forensic logging.** New `hooks/config-change.sh`
   (registered via the canonical hook template) records a row in `agent_actions_log`
   for every configuration/skill change during a session (`source` + `file_path`;
