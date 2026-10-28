@@ -11,7 +11,7 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
-### Changed
+### Security
 
 - **PreToolUse wrapper fails closed when the gate script is missing (decisions#298,
   CSO audit 2026-10-28 L5-F1a, SECURITY).** The registration wrapper was
@@ -24,22 +24,6 @@ All written artifacts in English. No exceptions.
   exactly as Claude Code does, from both the template and `.claude/settings.json`:
   script missing → exit 2 (blocked) with a stderr reason; present script's verdict
   passed through; observational wrappers still exit 0 on a missing script.
-- **Audit-trail integrity (decisions#298, CSO audit 2026-10-28 L1-F1/L1-F2).**
-  - `helpers/drain-audit-spool.sh` now re-claims batches stranded by a drain that
-    was killed mid-loop (`audit-spool.sql.draining.<pid>` / `.merge.<pid>`). A file
-    is stale when its owner pid is gone or it is older than
-    `DRAIN_STALE_MAX_AGE_MIN` (default 60); a live drain's file is never touched.
-    Stale batches are applied before the live spool with an idempotence guard
-    (session + agent + tool + args_hash, plus `started_at` when present) so a
-    partially-applied batch does not duplicate rows. Originals are preserved as
-    `backups/audit-stale.*` (newest 20 kept); a WARN names every reclaimed batch.
-  - `hooks/pre-tool-use.sh` stamps an explicit `started_at` (hook clock, UTC) on the
-    spooled `agent_actions_log` INSERT, so rows carry the action time instead of the
-    drain time. Fixes skew in orphan checks, continuity-gap and halt-window
-    attribution.
-
-### Security
-
 - **Track 2f tamper floor covers every write path it missed (decisions#300 items
   4 + 9, security_audit_log#148b).** The floor matched only a redirect / `tee` /
   `sed -i` naming a guardrail file, so `git checkout|restore|rm|mv`, `cp`/`ln`
@@ -68,8 +52,34 @@ All written artifacts in English. No exceptions.
   Findings go to SessionStart stdout (session context, for CoS to surface) and an
   `agent_actions_log` row (`tool_name='HooksIntegrity'`); never blocks. Skipped in
   framework dev (same tri-state as Track 2f). Added to the sync whitelist.
+
+### Changed
+
+- **Upstream sync lands through a PR, never a direct push to `main`**
+  (decisions#300 item 11). `JUVANT_OS.md` "## Upstream sync" now applies the
+  approved files on a `sync/upstream-<tag>` branch, pushes the branch and opens a
+  PR against `main` (`gh` wrapped with `helpers/with-timeout.sh`) so CI runs
+  before merge. The CEO merges, and the Skill never falls back to
+  `git push origin main`. Smoke tests run on the branch, and the decisions row is
+  marked `executed` only after the merge. Trigger: security_audit_log#146 found 9
+  sync pushes that reached `main` without CI. The `juv-upstream-sync` command
+  stubs now describe the same flow.
+
 ### Fixed
 
+- **Audit-trail integrity (decisions#298, CSO audit 2026-10-28 L1-F1/L1-F2).**
+  - `helpers/drain-audit-spool.sh` now re-claims batches stranded by a drain that
+    was killed mid-loop (`audit-spool.sql.draining.<pid>` / `.merge.<pid>`). A file
+    is stale when its owner pid is gone or it is older than
+    `DRAIN_STALE_MAX_AGE_MIN` (default 60); a live drain's file is never touched.
+    Stale batches are applied before the live spool with an idempotence guard
+    (session + agent + tool + args_hash, plus `started_at` when present) so a
+    partially-applied batch does not duplicate rows. Originals are preserved as
+    `backups/audit-stale.*` (newest 20 kept); a WARN names every reclaimed batch.
+  - `hooks/pre-tool-use.sh` stamps an explicit `started_at` (hook clock, UTC) on the
+    spooled `agent_actions_log` INSERT, so rows carry the action time instead of the
+    drain time. Fixes skew in orphan checks, continuity-gap and halt-window
+    attribution.
 - **Gate read precision — reads stop being denied as writes (decisions#300 items 5
   + 12, security_audit_log#150).** Three false-deny classes with one root cause
   (scanning quoted text as if it were shell code / a SQL statement head):
@@ -91,8 +101,6 @@ All written artifacts in English. No exceptions.
   - **Allow-list** resolved a one-line `for …; do cmd; done` to an EMPTY first
     token (and skipped `do cmd` lines). Shell keywords now resolve to the command
     they introduce on the same line.
-### Fixed
-
 - **decisions#300 (item 7) — spec-marking gate Path 1 is actor-scoped, and
   partial progress is expressible.** The ADR 0029 stamped-`spec_id` path of
   `hooks/lib/spec-marking-gate.sh` had no agent filter on the main-thread `Stop`
@@ -110,8 +118,6 @@ All written artifacts in English. No exceptions.
   marker; documented in `JUVANT_OS.md` (spec 5-check, item 3). Residual: `agent_id` is not
   persisted, so two concurrent same-type subagents in one session share the role
   key. Path 2 (PR-merge recovery) is unchanged.
-### Fixed
-
 - **Declared pause windows are now honoured by every audit surface
   (decisions#300 item 15; closes decisions#269 / decisions#270).** Only the CSO
   bootstrap audit consulted `master_context.halt_windows`; `cso-weekly-audit.sh`
@@ -128,8 +134,6 @@ All written artifacts in English. No exceptions.
   no windows key, behaviour is unchanged. A malformed declaration suppresses
   nothing. The key is `halt_windows` (the BUG-070 note in 1.12.0 said
   `pause_windows`; corrected — nothing ever read or wrote that name).
-### Fixed
-
 - **macOS "every N minutes" schedules now actually fire (decisions#300 item 14).**
   `helpers/install-schedules.sh` emitted `drain-audit-spool` (5 min),
   `anomaly-check` and `drain-outbox` (15 min) as launchd `StartInterval` jobs,
@@ -153,18 +157,6 @@ All written artifacts in English. No exceptions.
   `JUVANT_SCHED_SELFCHECK_MODE=scheduled` waits for an unprompted scheduled run
   instead). Linux/cron path unchanged. Regression test:
   `tests/helpers/test-install-schedules-interval.sh`.
-- **Upstream sync lands through a PR, never a direct push to `main`**
-  (decisions#300 item 11). `JUVANT_OS.md` "## Upstream sync" now applies the
-  approved files on a `sync/upstream-<tag>` branch, pushes the branch and opens a
-  PR against `main` (`gh` wrapped with `helpers/with-timeout.sh`) so CI runs
-  before merge. The CEO merges, and the Skill never falls back to
-  `git push origin main`. Smoke tests run on the branch, and the decisions row is
-  marked `executed` only after the merge. Trigger: security_audit_log#146 found 9
-  sync pushes that reached `main` without CI. The `juv-upstream-sync` command
-  stubs now describe the same flow.
-
-### Fixed
-
 - **Adopter tests no longer drift from the hooks they test** (decisions#300 item
   10). `tests/` was on the sync "NEVER touched" list while `hooks/` synced. When
   `hooks/lib/db.sh` moved to libsql HTTP `/v2/pipeline`, instance test fakes
