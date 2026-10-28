@@ -14,7 +14,7 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO"
+cd "$REPO" || exit 1
 
 for dep in jq python3; do
   command -v "$dep" >/dev/null || { echo "SKIP: $dep not installed"; exit 0; }
@@ -52,13 +52,31 @@ printf '%s' "$WL" | grep -qF "hooks/lib/pause-windows.sh" \
 # they test (a test fake must mirror reality). Every tracked file under
 # tests/hooks/, tests/helpers/, tests/sync/ must be whitelisted by FULL path
 # (no basename fallback — basenames like run-tests.sh collide across dirs).
-tmiss=0
-for f in $(git ls-files 'tests/hooks/*' 'tests/helpers/*' 'tests/sync/*'); do
-  printf '%s\n' "$WL" | grep -qE "(^|[[:space:]])${f//./\\.}([[:space:]]|$)" \
-    || { echo "    test not whitelisted: $f"; tmiss=$((tmiss+1)); }
-done
-[[ "$tmiss" -eq 0 ]] && ok "every framework file under tests/{hooks,helpers,sync}/ is whitelisted by full path" \
-                     || no "$tmiss framework test file(s) absent from the whitelist"
+# decisions#302: "framework-owned" means "present in the upstream tree".
+# Instance-local tests (JUVANT_OS.md: e.g. tests/hooks/test-<instance>-*.sh,
+# never touched by sync) are not in that tree and must not be flagged. The
+# reference tree is HEAD in the framework repo itself (origin is canonical),
+# else the adopter's upstream/main; with neither, the check is skipped.
+_origin=$(git remote get-url origin 2>/dev/null || echo "")
+if [[ "$_origin" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]]; then
+  _ref="HEAD"
+elif git rev-parse --verify -q upstream/main >/dev/null 2>&1; then
+  _ref="upstream/main"
+else
+  _ref=""
+fi
+if [[ -z "$_ref" ]]; then
+  ok "SKIP test-whitelist completeness: no framework reference tree (not the framework repo, no upstream/main ref)"
+else
+  tmiss=0; tlocal=0
+  for f in $(git ls-files 'tests/hooks/*' 'tests/helpers/*' 'tests/sync/*'); do
+    if ! git cat-file -e "$_ref:$f" 2>/dev/null; then tlocal=$((tlocal+1)); continue; fi
+    printf '%s\n' "$WL" | grep -qE "(^|[[:space:]])${f//./\\.}([[:space:]]|$)" \
+      || { echo "    test not whitelisted: $f"; tmiss=$((tmiss+1)); }
+  done
+  [[ "$tmiss" -eq 0 ]] && ok "every framework file under tests/{hooks,helpers,sync}/ is whitelisted by full path (ref=$_ref; $tlocal instance-local skipped)" \
+                       || no "$tmiss framework test file(s) absent from the whitelist (ref=$_ref)"
+fi
 
 # The tests/ entries must be an explicit file list, never a glob/dir — a glob
 # would clobber instance-local tests (e.g. tests/hooks/test-<instance>-*.sh).

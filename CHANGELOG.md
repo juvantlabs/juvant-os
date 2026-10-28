@@ -28,6 +28,27 @@ All written artifacts in English. No exceptions.
   `info` on allow) and a deny notifies. No `by_agent` key ⇒ no-op; calls without
   `shared_user` are untouched. Schema documented in JUVANT_OS.md and
   `.juvant/config.example.json`.
+### Fixed
+
+- **Test suites pass on adopters, not only upstream (decisions#302; found syncing
+  v1.12.0-9 into an instance, CSO verdict security_audit_log#154).**
+  - `tests/sync/test-sync-compile.sh`: `cd "$REPO" || exit 1` (ShellCheck SC2164
+    failed every adopter shellcheck job). Test-whitelist completeness now counts
+    a file as framework-owned only if it exists in the framework tree (HEAD in
+    the framework repo, `upstream/main` in an adopter; skipped with neither), so
+    instance-local tests are no longer flagged.
+  - `tests/hooks/run-tests.sh` is isolated from the instance config: it exports a
+    non-instance `JUVANT_CONFIG`, and the main-thread role fallback in
+    `pre-tool-use.sh` / `post-tool-use.sh` / `post-tool-use-failure.sh` now
+    honours `JUVANT_CONFIG` (BUG-056 consistency; unchanged in production). On an
+    adopter the main thread resolved to `cos`, whose allow-list pre-empted 9
+    Track 2f verdicts, and Track 2d read the instance's github scope.
+  - `tests/hooks/track2b/run-tests.sh` repaired (ported from the adopter copy):
+    reads `hookSpecificOutput`, passes `JUVANT_CONFIG`, no `((PASS++))` abort
+    under `set -e`, project `url` key; now in CI (closes juvant-os-pm#180).
+  - `t_seed_agent` is an upsert (no more "UNIQUE constraint failed: agents.role").
+  - Allow-list FIRST_TOKEN drops a glued control operator (`ls; …` reported the
+    binary as `ls;`).
 
 ## [1.13.0] — 2026-10-28 — Guardrail hardening from the CSO 5-layer audit (decisions#298 / #300)
 

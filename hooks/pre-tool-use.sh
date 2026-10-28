@@ -53,8 +53,10 @@ ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
 ROLE="${ROLE:-${AGENT_ROLE:-}}"
 if [[ -z "$ROLE" ]]; then
   # Main thread in a Juvant OS instance = CoS operating as orchestrator.
-  # Fallback to 'unknown' only outside a Juvant OS instance.
-  if [[ -f "$SCRIPT_DIR/../.juvant/config.json" ]]; then
+  # Fallback to 'unknown' only outside a Juvant OS instance. Honours
+  # JUVANT_CONFIG like every track does (BUG-056; decisions#302 — the hook
+  # suite points it at a non-instance path so adopter runs are isolated).
+  if [[ -f "${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}" ]]; then
     ROLE="cos"
   else
     ROLE="unknown"
@@ -505,6 +507,10 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
           FIRST_TOKEN="$_ft_tok"
           break
         fi
+        # decisions#302: a control operator glued to the binary (`ls; rm …`,
+        # `cmd&& …`, `cmd|…`) is not part of its name — the deny still stood,
+        # but it reported the binary as `ls;`.
+        _ft_tok="${_ft_tok%%[;\&|]*}"
         # Path-strip ONLY confirmed non-assignment binary tokens.
         _ft_tok="${_ft_tok##*/}"   # /opt/homebrew/bin/git → git
         case "$_ft_tok" in

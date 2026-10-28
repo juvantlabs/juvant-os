@@ -36,21 +36,26 @@ JSON
 
 run_test() {
   local desc="$1" event_json="$2" expected="$3"
-  # Patch hook to use stub config by overriding SCRIPT_DIR
-  local decision
-  decision=$(SCRIPT_DIR="$CFG_DIR/.juvant/.." \
-    bash -c "SCRIPT_DIR='$CFG_DIR/hooks' bash '$HOOK'" \
-    <<<"$event_json" 2>/dev/null \
-    | jq -r '.permissionDecision // "allow"' 2>/dev/null || echo "allow")
+  # Use JUVANT_CONFIG to point the hook at the stub config (BASH_SOURCE[0]
+  # inside the hook sets SCRIPT_DIR from the real hook path, so the
+  # SCRIPT_DIR env trick cannot redirect config lookup).
+  # BUG-053: the hook now emits .hookSpecificOutput.permissionDecision;
+  # read that path, not the legacy top-level .permissionDecision.
+  # Use || true so hook exit-2 (deny) does not trigger pipefail inside $();
+  # parse the captured output separately.
+  local _hook_out decision
+  _hook_out=$(JUVANT_CONFIG="$CFG_DIR/.juvant/config.json" \
+    bash "$HOOK" <<<"$event_json" 2>/dev/null || true)
+  decision=$(echo "$_hook_out" \
+    | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null \
+    || echo "allow")
 
-  # Fallback: source hook logic directly via env substitution
-  # (simplified: parse decision from hook stdout JSON)
   if [[ "$decision" == "$expected" ]]; then
     echo "  PASS: $desc"
-    ((PASS++))
+    PASS=$((PASS+1))
   else
     echo "  FAIL: $desc — expected '$expected', got '$decision'"
-    ((FAIL++))
+    FAIL=$((FAIL+1))
   fi
 }
 
@@ -119,7 +124,7 @@ cat >"$CFG_DIR/.juvant/config.json" <<JSON
   "turso_token": "stub",
   "bootstrap_window": "1",
   "projects": {
-    "test-proj": { "db_url": "$PROJECT_URL", "db_token": "stub" }
+    "test-proj": { "url": "$PROJECT_URL", "db_token": "stub" }
   }
 }
 JSON
