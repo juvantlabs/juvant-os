@@ -182,6 +182,9 @@ jobs:
           # every classified-MCP bump (a new tool must not slip in
           # unclassified for non-allowlisted agents).
           bash tests/hooks/test-space-access-policy.sh
+          # decisions#298/#300: the PreToolUse registration wrapper blocks
+          # (exit 2) when pre-tool-use.sh is missing, executed as CC runs it.
+          bash tests/hooks/test-pretooluse-wrapper.sh
 
       - name: Helper tests
         run: |
