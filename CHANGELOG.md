@@ -153,6 +153,30 @@ All written artifacts in English. No exceptions.
   `JUVANT_SCHED_SELFCHECK_MODE=scheduled` waits for an unprompted scheduled run
   instead). Linux/cron path unchanged. Regression test:
   `tests/helpers/test-install-schedules-interval.sh`.
+- **Upstream sync lands through a PR, never a direct push to `main`**
+  (decisions#300 item 11). `JUVANT_OS.md` "## Upstream sync" now applies the
+  approved files on a `sync/upstream-<tag>` branch, pushes the branch and opens a
+  PR against `main` (`gh` wrapped with `helpers/with-timeout.sh`) so CI runs
+  before merge. The CEO merges, and the Skill never falls back to
+  `git push origin main`. Smoke tests run on the branch, and the decisions row is
+  marked `executed` only after the merge. Trigger: security_audit_log#146 found 9
+  sync pushes that reached `main` without CI. The `juv-upstream-sync` command
+  stubs now describe the same flow.
+
+### Fixed
+
+- **Adopter tests no longer drift from the hooks they test** (decisions#300 item
+  10). `tests/` was on the sync "NEVER touched" list while `hooks/` synced. When
+  `hooks/lib/db.sh` moved to libsql HTTP `/v2/pipeline`, instance test fakes
+  kept mocking the old transport, and about 20 hook tests failed on an adopter.
+  The framework-owned test files (`tests/hooks/` runners, fakes and fixture,
+  `tests/helpers/test-*.sh`, `tests/sync/test-sync-compile.sh`) now join the
+  framework whitelist as an **explicit file list, never a glob**. Instance-local
+  tests (for example `tests/hooks/test-<instance>-*.sh`), `tests/fixtures/` and
+  `tests/integration/` remain untouched. Sync warns when `hooks/` or `helpers/`
+  are approved without their tests. `tests/sync/test-sync-compile.sh` now
+  enforces three rules: every framework test file is whitelisted by full path,
+  no `tests/` glob is allowed, and the PR-only sync flow is in place.
 
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 

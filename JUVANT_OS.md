@@ -4681,6 +4681,7 @@ trail. **Company-scope agents only** — no project agents involved.
    |---|---|
    | `hooks/` | Lifecycle bash scripts |
    | `helpers/` | Scheduled helper scripts |
+   | `tests/` (framework-owned only) | Hook/helper/sync test suites + their fakes — the explicit list in the whitelist, never a glob |
    | `scripts/` | compile-templates, migrate, schema, etc. |
    | `JUVANT_OS.md` | Skill orchestrator |
    | `SYSTEM_INVARIANTS.md` | Cross-cutting invariants |
@@ -4697,11 +4698,28 @@ trail. **Company-scope agents only** — no project agents involved.
    framework-managed files in a live company instance — no autocommit, no
    assumptions.
 
-7. **Apply approved files** — `git checkout upstream/main -- <file>` for each
-   approved file. Use exactly this form (or `git restore --source=upstream/main
-   -- <file>`) for `hooks/*.sh`, `hooks/lib/*.sh` and `hooks/bash-policy.json`:
-   the Track 2f tamper floor denies every other write to those files, and allows
-   this one only while `upstream` is the canonical `juvantlabs/juvant-os` remote
+   **Tests travel with the code they test.** The framework-owned test files
+   in the whitelist (`tests/hooks/…`, `tests/helpers/…`, `tests/sync/…`)
+   assert the behaviour of the synced `hooks/`, `helpers/` and `scripts/`,
+   and their fakes (`tests/hooks/fake-turso.sh`, `tests/hooks/fake-libsql-curl.sh`)
+   must mirror the live DB transport in `hooks/lib/db.sh`. When the CEO
+   approves `hooks/` or `helpers/` while skipping the `tests/` group (or vice
+   versa), surface: *"hooks/helpers and their framework tests are being
+   synced to different versions — the instance's hook/helper tests will
+   drift and may fail (e.g. a fake still mocking the old transport).
+   Approve the `tests/` group too?"* Record the CEO's answer in the
+   `decisions` row rationale. Instance-local tests (any `tests/` file not
+   in the whitelist, e.g. `tests/hooks/test-<instance>-*.sh`) are never
+   touched; keep instance-specific cases in such separate files rather
+   than editing the framework-owned ones, which a later sync overwrites.
+
+7. **Apply approved files** — first create the sync branch off the current
+   `main` (`git checkout -b sync/upstream-<tag>`), then
+   `git checkout upstream/main -- <file>` for each approved file. Use exactly
+   this form (or `git restore --source=upstream/main -- <file>`) for
+   `hooks/*.sh`, `hooks/lib/*.sh` and `hooks/bash-policy.json`: the Track 2f
+   tamper floor denies every other write to those files, and allows this one
+   only while `upstream` is the canonical `juvantlabs/juvant-os` remote
    (decisions#300). The SessionStart integrity check then verifies every
    guardrail file is content that upstream has shipped.
 
@@ -4744,15 +4762,30 @@ trail. **Company-scope agents only** — no project agents involved.
      but the running `agent_tool_matrix` rows do not change until an explicit,
      audited matrix-change decision is applied.
 
-9. **Commit** — `git add <all applied files>` +
-   `git commit -m "chore: sync framework files to upstream <tag>"`.
+9. **Commit on the sync branch** (created in step 7) — never on `main`:
+   `git add <all applied files>` +
+   `git commit -m "chore: sync framework files to upstream <tag> (decisions#<row_id>)"`.
 
-10. **Push** — `git push origin main`.
+10. **Push the branch + open a PR** — **no direct push to `main`**:
+    `git push -u origin sync/upstream-<tag>`, then
+    `bash helpers/with-timeout.sh 60 gh pr create --base main --head sync/upstream-<tag> --title "chore: sync framework files to upstream <tag>" --body "<approved categories + per-file summary from step 6; decisions#<row_id>>"`.
+    CI runs on the PR before anything reaches `main`. Surface the PR URL and
+    the CI status to the CEO (`bash helpers/with-timeout.sh 60 gh pr checks <pr#>`).
+    **The CEO merges** — the Skill never merges the sync PR itself, and never
+    falls back to `git push origin main` when the PR route is inconvenient
+    (a branch-protection or permission denial is surfaced, not circumvented).
+    If CI fails, surface the failing checks and stop; the decisions row stays
+    `approved` until the fix lands. Rationale: direct pushes to `main` skip
+    CI entirely (security_audit_log#146 found 9 such sync pushes; decisions#300).
 
-11. **Smoke tests** — run `bash helpers/anomaly-check.sh` and
-    `bash helpers/audit-reconcile.sh`. Surface results to CEO.
+11. **Smoke tests** — on the sync branch, before the CEO merges: run
+    `bash helpers/anomaly-check.sh` and `bash helpers/audit-reconcile.sh`,
+    plus `bash tests/hooks/run-tests.sh` and `bash tests/sync/test-sync-compile.sh`
+    whenever `hooks/`, `helpers/`, `scripts/` or `tests/` changed. Surface
+    results to CEO alongside the PR's CI status.
 
-12. **Record completion + CHRO re-validation**:
+12. **Record completion + CHRO re-validation** (after the CEO has merged the
+    PR; then `git checkout main && git pull --ff-only origin main`):
     - ```sql
       UPDATE decisions
       SET status='executed', executed_by='cos', executed_at=CURRENT_TIMESTAMP
@@ -4810,13 +4843,44 @@ CHANGELOG.md                  VERSION
 docs/MCP_INVENTORY.md         docs/branch-protection-spec.md
 docs/DOCUMENT_SPACES.md
 agents/projects/*.md          agents/components/maintainer.md
+tests/hooks/run-tests.sh      tests/hooks/track2b/run-tests.sh
+tests/hooks/fake-turso.sh     tests/hooks/fake-libsql-curl.sh
+tests/hooks/test-space-access-policy.sh
+tests/hooks/test-pretooluse-wrapper.sh
+tests/hooks/test-hooks-integrity.sh
+tests/hooks/fixtures/transcript-sample.jsonl
+tests/helpers/test-audit-continuity-predicate.sh
+tests/helpers/test-audit-reconcile-autoclose.sh
+tests/helpers/test-cso-weekly-audit-cadence.sh
+tests/helpers/test-db-exec-durability.sh
+tests/helpers/test-db-query-csv.sh
+tests/helpers/test-db-query.sh
+tests/helpers/test-drain-reclaim-stale.sh
+tests/helpers/test-helpers-db-routing.sh
+tests/helpers/test-helpers-drain-backup.sh
+tests/helpers/test-install-schedules-interval.sh
+tests/helpers/test-install-schedules-weekday.sh
+tests/helpers/test-log-prune-inode.sh
+tests/helpers/test-pause-windows.sh
+tests/helpers/test-spec-marking-gate.sh
+tests/helpers/test-turso-backup-archival.sh
+tests/sync/test-sync-compile.sh
 ```
+
+`tests/` entries are an **explicit framework-owned file list, never a glob**
+(decisions#300): only these exact paths sync, so instance-local tests in the
+same directories (e.g. `tests/hooks/test-<instance>-*.sh`) are never
+clobbered. Every framework file under `tests/hooks/`, `tests/helpers/` and
+`tests/sync/` must be listed here — `tests/sync/test-sync-compile.sh`
+enforces it, as it does for `hooks/` and `helpers/`.
 
 **Files NEVER touched** (instance-specific — skip regardless of diff):
 `.juvant/config.json`, `agents/company/*.md`, `agents/projects/*/`,
 `agents/components/*/`, `.claude/agents/*.md`, `.github/CODEOWNERS`,
 `CLAUDE.md`, `MANIFESTO.md`, `README.md`, `SECURITY.md`, `docs/adr/`,
-`tests/`, `.mcp.json`, `.claude/settings.json`.
+`tests/` (everything **except** the framework-owned test files listed in the
+whitelist above — instance-local tests, `tests/fixtures/`, `tests/integration/`),
+`.mcp.json`, `.claude/settings.json`.
 
 **Emergency note.** A direct `git fetch upstream && git merge upstream/main`
 is for emergencies only and must be followed by a full CSO post-incident audit.
