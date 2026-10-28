@@ -22,6 +22,39 @@
 #
 # Wizard step 4.5 of JUVANT_OS.md invokes this script (with `Y/n`
 # confirmation prompt) at company init.
+#
+# macOS "every N minutes" jobs (decisions#300 item 14): these are
+# emitted as StartCalendarInterval ARRAYS of {Minute} dicts (e.g. every
+# 5 min = Minute 0,5,…,55), NOT as StartInterval. On the live install,
+# StartInterval jobs (drain-audit-spool 300s, anomaly-check 900s) never
+# fired on their own — runs stayed 0 after bootstrap, and after a manual
+# kickstart no further run happened within 8 min — while the
+# StartCalendarInterval jobs on the same machine ran on schedule.
+# Root cause (verified live 2026-10-28): macOS Low Power Mode
+# (`pmset -g` lowpowermode 1, set on AC and battery) puts the gui/<uid>
+# launchd domain in "on-demand-only mode" — launchd logs "pending spawn,
+# domain in on-demand-only mode" and `launchctl print` shows
+# "pended nondemand spawn = interval". StartInterval is a NON-demand
+# spawn and stays pended indefinitely; StartCalendarInterval fires via
+# the com.apple.launchd.calendarinterval event stream (a demand spawn),
+# as does `launchctl kickstart` — which is why both still worked.
+# Calendar slots also coalesce a missed firing on wake (StartInterval
+# firings during sleep are dropped, per launchd.plist(5)), and they
+# match the Linux cron `*/N` semantics exactly.
+#
+# Post-install self-check (macOS): after loading, each "every N min" job
+# is kickstarted once and its launchd `runs` counter must advance within
+# a bounded timeout, else the installer exits non-zero with a clear
+# stderr message. Knobs (all optional):
+#   JUVANT_SCHED_SELFCHECK=0|1        default 1; default 0 when CI=true
+#   JUVANT_SCHED_SELFCHECK_MODE=kickstart|scheduled
+#                                     kickstart (default): kickstart once,
+#                                     then poll `runs`. scheduled: do NOT
+#                                     kickstart; wait for an unprompted
+#                                     scheduled run (set TIMEOUT >= 300+).
+#   JUVANT_SCHED_SELFCHECK_TIMEOUT=N  seconds to wait per job (default 30)
+#   JUVANT_SCHED_SELFCHECK_POLL=N     poll interval seconds (default 1)
+#   JUVANT_LAUNCHCTL=/path            launchctl binary (test injection)
 
 set -euo pipefail
 
@@ -36,6 +69,82 @@ case "$OS" in
   Darwin)
     LAUNCHD_DIR="$HOME/Library/LaunchAgents"
     PREFIX="io.juvant.guardrails"
+    LAUNCHCTL="${JUVANT_LAUNCHCTL:-launchctl}"
+    DOMAIN="gui/$(id -u)"
+    ALL_LABELS="turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox"
+    # "every N minutes" jobs — the ones the post-install self-check verifies.
+    INTERVAL_LABELS="anomaly-check drain-audit-spool drain-outbox"
+
+    # Emit a StartCalendarInterval array firing every $1 minutes
+    # (Minute 0, $1, 2*$1, … < 60). $1 must divide 60.
+    _every_minutes_xml() {
+      local step="$1" m=0
+      echo "  <key>StartCalendarInterval</key>"
+      echo "  <array>"
+      while [ "$m" -lt 60 ]; do
+        echo "    <dict><key>Minute</key><integer>${m}</integer></dict>"
+        m=$((m + step))
+      done
+      echo "  </array>"
+    }
+
+    # Top-level `runs = N` from `launchctl print`; empty when not loaded.
+    _lc_runs() {
+      "$LAUNCHCTL" print "$1" 2>/dev/null \
+        | awk '/^[[:space:]]*runs = [0-9]+/ { sub(/.*runs = /, ""); print; exit }'
+    }
+
+    # Post-install self-check (see header). Returns non-zero on failure.
+    _selfcheck_interval_jobs() {
+      local mode="${JUVANT_SCHED_SELFCHECK_MODE:-kickstart}"
+      local timeout="${JUVANT_SCHED_SELFCHECK_TIMEOUT:-30}"
+      local poll="${JUVANT_SCHED_SELFCHECK_POLL:-1}"
+      local label target before now start failed=0 disabled
+      disabled=$("$LAUNCHCTL" print-disabled "$DOMAIN" 2>/dev/null || true)
+      for label in $INTERVAL_LABELS; do
+        target="$DOMAIN/${PREFIX}.${label}"
+        if printf '%s\n' "$disabled" | grep -Eq "\"${PREFIX}\.${label}\" => (disabled|true)"; then
+          echo "[install-schedules] SELF-CHECK FAIL: ${target} is DISABLED in launchd (launchctl print-disabled ${DOMAIN}). Run: launchctl enable ${target}" >&2
+          failed=1
+          continue
+        fi
+        before=$(_lc_runs "$target")
+        if [ -z "$before" ]; then
+          echo "[install-schedules] SELF-CHECK FAIL: ${target} is not loaded (launchctl print returned no 'runs' counter)." >&2
+          failed=1
+          continue
+        fi
+        if [ "$mode" = "kickstart" ]; then
+          "$LAUNCHCTL" kickstart "$target" >/dev/null 2>&1 || true
+        fi
+        start=$SECONDS
+        now="$before"
+        while :; do
+          now=$(_lc_runs "$target")
+          if [ -n "$now" ] && [ "$now" -gt "$before" ]; then
+            break
+          fi
+          if [ $((SECONDS - start)) -ge "$timeout" ]; then
+            break
+          fi
+          sleep "$poll"
+        done
+        if [ -n "$now" ] && [ "$now" -gt "$before" ]; then
+          echo "[install-schedules] self-check OK: ${PREFIX}.${label} runs ${before} -> ${now} (mode=${mode})"
+        else
+          echo "[install-schedules] SELF-CHECK FAIL: ${target} run counter did not advance within ${timeout}s (runs=${before} -> ${now:-?}, mode=${mode}). The job is loaded but launchd is not running it — inspect: launchctl print ${target}" >&2
+          failed=1
+        fi
+        # A kickstart is a DEMAND spawn, so it succeeds even when launchd is
+        # holding the job's scheduled (non-demand) spawns — the decisions#300
+        # Low Power Mode failure. Catch that state directly.
+        if "$LAUNCHCTL" print "$target" 2>/dev/null | grep -q 'pended nondemand spawn'; then
+          echo "[install-schedules] SELF-CHECK FAIL: ${target} has a pended non-demand spawn — launchd is holding its scheduled runs (domain in on-demand-only mode, e.g. macOS Low Power Mode; check: pmset -g | grep lowpowermode)." >&2
+          failed=1
+        fi
+      done
+      return "$failed"
+    }
 
     case "$ACTION" in
       install|--install)
@@ -155,7 +264,7 @@ PLIST
     <key>HOME</key><string>${_PLIST_HOME}</string>
     <key>PATH</key><string>${_PLIST_PATH}</string>
   </dict>
-  <key>StartInterval</key><integer>900</integer>
+$(_every_minutes_xml 15)
   <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/anomaly-check.log</string>
   <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/anomaly-check.err</string>
 </dict>
@@ -239,7 +348,7 @@ PLIST
     <key>HOME</key><string>${_PLIST_HOME}</string>
     <key>PATH</key><string>${_PLIST_PATH}</string>
   </dict>
-  <key>StartInterval</key><integer>300</integer>
+$(_every_minutes_xml 5)
   <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/drain-audit-spool.log</string>
   <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/drain-audit-spool.err</string>
 </dict>
@@ -266,7 +375,7 @@ PLIST
     <key>HOME</key><string>${_PLIST_HOME}</string>
     <key>PATH</key><string>${_PLIST_PATH}</string>
   </dict>
-  <key>StartInterval</key><integer>900</integer>
+$(_every_minutes_xml 15)
   <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/drain-outbox.log</string>
   <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/drain-outbox.err</string>
 </dict>
@@ -275,17 +384,42 @@ PLIST
 
         mkdir -p "${REPO_ROOT}/.juvant/logs"
 
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox; do
-          launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
-          launchctl bootstrap "gui/$(id -u)" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
+        for label in $ALL_LABELS; do
+          target="$DOMAIN/${PREFIX}.${label}"
+          "$LAUNCHCTL" bootout "$target" 2>/dev/null || true
+          # bootout is asynchronous: wait (bounded, ~5s) until the old
+          # instance is gone, so bootstrap never races a half-removed job.
+          _w=0
+          while "$LAUNCHCTL" print "$target" >/dev/null 2>&1 && [ "$_w" -lt 50 ]; do
+            sleep 0.1
+            _w=$((_w + 1))
+          done
+          # Clear any persistent "disabled" override (launchctl disable /
+          # Login Items toggle) — a disabled job bootstraps but never fires.
+          "$LAUNCHCTL" enable "$target" 2>/dev/null || true
+          "$LAUNCHCTL" bootstrap "$DOMAIN" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
         echo "[install-schedules] OK — Mac launchd schedules installed (8 jobs)."
+
+        _selfcheck="${JUVANT_SCHED_SELFCHECK:-}"
+        if [ -z "$_selfcheck" ]; then
+          if [ "${CI:-}" = "true" ]; then _selfcheck=0; else _selfcheck=1; fi
+        fi
+        if [ "$_selfcheck" = "1" ]; then
+          if ! _selfcheck_interval_jobs; then
+            echo "[install-schedules] FATAL: post-install self-check failed — one or more 'every N minutes' jobs is not running under launchd (decisions#300 item 14). Set JUVANT_SCHED_SELFCHECK=0 to skip." >&2
+            exit 1
+          fi
+          echo "[install-schedules] OK — post-install self-check passed."
+        else
+          echo "[install-schedules] post-install self-check skipped (JUVANT_SCHED_SELFCHECK=0 or CI)."
+        fi
         ;;
 
       uninstall|--uninstall)
-        for label in turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox; do
-          launchctl bootout "gui/$(id -u)/${PREFIX}.${label}" 2>/dev/null || true
+        for label in $ALL_LABELS; do
+          "$LAUNCHCTL" bootout "$DOMAIN/${PREFIX}.${label}" 2>/dev/null || true
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
         done
