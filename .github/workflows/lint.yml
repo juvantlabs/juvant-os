@@ -169,6 +169,8 @@ jobs:
           # Guards the upstream-sync whitelist completeness, compile-templates
           # --check-only safety, and v0-matrix doc/JSON count consistency.
           bash tests/sync/test-sync-compile.sh
+          # decisions#303 R2: framework permission denies merged by sync-hooks.sh.
+          bash tests/sync/test-sync-hooks.sh
 
       - name: Hook tests (FEAT-008 L2)
         run: |

@@ -1388,30 +1388,32 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
        [[ "$_gr_origin" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]] && _fw_dev=1 ;;
   esac
   if [[ "$_fw_dev" -eq 0 ]]; then
-    # A guardrail path: a gate script, the deny-list, or the hooks/ / hooks/lib/
-    # directory (or a glob over it) as a whole. decisions#300 item 9: the test
-    # suites under tests/hooks/ are NOT guardrails — they are instance-editable
-    # (a 2-line fix to tests/hooks/test-*.sh was blocked by the old
-    # `(^|/)hooks/` match).
-    _gr_path_re='(^|/)hooks/([^/]+\.sh|lib/[^/]+\.sh|bash-policy\.json)$'
-    _gr_dir_re='(^|/)hooks(/lib)?/?$|(^|/)hooks/(lib/)?\*$'
-    _gr_in_hooks=0   # set while a preceding `cd hooks` segment is in effect
-    _gr_is_path() {
-      local p="$1"
-      [[ -n "$p" ]] || return 1
-      if [[ "$p" =~ (^|/)tests/hooks(/|$) ]]; then return 1; fi
-      if [[ "$p" =~ $_gr_path_re || "$p" =~ $_gr_dir_re ]]; then return 0; fi
-      # Relative to a `cd hooks` earlier in the same command.
-      if [[ "$_gr_in_hooks" == 1 ]] && [[ "$p" =~ ^([^/]+\.sh|bash-policy\.json|\*|lib/?|lib/[^/]+\.sh|lib/\*)$ ]]; then
-        return 0
-      fi
-      return 1
-    }
+    # The protected-path set lives in hooks/lib/guardrail-paths.sh, shared with
+    # the SessionStart integrity check (decisions#303 R1 + B2): gate scripts,
+    # bash-policy.json, helpers/*.sh, scripts/*.sh, the audit spool family and
+    # .juvant/backups/. tests/ is never protected (decisions#300 item 9).
+    # shellcheck disable=SC1091
+    if [[ -f "$SCRIPT_DIR/lib/guardrail-paths.sh" ]]; then
+      . "$SCRIPT_DIR/lib/guardrail-paths.sh"
+    else
+      # Lib missing (partial sync / deletion): keep the original hooks/ floor so
+      # the gate scripts themselves stay protected; the integrity check flags it.
+      juvant_guardrail_is_path() {
+        [[ "$1" =~ (^|/)tests/ ]] && return 1
+        [[ "$1" =~ (^|/)hooks(/|$) ]]
+      }
+      juvant_guardrail_cd_dir() { [[ "${1%/}" =~ (^|/)hooks(/lib)?$ ]] && printf 'hooks'; }
+      juvant_guardrail_raw_ref() { [[ "$1" =~ hooks/ && ! "$1" =~ tests/hooks/ ]]; }
+    fi
+    _gr_cwd=""   # protected dir entered by a preceding `cd` in the same command
+    _gr_is_path() { juvant_guardrail_is_path "$1" "$_gr_cwd"; }
     if [[ "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Edit" ]]; then
       _gr_tgt=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
-      if _gr_is_path "$_gr_tgt"; then
+      # Absolute paths inside this repo are checked relative to its root.
+      _gr_tgt_rel="${_gr_tgt#"$(cd "$SCRIPT_DIR/.." && pwd)"/}"
+      if _gr_is_path "$_gr_tgt_rel"; then
         DECISION="deny"
-        DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064): $TOOL_NAME to '$_gr_tgt' is denied in a deployed instance — the hook gate scripts and bash-policy.json change via upstream sync, not live agent edits. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+        DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064, decisions#303): $TOOL_NAME to '$_gr_tgt' is denied in a deployed instance — gate scripts, bash-policy.json, helpers/, scripts/, the audit spool and its backups change via upstream sync or their own helper process, not live agent edits. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
       fi
     else
       # Bash (decisions#300 item 4, security_audit_log#148b). The original
@@ -1436,17 +1438,9 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       _gr_cmd=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
       _GR_DENY_WHY=""
 
-      # Raw substring scan: any guardrail path in the text, quotes included,
-      # except under tests/hooks/.
-      _gr_raw_ref() {
-        local s="$1"
-        local re='([^[:space:]"'"'"'(),=:;`]*)hooks/([A-Za-z0-9_.*-]+\.sh|lib/[A-Za-z0-9_.*-]+\.sh|bash-policy\.json|lib/?|\*)'
-        while [[ "$s" =~ $re ]]; do
-          if [[ "${BASH_REMATCH[1]}" != *tests/ ]]; then return 0; fi
-          s="${s#*"${BASH_REMATCH[0]}"}"
-        done
-        return 1
-      }
+      # Raw substring scan: any protected path in the text, quotes included,
+      # except under tests/.
+      _gr_raw_ref() { juvant_guardrail_raw_ref "$1"; }
 
       # `git checkout upstream/main -- …` / `git restore --source=upstream/main …`
       # against the canonical upstream remote.
@@ -1486,10 +1480,9 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
         [[ $((i + 1)) -lt ${#w[@]} ]] && args=("${w[@]:$((i + 1))}")
         case "$verb" in
           cd|pushd)
-            _gr_in_hooks=0
-            if [[ ${#args[@]} -gt 0 ]] && [[ "${args[0]}" =~ (^|/)hooks(/lib)?/?$ ]] \
-               && ! [[ "${args[0]}" =~ (^|/)tests/hooks ]]; then
-              _gr_in_hooks=1
+            _gr_cwd=""
+            if [[ ${#args[@]} -gt 0 ]]; then
+              _gr_cwd=$(juvant_guardrail_cd_dir "${args[0]}")
             fi
             return 1 ;;
         esac
@@ -1611,7 +1604,8 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
         _gr_eval_segment ${words[@]+"${words[@]}"}
       }
 
-      if [[ "$_gr_cmd" == *hooks* || "$_gr_cmd" == *bash-policy* ]]; then
+      if [[ "$_gr_cmd" == *hooks* || "$_gr_cmd" == *bash-policy* || "$_gr_cmd" == *helpers* \
+            || "$_gr_cmd" == *scripts* || "$_gr_cmd" == *.juvant* || "$_gr_cmd" == *audit-spool* ]]; then
         _gr_interp_re='(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua|eval)([[:space:]]|$)|(^|[^A-Za-z0-9_.-])(bash|sh|zsh|dash|ksh)[[:space:]]+-[A-Za-z]*c'
         # Heredoc `<<` (not a `<<<` here-string, which only feeds stdin).
         _gr_heredoc_re='(^|[^<])<<-?[^<]'
@@ -1626,7 +1620,7 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
         fi
         if [[ -n "$_GR_DENY_WHY" ]]; then
           DECISION="deny"
-          DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064): Bash write to a hook gate script / bash-policy.json is denied in a deployed instance — $_GR_DENY_WHY. These files change only via upstream sync (git checkout upstream/main -- <file>). Read-only access (cat/grep/diff/git diff/log/show, running a hook) is allowed. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+          DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064, decisions#303): Bash write to a protected path (gate scripts, bash-policy.json, helpers/, scripts/, the audit spool or its backups) is denied in a deployed instance — $_GR_DENY_WHY. Synced files change only via upstream sync (git checkout upstream/main -- <file>); the spool is written by the hook and drained by its helper. Read-only access (cat/grep/diff/git diff/log/show) and running a hook or helper (bash helpers/drain-audit-spool.sh) are allowed. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
         fi
       fi
     fi

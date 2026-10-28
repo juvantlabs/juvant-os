@@ -64,22 +64,51 @@ if ! jq empty "$SETTINGS" &>/dev/null; then
   exit 1
 fi
 
-CANONICAL_HOOKS=$(jq -S '.hooks' "$TEMPLATE")
-CURRENT_HOOKS=$(jq -S '.hooks // null' "$SETTINGS")
+# decisions#303 R2: the template also carries framework permission DENIES
+# (`permissions_deny`) for paths the hook gate protects — the audit spool
+# family, its backups, the drain helper, security/policy.json. They are MERGED
+# into .permissions.deny: missing entries are appended, instance entries are
+# kept, order preserved, nothing removed. Not applied in the framework repo
+# itself (origin = juvantlabs/juvant-os) unless JUVANT_FRAMEWORK_DEV=0: an
+# Edit/Write permission deny is absolute — it has no framework-dev exemption —
+# and would block framework development of the very files it protects.
+_origin=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo "")
+APPLY_DENY=1
+case "${JUVANT_FRAMEWORK_DEV:-auto}" in
+  1) APPLY_DENY=0 ;;
+  0) APPLY_DENY=1 ;;
+  *) [[ "$_origin" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]] && APPLY_DENY=0 ;;
+esac
+# The stale framework comment claimed .juvant/config.json was "explicitly
+# denied" — it never was (decisions#303). Rewrite only that framework-authored
+# sentence; any instance wording is left alone.
+STALE='.juvant/config.json and .env* are explicitly denied (token-bearing).'
+FIXED='.env* and credentials* are denied (token-bearing); the audit spool, its backups, the drain helper and security/policy.json are denied via the framework permissions_deny merge (decisions#303). .juvant/config.json is NOT denied — the Skill writes it at bootstrap.'
 
-if [[ "$CANONICAL_HOOKS" == "$CURRENT_HOOKS" ]]; then
-  echo "[sync-hooks] hooks block already matches canonical template — no change"
+UPDATED=$(jq --argjson hooks "$(jq '.hooks' "$TEMPLATE")" \
+             --argjson deny "$(jq '.permissions_deny // []' "$TEMPLATE")" \
+             --argjson apply "$APPLY_DENY" \
+             --arg stale "$STALE" --arg fixed "$FIXED" '
+  .hooks = $hooks
+  | if $apply == 1 and ($deny | length) > 0 then
+      .permissions.deny = ((.permissions.deny // []) as $cur
+                           | $cur + [ $deny[] | select(. as $d | $cur | index($d) | not) ])
+    else . end
+  | if (.permissions._comment // "" | type) == "string" and (.permissions._comment // "" | contains($stale)) then
+      .permissions._comment |= (split($stale) | join($fixed))
+    else . end
+' "$SETTINGS")
+
+if [[ "$(echo "$UPDATED" | jq -S .)" == "$(jq -S . "$SETTINGS")" ]]; then
+  echo "[sync-hooks] hooks block and framework denies already match canonical template — no change"
   exit 0
 fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "[sync-hooks] DRY RUN — hooks block differs from canonical; would reconcile:"
-  diff <(echo "$CURRENT_HOOKS") <(echo "$CANONICAL_HOOKS") | sed 's/^/  /' || true
+  echo "[sync-hooks] DRY RUN — settings differ from canonical; would reconcile:"
+  diff <(jq -S '{hooks, permissions}' "$SETTINGS") <(echo "$UPDATED" | jq -S '{hooks, permissions}') | sed 's/^/  /' || true
   exit 0
 fi
-
-# Replace ONLY .hooks with the canonical block; preserve every other key.
-UPDATED=$(jq --argjson hooks "$(jq '.hooks' "$TEMPLATE")" '.hooks = $hooks' "$SETTINGS")
 
 # Validate before writing — defence in depth.
 if ! echo "$UPDATED" | jq empty &>/dev/null; then
@@ -92,4 +121,4 @@ TMP="$SETTINGS.tmp.$$"
 echo "$UPDATED" > "$TMP"
 mv "$TMP" "$SETTINGS"
 
-echo "[sync-hooks] reconciled .claude/settings.json hooks block from canonical template ($(jq '.hooks | length' "$TEMPLATE") events). Other keys preserved."
+echo "[sync-hooks] reconciled .claude/settings.json from canonical template ($(jq '.hooks | length' "$TEMPLATE") hook events; framework denies merged=$APPLY_DENY). Other keys preserved."

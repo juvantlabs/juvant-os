@@ -13,6 +13,29 @@ All written artifacts in English. No exceptions.
 
 ### Security
 
+- **One protected-path set for the tamper floor and the integrity check;
+  audit spool, backups, helpers and scripts covered (decisions#303 R1/R2 + B2,
+  security_audit_log#154, #160).** The audit spool (`.juvant/audit-spool.sql`
+  and every `.draining.*` / `.merge.*` / `.reclaim.*` sibling, plus the
+  quarantine file) is an agent-writable SQL replay channel, and
+  `.juvant/backups/`, `helpers/*.sh` (including the drain, `install-schedules.sh`
+  and `kb-sync.sh`, which runs at every SessionStart) and `scripts/*.sh` (including
+  `governance-backfill.sh`) sat outside Track 2f and the SessionStart check. New
+  `hooks/lib/guardrail-paths.sh` defines the set once; Track 2f applies every
+  write form it already covered (redirect, `tee`, `sed -i`, `cp`/`mv`/`rm`/`ln`/
+  `chmod`/`truncate`, `find -delete`, git checkout/restore/rm/mv, interpreters,
+  heredocs, `cd <dir> && …`) to all of it. Reads and running a hook or helper
+  (`bash helpers/drain-audit-spool.sh`) stay allowed. The SessionStart integrity
+  check now also verifies `helpers/*.sh` / `scripts/*.sh` against upstream
+  history, and every installed `io.juvant.guardrails.*` launchd plist against a
+  fresh `install-schedules.sh` generation (ProgramArguments + schedule keys).
+  **R2:** `scripts/templates/hooks-registration.json` carries `permissions_deny`
+  (Edit/Write on the spool family, backups, the drain helper and
+  `security/policy.json`); `sync-hooks.sh` merges them into an instance's
+  `.claude/settings.json` without removing instance entries (skipped in the
+  framework repo, where an absolute deny would block framework development), and
+  corrects the stale comment that claimed `.juvant/config.json` was denied.
+
 - **Per-agent shared-mailbox gate for `m365-mail` (decisions#301 K2).** The
   server's single allowlist (`M365_MAIL_ALLOWED_SHARED_USERS`) is the union of
   every shared mailbox, so any agent that loaded it could read all of them (R1),
