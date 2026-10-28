@@ -34,7 +34,7 @@ spec_marking_gate() {
   # Scoped to spools that actually hold such a signal, so a per-turn Stop hook
   # pays nothing on the common path. The drainer is idempotent + crash-safe.
   spool="$(juvant_spool_path 2>/dev/null || echo "")"
-  if [[ -n "$spool" && -s "$spool" ]] && grep -qiE 'merge|JUVANT_EXECUTING_SPEC' "$spool" 2>/dev/null; then
+  if [[ -n "$spool" && -s "$spool" ]] && grep -qiE 'merge|JUVANT_EXECUTING_SPEC|JUVANT_SPEC_PARTIAL' "$spool" 2>/dev/null; then
     bash "$hooks_dir/../helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true
   fi
 
@@ -57,22 +57,70 @@ spec_marking_gate() {
   # main-thread CoS, or a known company role). A project-scoped session
   # references a project decision id that this company query cannot resolve →
   # fail-open, never false-block on a colliding company decision.
+  #
+  # Actor scope (decisions#300 item 7): Path 1 considers ONLY the stamps of the
+  # agent that is stopping. A subagent's SubagentStop filters on its own role
+  # (agent = agent_type, as pre-tool-use.sh records it). The main-thread Stop
+  # (empty role) considers only MAIN-THREAD rows — pre-tool-use.sh records those
+  # as agent = $AGENT_ROLE, else 'cos' inside an instance, else 'unknown' — so a
+  # subagent's stamp can no longer block the CoS turn (the 2026-10-28 loop: a
+  # subagent stamped a partially-done spec and the main-thread Stop re-blocked
+  # ~10 times). The subagent's own SubagentStop is where its stamp is enforced.
+  # Residual: agent_id is not persisted in agent_actions_log, so two concurrent
+  # subagents of the SAME type in one session share the role key.
+  #
+  # Partial progress (decisions#300 item 7): a command prefixed
+  # `JUVANT_SPEC_PARTIAL=<id>` by the same agent, at or after its latest
+  # `JUVANT_EXECUTING_SPEC=<id>` stamp, acknowledges the spec as IN PROGRESS →
+  # no block, and the row stays 'approved' (never falsely marked executed). The
+  # marker is read from input_summary (the raw Bash command, which pre-tool-use
+  # already records) — no schema change, no pre-tool-use change. A later
+  # JUVANT_EXECUTING_SPEC stamp re-arms the gate. A denied command never counts.
   _co_scope=0
   if [[ -z "$role" ]] || [[ " cos cfo clo cmo cco cso cto chro cetho cro eng-platform vpe ca " == *" $role "* ]]; then
     _co_scope=1
   fi
   if [[ "$_co_scope" == 1 ]]; then
+    local actor_pred main_role last_exec last_part part_rows prow
+    if [[ -n "$role" ]]; then
+      actor_pred="$role_pred"
+    else
+      main_role="$(printf '%s' "${AGENT_ROLE:-cos}" | sed "s/'/''/g")"
+      actor_pred="AND agent IN ('cos', 'unknown', '$main_role')"
+    fi
+    part_rows="$(juvant_db_query "
+      SELECT id || ':' || input_summary FROM agent_actions_log
+      WHERE session_id = '$sess_esc' $actor_pred
+        AND COALESCE(status, '') <> 'denied'
+        AND input_summary LIKE '%JUVANT_SPEC_PARTIAL=%';
+    " 2>/dev/null || true)"
     while IFS= read -r sid; do
       [[ "$sid" =~ ^[0-9]+$ ]] || continue
       st="$(juvant_db_query "SELECT status FROM decisions WHERE id=$sid;" \
         2>/dev/null | { grep -E '^[a-z]+$' || true; } | tail -1)"
       if [[ "$st" == "approved" ]]; then
-        printf '%s' "decisions#${sid} was executed this session (JUVANT_EXECUTING_SPEC=${sid}) but its row is still 'approved'. Per ARCH-013, close it before you finish: UPDATE decisions SET status='executed', executed_by='${role:-cos}', executed_at=CURRENT_TIMESTAMP WHERE id=${sid} AND status='approved' — and set source_ref too if the category requires it (deployment/install/release/branch-protection/secret-rotation/eng-platform-spec; the schema trigger enforces this). If it was NOT actually executed, surface it to CoS instead."
+        # Acknowledged in-progress? (latest partial marker ≥ latest exec stamp)
+        last_exec="$(juvant_db_query "
+          SELECT MAX(id) FROM agent_actions_log
+          WHERE session_id = '$sess_esc' $actor_pred AND spec_id = $sid;
+        " 2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1)"
+        last_part=0
+        while IFS= read -r prow; do
+          if [[ "$prow" =~ ^([0-9]+):.*JUVANT_SPEC_PARTIAL=([0-9]+)([^0-9]|$) ]] \
+             && [[ "${BASH_REMATCH[2]}" == "$sid" ]] \
+             && (( BASH_REMATCH[1] > last_part )); then
+            last_part="${BASH_REMATCH[1]}"
+          fi
+        done <<< "$part_rows"
+        if [[ -n "$last_exec" ]] && (( last_part >= last_exec )); then
+          continue
+        fi
+        printf '%s' "decisions#${sid} was executed this session (JUVANT_EXECUTING_SPEC=${sid}) but its row is still 'approved'. Per ARCH-013, if the spec is now FULLY executed, close it before you finish: UPDATE decisions SET status='executed', executed_by='${role:-cos}', executed_at=CURRENT_TIMESTAMP WHERE id=${sid} AND status='approved' — and set source_ref too if the category requires it (deployment/install/release/branch-protection/secret-rotation/eng-platform-spec; the schema trigger enforces this). If it is only PARTIALLY done (steps remain), do NOT mark it executed — acknowledge it as in progress with a Bash command prefixed JUVANT_SPEC_PARTIAL=${sid}, e.g. JUVANT_SPEC_PARTIAL=${sid} echo 'done: <steps>; remaining: <steps>' — the row stays 'approved' and this gate clears until your next JUVANT_EXECUTING_SPEC=${sid} stamp. If it was NOT actually executed, surface it to CoS instead."
         return 0
       fi
     done < <(juvant_db_query "
       SELECT DISTINCT spec_id FROM agent_actions_log
-      WHERE session_id = '$sess_esc' $role_pred AND spec_id IS NOT NULL;
+      WHERE session_id = '$sess_esc' $actor_pred AND spec_id IS NOT NULL;
     " 2>/dev/null || true)
   fi
 

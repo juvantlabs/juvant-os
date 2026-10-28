@@ -4146,6 +4146,16 @@ Before executing ANY spec, Eng Lead verifies:
    execution plan for such a spec that lacks the prefix. (Pure `Edit`/`Write`
    landings cannot carry the signal and are out of scope — run the landing as a
    Bash command to make it gate-able.)
+   The gate is **actor-scoped** (decisions#300): a stop considers only the
+   stopping agent's own stamps — a subagent's `SubagentStop` its own role's
+   rows, the main-thread `Stop` only main-thread rows — so a subagent's stamp
+   never blocks the CoS turn. **Partial progress**: when a multi-step spec is
+   only partly executed and steps remain, do NOT mark it `executed`; instead run
+   a Bash command prefixed `JUVANT_SPEC_PARTIAL=<id>` (e.g.
+   `JUVANT_SPEC_PARTIAL=<id> echo 'done: <steps>; remaining: <steps>'`). The
+   audit row records the acknowledgement, the decision stays `approved`, and the
+   gate does not block until that agent's next `JUVANT_EXECUTING_SPEC=<id>`
+   stamp. The final landing step closes the row as usual.
 4. **Universal CONFIDENTIAL invariant (§5)** — no item from the universal list
    appears in the spec payload.
 5. **Linked artifact integrity** — referenced commits exist, referenced issues exist,

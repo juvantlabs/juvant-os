@@ -91,6 +91,25 @@ All written artifacts in English. No exceptions.
   - **Allow-list** resolved a one-line `for …; do cmd; done` to an EMPTY first
     token (and skipped `do cmd` lines). Shell keywords now resolve to the command
     they introduce on the same line.
+### Fixed
+
+- **decisions#300 (item 7) — spec-marking gate Path 1 is actor-scoped, and
+  partial progress is expressible.** The ADR 0029 stamped-`spec_id` path of
+  `hooks/lib/spec-marking-gate.sh` had no agent filter on the main-thread `Stop`
+  hook, so a *subagent's* `JUVANT_EXECUTING_SPEC=<id>` stamp blocked the CoS turn
+  — on 2026-10-28 it looped ~10 times on a partially-executed spec until the spec
+  was split. A stop now considers only the stopping agent's own stamps: a
+  subagent's `SubagentStop` its own role's rows; the main-thread `Stop` only
+  main-thread rows (`agent` = `$AGENT_ROLE` / `cos` / `unknown`, as
+  `pre-tool-use.sh` records them). New **`JUVANT_SPEC_PARTIAL=<id>`** Bash
+  prefix acknowledges a multi-step spec as in progress: the same agent's marker,
+  at or after its latest execution stamp, clears the gate while the decision
+  stays `approved` (never falsely `executed`); a later stamp re-arms it, and a
+  denied command never counts. Read from the existing `input_summary` — no
+  schema change, no `pre-tool-use.sh` change. The block message now offers the
+  marker; documented in `JUVANT_OS.md` (spec 5-check, item 3). Residual: `agent_id` is not
+  persisted, so two concurrent same-type subagents in one session share the role
+  key. Path 2 (PR-merge recovery) is unchanged.
 
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 

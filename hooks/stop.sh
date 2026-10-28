@@ -65,9 +65,11 @@ track_main_session_usage \
 
 # ── Layer 1 (ADR 0028 / ARCH-017): capture-at-execution gate (shared lib) ──
 # Main-thread coverage: if a PR merged this session references an approved,
-# still-unmarked pr-spec, block the turn until the agent closes the row. No role
-# filter (main thread is not a single subagent). Shared logic with
-# subagent-stop.sh; BUG-057 warn + BUG-058 spool-drain handled in the lib.
+# still-unmarked pr-spec, block the turn until the agent closes the row. The
+# empty role means "main thread": Path 1 (JUVANT_EXECUTING_SPEC stamps) then
+# considers only main-thread rows, never a subagent's (decisions#300); Path 2
+# (PR merges) keeps no role filter. Shared logic with subagent-stop.sh;
+# BUG-057 warn + BUG-058 spool-drain handled in the lib.
 if [[ -f "$SCRIPT_DIR/lib/spec-marking-gate.sh" ]]; then
   # shellcheck disable=SC1091
   . "$SCRIPT_DIR/lib/spec-marking-gate.sh"

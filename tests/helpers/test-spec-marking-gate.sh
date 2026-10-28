@@ -193,10 +193,80 @@ fresh_db; write_cfg; seed_spec 7 approved; spool_aspec "$SESS" 7 eng-platform
 run subagent-stop.sh with-gh eng-platform
 eq "spooled stamped action (no manual drain) → still blocks" "2" "$RC"
 
-# 6. main-thread Stop (empty role = company) covers it too.
+# 6. main-thread Stop (empty role = company) covers its OWN stamps — main-thread
+#    rows are recorded by pre-tool-use.sh as agent='cos' inside an instance.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 cos
+run stop.sh
+eq "stop.sh: main-thread stamped spec_id → block" "2" "$RC"
+has "stop.sh: main-thread block names the spec" "$OUT" "decisions#7"
+
+# ── decisions#300 item 7: actor-scoped Path 1 + partial-progress marker ─────
+echo "=== decisions#300: actor scope + JUVANT_SPEC_PARTIAL ==="
+partial_sql(){ # session id [role] → a JUVANT_SPEC_PARTIAL ack row
+  printf "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,input_summary,started_at) VALUES ('%s','%s','Bash','h','success','JUVANT_SPEC_PARTIAL=%s echo done: step 1; remaining: step 2',datetime('now','-1 minutes'));" "$1" "${3:-eng-platform}" "$2"
+}
+seed_partial(){ sq "$(partial_sql "$1" "$2" "${3:-eng-platform}")"; }
+
+# 7. THE BUG: a SUBAGENT's stamp must not block the MAIN-THREAD Stop.
 fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
 run stop.sh
-eq "stop.sh: stamped spec_id → block" "2" "$RC"
+eq "subagent stamp + main-thread Stop → no block" "0" "$RC"
+
+# 8. same agent, unmarked spec → still blocks (its own SubagentStop).
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+run subagent-stop.sh with-gh eng-platform
+eq "same-agent stamp, unmarked spec → block" "2" "$RC"
+has "block reason offers the partial-progress marker" "$OUT" "JUVANT_SPEC_PARTIAL=7"
+
+# 9. subagent A stamps, subagent B stops → no block.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+run subagent-stop.sh with-gh cfo
+eq "subagent A (eng-platform) stamp + subagent B (cfo) stop → no block" "0" "$RC"
+
+# 10. partial-progress marker after the stamp → no block, spec stays 'approved'.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+seed_partial "$SESS" 7 eng-platform
+run subagent-stop.sh with-gh eng-platform
+eq "JUVANT_SPEC_PARTIAL ack → no block" "0" "$RC"
+eq "JUVANT_SPEC_PARTIAL ack → spec stays 'approved'" "approved" \
+   "$(sq "SELECT status FROM decisions WHERE id=7;")"
+
+# 11. a NEW stamp after the partial ack re-arms the gate.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+seed_partial "$SESS" 7 eng-platform; seed_aspec "$SESS" 7 eng-platform
+run subagent-stop.sh with-gh eng-platform
+eq "exec stamp AFTER the partial ack → block again" "2" "$RC"
+
+# 12. the ack must name the SAME id (70 ≠ 7) and come from the SAME agent.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+seed_partial "$SESS" 70 eng-platform
+run subagent-stop.sh with-gh eng-platform
+eq "partial ack for a different id (70 vs 7) → still blocks" "2" "$RC"
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+seed_partial "$SESS" 7 cfo
+run subagent-stop.sh with-gh eng-platform
+eq "partial ack by ANOTHER agent → still blocks" "2" "$RC"
+
+# 13. a DENIED partial command is not an acknowledgement.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+sq "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,deny_reason,input_summary,started_at)
+    VALUES ('$SESS','eng-platform','Bash','h','denied','policy deny','JUVANT_SPEC_PARTIAL=7 echo x',datetime('now'));"
+run subagent-stop.sh with-gh eng-platform
+eq "denied partial command → still blocks" "2" "$RC"
+
+# 14. main thread: own stamp + own partial ack → no block, stays 'approved'.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 cos
+seed_partial "$SESS" 7 cos
+run stop.sh
+eq "stop.sh: main-thread partial ack → no block" "0" "$RC"
+eq "stop.sh: main-thread partial ack → spec stays 'approved'" "approved" \
+   "$(sq "SELECT status FROM decisions WHERE id=7;")"
+
+# 15. BUG-058 parity: the partial ack is still SPOOLED → gate drains, honours it.
+fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
+printf '%s\n' "$(partial_sql "$SESS" 7 eng-platform)" > "$SPOOL"
+run subagent-stop.sh with-gh eng-platform
+eq "spooled partial ack (no manual drain) → no block" "0" "$RC"
 
 echo "───────────────────────────────────"
 echo "  spec-marking-gate: $PASS passed, $FAIL failed"
