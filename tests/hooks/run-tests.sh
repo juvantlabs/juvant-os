@@ -43,6 +43,14 @@ export TURSO_TOKEN="test-token"
 # drainer can be exercised end-to-end against the fake DB.
 export JUVANT_SPOOL="$TMPROOT/audit-spool.sql"
 
+# decisions#302: isolate from the instance config. On an adopter the real
+# .juvant/config.json exists, so the main thread resolved to role 'cos' (its
+# allow-list pre-empted the Track 2f verdicts) and Track 2d read the instance's
+# github scope. Default every hook call to a NON-instance path — the same
+# environment as the framework repo; suites that need a fixture still pass
+# their own JUVANT_CONFIG per call.
+export JUVANT_CONFIG="$TMPROOT/no-instance-config.json"
+
 # ─────────────────────────────────────────────
 # Test plumbing
 # ─────────────────────────────────────────────
@@ -80,7 +88,11 @@ t_reset_agents() {
 }
 
 t_seed_agent() {
-  t_db "INSERT INTO agents (role, status) VALUES ('$1', '${2:-inactive}');"
+  # decisions#302: idempotent — a later suite re-seeding a role (BUG-066 seeds
+  # eng-platform again) raised "UNIQUE constraint failed: agents.role". Upsert
+  # rather than OR IGNORE so the requested status still takes effect.
+  t_db "INSERT INTO agents (role, status) VALUES ('$1', '${2:-inactive}')
+        ON CONFLICT(role) DO UPDATE SET status=excluded.status;"
 }
 
 # ─────────────────────────────────────────────
@@ -1241,6 +1253,16 @@ t_assert "allow-list: multi-line for loop with 'do' line → allow" "allow" \
 t_assert "allow-list: if/then → resolves to [[ (allow)" "allow" "$(_gp cso 'if [[ -f x ]]; then echo y; fi')"
 t_assert "allow-list: for loop over a NON-allowed binary → still deny" "deny" \
   "$(_gp cso 'for f in a b; do curlzz x; done')"
+# decisions#302 item 6: a control operator glued to the binary is not its name.
+_gp_reason() {
+  jq -cn --arg c "$2" '{tool_name:"Bash",session_id:"s-gp",tool_input:{command:$c}}' \
+    | JUVANT_CONFIG="$_GP_CFG" AGENT_ROLE="$1" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null || true
+}
+t_assert "allow-list: 'curlzz; ls' names the binary 'curlzz', not 'curlzz;'" "yes" \
+  "$(_r=$(_gp_reason cso 'curlzz; ls'); [[ "$_r" == "deny:allow-list:curlzz "* ]] && echo yes || echo "no: ${_r:0:40}")"
+t_assert "allow-list: 'curlzz&& ls' / 'curlzz|ls' → binary 'curlzz'" "yes yes" \
+  "$(for _c in 'curlzz&& ls' 'curlzz|ls'; do _r=$(_gp_reason cso "$_c"); [[ "$_r" == "deny:allow-list:curlzz "* ]] && printf 'yes ' || printf 'no '; done | sed 's/ $//')"
 rm -f "$_GP_CFG"
 
 # ─────────────────────────────────────────────

@@ -29,8 +29,9 @@ ROLE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
 ROLE="${ROLE:-${AGENT_ROLE:-}}"
 if [[ -z "$ROLE" ]]; then
   # Main thread in a Juvant OS instance = CoS orchestrator; 'unknown' only
-  # outside an instance.
-  if [[ -f "$SCRIPT_DIR/../.juvant/config.json" ]]; then
+  # outside an instance. Same JUVANT_CONFIG resolution as pre-tool-use.sh
+  # (decisions#302).
+  if [[ -f "${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}" ]]; then
     ROLE="cos"
   else
     ROLE="unknown"
