@@ -4695,8 +4695,23 @@ trail. **Company-scope agents only** — no project agents involved.
      reload affected launchd plists:
      `launchctl bootout gui/$(id -u)/io.juvant.guardrails.<label>` then
      `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.juvant.guardrails.<label>.plist`.
-   - `scripts/compile-templates.sh` changed →
-     re-run `bash scripts/compile-templates.sh --scope company`.
+   - **Any agent template** (`agents/company/*.md`, `agents/projects/*.md`,
+     `agents/components/*.md`) **or `scripts/compile-templates.sh` itself** changed →
+     re-run the compiler for the affected scope(s), so the live compiled output /
+     symlinks regenerate from the synced template (same reason the hooks bullet
+     below re-runs `sync-hooks.sh`). The trigger is the **template** changing, not
+     only the compiler:
+     - `agents/company/*.md` applied → `bash scripts/compile-templates.sh --scope company`.
+     - `agents/projects/*.md` applied → `bash scripts/compile-templates.sh --scope projects --project=<slug>`
+       once per project slug in `.juvant/config.json` `projects`.
+     - `agents/components/*.md` applied → `bash scripts/compile-templates.sh --scope component --component=<slug>`
+       once per component slug in `.juvant/config.json` `components`.
+     - `scripts/compile-templates.sh` itself changed → re-run all of the above
+       (the compiler logic changed, so every scope's output is stale).
+     Skipping this leaves the instance running the **previous** compiled output —
+     projects/components keep the pre-sync `agents/<scope>/<slug>/*.md`, and company
+     (compiled in place) re-introduces unsubstituted `{{PLACEHOLDER}}`s. Silent
+     gap; BUG-077.
    - `scripts/migrate.sh` **or** `scripts/schema.sql` changed → surface reminder:
      *"schema changed — re-run `bash scripts/migrate.sh` to apply any new tables or column patches (idempotent; `CREATE TABLE IF NOT EXISTS`)."* The bare invocation defaults to schema-apply; there is no `schema-apply` argument (migrate.sh accepts only flags — `--project`, `--from/--to`, `--dry-run`). For a project DB, use `bash scripts/migrate.sh --project=<slug>`. A new table (e.g. `outbox`, ADR 0024) only reaches an existing instance's DB once this is run.
    - `scripts/templates/hooks-registration.json` changed (FEAT-050) →
