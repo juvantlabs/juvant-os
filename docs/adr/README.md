@@ -47,6 +47,12 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0025](0025-document-space-access-control.md) | Document-space access control (extends 0023): MCP-scope-reaches-container as a sequenced prerequisite; don't-promote-UC-without-external; access-aware `resolve_space`; sensitive-space perimeter at the pre-tool-use hook (not the spoofable MCP server); instance-local policy | Proposed | 2026-06-25 |
 | [0026](0026-authorization-is-a-record-not-a-message.md) | CEO authorization is a verifiable record (approved decision / `juvant:decision` issue / confirmation token), never a "direct CEO message" (no such channel — deadlock); own-scope writes self-authorize; anti-manipulation is scoped to untrusted data, not the CoS relay | Proposed | 2026-06-27 |
 | [0027](0027-agent-template-compiled-output-split.md) | Separate the framework agent **template** from the compiled **output**; propagate canon by `{{INCLUDE}}` transclusion + an instance overlay, so framework-canonical changes reach existing instances via sync+recompile without clobbering customizations or drifting (structural end-state; FEAT-058 delta-apply is the near-term fix) | Proposed | 2026-06-27 |
+| [0028](0028-spec-execution-marking-enforcement.md) | Close the spec-execution marking gap: capture the artifact link at execution, reconcile only the verifiable subset | Accepted | 2026-07-14 |
+| [0029](0029-spec-marking-non-pr-executions.md) | Spec-marking for artifact-less executions: capture the spec id at execution via an explicit signal | Accepted | 2026-07-14 |
+| [0030](0030-scope-aware-spec-marking.md) | Scope-aware spec-marking: qualify the decision reference by scope and resolve the right DB | Proposed | 2026-07-14 |
+| [0031](0031-plugin-packaging-distribution.md) | Package Juvant OS as a plugin for distribution + versioned updates (hybrid); agents stay filesystem-compiled because plugin subagents ignore per-agent `mcpServers` | Accepted | 2026-10-28 |
+| [0032](0032-memory-tool-vs-turso.md) | Agent memory stays on Turso (reaffirm 0003); the client-side API memory tool is deferred to the Agent-SDK path (we don't own the API loop in-harness) | Accepted | 2026-10-28 |
+| [0033](0033-claude-mods-not-adopted.md) | Do not adopt Claude Mods; governance stays in the auditable bash-hook layer (unsandboxed mods expand the threat model), with a narrow revisit condition | Accepted | 2026-10-28 |
 
 ## Modification governance
 
