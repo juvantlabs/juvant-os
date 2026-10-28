@@ -170,6 +170,37 @@ eng-platform write access for repository management.
 `.mcp.json` is committed to your company repo. The token stays in your shell
 environment and is never committed.
 
+**Remote (HTTP) MCP servers — prefer `headersHelper` over a static token.**
+The GitHub server above is a local `stdio` server: its token lives in your shell
+env (`${...}`) and is never committed — already credential-at-rest-free. For a
+**remote** server (`"type": "http"` — e.g. an OAuth'd `ms-graph`, or a hosted
+`bank` / `social` server), do **not** bake a static `Authorization` header or a
+long-lived token into `.mcp.json`. Use a dynamic **`headersHelper`** — a script
+that prints a JSON header map on stdout and is re-run **fresh per connection**
+(10s timeout, one automatic retry on 401/403), so no bearer token is ever stored
+at rest:
+
+```json
+{
+  "mcpServers": {
+    "<role>": {
+      "type": "http",
+      "url": "https://<host>/mcp",
+      "headersHelper": "./scripts/mcp-auth/<role>-headers.sh"
+    }
+  }
+}
+```
+
+This fits the framework's "read-on-demand, short-lived credentials" posture and
+keeps long-lived secrets out of committed config.
+
+> **MCP scoping (current Claude Code).** A `permissions.allow` rule for an MCP
+> tool reaches only the server it names, and MCP/connector requests no longer
+> follow HTTP redirects. Give each agent only the servers it needs via its
+> `mcpServers:` frontmatter (one MCP per threat boundary — ADR 0003), and point
+> `url` at the server's canonical endpoint, not a redirecting one.
+
 ### 4. Commit your compiled setup
 
 ```bash
