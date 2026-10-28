@@ -221,6 +221,37 @@ GAP_ACTION=$(juvant_db_query \
   2>/dev/null | { grep -E '^[0-9]+$' || true; } | tail -1 | tr -d '[:space:]' || true)
 echo "[audit-reconcile] continuity: agent_actions_log latest=${LATEST_ACTION} gap=${GAP_ACTION:-?}d (warn=${CONT_WARN_DAYS}d fail=${CONT_FAIL_DAYS}d)"
 
+# decisions#300: consult declared pause windows (master_context.halt_windows)
+# via the shared lib — same semantics as the CSO bootstrap audit and the weekly
+# cadence gate. Still informational only (never in TOTAL_ANOMALIES): a covered
+# gap is labelled as such, a partial cover reports only the uncovered portion,
+# and activity inside a window (e.g. replayed spool rows) is INFO, not an
+# anomaly. No key → no extra output (behaviour unchanged).
+if [[ -f "$SCRIPT_DIR/../hooks/lib/pause-windows.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/../hooks/lib/pause-windows.sh"
+  if juvant_pause_windows_load; then
+    _PW_SUMMARY=$(juvant_pause_windows_summary)
+    if [[ "${GAP_ACTION:-}" =~ ^[0-9]+$ ]]; then
+      _PW_EFF=$(juvant_pause_uncovered_days "$GAP_ACTION")
+      if [[ "$GAP_ACTION" -ge "$CONT_WARN_DAYS" && "$_PW_EFF" -lt "$CONT_WARN_DAYS" ]]; then
+        _PW_STATE="covered by declared window(s)"
+      elif [[ "$_PW_EFF" -ge "$CONT_WARN_DAYS" ]]; then
+        _PW_STATE="UNCOVERED portion exceeds warn"
+      else
+        _PW_STATE="within cadence"
+      fi
+      echo "[audit-reconcile] continuity: declared halt_windows: ${_PW_SUMMARY}; uncovered gap=${_PW_EFF}d (${_PW_STATE})"
+    else
+      echo "[audit-reconcile] continuity: declared halt_windows: ${_PW_SUMMARY}; gap unreadable — coverage not evaluated"
+    fi
+    IFS='|' read -r _PW_CNT _PW_MIN _PW_MAX <<<"$(juvant_pause_activity_inside agent_actions_log started_at)"
+    if [[ "${_PW_CNT:-0}" =~ ^[0-9]+$ ]] && [[ "${_PW_CNT:-0}" -gt 0 ]]; then
+      echo "[audit-reconcile] INFO: ${_PW_CNT} agent_actions_log row(s) dated inside declared halt_windows (${_PW_MIN} .. ${_PW_MAX}) — replayed/backfilled activity; informational, not an anomaly"
+    fi
+  fi
+fi
+
 TOTAL_ANOMALIES=$((ORPHAN_DECISIONS + STUCK_PENDING + SCOPE_VIOLATIONS + STALE_SPECS))
 
 echo "[audit-reconcile] window: last ${WINDOW_DAYS} days"

@@ -15,13 +15,10 @@
 #  (iv)  Both stale                            → escalation written, exit 1
 #  (v)   halt_windows covers actions gap       → exit 0 (not escalated)
 #
-# NOTE: case (v) tests the cso-weekly-audit.sh exit path only — the full
-# halt_windows coverage logic lives in audit-bootstrap-baseline.sh (Layer 1)
-# and is tested by test-audit-continuity-predicate.sh.  cso-weekly-audit.sh
-# escalates when either indicator exceeds the threshold; halt_windows are
-# checked in the bootstrap audit, not here.  Case (v) is therefore: both
-# indicators stay below threshold because the STALENESS/GAP values returned
-# by the DB are within the WARN bound — it does not inject halt_windows.
+# NOTE: case (v) tests the wide-threshold exit path only — it does not inject
+# halt_windows. Since decisions#300 this helper DOES consult halt_windows via
+# the shared hooks/lib/pause-windows.sh; that coverage (full / partial /
+# activity-inside / no-key) is tested in test-pause-windows.sh.
 
 set -uo pipefail
 
@@ -48,6 +45,7 @@ trap 'rm -rf "$TMP" "$FAKEBIN"' EXIT
 mkdir -p "$TMP/helpers" "$TMP/hooks/lib" "$TMP/.juvant/logs"
 cp "$REPO/helpers/cso-weekly-audit.sh" "$TMP/helpers/"
 cp "$REPO/hooks/lib/db.sh"             "$TMP/hooks/lib/"
+cp "$REPO/hooks/lib/pause-windows.sh"  "$TMP/hooks/lib/"
 
 # Fake turso shim (not used for local provider, but placed on PATH for parity).
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"

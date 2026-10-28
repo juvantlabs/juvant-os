@@ -96,6 +96,12 @@ fi
 # shellcheck disable=SC1091
 . "$ROOT/hooks/lib/db.sh"
 juvant_db_resolve
+# Declared pause windows (decisions#300): shared with cso-weekly-audit.sh and
+# audit-reconcile.sh. Absent lib → no window suppression (alerts stand).
+if [[ -f "$ROOT/hooks/lib/pause-windows.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$ROOT/hooks/lib/pause-windows.sh"
+fi
 
 declare -i COUNT_INFO=0 COUNT_LOW=0 COUNT_MEDIUM=0 COUNT_HIGH=0 COUNT_CRITICAL=0
 
@@ -180,7 +186,8 @@ audit_layer_1_access() {
   # silence inside a non-empty log. Reads three independent (in this narrow
   # sense — DB layer only) write surfaces: agent_actions_log via pre-tool-use,
   # messages via agent inserts, session_snapshots via PreCompact hook.
-  # Consults master_context.halt_windows for legitimate silences.
+  # Consults master_context.halt_windows for legitimate silences via the shared
+  # hooks/lib/pause-windows.sh (decisions#300).
   # NOTE (design principle, decisions#269 §F): these three tables share the DB
   # write path — their concordance means "the DB layer is silent", not
   # "activity has stopped". A stronger cross-check against helper log RUN
@@ -232,24 +239,19 @@ audit_layer_1_access() {
     return 0
   fi
 
-  local halt_json halt_covered=0
-  halt_json=$(juvant_db_query \
-    "SELECT COALESCE(value, '[]') FROM master_context WHERE key = 'halt_windows';" \
-    | tail -1 || true)
-  halt_json="${halt_json:-[]}"
-  if command -v jq >/dev/null 2>&1 && [[ "$halt_json" != "[]" ]]; then
-    halt_covered=$(jq -r --arg s "$latest_action" --arg n "$(date -u +%Y-%m-%d)" '
-      def merge: reduce (sort_by(.start) | .[]) as $w ([];
-        if length == 0 then [$w]
-        elif (.[-1].end == null) or ($w.start <= (.[-1].end | strptime("%Y-%m-%d") | mktime | . + 86400 | strftime("%Y-%m-%d")))
-        then (.[0:-1]) + [{start: .[-1].start, end: ( if $w.end == null then null else ([.[-1].end, $w.end] | max) end)}]
-        else . + [$w]
-        end);
-      map({start: (.start[0:10]), end: (if .end == null then null else .end[0:10] end)})
-      | merge
-      | any(.start <= ($s[0:10]) and (.end == null or .end >= $n))
-      | if . then 1 else 0 end
-    ' <<<"$halt_json" 2>/dev/null || echo 0)
+  # Declared pause windows (master_context.halt_windows) via the shared lib
+  # hooks/lib/pause-windows.sh (decisions#300). Each surface's gap is reduced to
+  # its UNCOVERED portion (longest contiguous run of silent days outside every
+  # declared window); thresholds apply to that. No key → effective == raw gap →
+  # behaviour unchanged.
+  local pw_on=0 pw_summary=""
+  local eff_action="$gap_action" eff_message="$gap_message" eff_snapshot="$gap_snapshot"
+  if declare -F juvant_pause_windows_load >/dev/null && juvant_pause_windows_load; then
+    pw_on=1
+    pw_summary=$(juvant_pause_windows_summary)
+    eff_action=$(juvant_pause_uncovered_days "$gap_action")
+    eff_message=$(juvant_pause_uncovered_days "$gap_message")
+    eff_snapshot=$(juvant_pause_uncovered_days "$gap_snapshot")
   fi
 
   # Weigh continuity over ELIGIBLE surfaces only: the primary (always) plus each
@@ -257,37 +259,56 @@ audit_layer_1_access() {
   # written), so it neither adds a false silence nor masks a real one. Consensus
   # (every eligible surface silent) = a genuine continuity gap; a mix (some
   # eligible silent, some fresh) = a divergent broken-subsystem signal.
-  local sev="" eligible=1 silent=0 worst_gap=0 _md _sd
-  [[ "$gap_action" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$gap_action" -gt "$worst_gap" ]] && worst_gap="$gap_action"; }
+  # `raw_silent` counts silences before window coverage; `silent` after.
+  local sev="" eligible=1 silent=0 raw_silent=0 worst_gap=0 _md _sd
+  [[ "$gap_action" -ge "$CONTINUITY_WARN_DAYS" ]] && raw_silent=$((raw_silent+1))
+  [[ "$eff_action" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$eff_action" -gt "$worst_gap" ]] && worst_gap="$eff_action"; }
   if [[ "$cnt_message" -gt 0 ]]; then
     eligible=$((eligible+1)); _md="${gap_message}d"
-    [[ "$gap_message" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$gap_message" -gt "$worst_gap" ]] && worst_gap="$gap_message"; }
+    [[ "$gap_message" -ge "$CONTINUITY_WARN_DAYS" ]] && raw_silent=$((raw_silent+1))
+    [[ "$eff_message" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$eff_message" -gt "$worst_gap" ]] && worst_gap="$eff_message"; }
   else _md="empty"; fi
   if [[ "$cnt_snapshot" -gt 0 ]]; then
     eligible=$((eligible+1)); _sd="${gap_snapshot}d"
-    [[ "$gap_snapshot" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$gap_snapshot" -gt "$worst_gap" ]] && worst_gap="$gap_snapshot"; }
+    [[ "$gap_snapshot" -ge "$CONTINUITY_WARN_DAYS" ]] && raw_silent=$((raw_silent+1))
+    [[ "$eff_snapshot" -ge "$CONTINUITY_WARN_DAYS" ]] && { silent=$((silent+1)); [[ "$eff_snapshot" -gt "$worst_gap" ]] && worst_gap="$eff_snapshot"; }
   else _sd="empty"; fi
+  local pw_note=""
+  [[ "$pw_on" == "1" ]] && pw_note=" Declared halt_windows: ${pw_summary}; uncovered portion agent_actions_log=${eff_action}d (thresholds apply to the uncovered portion only)."
 
   if [[ "$gap_action" -ge "$CONTINUITY_WARN_DAYS" ]] && [[ -s "$spool_file" ]]; then
     emit "access" "info" \
       "agent_actions_log latest=${latest_action} (gap=${gap_action}d) but audit spool has pending rows — Track 3 running async (FEAT-051), drain gap not continuity gap." \
       "track-3-async-pending"
-  elif [[ "$halt_covered" == "1" ]] && [[ "$silent" -ge 1 && "$silent" -eq "$eligible" ]]; then
+  elif [[ "$pw_on" == "1" ]] && [[ "$raw_silent" -ge 1 && "$silent" -eq 0 ]]; then
     emit "access" "info" \
-      "Continuity gap covered by declared halt_windows (latest_action=${latest_action}, gap=${gap_action}d, all ${eligible} eligible DB write surface(s) silent — consistent with declared closure)." \
+      "Continuity gap covered by declared halt_windows (latest_action=${latest_action}, gap=${gap_action}d, uncovered remainder=${eff_action}d < warn=${CONTINUITY_WARN_DAYS}d — consistent with declared closure). Windows: ${pw_summary}." \
       "audit-surface-continuity-covered"
   elif [[ "$silent" -ge 1 && "$silent" -eq "$eligible" ]]; then
     if   [[ "$worst_gap" -ge "$CONTINUITY_FAIL_DAYS" ]]; then sev="high"
     elif [[ "$worst_gap" -ge "$CONTINUITY_WARN_DAYS" ]]; then sev="medium"
     fi
     [[ -n "$sev" ]] && emit "access" "$sev" \
-      "Audit-surface continuity gap: DB layer silent (agent_actions_log=${gap_action}d, messages=${_md}, session_snapshots=${_sd}; all ${eligible} eligible surface(s) silent; thresholds warn=${CONTINUITY_WARN_DAYS}d fail=${CONTINUITY_FAIL_DAYS}d). Not covered by declared halt_windows. Either declare via CoS or investigate." \
+      "Audit-surface continuity gap: DB layer silent (agent_actions_log=${gap_action}d, messages=${_md}, session_snapshots=${_sd}; all ${eligible} eligible surface(s) silent; thresholds warn=${CONTINUITY_WARN_DAYS}d fail=${CONTINUITY_FAIL_DAYS}d). Not covered by declared halt_windows.${pw_note} Either declare via CoS or investigate." \
       "audit-surface-continuity-gap"
   elif [[ "$silent" -ge 1 ]]; then
     sev="high"
     emit "access" "$sev" \
       "DIVERGENT continuity gap (broken subsystem class #137): agent_actions_log=${gap_action}d, messages=${_md}, session_snapshots=${_sd}. ${silent} of ${eligible} eligible DB surfaces silent — likely a broken write path within the DB layer, not a genuine silence. Verify pre-tool-use hook, PreCompact hook, or agent insert paths." \
       "audit-surface-divergent-silence"
+  fi
+
+  # Activity INSIDE a declared window (e.g. rows replayed from a stranded spool)
+  # is informational — never a contradiction alarm or a continuity failure.
+  if [[ "$pw_on" == "1" ]]; then
+    local pw_act pw_cnt pw_min pw_max
+    pw_act=$(juvant_pause_activity_inside agent_actions_log started_at)
+    IFS='|' read -r pw_cnt pw_min pw_max <<<"$pw_act"
+    if [[ "${pw_cnt:-0}" =~ ^[0-9]+$ ]] && [[ "${pw_cnt:-0}" -gt 0 ]]; then
+      emit "access" "info" \
+        "${pw_cnt} agent_actions_log row(s) dated inside declared halt_windows (${pw_min} .. ${pw_max}; windows: ${pw_summary}) — e.g. replayed/backfilled spool rows. Informational: not a contradiction of the declared closure." \
+        "audit-activity-inside-pause-window"
+    fi
   fi
 }
 

@@ -43,6 +43,10 @@ done
 printf '%s' "$WL" | grep -qF "hooks/lib/track-tokens.sh" \
   && ok "hooks/lib/track-tokens.sh is whitelisted" \
   || no "hooks/lib/track-tokens.sh missing from whitelist"
+# decisions#300: shared pause-window lib sourced by the CSO audit + two helpers.
+printf '%s' "$WL" | grep -qF "hooks/lib/pause-windows.sh" \
+  && ok "hooks/lib/pause-windows.sh is whitelisted" \
+  || no "hooks/lib/pause-windows.sh missing from whitelist"
 
 # ── 2. compile-templates.sh --check-only never mutates ──────────────────────
 echo "== compile-templates --check-only safety =="
