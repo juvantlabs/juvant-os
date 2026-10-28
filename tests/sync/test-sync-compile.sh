@@ -48,6 +48,55 @@ printf '%s' "$WL" | grep -qF "hooks/lib/pause-windows.sh" \
   && ok "hooks/lib/pause-windows.sh is whitelisted" \
   || no "hooks/lib/pause-windows.sh missing from whitelist"
 
+# decisions#300 item 10: framework-owned tests travel with the hooks/helpers
+# they test (a test fake must mirror reality). Every tracked file under
+# tests/hooks/, tests/helpers/, tests/sync/ must be whitelisted by FULL path
+# (no basename fallback — basenames like run-tests.sh collide across dirs).
+tmiss=0
+for f in $(git ls-files 'tests/hooks/*' 'tests/helpers/*' 'tests/sync/*'); do
+  printf '%s\n' "$WL" | grep -qE "(^|[[:space:]])${f//./\\.}([[:space:]]|$)" \
+    || { echo "    test not whitelisted: $f"; tmiss=$((tmiss+1)); }
+done
+[[ "$tmiss" -eq 0 ]] && ok "every framework file under tests/{hooks,helpers,sync}/ is whitelisted by full path" \
+                     || no "$tmiss framework test file(s) absent from the whitelist"
+
+# The tests/ entries must be an explicit file list, never a glob/dir — a glob
+# would clobber instance-local tests (e.g. tests/hooks/test-<instance>-*.sh).
+if printf '%s\n' "$WL" | tr -s ' \t' '\n' | grep -E '^tests/' | grep -qE '[*?]|/$'; then
+  no "whitelist contains a tests/ glob or directory entry (must be explicit files)"
+else
+  ok "whitelist tests/ entries are explicit files (no glob, no bare dir)"
+fi
+
+# Regression anchor: the libsql transport fake that drifted on adopters.
+printf '%s\n' "$WL" | grep -qF "tests/hooks/fake-libsql-curl.sh" \
+  && ok "tests/hooks/fake-libsql-curl.sh is whitelisted" \
+  || no "tests/hooks/fake-libsql-curl.sh missing from whitelist"
+
+# The NEVER-touched list must not still exclude tests/ wholesale.
+NEVER=$(awk '/\*\*Files NEVER touched\*\*/{f=1} f&&/^$/{exit} f' JUVANT_OS.md)
+printf '%s' "$NEVER" | grep -qF '`tests/` (everything **except** the framework-owned' \
+  && ok "NEVER-touched list carves out the framework-owned tests" \
+  || no "NEVER-touched list still excludes tests/ wholesale (or wording drifted)"
+
+# ── 1b. Sync lands via PR, never a direct push to main ──────────────────────
+# decisions#300 item 11 / security_audit_log#146: 9 sync pushes reached main
+# with no CI. The procedure must push a branch and open a PR the CEO merges.
+echo "== upstream-sync PR flow =="
+SYNC=$(awk '/^## Upstream sync$/{f=1;next} f&&/^## /{exit} f' JUVANT_OS.md)
+[[ -n "$SYNC" ]] && ok "found the Upstream sync section" || no "Upstream sync section not found"
+if printf '%s' "$SYNC" | grep -qE '^[0-9]+\. \*\*Push\*\* — `git push origin main`'; then
+  no "Upstream sync still instructs a direct 'git push origin main' step"
+else
+  ok "Upstream sync has no direct 'git push origin main' step"
+fi
+printf '%s' "$SYNC" | grep -qF 'gh pr create --base main' \
+  && ok "Upstream sync opens a PR against main" \
+  || no "Upstream sync does not open a PR (gh pr create --base main)"
+printf '%s' "$SYNC" | grep -qF 'The CEO merges' \
+  && ok "Upstream sync leaves the merge to the CEO" \
+  || no "Upstream sync does not state that the CEO merges"
+
 # ── 2. compile-templates.sh --check-only never mutates ──────────────────────
 echo "== compile-templates --check-only safety =="
 before=$(md5of README.md)
