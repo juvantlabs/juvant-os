@@ -128,6 +128,31 @@ All written artifacts in English. No exceptions.
   no windows key, behaviour is unchanged. A malformed declaration suppresses
   nothing. The key is `halt_windows` (the BUG-070 note in 1.12.0 said
   `pause_windows`; corrected — nothing ever read or wrote that name).
+### Fixed
+
+- **macOS "every N minutes" schedules now actually fire (decisions#300 item 14).**
+  `helpers/install-schedules.sh` emitted `drain-audit-spool` (5 min),
+  `anomaly-check` and `drain-outbox` (15 min) as launchd `StartInterval` jobs,
+  which never ran on their own on a live install (runs=0 after bootstrap; no
+  scheduled run after a manual kickstart), while the `StartCalendarInterval`
+  jobs on the same machine ran on time. Root cause (verified live): macOS **Low
+  Power Mode** puts the `gui/<uid>` launchd domain in *on-demand-only mode*
+  (launchd log: "pending spawn, domain in on-demand-only mode";
+  `launchctl print`: "pended nondemand spawn = interval"). `StartInterval` is a
+  non-demand spawn and is held indefinitely; calendar-interval events and
+  `kickstart` are demand spawns, so they kept working. They are now emitted as
+  `StartCalendarInterval` arrays of `{Minute}` slots (same semantics as the Linux
+  cron `*/N` entries, and a firing missed during sleep runs on wake). The loader
+  now waits for the asynchronous `bootout` to finish before `bootstrap`, and runs
+  `launchctl enable` to clear any persisted disabled override. A new
+  **post-install self-check** kickstarts each interval job once and fails the
+  installer (non-zero exit, clear stderr) if its launchd `runs` counter does not
+  advance within a bounded timeout, if the job is disabled, or if launchd shows a
+  pended non-demand spawn for it (the Low Power Mode state a kickstart alone can't reveal)
+  (`JUVANT_SCHED_SELFCHECK=0` to skip; skipped by default when `CI=true`;
+  `JUVANT_SCHED_SELFCHECK_MODE=scheduled` waits for an unprompted scheduled run
+  instead). Linux/cron path unchanged. Regression test:
+  `tests/helpers/test-install-schedules-interval.sh`.
 
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 

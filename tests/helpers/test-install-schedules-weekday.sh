@@ -58,9 +58,13 @@ CSO_DAY=""
 
 case "$OS" in
   Darwin)
-    printf '#!/bin/bash\nexit 0\n' > "$STUB/launchctl"
+    # `print` → "not loaded" (so the bootout wait loop exits at once);
+    # everything else succeeds. Self-check is covered by its own test.
+    # shellcheck disable=SC2016  # $1 is for the generated stub, not here
+    printf '#!/bin/bash\n[ "$1" = print ] && exit 113\nexit 0\n' > "$STUB/launchctl"
     chmod +x "$STUB/launchctl"
-    HOME="$TMPHOME" PATH="$STUB:$PATH" bash "$SCRIPT" install >/dev/null 2>&1
+    HOME="$TMPHOME" PATH="$STUB:$PATH" JUVANT_SCHED_SELFCHECK=0 \
+      bash "$SCRIPT" install >/dev/null 2>&1
     PLIST_DIR="$TMPHOME/Library/LaunchAgents"
     PB=/usr/libexec/PlistBuddy
     AR_DAY=$("$PB" -c "Print :StartCalendarInterval:Weekday" \
