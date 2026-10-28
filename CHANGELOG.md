@@ -11,6 +11,20 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Changed
+
+- **PreToolUse wrapper fails closed when the gate script is missing (decisions#298,
+  CSO audit 2026-10-28 L5-F1a, SECURITY).** The registration wrapper was
+  `[[ -f pre-tool-use.sh ]] && exec ...; exit 0`: with the script deleted or renamed
+  it returned 0 (allow), so FEAT-061 `onFailure:"block"` never engaged and all gates
+  went dark. It now prints to stderr and `exit 2`s. Observational hooks are
+  unchanged (a missing session hook must not wedge a session). `lint.yml` asserts the
+  PreToolUse wrapper ends in `exit 2`, and the behavioural test
+  `tests/hooks/test-pretooluse-wrapper.sh` (decisions#300 item 6) runs the wrapper
+  exactly as Claude Code does, from both the template and `.claude/settings.json`:
+  script missing → exit 2 (blocked) with a stderr reason; present script's verdict
+  passed through; observational wrappers still exit 0 on a missing script.
+
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 
 ### Added

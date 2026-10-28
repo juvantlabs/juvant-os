@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'r=\"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}\"; [[ -f \"$r/hooks/pre-tool-use.sh\" ]] && exec bash \"$r/hooks/pre-tool-use.sh\"; exit 0'",
+            "command": "bash -c 'r=\"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}\"; [[ -f \"$r/hooks/pre-tool-use.sh\" ]] && exec bash \"$r/hooks/pre-tool-use.sh\"; echo \"PreToolUse gate script missing at $r/hooks/pre-tool-use.sh - failing closed (decisions#298)\" >&2; exit 2'",
             "onFailure": "block"
           }
         ]

@@ -85,6 +85,11 @@ jobs:
               h = s['hooks']['PreToolUse'][0]['hooks'][0]
               if h.get('onFailure') != 'block':
                   errs.append(f"PreToolUse hook must set onFailure:'block' (fail-closed); got {h.get('onFailure')!r}")
+              cmd = h.get('command', '')
+              # decisions#298: onFailure:block does not cover a MISSING script — the wrapper
+              # itself must exit 2 (not 0) when pre-tool-use.sh is absent.
+              if not cmd.rstrip().rstrip("'").rstrip().endswith('exit 2'):
+                  errs.append("PreToolUse wrapper must fail closed (exit 2) when pre-tool-use.sh is missing; it falls through to allow")
           except (KeyError, IndexError):
               errs.append("PreToolUse hook handler not found at hooks.PreToolUse[0].hooks[0]")
           # onFailure only has effect on decision-capable events; it must NOT appear on
@@ -177,6 +182,9 @@ jobs:
           # every classified-MCP bump (a new tool must not slip in
           # unclassified for non-allowlisted agents).
           bash tests/hooks/test-space-access-policy.sh
+          # decisions#298/#300: the PreToolUse registration wrapper blocks
+          # (exit 2) when pre-tool-use.sh is missing, executed as CC runs it.
+          bash tests/hooks/test-pretooluse-wrapper.sh
 
       - name: Helper tests
         run: |
