@@ -48,14 +48,133 @@ export JUVANT_DB_EXEC_NO_SPOOL=1
 # Single source of truth for the spool path (honors JUVANT_SPOOL).
 SPOOL="$(juvant_spool_path)"
 
-# Nothing spooled — no-op (fast, common path).
-[[ -s "$SPOOL" ]] || exit 0
+# ── decisions#298 (L1-F1): re-claim stranded batches ─────────────────────────
+# A drain killed mid-loop (sleep, SIGKILL, session exit) leaves its claimed
+# batch behind as "$SPOOL.draining.<pid>" (or "$SPOOL.merge.<pid>" if killed
+# while re-queueing). Nothing ever claimed those names again, so the audit
+# rows inside were silently stranded. Every run now looks for them first.
+#
+# A file is STALE when its owner pid is gone (a live drain's file is never
+# touched) or when it is older than DRAIN_STALE_MAX_AGE_MIN (default 60) — a
+# drain that long is stuck, and a recycled pid must not shelter a file forever.
+# Stale files are applied BEFORE the live spool (they are older; file order is
+# audit order) with an idempotence guard (see _guard_reclaimed) because a killed
+# drain may already have committed part of its batch.
+_STALE_MAX_AGE_MIN="${DRAIN_STALE_MAX_AGE_MIN:-60}"
+_stale_files() {
+  local _f _pid
+  for _f in "$SPOOL".draining.* "$SPOOL".merge.*; do
+    [[ -f "$_f" ]] || continue
+    _pid="${_f##*.}"
+    [[ "$_pid" =~ ^[0-9]+$ ]] || continue
+    [[ "$_pid" == "$$" ]] && continue
+    if kill -0 "$_pid" 2>/dev/null; then
+      # Owner alive: only stale if older than the max age.
+      [[ -n "$(find "$_f" -mmin "+$_STALE_MAX_AGE_MIN" 2>/dev/null)" ]] || continue
+    fi
+    printf '%s\n' "$_f"
+  done
+}
+STALE_LIST="$(_stale_files)"
+
+# Nothing spooled and nothing stranded — no-op (fast, common path).
+[[ -s "$SPOOL" || -n "$STALE_LIST" ]] || exit 0
 
 juvant_db_resolve
 if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
   echo "[drain-audit-spool] WARN: no db.provider configured; leaving spool intact" >&2
   exit 0
 fi
+
+# Rewrite one spooled agent_actions_log INSERT into an idempotent form, so that
+# replaying a batch that was partially applied before the drain died does not
+# duplicate rows. Key: session_id + agent + tool_name + args_hash, plus the
+# explicit started_at when the row carries one (rows written since decisions#298
+# do, which makes the key exact). Legacy rows without started_at are keyed
+# without time, so a legitimately repeated identical command in the SAME session
+# can be collapsed — a deliberate bias toward "no duplicate audit rows" for
+# batches that are already known-damaged. Anything not matching the expected
+# shape (UPDATEs are idempotent; other statements) is passed through unchanged.
+_guard_reclaimed() {
+  local _s="$1"
+  local _re_stmt='^INSERT INTO agent_actions_log[[:space:]]*\(([^)]*)\)[[:space:]]*VALUES[[:space:]]*\((.*)\);[[:space:]]*$'
+  local _re_key="^'([^']*)', '([^']*)', '([^']*)', '([0-9a-f]{64})', '"
+  local _re_ts="'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})'(, [0-9]+)?\$"
+  local _cols _vals _key
+  if [[ "$_s" =~ $_re_stmt ]]; then
+    _cols="${BASH_REMATCH[1]}"; _vals="${BASH_REMATCH[2]}"
+    if [[ "$_vals" =~ $_re_key ]]; then
+      _key="session_id='${BASH_REMATCH[1]}' AND agent='${BASH_REMATCH[2]}' AND tool_name='${BASH_REMATCH[3]}' AND args_hash='${BASH_REMATCH[4]}'"
+      if [[ "$_cols" == *started_at* && "$_vals" =~ $_re_ts ]]; then
+        _key="$_key AND started_at='${BASH_REMATCH[1]}'"
+      fi
+      printf 'INSERT INTO agent_actions_log (%s) SELECT %s WHERE NOT EXISTS (SELECT 1 FROM agent_actions_log WHERE %s);' \
+        "$_cols" "$_vals" "$_key"
+      return 0
+    fi
+  fi
+  printf '%s' "$_s"
+}
+
+# Apply one stranded batch. Statements already in the DB are skipped by the
+# guard; an unapplied tail (backend failure) is re-queued ahead of the live
+# spool, exactly like the main path. The original is copied aside first and
+# removed only once every statement is applied or safely re-queued.
+# Returns 0 if the batch was fully applied, 1 if a tail was re-queued.
+_reclaim_one() {
+  local _f="$1" _stmt _a=0 _failed=0 _rem="" _mt _age_min=0
+  _mt=$(stat -f %m "$_f" 2>/dev/null || stat -c %Y "$_f" 2>/dev/null || echo 0)
+  [[ "$_mt" =~ ^[0-9]+$ && "$_mt" -gt 0 ]] && _age_min=$(( ( $(date +%s) - _mt ) / 60 ))
+  echo "[drain-audit-spool] WARN: re-claiming stranded batch $(basename "$_f") (age ${_age_min}m, $(grep -c . "$_f" || true) statement(s))" >&2
+  local _kdir="${JUVANT_BACKUP_DIR:-$(dirname "$SPOOL")/backups}"
+  if mkdir -p "$_kdir" 2>/dev/null; then
+    cp "$_f" "$_kdir/audit-stale.$(date -u +%Y%m%dT%H%M%SZ).$(basename "$_f").sql" 2>/dev/null || {
+      echo "[drain-audit-spool] WARN: could not preserve $(basename "$_f"); leaving it in place" >&2
+      return 1
+    }
+  else
+    echo "[drain-audit-spool] WARN: cannot create backup dir $_kdir; leaving $(basename "$_f") in place" >&2
+    return 1
+  fi
+  while IFS= read -r _stmt || [[ -n "$_stmt" ]]; do
+    [[ -z "$_stmt" ]] && continue
+    if [[ "$_failed" -eq 1 ]]; then _rem+="$_stmt"$'\n'; continue; fi
+    if juvant_db_exec "$(_guard_reclaimed "$_stmt")"; then
+      _a=$(( _a + 1 ))
+    else
+      _failed=1; _rem+="$_stmt"$'\n'
+    fi
+  done < "$_f"
+  if [[ "$_failed" -eq 1 ]]; then
+    if [[ -s "$SPOOL" ]]; then
+      { printf '%s' "$_rem"; cat "$SPOOL"; } > "$SPOOL.reclaim.$$" && mv "$SPOOL.reclaim.$$" "$SPOOL"
+    else
+      printf '%s' "$_rem" > "$SPOOL"
+    fi
+    rm -f "$_f"
+    echo "[drain-audit-spool] WARN: stranded batch applied $_a then failed; $(printf '%s' "$_rem" | grep -c . || true) statement(s) re-queued" >&2
+    return 1
+  fi
+  rm -f "$_f"
+  echo "[drain-audit-spool] reclaimed $(basename "$_f"): $_a statement(s) applied (duplicates skipped)"
+  return 0
+}
+
+_RECLAIM_FAILED=0
+if [[ -n "$STALE_LIST" ]]; then
+  while IFS= read -r _sf; do
+    [[ -z "$_sf" ]] && continue
+    _reclaim_one "$_sf" || { _RECLAIM_FAILED=1; break; }
+  done <<< "$STALE_LIST"
+  # Keep the preserved copies bounded (newest 20).
+  # shellcheck disable=SC2012
+  ls -1t "${JUVANT_BACKUP_DIR:-$(dirname "$SPOOL")/backups}"/audit-stale.*.sql 2>/dev/null \
+    | tail -n +21 | while IFS= read -r _old; do rm -f "$_old"; done
+fi
+# Backend failed while reclaiming: the tail is re-queued; stop here, retry next run.
+[[ "$_RECLAIM_FAILED" -eq 0 ]] || exit 1
+# Reclaim may have been the only work (live spool empty).
+[[ -s "$SPOOL" ]] || exit 0
 
 # Pre-drain backup: timestamped copy before the atomic rename so that a
 # mid-drain failure (SIGKILL, disk-full on apply, hung backend) leaves a

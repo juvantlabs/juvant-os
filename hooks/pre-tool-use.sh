@@ -82,6 +82,12 @@ fi
 # Compute SHA-256 of canonical (sorted-keys) JSON of tool_input
 ARGS_JSON=$(echo "$EVENT_JSON" | jq -c -S '.tool_input // {}' 2>/dev/null || echo "{}")
 ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')
+# decisions#298 (L1-F2): capture the hook clock at tool-call time. The audit row
+# is spooled and drained later; without an explicit started_at the DB DEFAULT
+# CURRENT_TIMESTAMP stamps DRAIN time, skewing every time-window correlation
+# (orphan checks, continuity-gap, halt-window attribution). Same UTC format as
+# the ended_at written by post-tool-use.sh.
+STARTED_AT=$(date -u +"%Y-%m-%d %H:%M:%S")
 
 # Build input_summary — human-readable, max 200 chars (FEAT-040 Layer 1d)
 case "$TOOL_NAME" in
@@ -1125,9 +1131,9 @@ fi
 # must not sit on the tool gating path. Spooled rows are drained to the
 # DB out-of-band (helpers/drain-audit-spool.sh via session-start.sh).
 juvant_db_exec_async "INSERT INTO agent_actions_log
-  (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary${_SPEC_COL})
+  (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at${_SPEC_COL})
   VALUES
-  ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL, '$INPUT_SUMMARY_ESC'${_SPEC_VAL});" \
+  ('$SESSION_ESC', '$ROLE_ESC', '$TOOL_ESC', '$ARGS_HASH', '$STATUS', $DENY_SQL, '$INPUT_SUMMARY_ESC', '$STARTED_AT'${_SPEC_VAL});" \
   || echo "[pre-tool-use] WARN: failed to spool agent_actions_log row" >&2
 
 # ─────────────────────────────────────────────
