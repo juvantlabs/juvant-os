@@ -71,8 +71,35 @@ jobs:
 
       - name: Validate .claude/settings.json
         run: |
-          python3 -c "import json; json.load(open('.claude/settings.json'))"
-          echo "OK — .claude/settings.json is valid JSON"
+          python3 - <<'PY'
+          import json, sys
+          s = json.load(open('.claude/settings.json'))
+          t = json.load(open('scripts/templates/hooks-registration.json'))
+          errs = []
+          # sync-hooks parity: settings.hooks must equal the canonical template.
+          if s.get('hooks') != t.get('hooks'):
+              errs.append("settings.hooks drifted from scripts/templates/hooks-registration.json — run scripts/sync-hooks.sh")
+          # FEAT-061: the PreToolUse security gate MUST be fail-closed. A missing or
+          # misplaced onFailure here is the silent fail-open class (BUG-053/073) — fail CI loud.
+          try:
+              h = s['hooks']['PreToolUse'][0]['hooks'][0]
+              if h.get('onFailure') != 'block':
+                  errs.append(f"PreToolUse hook must set onFailure:'block' (fail-closed); got {h.get('onFailure')!r}")
+          except (KeyError, IndexError):
+              errs.append("PreToolUse hook handler not found at hooks.PreToolUse[0].hooks[0]")
+          # onFailure only has effect on decision-capable events; it must NOT appear on
+          # observational hooks where it would imply a guarantee Claude Code does not honor.
+          for ev, groups in s.get('hooks', {}).items():
+              if ev in ('PreToolUse', 'UserPromptSubmit', 'PermissionRequest'):
+                  continue
+              for g in groups:
+                  for hh in g.get('hooks', []):
+                      if 'onFailure' in hh:
+                          errs.append(f"onFailure set on observational event {ev} — no effect there; remove it")
+          if errs:
+              print("\n".join("  " + e for e in errs)); sys.exit(1)
+          print("OK — settings.json valid JSON; hooks in sync; PreToolUse fail-closed (onFailure:block)")
+          PY
 
       - name: Detect tracked secrets (defense in depth)
         run: |

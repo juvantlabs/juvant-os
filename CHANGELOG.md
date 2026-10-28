@@ -28,6 +28,16 @@ All written artifacts in English. No exceptions.
   Adds the new `effort:` frontmatter field (CHRO may tune it against ranking data).
   The runtime CoS model-override mechanism is unchanged.
 
+- **FEAT-061 (SECURITY) — PreToolUse gate is now fail-closed (`onFailure:"block"`).**
+  The `PreToolUse` hook registration (`scripts/templates/hooks-registration.json`,
+  synced into `.claude/settings.json`) sets `"onFailure": "block"`, so a
+  `pre-tool-use.sh` that can't start, times out, or exits non-0/non-2 now **blocks**
+  the tool call instead of failing open ("no decision → tool runs" — the BUG-053 /
+  BUG-073 class). Third layer behind the existing `hookSpecificOutput` deny + exit-2.
+  Requires Claude Code v2.1.295+ (silently inert on older clients). A `lint.yml`
+  check enforces the field on PreToolUse, its absence on observational hooks (where
+  Claude Code ignores it), and settings↔template hook-block parity. See `hooks/README.md`.
+
 ### Fixed
 
 - **BUG-053 (SECURITY) — PreToolUse deny was silently unenforced (legacy output
