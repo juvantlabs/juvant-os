@@ -241,6 +241,7 @@ ignored and a hook that fails to start lets the tool call through.
 | **v1.1** | Teams meeting transcript analysis, framework sync operation, Knowledge Sync Pipeline | ✅ |
 | **v1.11** | Provider-neutral document spaces + third-party access (ADR 0023), outbound action queue (ADR 0024), sensitive-space hook perimeter (ADR 0025/Track 2e), abstract `social` role; guardrail hardening | ✅ |
 | **v1.12** | Agents on the Claude 5.5 line with per-agent `effort`; fail-closed PreToolUse gate, guardrail-config tamper floor (Track 2f) and ConfigChange forensic logging; spec-execution marking (ADR 0028–0030); libsql HTTP DB layer; ADRs 0031–0033 | ✅ |
+| **v1.13** | Guardrail hardening from the CSO 5-layer audit: Track 2f covers git/file-op/interpreter writes, SessionStart hooks integrity check, PreToolUse wrapper fails closed on a missing script, precise SQL-write gating, actor-scoped spec-marking gate, declared pause windows honoured everywhere, launchd interval jobs that fire under Low Power Mode, tests synced with hooks and sync via PR | ✅ |
 | **v2.0** | Always-on cloud agents (Azure), External Portal, Webhook Services, Teams Meeting Bot, M365 mail automation | Planned — requires cloud infrastructure |
 
 Roadmap detail and open issues are tracked in the private project management

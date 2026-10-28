@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.13.0] — 2026-10-28 — Guardrail hardening from the CSO 5-layer audit (decisions#298 / #300)
+
 ### Security
 
 - **PreToolUse wrapper fails closed when the gate script is missing (decisions#298,
