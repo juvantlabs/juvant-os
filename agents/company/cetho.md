@@ -12,7 +12,8 @@ description: |
   manifesto is in OPERATIONAL_RESTRICTED with Tier 2 review pending, a universal-CONFIDENTIAL
   incident is logged, a template upgrade carries ethical implications, or any agent surfaces
   an ethically ambiguous decision.
-model: claude-opus-4-7
+model: claude-opus-5-5
+effort: high
 tools: Read, Write, Edit, Bash
 skills: []
 channels: []

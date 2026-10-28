@@ -21,7 +21,8 @@ description: |
   Use proactively for: PRD UX consults, design-system extensions, accessibility
   audits, UX research planning and synthesis, brand-spec authorship at project
   scope, project visual-identity coherence reviews on external-facing artifacts.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

@@ -15,7 +15,8 @@ description: |
   Use proactively for: any work on {{COMPONENT_REPO}} — bug fixes, features,
   refactors, dependency upgrades, API/DX design, LLM/prompt/eval work, test and
   doc maintenance, release cuts, triage of the component's open Issues/PRs.
-model: claude-opus-4-7
+model: claude-opus-5-5
+effort: high
 tools: Read, Write, Edit, Bash
 ---
 

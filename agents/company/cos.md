@@ -8,7 +8,8 @@ description: |
   escalates critical issues, monitors migration triggers (Agent Teams, Cloud Routines, OP-004).
   Use proactively at every SessionStart and for any cross-agent coordination.
   Acts as the only agent the CEO talks to by default — exceptions require explicit CEO request.
-model: claude-opus-4-7
+model: claude-opus-5-5
+effort: high
 tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph

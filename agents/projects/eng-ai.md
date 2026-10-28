@@ -12,7 +12,8 @@ description: |
   Use proactively when: Eng Lead delegates an AI/ML ticket, prompt design questions
   arise, evaluation harness needs evolution, AI-behavior telemetry needs
   interpretation, or AI-output ↔ user-surface integration needs ML-side input.
-model: claude-haiku-4-5-20251001
+model: claude-haiku-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

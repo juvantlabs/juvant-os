@@ -13,7 +13,8 @@ description: |
   takes them in v1.1). Coordinates with CMO on demand-gen and CRO on research-led narratives.
   Use proactively for: inbound lead triage, proposal drafting, pipeline updates,
   partner coordination, demo brief preparation.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph

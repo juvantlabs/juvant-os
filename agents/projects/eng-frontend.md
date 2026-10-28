@@ -11,7 +11,8 @@ description: |
   Use proactively when: Eng Lead delegates a frontend ticket, design-system
   consumption questions arise, accessibility implementation needs review,
   or UI ↔ backend contract gaps surface during build.
-model: claude-haiku-4-5-20251001
+model: claude-haiku-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github

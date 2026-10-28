@@ -16,7 +16,8 @@ description: |
   Use proactively for: any spec arriving in inbound_queue from peer agents
   (PR / issue / project / milestone / install), deployment events, incident
   response, runbook updates, branch-protection management, release coordination.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
+effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
   - github
