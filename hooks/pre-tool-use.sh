@@ -200,6 +200,62 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     done
     return 0
   }
+  # ── decisions#300 items 5 + 12: a prose-free view of the command ──────────
+  # The universal deny-list and the Track 2d write-verb scan matched the WHOLE
+  # string, quoted text included, so prose inside an argument false-denied a
+  # benign command (a decisions INSERT whose rationale mentioned a pause
+  # window hit the `halt` rule; a `git push` mentioned in a VALUES column hit
+  # Track 2d) whenever the command was not a BUG-072 simple turso command.
+  # _juvant_strip_prose: quoted literals that contain whitespace (prose, SQL)
+  # are emptied; single-word literals are only unwrapped, so a quoted
+  # destructive ARGUMENT stays visible (`rm -rf "/"` → `rm -rf /`). A literal
+  # with whitespace cannot name the same target (`"/ "` is not `/`).
+  # shellcheck disable=SC2016,SC1003
+  _juvant_strip_prose() {
+    local s="$1" n=${#1} i=0 c q="" lit="" out=""
+    while [[ $i -lt $n ]]; do
+      c="${s:$i:1}"
+      if [[ -n "$q" ]]; then
+        if [[ "$c" == "$q" ]]; then
+          case "$lit" in *[[:space:]]*) out+="$q$q" ;; *) out+="$lit" ;; esac
+          q=""; lit=""
+        elif [[ "$q" == '"' && "$c" == '\' ]]; then
+          i=$((i + 1)); lit+="${s:$i:1}"
+        else
+          lit+="$c"
+        fi
+      else
+        case "$c" in
+          "'"|'"') q="$c"; lit="" ;;
+          '\') out+="$c${s:$((i + 1)):1}"; i=$((i + 1)) ;;
+          *) out+="$c" ;;
+        esac
+      fi
+      i=$((i + 1))
+    done
+    # Unterminated quote: keep the remainder verbatim (fail toward scanning).
+    [[ -n "$q" ]] && out+="$q$lit"
+    printf '%s' "$out"
+  }
+  # A command that EVALUATES text as code (a shell or interpreter, eval,
+  # command substitution, ANSI-C $'…' quoting) keeps the full view: its quoted
+  # text is code, not data (`bash -c "shutdown now"`, `echo x | sh`).
+  # shellcheck disable=SC2016
+  _juvant_cmd_evaluates() {
+    local full="$1" stripped="$2"
+    local re='(^|[^A-Za-z0-9_.-])(bash|sh|zsh|dash|ksh|fish|eval|exec|ssh|su|xargs|watch|script|parallel|python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua|source)([[:space:]]|$)'
+    [[ "$stripped" =~ $re ]] && return 0
+    [[ "$full" == *'$('* || "$full" == *'`'* || "$full" == *"\$'"* ]] && return 0
+    return 1
+  }
+  _CMD_SCAN="$COMMAND"
+  if [[ "$COMMAND" == *[\'\"]* ]]; then
+    _cmd_stripped=$(_juvant_strip_prose "$COMMAND")
+    if ! _juvant_cmd_evaluates "$COMMAND" "$_cmd_stripped"; then
+      _CMD_SCAN="$_cmd_stripped"
+    fi
+  fi
+
   _TURSO_SQL_MODE=0
   _TURSO_SQL_PAYLOAD=""
   _dft_line=""
@@ -265,10 +321,15 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
   fi
 
   # Universal deny-list (skipped in turso SQL mode; sql_deny_patterns applied instead)
+  # Shell-binary rules run on the prose-free view (_CMD_SCAN); the SQL-CONTENT
+  # rules (DROP/TRUNCATE/scope='global') describe text that legitimately lives
+  # inside quotes, so they keep the full command.
   if [[ "$_TURSO_SQL_MODE" -eq 0 ]]; then
     while IFS= read -r pattern; do
       [[ -z "$pattern" || "$pattern" == "null" ]] && continue
-      if [[ "$COMMAND" =~ $pattern ]]; then
+      _pat_view="$_CMD_SCAN"
+      case "$pattern" in DROP*|TRUNCATE*|'(INSERT|UPDATE)'*) _pat_view="$COMMAND" ;; esac
+      if [[ "$_pat_view" =~ $pattern ]]; then
         DECISION="deny"
         DENY_REASON="universal deny-list match: $pattern (handbook ADR 0004 Track 2)"
         break
@@ -362,6 +423,37 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
         fi
         [[ "$_ft_line" == \#* ]] && continue
         _ft_tok="${_ft_line%% *}"
+        # decisions#300 item 12: a shell keyword introduces a command on the
+        # SAME line — resolve it instead of discarding the line. A one-line
+        # `for f in a b; do turso …; done` used to skip its only line and end
+        # with an EMPTY first token (→ deny:allow-list:), and a `do turso …`
+        # line was skipped outright. `for`/`select` resolve to the body after
+        # `do`; `while`/`until`/`if`/`elif` to their condition command;
+        # `then`/`do`/`else`/`!`/`{` to what follows; closers carry nothing.
+        _ft_kw=1
+        while [[ "$_ft_kw" == 1 ]]; do
+          _ft_kw=0
+          case "${_ft_tok%;}" in
+            for|select)
+              if [[ "$_ft_line" =~ [\;[:space:]]do[[:space:]]+(.*)$ ]]; then
+                _ft_line="${BASH_REMATCH[1]}"; _ft_kw=1
+              else
+                _ft_line=""
+              fi ;;
+            while|until|if|elif|then|do|else|'!'|'{')
+              _ft_line="${_ft_line#"$_ft_tok"}"; _ft_kw=1 ;;
+            'fi'|'done'|'esac'|'}'|'case')
+              _ft_line="" ;;
+          esac
+          if [[ "$_ft_kw" == 1 ]]; then
+            while [[ "${_ft_line:0:1}" == " " || "${_ft_line:0:1}" == $'\t' || "${_ft_line:0:1}" == ";" ]]; do
+              _ft_line="${_ft_line:1}"
+            done
+            [[ -z "$_ft_line" ]] && break
+            _ft_tok="${_ft_line%% *}"
+          fi
+        done
+        [[ -z "$_ft_line" ]] && continue
         # BUG-054 (juvantlabs/juvant-os-pm#140): the assignment (*=*) check MUST
         # run BEFORE the ##*/ path-strip. The old order stripped the path first,
         # which ate '=' out of an inline env-prefix token whose value contained
@@ -477,9 +569,87 @@ fi
 if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   _T2B_CMD=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""')
 
-  # Detect write tokens (whole-word, case-insensitive)
-  if echo "$_T2B_CMD" | grep -qiE \
-      '\b(INSERT|UPDATE|DELETE|REPLACE)\b|CREATE[[:space:]]+TABLE|ALTER[[:space:]]+TABLE|DROP[[:space:]]+TABLE'; then
+  # Detect a SQL WRITE (decisions#300 item 5, security_audit_log#150). The old
+  # whole-word match over the full command fired on `replace(` and on verbs in
+  # quoted prose, so a read-only `turso db shell project-x "SELECT replace(a,
+  # 'b','c') FROM t"` from a company agent was denied as a §4b write. Now:
+  #   • candidates = every quoted literal in the command, plus the unquoted
+  #     remainder (heredoc bodies live there);
+  #   • inside each, SQL string literals ('…', '' escaped) and comments are
+  #     removed, then it is split into statements (on ; and newline);
+  #   • a write verb counts only at STATEMENT START — INSERT (incl. INSERT OR
+  #     REPLACE), UPDATE, DELETE, REPLACE INTO, CREATE/ALTER/DROP TABLE — or
+  #     after a leading WITH … CTE. REPLACE alone is the string function.
+  # shellcheck disable=SC1003
+  _t2b_is_write() {
+    local cmd="$1" cand st c i n q lit sql nolit
+    local -a cands=()
+    # Shell-level split: quoted literals → candidates; the rest → one more.
+    n=${#cmd}; i=0; q=""; lit=""; local rest=""
+    while [[ $i -lt $n ]]; do
+      c="${cmd:$i:1}"
+      if [[ -n "$q" ]]; then
+        if [[ "$c" == "$q" ]]; then
+          # SQL '' inside a single-quoted shell literal is two adjacent shell
+          # quotes: keep it in the same candidate.
+          if [[ "$q" == "'" && "${cmd:$((i + 1)):1}" == "'" ]]; then lit+="''"; i=$((i + 2)); continue; fi
+          cands+=("$lit"); q=""; lit=""
+        elif [[ "$q" == '"' && "$c" == '\' ]]; then
+          i=$((i + 1)); lit+="${cmd:$i:1}"
+        else
+          lit+="$c"
+        fi
+      else
+        case "$c" in
+          "'"|'"') q="$c"; lit="" ;;
+          *) rest+="$c" ;;
+        esac
+      fi
+      i=$((i + 1))
+    done
+    [[ -n "$q" ]] && cands+=("$lit")
+    cands+=("$rest")
+    for cand in "${cands[@]}"; do
+      # Strip SQL string literals ('…' with '' escapes) and comments.
+      nolit=""; n=${#cand}; i=0; q=0
+      while [[ $i -lt $n ]]; do
+        c="${cand:$i:1}"
+        if [[ "$q" == 1 ]]; then
+          if [[ "$c" == "'" ]]; then
+            if [[ "${cand:$((i + 1)):1}" == "'" ]]; then i=$((i + 2)); continue; fi
+            q=0; nolit+="''"
+          fi
+        elif [[ "$c" == "'" ]]; then
+          q=1
+        elif [[ "$c" == "-" && "${cand:$((i + 1)):1}" == "-" ]]; then
+          while [[ $i -lt $n && "${cand:$i:1}" != $'\n' ]]; do i=$((i + 1)); done
+          continue
+        elif [[ "$c" == "/" && "${cand:$((i + 1)):1}" == "*" ]]; then
+          # /* … */ — a leading comment must not hide the statement's verb.
+          i=$((i + 2))
+          while [[ $i -lt $n && "${cand:$i:2}" != "*/" ]]; do i=$((i + 1)); done
+          i=$((i + 2)); nolit+=" "
+          continue
+        else
+          nolit+="$c"
+        fi
+        i=$((i + 1))
+      done
+      sql="${nolit//$'\n'/;}"
+      IFS=';' read -ra _t2b_stmts <<< "$sql"
+      for st in ${_t2b_stmts[@]+"${_t2b_stmts[@]}"}; do
+        shopt -s nocasematch
+        if [[ "$st" =~ ^[[:space:]]*(INSERT|UPDATE|DELETE|REPLACE[[:space:]]+INTO|CREATE[[:space:]]+TABLE|ALTER[[:space:]]+TABLE|DROP[[:space:]]+TABLE)([^A-Za-z0-9_]|$) ]] \
+           || [[ "$st" =~ ^[[:space:]]*WITH[[:space:]].*[^A-Za-z0-9_](INSERT|UPDATE|DELETE|REPLACE[[:space:]]+INTO)[[:space:]] ]]; then
+          shopt -u nocasematch
+          return 0
+        fi
+        shopt -u nocasematch
+      done
+    done
+    return 1
+  }
+  if _t2b_is_write "$_T2B_CMD"; then
 
     # BUG-056 (juvantlabs/juvant-os-pm#143): honor JUVANT_CONFIG like Track 2c/2d/2e — the hardcoded path
     # ignored the override, silently bypassing Track-2b in any fixture/testco
@@ -650,7 +820,11 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   # bash's own `-c` flag, so stripping it ate the verb in `bash -c 'git push'`
   # (a regression); and `git -c key=val push` still leaves the verb reachable
   # by the looser match below, so stripping `-c` was never load-bearing.
-  _GIT_NORM=$(printf '%s' "$COMMAND" | sed -E 's/(^|[[:space:]])(-C|--git-dir|--work-tree|--namespace|--exec-path)([[:space:]]+|=)[^[:space:]]+/ /g')
+  # decisions#300 item 5: scan the prose-free view (Track 2 above), so a write
+  # verb mentioned inside quoted text (a VALUES column, a commit message body)
+  # is not a write. Commands that evaluate code keep the full view.
+  _T2D_VIEW="${_CMD_SCAN:-$COMMAND}"
+  _GIT_NORM=$(printf '%s' "$_T2D_VIEW" | sed -E 's/(^|[[:space:]])(-C|--git-dir|--work-tree|--namespace|--exec-path)([[:space:]]+|=)[^[:space:]]+/ /g')
   # Match a git WRITE verb that may sit behind ANY number of intervening
   # tokens — no-arg globals (`--no-pager`, `--bare`), a quoted `-c` value with
   # internal spaces, or the shell wrapper in `bash -c 'git push'`. Biased to
@@ -666,7 +840,7 @@ if [[ "$TOOL_NAME" == "Bash" && "$DECISION" == "allow" ]]; then
   if [[ "$_T2D_WRITE" -eq 0 && -f "$POLICY" ]]; then
     while IFS= read -r _ghp; do
       [[ -z "$_ghp" ]] && continue
-      if [[ "$COMMAND" =~ $_ghp ]]; then _T2D_WRITE=1; break; fi
+      if [[ "$_T2D_VIEW" =~ $_ghp ]]; then _T2D_WRITE=1; break; fi
     done < <(jq -r '.single_writer_gh_patterns[]?' "$POLICY" 2>/dev/null)
   fi
   # gh api is a WRITE unless it is an explicit GET. A body can come from field

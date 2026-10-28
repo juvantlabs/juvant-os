@@ -68,6 +68,29 @@ All written artifacts in English. No exceptions.
   Findings go to SessionStart stdout (session context, for CoS to surface) and an
   `agent_actions_log` row (`tool_name='HooksIntegrity'`); never blocks. Skipped in
   framework dev (same tri-state as Track 2f). Added to the sync whitelist.
+### Fixed
+
+- **Gate read precision — reads stop being denied as writes (decisions#300 items 5
+  + 12, security_audit_log#150).** Three false-deny classes with one root cause
+  (scanning quoted text as if it were shell code / a SQL statement head):
+  - **Track 2b (§4b/§4c)** treated `replace(` and any write verb anywhere in the
+    command as a write, so a read-only `turso db shell project-x "SELECT
+    replace(a,'b','c') FROM t"` from a company agent was denied. SQL writes are now
+    detected per statement, after stripping SQL string literals and comments, with
+    the verb anchored at statement start (`INSERT` incl. `INSERT OR REPLACE`,
+    `UPDATE`, `DELETE`, `REPLACE INTO`, `CREATE/ALTER/DROP TABLE`, or a `WITH …`
+    CTE leading into one). `REPLACE` alone is the string function. Heredoc SQL and
+    stacked statements are still caught.
+  - **Universal deny-list / Track 2d** matched prose inside quoted arguments of
+    non-simple commands (a decisions INSERT whose rationale mentioned a pause
+    window hit the `halt` rule). They now scan a prose-free view: quoted literals
+    containing whitespace are emptied, single-word literals only unwrapped (so
+    `rm -rf "/"` is still denied). Any command that evaluates text as code (`bash
+    -c`, `| sh`, `eval`, interpreters, `$(…)`, backticks, `$'…'`) keeps the full
+    view, and the SQL-content rules (DROP/TRUNCATE/`scope='global'`) always do.
+  - **Allow-list** resolved a one-line `for …; do cmd; done` to an EMPTY first
+    token (and skipped `do cmd` lines). Shell keywords now resolve to the command
+    they introduce on the same line.
 
 ## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
 
