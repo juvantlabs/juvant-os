@@ -38,6 +38,18 @@ All written artifacts in English. No exceptions.
   check enforces the field on PreToolUse, its absence on observational hooks (where
   Claude Code ignores it), and settings↔template hook-block parity. See `hooks/README.md`.
 
+- **FEAT-062 — ConfigChange forensic logging.** New `hooks/config-change.sh`
+  (registered via the canonical hook template) records a row in `agent_actions_log`
+  for every configuration/skill change during a session (`source` + `file_path`;
+  event schema verified live on CC 2.1.312). Log-only / non-blocking: a ConfigChange
+  `decision:"block"` only stops the running session from hot-reloading the change,
+  it does **not** revert the on-disk write — so this hook is the **detection** half;
+  tamper **prevention** (a PreToolUse write-deny on the guardrail files) is tracked
+  separately (FEAT-064). Scope note: `PreModelSwitch` and `PermissionRequest`/
+  `PermissionDenied` from the original FEAT-062 bundle were dropped as inert in this
+  architecture (the CoS model-override is already logged in `decisions`; `acceptEdits`
+  mode + hook-based deny mean those permission events don't fire). Hook suite 197/197.
+
 ### Fixed
 
 - **BUG-053 (SECURITY) — PreToolUse deny was silently unenforced (legacy output

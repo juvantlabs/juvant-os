@@ -110,6 +110,16 @@
           }
         ]
       }
+    ],
+    "ConfigChange": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'r=\"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null)}\"; [[ -f \"$r/hooks/config-change.sh\" ]] && exec bash \"$r/hooks/config-change.sh\"; exit 0'"
+          }
+        ]
+      }
     ]
   }
 }

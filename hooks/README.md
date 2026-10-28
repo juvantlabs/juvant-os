@@ -7,6 +7,7 @@ Registered in `.claude/settings.json`.
 |---|---|---|
 | `pre-tool-use.sh` | PreToolUse | Deny-list + per-role allow-list + single-writer gate (handbook ADR 0004 Track 2) |
 | `post-tool-use.sh` | PostToolUse | Append-only audit log (Track 3) |
+| `config-change.sh` | ConfigChange | Forensic log of every config/skill change to the audit log (FEAT-062, log-only) |
 | `session-start.sh` | SessionStart | `agents.status = 'active'` in Turso |
 | `session-end.sh` | SessionEnd | `agents.status = 'inactive'` in Turso |
 | `pre-compact.sh` | PreCompact | Commit pending memory + produce Session Snapshot |
@@ -38,3 +39,15 @@ third layer, for the case where the script never gets to emit anything.
 - **Live smoke (run once in a real session, per the "verify gates live" rule):**
   temporarily make `pre-tool-use.sh` `exit 1` at the top, attempt a trivially
   allowed Bash command, confirm it is **blocked** (not run), then revert.
+
+## ConfigChange forensics (FEAT-062)
+
+`config-change.sh` records a forensic row in `agent_actions_log` for every
+configuration/skill change during a session (`source` + `file_path`, verified
+event schema). It is deliberately **log-only / non-blocking**: a ConfigChange
+`decision:"block"` does **not** revert the on-disk write — it only stops the
+running session from hot-reloading the change (verified live, 2026-10-28). So
+blocking here is not tamper *prevention*; this hook's job is **detection** (every
+change is recorded even when it isn't prevented). Tamper *prevention* belongs at
+the PreToolUse write-deny layer (deny `Write`/`Edit` of the guardrail files),
+which is already fail-closed — tracked as a separate adopter-scoped issue.
