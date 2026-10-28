@@ -4807,11 +4807,16 @@ trail. **Company-scope agents only** — no project agents involved.
    `main` (`git checkout -b sync/upstream-<tag>`), then
    `git checkout upstream/main -- <file>` for each approved file. Use exactly
    this form (or `git restore --source=upstream/main -- <file>`) for
-   `hooks/*.sh`, `hooks/lib/*.sh` and `hooks/bash-policy.json`: the Track 2f
-   tamper floor denies every other write to those files, and allows this one
-   only while `upstream` is the canonical `juvantlabs/juvant-os` remote
-   (decisions#300). The SessionStart integrity check then verifies every
-   guardrail file is content that upstream has shipped.
+   `hooks/*.sh`, `hooks/lib/*.sh`, `hooks/bash-policy.json`, `helpers/*.sh`
+   and `scripts/*.sh`: the Track 2f tamper floor denies every other write to
+   those files, and allows this one only while `upstream` is the canonical
+   `juvantlabs/juvant-os` remote (decisions#300, #303). The protected set
+   (`hooks/lib/guardrail-paths.sh`) also covers the audit spool family and
+   `.juvant/backups/` — written only by the hook and its drain helper. The
+   SessionStart integrity check then verifies every synced protected file is
+   content that upstream has shipped, and that each installed
+   `io.juvant.guardrails.*` launchd plist matches what
+   `helpers/install-schedules.sh` generates.
 
 8. **Post-apply steps** (auto-executed, no additional CEO input):
    - Any `helpers/*.sh` or `hooks/*.sh` changed →
@@ -4900,7 +4905,7 @@ hooks/subagent-start.sh       hooks/subagent-stop.sh
 hooks/post-compact.sh         hooks/pre-compact.sh
 hooks/config-change.sh        hooks/lib/pause-windows.sh
 hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
-hooks/lib/hooks-integrity.sh
+hooks/lib/hooks-integrity.sh  hooks/lib/guardrail-paths.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh
@@ -4957,6 +4962,7 @@ tests/helpers/test-spec-marking-gate.sh
 tests/helpers/test-turso-backup-archival.sh
 tests/sync/test-sync-compile.sh
 tests/sync/test-fake-db-pairing.sh
+tests/sync/test-sync-hooks.sh
 ```
 
 `tests/` entries are an **explicit framework-owned file list, never a glob**
