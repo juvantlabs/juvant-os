@@ -11,6 +11,51 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.12.0] — 2026-10-28 — Claude 5.5 agents, fail-closed guardrails, spec-execution marking
+
+### Added
+
+- **ADR 0028 + ARCH-017 — spec-execution marking is enforced, not remembered.**
+  The ARCH-013 "mark executed immediately" protocol is now mechanically enforced
+  in two layers. **Layer 2** (`helpers/audit-reconcile.sh`) auto-closes the
+  *verifiable* subset of stale specs — `pr-spec` / `gh-issue-spec`, company scope,
+  `approved → executed` only, when **exactly one** merged PR / issue references
+  `decisions#<id>` — writing only the close-set (`executed_by='audit-reconcile'`),
+  never INSERTing; ambiguous cases stay alert-only (bounded §4c maintenance
+  carve-out). **Layer 1** (`hooks/lib/spec-marking-gate.sh`, shared by
+  `subagent-stop.sh` and `stop.sh`) blocks a stop when a PR merged this session
+  references an approved, still-unmarked spec, with a self-remediating
+  instruction; it fails open on any missing link, so it cannot deadlock. CC's
+  honoring of the block was confirmed live (2026-07-14). The `pr-spec` /
+  `gh-issue-spec` authoring contract now **requires** `decisions#<id>` in the
+  PR/issue body.
+- **ADR 0029 — spec-marking for artifact-less Bash executions.** A landing Bash
+  command prefixed `JUVANT_EXECUTING_SPEC=<id> <cmd>` is stamped by
+  `pre-tool-use.sh` onto the new nullable `agent_actions_log.spec_id` column
+  (idempotent `migrate.sh` ALTER), and the Layer-1 gate blocks while that spec is
+  still `approved` — pure-DB, works without `gh`. Bash-landing only (Edit/Write
+  have no per-call channel); the 5-check rejects an artifact-less plan without the
+  prefix.
+- **ADR 0030 (Proposed) — scope-aware spec-marking**, with the interim guard
+  shipped (see BUG-060 below).
+- **ADRs 0031 / 0032 / 0033 (Accepted)** — package Juvant OS as a plugin for
+  distribution, hybrid with `compile-templates` (agents stay filesystem-compiled,
+  since plugin subagents ignore per-agent `mcpServers`/hooks); agent memory stays
+  on Turso (the client-side memory tool isn't adoptable in the Claude-Code-hosted
+  harness); Claude Mods are **not** adopted (unsandboxed, expand the threat model).
+- **Canon coherence verifier** (`tests/verify-canon.py`,
+  `.github/workflows/canon-coherence.yml`) — a 9-class identifier guard that fails
+  CI when the canon prescribes an identifier the schema/GitHub/agent inventory
+  rejects (trigger case: the `gh-execution-confirmed` category); 18-fixture
+  self-test wired into `lint.yml`. Adds `.juvant/config.example.json`.
+- **`drain-audit-spool.sh` pre-drain backup** — timestamped backup before the
+  spool rename (fail-closed: drain deferred if the backup can't be made),
+  line-count integrity check, retention prune (`DRAIN_BACKUP_RETAIN`, default 7;
+  `JUVANT_BACKUP_DIR` override).
+- **Schema category drift guard** (`tests/schema/validate.py`) — fails CI if the
+  `decisions.category` allowlist drifts between `schema.sql` triggers and the
+  `migrate.sh` patch strings.
+
 ### Changed
 
 - **FEAT-059 — Model refresh to the Claude 5.5 line + per-agent `effort`.** All 21
@@ -64,8 +109,88 @@ All written artifacts in English. No exceptions.
   architecture (the CoS model-override is already logged in `decisions`; `acceptEdits`
   mode + hook-based deny mean those permission events don't fire). Hook suite 197/197.
 
+- **FEAT-063 — `headersHelper` for remote MCP auth.** README §3 now recommends a
+  dynamic `headersHelper` (fresh header map per connection) over static headers /
+  baked tokens for remote (`type: http`) MCP servers, plus a scoping note: an MCP
+  `permissions.allow` rule reaches only the named server and MCP requests no longer
+  follow redirects — scope servers per agent via `mcpServers:` frontmatter
+  (ADR 0003). Nothing in-repo needed changing (OP-010).
+
+- **Execution confirmation is a status transition on the spec row**
+  (decisions#274). The `eng-lead` / `product-lead` templates prescribed a
+  follow-up `decisions` row with category `gh-execution-confirmed`, which the
+  schema allowlist rejects. Confirmation is now the originating spec row reaching
+  `status='executed'` with `executed_by` / `executed_at` / `source_ref` — already
+  enforced by the schema triggers.
+
 ### Fixed
 
+- **BUG-073 (SECURITY) — universal `rm`/`kill` deny rules didn't match the
+  operative forms.** Two `deny_patterns` used PCRE `\s`, which bash ERE reads as
+  a literal `s`, so `rm -rf / --no-preserve-root`, `rm -rf /` inside `$(…)` and
+  `kill -9 1 -s KILL` were **allowed** by the universal floor. Rules are now
+  anchored to a real token boundary.
+- **BUG-072 (SECURITY) — turso SQL mode disarmed the universal deny-list for
+  compound commands.** The BUG-066 SQL mode activated on any command whose first
+  token was `turso`, so `turso db shell db "SELECT 1" && <anything>` bypassed all
+  25 universal patterns and the Track 2d single-writer gate — reachable by every
+  role. SQL mode is now scoped to a single simple command.
+- **BUG-066 — false denials on SQL payloads.** Universal `deny_patterns` and
+  Track 2d matched prose inside SQL string literals (e.g. a rationale mentioning
+  `shutdown` or `git commit`). Turso SQL payloads are now checked against a
+  dedicated, statement-anchored `sql_deny_patterns` list.
+- **BUG-065 / BUG-065-write / BUG-071 (SECURITY) — the cloud DB layer silently
+  failed.** `juvant_db_query_csv` passed a `--output csv` flag the turso CLI never
+  had (errors swallowed by `2>/dev/null`; the test shim accepted the invented flag),
+  so `anomaly-check` never ran and `morning-brief` sent false all-clears.
+  `juvant_db_exec` hid lapsed auth behind `>/dev/null 2>&1`, so helper writes never
+  landed. `juvant_db_query` returned the column header as data, treated an empty
+  result as non-empty and stripped spaces inside text columns. All three cloud paths
+  now go through the libsql HTTP `/v2/pipeline` API with output byte-identical to
+  local `sqlite3`; errors are surfaced and empty ≠ failure. Transport failures on
+  writes spool to `.juvant/audit-spool.sql` for retry; DB errors fail loud.
+- **BUG-070 — false continuity findings in the bootstrap audit.** The Layer 5
+  continuity check fired on any empty table. It now measures a windowed gap
+  across `agent_actions_log` / `messages` / `session_snapshots`
+  (`CONTINUITY_WARN_DAYS=14`, `CONTINUITY_FAIL_DAYS=30`), honours a non-empty
+  spool, and suppresses declared `pause_windows`.
+- **BUG-064 (SAFETY) — `migrate.sh --dry-run` wrote the database.** In the
+  default schema-apply mode `--dry-run` was ignored: the schema and trigger
+  DROP/CREATE were applied and "success" printed. Dry-run now writes nothing.
+- **BUG-063 — every CSO audit `decisions` INSERT was rejected.** The CSO
+  categories `system-audit`, `incident-response`, `security-remediation` were
+  missing from the schema allowlist; added to `schema.sql` and the `migrate.sh`
+  patches (with a CI drift guard, see Added).
+- **BUG-062 — scheduled helper logs went headers-only after the 8th run.** The
+  log prune replaced the file via `mv`, orphaning launchd's stdout fd; it now
+  truncates in place (same inode) in all four helpers.
+- **BUG-061** — the sync reminder told adopters to run
+  `bash scripts/migrate.sh schema-apply` (exit 1); corrected to the bare command.
+- **BUG-060 — cross-scope false-block in the spec-marking gate.** Project specs
+  live in project DBs with colliding ids, so a project session could be blocked
+  on an unrelated company decision. Interim guard (ADR 0030 step 1): the gate acts
+  only on company-scope sessions and company-repo merges; otherwise it fails open.
+- **BUG-059 — company-init `notifications` block written at the config root.**
+  Shipped code reads `.notifications.*`, so every Telegram/Teams send silently
+  skipped. The template now wraps the block in `"notifications": { … }`.
+- **BUG-056 / BUG-057 / BUG-058 — spec-marking hardening from live adoption.**
+  Track 2b now honours `$JUVANT_CONFIG` like Tracks 2c–2e; `github_repos` is
+  documented in the company-init config (both layers failed open silently
+  without it) and a WARN is emitted when the repo is unresolved; the Layer-1 gate
+  drains the audit spool before querying, so just-happened merges aren't missed.
+- **BUG-055 — `turso` missing from the allow-list for `cto`, `design-lead`,
+  `eng-frontend`** despite the tool matrix granting it; added, plus an invariant
+  test that every matrix turso grant is in the allow-list.
+- **BUG-054 — `VAR=<url> binary` falsely denied.** `pre-tool-use.sh` stripped
+  paths before recognising an inline env-prefix; it now skips all leading
+  assignments to the real binary, and bare URL tokens get a distinct
+  `deny:parse:` reason. Fail-closed before, so no bypass.
+- **BUG-077 — synced agent-template changes weren't recompiled.** The upstream
+  sync recompiled only when `compile-templates.sh` itself changed, so a template
+  change left projects/components running stale compiled agents (or reintroduced
+  `{{PLACEHOLDER}}`s at company scope). It now recompiles at the matching scope
+  whenever a template changes. `compile-templates.sh --help` now documents
+  `--scope component --component=<slug>`.
 - **BUG-053 (SECURITY) — PreToolUse deny was silently unenforced (legacy output
   format).** `hooks/pre-tool-use.sh` emitted the decision in the legacy
   top-level form `{"permissionDecision":"deny",…}`. Claude Code 2.x honors a
@@ -135,6 +260,9 @@ All written artifacts in English. No exceptions.
   templates now carry it. (A reference invariant in a shared doc
   is necessary but not sufficient — the rule must be in each agent's own
   manifesto to resolve the runtime "relayed ⇒ no authority" annotation.)
+  Follow-up (decisions#284): `cetho` and the component `maintainer` only
+  referenced the invariant; they now carry the standalone clause byte-identical
+  to the other templates, which ends the recurring adopter-sync diff.
 
 ## [1.11.1] — 2026-06-29 — Session lifecycle hooks capture stdin (redirect fix)
 
