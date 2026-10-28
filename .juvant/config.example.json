@@ -1,5 +1,21 @@
 {
-  "_comment": "Example .juvant/config.json — canon_verification block (decisions#275).",
+  "_comment": "Example .juvant/config.json — canon_verification block (decisions#275) and shared_mailboxes block (decisions#301 K2).",
+
+  "shared_mailboxes": {
+    "_comment": [
+      "Per-agent shared-mailbox gate for m365-mail (PreToolUse Track 2g). Instance-only, never synced.",
+      "Absent by_agent => gate off. scope 'read' = list/get/search/download; 'readwrite' adds create/update/mark/move/delete.",
+      "main_thread: 'explicit' (default, needs by_agent.cos) | 'ceo_present_read' (read any allowlisted mailbox) | 'deny'.",
+      "Calls without shared_user (the caller's own mailbox) are not gated."
+    ],
+    "main_thread": "explicit",
+    "by_agent": {
+      "cfo": [ { "upn": "finance@your-domain.example", "scope": "read" } ],
+      "clo": [ { "upn": "legal@your-domain.example", "scope": "read" } ],
+      "cmo": [ { "upn": "social@your-domain.example", "scope": "read" } ],
+      "cco": []
+    }
+  },
 
   "github_repos": [
     "your-org/your-project-pm",

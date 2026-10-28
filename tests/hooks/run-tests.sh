@@ -1244,6 +1244,114 @@ t_assert "allow-list: for loop over a NON-allowed binary → still deny" "deny" 
 rm -f "$_GP_CFG"
 
 # ─────────────────────────────────────────────
+# Track 2g — per-agent shared-mailbox gate (decisions#301 K2)
+# ─────────────────────────────────────────────
+suite "Track 2g: shared-mailbox gate for m365-mail (decisions#301 K2)"
+
+_T2G_DIR="$(mktemp -d)"
+# $1 = main_thread mode ("" = key absent) → writes the fixture config, prints its path
+_t2g_cfg() {
+  local f="$_T2G_DIR/cfg-${1:-default}.json"
+  jq -n --arg mode "$1" '{
+    db: { provider: "turso", url: "libsql://test.fake" },
+    shared_mailboxes: ({
+      by_agent: {
+        cfo: [ { upn: "finance@example.test", scope: "read" } ],
+        clo: [ { upn: "legal@example.test",   scope: "read" } ],
+        cmo: [ { upn: "social@example.test",  scope: "read" } ],
+        cco: [],
+        cro: [ { upn: "research@example.test", scope: "readwrite" } ]
+      } } + (if $mode == "" then {} else { main_thread: $mode } end))
+  }' > "$f"
+  echo "$f"
+}
+_T2G_CFG_DEFAULT=$(_t2g_cfg "")
+_T2G_CFG_A=$(_t2g_cfg "ceo_present_read")
+_T2G_CFG_C=$(_t2g_cfg "deny")
+_T2G_CFG_COS="$_T2G_DIR/cfg-cos.json"
+jq '.shared_mailboxes.by_agent.cos = [ { upn: "finance@example.test", scope: "read" } ]' "$_T2G_CFG_DEFAULT" > "$_T2G_CFG_COS"
+_T2G_CFG_NOKEY="$_T2G_DIR/cfg-nokey.json"
+echo '{"db":{"provider":"turso","url":"libsql://test.fake"}}' > "$_T2G_CFG_NOKEY"
+
+# _t2g <cfg> <agent_type|""> <tool> <shared_user|""> → "allow" / "deny:k2" / "deny:other"
+_t2g() {
+  local ev out dec rsn
+  ev=$(jq -cn --arg a "$2" --arg t "mcp__m365-mail__m365-mail_$3" --arg u "$4" '
+    {tool_name:$t, session_id:"s-k2", tool_input:(if $u == "" then {query:"x"} else {query:"x", shared_user:$u} end)}
+    + (if $a == "" then {} else {agent_type:$a} end)')
+  out=$(echo "$ev" | JUVANT_CONFIG="$1" AGENT_ROLE="" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null || true)
+  dec=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+  rsn=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+  if [[ "$dec" == "allow" ]]; then echo allow
+  elif [[ "$rsn" == *"MAILBOX-ACCESS POLICY"* ]]; then echo "deny:k2"
+  else echo "deny:other"; fi
+}
+_t2g_audit_reset() { t_db "DELETE FROM security_audit_log;"; rm -f "$JUVANT_SPOOL"; }
+_t2g_audit() { bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true; t_db "$1"; }
+
+C="$_T2G_CFG_DEFAULT"
+# Allowlist by agent.
+_t2g_audit_reset
+t_assert "cfo search_messages finance@ → allow" "allow" "$(_t2g "$C" cfo search_messages finance@example.test)"
+t_assert "  …allow writes an info access-event audit row" "1" \
+  "$(_t2g_audit "SELECT count(*) FROM security_audit_log WHERE severity='info' AND category='access-event' AND finding LIKE '%finance@example.test%cfo%decision=allow%';")"
+_t2g_audit_reset
+t_assert "cfo search_messages legal@ → deny" "deny:k2" "$(_t2g "$C" cfo search_messages legal@example.test)"
+t_assert "  …deny writes a high unauthorized-read audit row" "1" \
+  "$(_t2g_audit "SELECT count(*) FROM security_audit_log WHERE severity='high' AND category='unauthorized-read' AND finding LIKE '%legal@example.test%cfo%decision=deny%';")"
+t_assert "clo get_message legal@ → allow" "allow" "$(_t2g "$C" clo get_message legal@example.test)"
+t_assert "cmo list_messages legal@ → deny" "deny:k2" "$(_t2g "$C" cmo list_messages legal@example.test)"
+t_assert "cco (empty list) list_messages finance@ → deny" "deny:k2" "$(_t2g "$C" cco list_messages finance@example.test)"
+t_assert "agent with no by_agent key (cso) → deny" "deny:k2" "$(_t2g "$C" cso search_messages finance@example.test)"
+t_assert "upn match is case-insensitive (Finance@EXAMPLE.test)" "allow" "$(_t2g "$C" cfo search_messages Finance@EXAMPLE.test)"
+t_assert "cfo download_attachment / list_attachments / list_mail_folders finance@ → allow" "allow allow allow" \
+  "$(_t2g "$C" cfo download_attachment finance@example.test) $(_t2g "$C" cfo list_attachments finance@example.test) $(_t2g "$C" cfo list_mail_folders finance@example.test)"
+
+# Scope: read allows class A only.
+for _op in move_message delete_message create_draft create_reply_draft create_forward_draft update_draft mark_read; do
+  t_assert "cfo $_op finance@ (scope=read) → deny" "deny:k2" "$(_t2g "$C" cfo "$_op" finance@example.test)"
+done
+_t2g_audit_reset
+_t2g "$C" cfo delete_message finance@example.test >/dev/null
+t_assert "  …write deny is audited as unauthorized-write (high)" "1" \
+  "$(_t2g_audit "SELECT count(*) FROM security_audit_log WHERE severity='high' AND category='unauthorized-write';")"
+t_assert "readwrite scope (cro research@) create_draft → allow" "allow" "$(_t2g "$C" cro create_draft research@example.test)"
+t_assert "readwrite scope (cro research@) search → allow" "allow" "$(_t2g "$C" cro search_messages research@example.test)"
+t_assert "unclassified tool verb on a shared mailbox → deny (deny-by-default)" "deny:k2" \
+  "$(_t2g "$C" cro frobnicate_mailbox research@example.test)"
+
+# Out of scope: own delegated mailbox (no shared_user) and other MCP servers.
+_t2g_audit_reset
+t_assert "cfo search_messages, NO shared_user → gate not entered (allow)" "allow" "$(_t2g "$C" cfo search_messages "")"
+t_assert "cmo delete_message, NO shared_user → not this gate's call" "allow" "$(_t2g "$C" cmo delete_message "")"
+t_assert "  …no shared_user → no Track 2g audit row" "0" \
+  "$(_t2g_audit "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'shared-mailbox%';")"
+t_assert "non-m365-mail tool carrying shared_user → untouched" "allow" "$(
+  jq -cn '{tool_name:"mcp__other__search", session_id:"s-k2", agent_type:"cmo", tool_input:{shared_user:"legal@example.test"}}' \
+    | JUVANT_CONFIG="$C" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision')"
+
+# by_agent absent → no-op.
+t_assert "by_agent key absent → cmo legal@ allowed (no-op)" "allow" "$(_t2g "$_T2G_CFG_NOKEY" cmo search_messages legal@example.test)"
+t_assert "by_agent key absent → cfo delete_message finance@ allowed (no-op)" "allow" "$(_t2g "$_T2G_CFG_NOKEY" cfo delete_message finance@example.test)"
+
+# Main thread (no agent_type).
+t_assert "main thread, default (explicit), no cos entry → deny" "deny:k2" "$(_t2g "$C" "" search_messages finance@example.test)"
+t_assert "main thread, explicit + by_agent.cos finance@ → allow" "allow" "$(_t2g "$_T2G_CFG_COS" "" search_messages finance@example.test)"
+t_assert "main thread, explicit + cos entry, other mailbox → deny" "deny:k2" "$(_t2g "$_T2G_CFG_COS" "" search_messages legal@example.test)"
+_t2g_audit_reset
+t_assert "main thread, ceo_present_read, search finance@ → allow" "allow" "$(_t2g "$_T2G_CFG_A" "" search_messages finance@example.test)"
+t_assert "  …audited with basis main_thread=ceo_present_read" "1" \
+  "$(_t2g_audit "SELECT count(*) FROM security_audit_log WHERE finding LIKE '%main_thread=true, basis=main_thread=ceo_present_read%decision=allow%';")"
+t_assert "main thread, ceo_present_read, delete_message finance@ → deny (read only)" "deny:k2" \
+  "$(_t2g "$_T2G_CFG_A" "" delete_message finance@example.test)"
+t_assert "main thread, ceo_present_read, mailbox no agent is allowed → deny" "deny:k2" \
+  "$(_t2g "$_T2G_CFG_A" "" search_messages ceo-private@example.test)"
+t_assert "main thread, deny mode → deny" "deny:k2" "$(_t2g "$_T2G_CFG_C" "" search_messages finance@example.test)"
+t_assert "subagent typed cos is NOT the main thread (ceo_present_read doesn't apply)" "deny:k2" \
+  "$(_t2g "$_T2G_CFG_A" cos search_messages finance@example.test)"
+rm -rf "$_T2G_DIR"
+
+# ─────────────────────────────────────────────
 # config-change.sh — ConfigChange forensic logging (FEAT-062)
 # ─────────────────────────────────────────────
 suite "config-change.sh (FEAT-062)"
