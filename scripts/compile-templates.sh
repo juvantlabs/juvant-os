@@ -15,6 +15,8 @@
 #   scripts/compile-templates.sh --scope company
 #   scripts/compile-templates.sh --scope projects --project=<slug>
 #                                                             # at project init
+#   scripts/compile-templates.sh --scope component --component=<slug>
+#                                                             # at component init (FEAT-055 / ADR 0020)
 #   scripts/compile-templates.sh --codeowners                 # render .github/CODEOWNERS
 #   scripts/compile-templates.sh --rewrite-meta               # README/CHANGELOG/SECURITY/docs-adr-stub
 #   scripts/compile-templates.sh --check-only                 # dry-run; report leftover placeholders
