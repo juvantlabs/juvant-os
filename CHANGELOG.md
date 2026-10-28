@@ -11,6 +11,24 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Security
+
+- **Per-agent shared-mailbox gate for `m365-mail` (decisions#301 K2).** The
+  server's single allowlist (`M365_MAIL_ALLOWED_SHARED_USERS`) is the union of
+  every shared mailbox, so any agent that loaded it could read all of them (R1),
+  and its write-class tools were bounded only by the matrix and the prompt (R2).
+  New PreToolUse **Track 2g** gates every `mcp__m365-mail__*` call that carries a
+  `shared_user` against the instance-only `.shared_mailboxes.by_agent` policy:
+  the agent must be allowlisted for that mailbox (case-insensitive `upn`);
+  `scope: "read"` allows list/get/search/download only, `"readwrite"` adds
+  create/update/mark/move/delete; unknown verbs are denied. The CEO-present main
+  thread is governed by `.shared_mailboxes.main_thread`: `explicit` (default,
+  needs `by_agent.cos`), `ceo_present_read` (read any allowlisted mailbox) or
+  `deny`. Every gated call is written to `security_audit_log` (`high` on deny,
+  `info` on allow) and a deny notifies. No `by_agent` key ⇒ no-op; calls without
+  `shared_user` are untouched. Schema documented in JUVANT_OS.md and
+  `.juvant/config.example.json`.
+
 ## [1.13.0] — 2026-10-28 — Guardrail hardening from the CSO 5-layer audit (decisions#298 / #300)
 
 ### Security

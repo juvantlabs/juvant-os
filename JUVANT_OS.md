@@ -1050,6 +1050,45 @@ mail-enabled in this company. Agent templates check
 a configured mailbox — same fallback-surfacing pattern as the
 `doc_storage` folder resolution in Step 1.5.
 
+#### Shared-mailbox access per agent (`shared_mailboxes`, decisions#301 K2)
+
+When the instance reads shared mailboxes through `m365-mail` (tool calls that
+carry a `shared_user`), the server's own allowlist
+(`M365_MAIL_ALLOWED_SHARED_USERS`) is the **union** of every shared mailbox, so
+on its own it lets any agent that loads the server read all of them. The
+PreToolUse hook (Track 2g) narrows that **per agent** from this instance-only
+block (never synced):
+
+```json
+{
+  "shared_mailboxes": {
+    "main_thread": "explicit",
+    "by_agent": {
+      "cfo": [ { "upn": "finance@<domain>", "scope": "read" } ],
+      "clo": [ { "upn": "legal@<domain>",   "scope": "read" } ],
+      "cmo": [ { "upn": "social@<domain>",  "scope": "read" } ],
+      "cco": []
+    }
+  }
+}
+```
+
+- `by_agent.<role>` — the shared mailboxes that role may use. `upn` matching is
+  case-insensitive. `scope: "read"` allows list/get/search/download operations
+  only; `"readwrite"` also allows create/update/mark/move/delete. An unknown
+  tool verb is denied.
+- `main_thread` — the CEO-present CoS session (no `agent_type`):
+  `"explicit"` (default) needs its own `by_agent.cos` entries;
+  `"ceo_present_read"` may READ any mailbox some agent is allowlisted for;
+  `"deny"` blocks every shared-mailbox call from the main thread.
+- `tool_prefix` (optional) — defaults to `mcp__m365-mail__`.
+- Absent `by_agent` ⇒ the gate is off. Calls without `shared_user` (the
+  caller's own delegated mailbox) are never gated here.
+
+Every gated call writes a `security_audit_log` row (`high` on deny, `info` on
+allow) and a deny notifies the CEO. Extending `by_agent` is a
+`tool-matrix-change` (CTO proposes, CSO reviews, CEO approves).
+
 #### Wizard prompt
 
 ```
