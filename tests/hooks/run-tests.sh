@@ -1176,6 +1176,74 @@ t_assert "2f framework-dev: echo > hook → not 2f (exempt)" "no" \
   "$(_t2f 1 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"echo x > hooks/pre-tool-use.sh"}}')"
 
 # ─────────────────────────────────────────────
+# Gate read precision (decisions#300 items 5 + 12, security_audit_log#150)
+# ─────────────────────────────────────────────
+suite "Gate read precision: SQL-write anchoring, quoted prose, shell keywords (decisions#300)"
+
+_GP_CFG="$(mktemp)"
+echo '{"turso_db_name":"company-x","projects":{"projx":{"turso_db_name":"project-x"}},"bootstrap_window":"0"}' > "$_GP_CFG"
+# $1 = role, $2 = command → "allow" / "deny"
+_gp() {
+  jq -cn --arg c "$2" '{tool_name:"Bash",session_id:"s-gp",tool_input:{command:$c}}' \
+    | JUVANT_CONFIG="$_GP_CFG" AGENT_ROLE="$1" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null || true
+}
+
+# Item 5 — read-only SQL from company scope against a project DB is a read.
+t_assert "§4b: company SELECT replace(a,'b','c') on project DB → allow" "allow" \
+  "$(_gp cso "turso db shell project-x \"SELECT replace(a,'b','c') FROM t\"")"
+t_assert "§4b: same read inside a compound command → allow" "allow" \
+  "$(_gp cso "turso db shell project-x \"SELECT replace(a,'b','c') FROM t\" && echo done")"
+t_assert "§4b: write verb only inside a SQL string literal → allow" "allow" \
+  "$(_gp cso "turso db shell project-x \"SELECT title FROM decisions WHERE rationale LIKE '%UPDATE%'\"")"
+t_assert "§4c: project agent SELECT replace() on company DB → allow" "allow" \
+  "$(_gp eng-lead "turso db shell company-x \"SELECT replace(title,'a','b') FROM decisions\"")"
+# … while every real write is still denied.
+t_assert "§4b: company INSERT on project DB → still deny" "deny" \
+  "$(_gp cso "turso db shell project-x \"INSERT INTO decisions(title) VALUES ('x')\"")"
+t_assert "§4b: company UPDATE on project DB → still deny" "deny" \
+  "$(_gp cso "turso db shell project-x \"UPDATE decisions SET status='x' WHERE id=1\"")"
+t_assert "§4b: write in a stacked statement → deny" "deny" \
+  "$(_gp cso "turso db shell project-x \"SELECT 1; DELETE FROM t\"")"
+t_assert "§4b: INSERT OR REPLACE behind a block comment → deny" "deny" \
+  "$(_gp cso "turso db shell project-x \"/* c */ insert or replace into t values (1)\"")"
+t_assert "§4b: REPLACE INTO → deny" "deny" \
+  "$(_gp cso "turso db shell project-x \"REPLACE INTO t VALUES (1)\"")"
+t_assert "§4b: CTE-led UPDATE → deny" "deny" \
+  "$(_gp cso "turso db shell project-x \"WITH c AS (SELECT 1) UPDATE t SET a=1\"")"
+t_assert "§4b: heredoc INSERT → deny" "deny" \
+  "$(_gp cso "$(printf 'turso db shell project-x <<SQL\nINSERT INTO t VALUES (1);\nSQL')")"
+t_assert "§4c: project agent INSERT on company DB → still deny" "deny" \
+  "$(_gp eng-lead "turso db shell company-x \"INSERT INTO decisions(title) VALUES ('x')\"")"
+
+# Item 12 — the pause keyword in quoted prose is data; a real command is not.
+t_assert "universal: 'halt'/'reboot' inside a quoted rationale (compound cmd) → allow" "allow" \
+  "$(_gp cso "turso db shell company-x \"INSERT INTO decisions (agent,title,category,rationale,status,scope) VALUES ('cso','t','security-remediation','company-wide; pause window: we halt the drain, then reboot','proposed','company')\" && echo ok")"
+t_assert "universal: 'shutdown' in a quoted echo → allow" "allow" \
+  "$(_gp cso 'git status && echo "note: the halt and shutdown procedure"')"
+t_assert "Track 2d: 'git push' in quoted prose of a non-writer's SQL → allow" "allow" \
+  "$(_gp cso "turso db shell company-x \"SELECT 1 WHERE 'we git push later' <> ''\" && echo ok")"
+t_assert "universal: real shutdown → deny" "deny" "$(_gp cso 'shutdown -h now')"
+t_assert "universal: shutdown after && → deny" "deny" "$(_gp cso 'echo hi && shutdown -h now')"
+t_assert "universal: bash -c \"shutdown …\" (evaluated) → deny" "deny" "$(_gp cso 'bash -c "shutdown -h now"')"
+t_assert "universal: quoted text piped to sh → deny" "deny" "$(_gp cso "echo 'shutdown -h now' | sh")"
+t_assert "universal: \$(halt now) inside quotes → deny" "deny" "$(_gp cso 'echo "$(halt now)"')"
+t_assert "universal: rm -rf \"/\" (single-word literal unwrapped) → deny" "deny" \
+  "$(_gp cso 'rm -rf "/" --no-preserve-root')"
+t_assert "universal: DROP TABLE in quoted SQL (compound) → still deny" "deny" \
+  "$(_gp cso "turso db shell company-x \"DROP TABLE decisions\" && echo x")"
+
+# Item 12 — shell keywords resolve to the command they introduce.
+t_assert "allow-list: one-line for loop → resolves to the body binary (allow)" "allow" \
+  "$(_gp cso 'for f in a b; do turso db shell company-x "SELECT 1"; done')"
+t_assert "allow-list: multi-line for loop with 'do' line → allow" "allow" \
+  "$(_gp cso "$(printf 'for f in a b\ndo\n  turso db shell company-x "SELECT 1"\ndone')")"
+t_assert "allow-list: if/then → resolves to [[ (allow)" "allow" "$(_gp cso 'if [[ -f x ]]; then echo y; fi')"
+t_assert "allow-list: for loop over a NON-allowed binary → still deny" "deny" \
+  "$(_gp cso 'for f in a b; do curlzz x; done')"
+rm -f "$_GP_CFG"
+
+# ─────────────────────────────────────────────
 # config-change.sh — ConfigChange forensic logging (FEAT-062)
 # ─────────────────────────────────────────────
 suite "config-change.sh (FEAT-062)"
