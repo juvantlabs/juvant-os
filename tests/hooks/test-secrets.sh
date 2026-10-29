@@ -52,7 +52,9 @@ t_assert "migration never prints a value" "no" "$([[ "$OUT" == *WRITE-TOKEN-1* |
 t_assert "config.json no longer holds secrets" "0" "$(juvant_secret_paths_in "$CFG" | grep -c . || true)"
 t_assert "non-secret keys stay in config" "finance@example.test|42|project-p1" \
   "$(jq -r '.mail_enabled_agents.cfo + "|" + .notifications.telegram_chat_id + "|" + .projects.p1.turso_db_name' "$CFG")"
-t_assert "secrets file mode 600" "600" "$(stat -f '%Lp' "$SEC" 2>/dev/null || stat -c '%a' "$SEC")"
+# GNU stat first: on Linux `stat -f` exists but means "filesystem status".
+fmode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+t_assert "secrets file mode 600" "600" "$(fmode "$SEC")"
 t_assert "accessor now reads from the secrets file (no warning)" "WRITE-TOKEN-1|" \
   "$(juvant_secret_get '.db.auth_token' "$CFG" 2>"$TMPROOT/err")|$(grep DEPRECATED "$TMPROOT/err" || true)"
 t_assert "project webhook moved" "https://hook/p1" "$(juvant_secret_get '.projects["p1"].notifications.teams_webhooks["approvals"]' "$CFG")"
@@ -71,7 +73,7 @@ t_assert "refuses to REPLACE an existing secret (alert redirection)" "1|https://
   "$RC|$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$CFG")"
 OUT=$(printf 'x' | JUVANT_CONFIG="$CFG" bash "$ROOT_DIR/scripts/set-secret.sh" '.a; .b' 2>&1); RC=$?
 t_assert "rejects a non-path jq expression" "1" "$RC"
-t_assert "secrets file still mode 600" "600" "$(stat -f '%Lp' "$SEC" 2>/dev/null || stat -c '%a' "$SEC")"
+t_assert "secrets file still mode 600" "600" "$(fmode "$SEC")"
 
 echo "== db.sh: token off argv, read-only token for reads =="
 jq '.db.read_token = "READ-TOKEN-1"' "$SEC" > "$SEC.t" && mv "$SEC.t" "$SEC"
