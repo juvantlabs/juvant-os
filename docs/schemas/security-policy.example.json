@@ -4,19 +4,54 @@
     {
       "space": "legal-ip",
       "tool_prefix": "mcp__m365-graph__",
-      "drive_ids": ["b!REPLACE_WITH_THE_SENSITIVE_DRIVE_ID"],
-      "path_patterns": ["legal-ip", "/IP/"],
-      "allowlist": ["clo", "cso"]
+      "drive_ids": [
+        "b!REPLACE_WITH_THE_SENSITIVE_DRIVE_ID"
+      ],
+      "path_patterns": [
+        "legal-ip",
+        "/IP/"
+      ],
+      "allowlist": [
+        "clo",
+        "cso"
+      ]
     }
   ],
   "connector_tool_allowlist": {
     "tool_prefix": "mcp__claude_ai_Microsoft_365__",
-    "allow": ["outlook_email_search", "outlook_calendar_search", "get_me", "read_resource"],
-    "read_resource_uri_prefixes": ["mail://"],
-    "detect_patterns": ["REPLACE_WITH_THE_LEGAL_SITE_NAME"]
+    "allow": [
+      "outlook_email_search",
+      "outlook_calendar_search",
+      "get_me",
+      "read_resource"
+    ],
+    "read_resource_uri_prefixes": [
+      "mail://"
+    ],
+    "detect_patterns": [
+      "REPLACE_WITH_THE_LEGAL_SITE_NAME"
+    ]
+  },
+  "shared_mailboxes": {
+    "main_thread": "explicit",
+    "by_agent": {
+      "cfo": [
+        {
+          "upn": "finance@REPLACE_WITH_YOUR_DOMAIN",
+          "scope": "read"
+        }
+      ],
+      "cos": []
+    },
+    "own_mailbox": {
+      "main_thread": "readwrite",
+      "agents": "read"
+    }
   },
   "secrets_paths": ["*.pem", "credentials.json"],
   "alert_routing": {
-    "required": ["telegram"]
+    "required": [
+      "telegram"
+    ]
   }
 }

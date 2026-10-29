@@ -1069,11 +1069,17 @@ When the instance reads shared mailboxes through `m365-mail` (tool calls that
 carry a `shared_user`), the server's own allowlist
 (`M365_MAIL_ALLOWED_SHARED_USERS`) is the **union** of every shared mailbox, so
 on its own it lets any agent that loads the server read all of them. The
-PreToolUse hook (Track 2g) narrows that **per agent** from this instance-only
-block (never synced):
+PreToolUse hook (Track 2g) narrows that **per agent** from this block in the
+instance's committed **`security/policy.json`** (read from `origin/main`, like
+`space_access` — ADR 0034, BUG-083; never synced). It is not in
+`.juvant/config.json`: an agent with Write/Edit could empty that file and
+switch the gate off without a trace. A config.json `shared_mailboxes` block is
+still honoured, with a deprecation notice, only while the policy file has no
+`shared_mailboxes` key — for one minor version.
 
 ```json
 {
+  "version": 1,
   "shared_mailboxes": {
     "main_thread": "explicit",
     "by_agent": {
@@ -1081,7 +1087,8 @@ block (never synced):
       "clo": [ { "upn": "legal@<domain>",   "scope": "read" } ],
       "cmo": [ { "upn": "social@<domain>",  "scope": "read" } ],
       "cco": []
-    }
+    },
+    "own_mailbox": { "main_thread": "readwrite", "agents": "read" }
   }
 }
 ```
@@ -1095,12 +1102,20 @@ block (never synced):
   `"ceo_present_read"` may READ any mailbox some agent is allowlisted for;
   `"deny"` blocks every shared-mailbox call from the main thread.
 - `tool_prefix` (optional) — defaults to `mcp__m365-mail__`.
-- Absent `by_agent` ⇒ the gate is off. Calls without `shared_user` (the
-  caller's own delegated mailbox) are never gated here.
+- `own_mailbox` (optional) — calls without `shared_user`, i.e. on the
+  caller's OWN delegated mailbox: `main_thread` (default `"readwrite"`) and
+  `agents` (default `"read"` — a subagent can't send / move / delete as the
+  mailbox owner); each `"readwrite" | "read" | "deny"`. Applies only when the
+  rules come from `security/policy.json`.
+- No `shared_mailboxes` in either place ⇒ the gate is off.
 
-Every gated call writes a `security_audit_log` row (`high` on deny, `info` on
-allow) and a deny notifies the CEO. Extending `by_agent` is a
-`tool-matrix-change` (CTO proposes, CSO reviews, CEO approves).
+Every gated shared-mailbox call writes a `security_audit_log` row (`high` on
+deny, `info` on allow); own-mailbox denies and writes are logged too (allowed
+own-mailbox reads are not). A deny notifies the CEO. Changing the block is a
+`tool-matrix-change` (CTO proposes, CSO reviews, CEO approves) merged to the
+instance's `main` as a PR — validate it with
+`bash scripts/validate-security-policy.sh`; SessionStart alerts on every policy
+change.
 
 #### Wizard prompt
 

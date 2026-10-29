@@ -84,6 +84,15 @@ if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
       mkdir -p "$REPO_ROOT/.juvant" 2>/dev/null || true
       printf '%s\n' "$JUVANT_POLICY_BLOB" > "$_SP_SEEN_FILE" 2>/dev/null || true ;;
   esac
+  # BUG-083: shared-mailbox rules still in config.json (agent-writable) while
+  # the policy file has none → deprecation notice (the gate honours them for
+  # one minor version).
+  _SP_CFG="${JUVANT_CONFIG:-$REPO_ROOT/.juvant/config.json}"
+  _SP_JSON="${JUVANT_POLICY_JSON:-}"; [[ -n "$_SP_JSON" ]] || _SP_JSON="{}"
+  if ! printf '%s' "$_SP_JSON" | jq -e 'has("shared_mailboxes")' >/dev/null 2>&1 \
+     && [[ -f "$_SP_CFG" ]] && jq -e '(.shared_mailboxes.by_agent // null) | type == "object"' "$_SP_CFG" >/dev/null 2>&1; then
+    echo "NOTICE (BUG-083): the shared-mailbox rules (Track 2g) are still read from .juvant/config.json, which any agent with Write/Edit can change to switch the gate off. Move the shared_mailboxes block into security/policy.json via a reviewed PR to main (validate with scripts/validate-security-policy.sh); the config location is removed in the next minor version."
+  fi
   if [[ -n "$_SP_ROW" && -n "$JUVANT_DB_PROVIDER" ]]; then
     _SP_ROW_ESC=$(printf '%s' "$_SP_ROW" | LC_ALL=C sed "s/'/''/g")
     # Not spooled (decisions#303 R3 executes only allowlisted spool shapes);

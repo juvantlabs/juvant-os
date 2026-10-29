@@ -5,31 +5,144 @@
   "description": "decisions#305 / ADR 0034. Committed in the instance repo (never upstream-synced, never under .juvant/). Read by the PreToolUse hook from refs/remotes/origin/main. No secrets: webhook URLs and tokens stay in .juvant/config.json. The authoritative structural check is hooks/lib/security-policy.sh (juvant_policy_validate), run by scripts/validate-security-policy.sh.",
   "type": "object",
   "properties": {
-    "version": { "const": 1 },
+    "version": {
+      "const": 1
+    },
     "space_access": {
       "description": "Sensitive document-space perimeter (Track 2e, ADR 0025).",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["tool_prefix"],
+        "required": [
+          "tool_prefix"
+        ],
         "properties": {
-          "space": { "type": "string" },
-          "tool_prefix": { "type": "string", "minLength": 1 },
-          "drive_ids": { "type": "array", "items": { "type": "string" } },
-          "path_patterns": { "type": "array", "items": { "type": "string" } },
-          "allowlist": { "type": "array", "items": { "type": "string" } }
+          "space": {
+            "type": "string"
+          },
+          "tool_prefix": {
+            "type": "string",
+            "minLength": 1
+          },
+          "drive_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "path_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowlist": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
     "connector_tool_allowlist": {
       "description": "Deny-by-default allowlist for a vendor-hosted connector's tools (decisions#306).",
       "type": "object",
-      "required": ["tool_prefix"],
+      "required": [
+        "tool_prefix"
+      ],
       "properties": {
-        "tool_prefix": { "type": "string", "minLength": 1 },
-        "allow": { "type": "array", "items": { "type": "string" } },
-        "read_resource_uri_prefixes": { "type": "array", "items": { "type": "string" } },
-        "detect_patterns": { "type": "array", "items": { "type": "string" } }
+        "tool_prefix": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "read_resource_uri_prefixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "detect_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "shared_mailboxes": {
+      "description": "Per-agent shared-mailbox gate for the m365-mail server (Track 2g, decisions#301 K2; moved here from .juvant/config.json by BUG-083).",
+      "type": "object",
+      "required": [
+        "by_agent"
+      ],
+      "properties": {
+        "tool_prefix": {
+          "type": "string",
+          "minLength": 1,
+          "default": "mcp__m365-mail__"
+        },
+        "main_thread": {
+          "enum": [
+            "explicit",
+            "ceo_present_read",
+            "deny"
+          ],
+          "default": "explicit"
+        },
+        "by_agent": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "upn"
+              ],
+              "properties": {
+                "upn": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "scope": {
+                  "enum": [
+                    "read",
+                    "readwrite"
+                  ],
+                  "default": "read"
+                }
+              }
+            }
+          }
+        },
+        "own_mailbox": {
+          "description": "Calls on the caller's own delegated mailbox (no shared_user).",
+          "type": "object",
+          "properties": {
+            "main_thread": {
+              "enum": [
+                "read",
+                "readwrite",
+                "deny"
+              ],
+              "default": "readwrite"
+            },
+            "agents": {
+              "enum": [
+                "read",
+                "readwrite",
+                "deny"
+              ],
+              "default": "read"
+            }
+          }
+        }
       }
     },
     "secrets_paths": {
@@ -44,7 +157,12 @@
         "required": {
           "description": "Channels that must have a secret configured; an op that would raise a sensitive-space row is denied otherwise.",
           "type": "array",
-          "items": { "enum": ["teams", "telegram"] }
+          "items": {
+            "enum": [
+              "teams",
+              "telegram"
+            ]
+          }
         }
       }
     }

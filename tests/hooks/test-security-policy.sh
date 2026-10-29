@@ -170,6 +170,19 @@ push_policy '{"version":1,"space_access":[{"allowlist":["clo"]}]}' "broken for t
 OUT=$(bash "$V" --repo "$INST" --ref origin/main 2>&1); RC=$?
 t_assert "invalid policy on origin/main → exit 1" "1" "$RC"
 
+echo "== shared_mailboxes in the policy (BUG-083) =="
+# shellcheck disable=SC1091
+. "$ROOT_DIR/hooks/lib/security-policy.sh"
+_v() { juvant_policy_validate "$1" >/dev/null 2>&1 && echo valid || echo invalid; }
+t_assert "valid shared_mailboxes block" "valid" \
+  "$(_v '{"version":1,"shared_mailboxes":{"main_thread":"ceo_present_read","by_agent":{"cfo":[{"upn":"finance@x.test","scope":"read"}],"cco":[]},"own_mailbox":{"main_thread":"readwrite","agents":"read"}}}')"
+for bad in '{"shared_mailboxes":[]}' '{"shared_mailboxes":{}}' '{"shared_mailboxes":{"by_agent":{"cfo":{}}}}' \
+           '{"shared_mailboxes":{"by_agent":{"cfo":[{"scope":"read"}]}}}' '{"shared_mailboxes":{"by_agent":{"cfo":[{"upn":"a@b","scope":"admin"}]}}}' \
+           '{"shared_mailboxes":{"by_agent":{},"main_thread":"open"}}' '{"shared_mailboxes":{"by_agent":{},"tool_prefix":""}}' \
+           '{"shared_mailboxes":{"by_agent":{},"own_mailbox":{"agents":"write"}}}'; do
+  t_assert "invalid shared_mailboxes rejected: $bad" "invalid" "$(_v "$bad")"
+done
+
 echo "== settings env override is an integrity finding =="
 # shellcheck disable=SC1091
 . "$ROOT_DIR/hooks/lib/hooks-integrity.sh"
