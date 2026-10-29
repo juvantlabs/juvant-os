@@ -123,6 +123,48 @@ for c in "ls .juvant" "cd .juvant" "jq . .juvant/config.json" "bash scripts/migr
   t_assert "Bash allow — $c" "allow" "$(bash_cmd "$c")"
 done
 
+echo "== BUG-084: credential-shaped keys, dotenv files, SQL prose literals =="
+D3="$TMPROOT/inst3/.juvant"; mkdir -p "$D3" "$TMPROOT/inst3/scripts"
+CFG3="$D3/config.json"
+cat > "$CFG3" <<'JSON'
+{ "m365_oauth": { "client_id": "cid", "client_secret": "M365-SECRET-1", "tenant_id": "tid" },
+  "vendor": { "api_key": "VK-1", "empty_token": "" },
+  "limits": { "max_tokens": 4096, "token_budget": "x" } }
+JSON
+t_assert "credential-shaped keys detected (client_secret, api_key; not max_tokens/token_budget/empty)" \
+  '["m365_oauth","client_secret"] ["vendor","api_key"]' "$(juvant_secret_paths_in "$CFG3" | sort | tr '\n' ' ' | sed 's/ $//')"
+# A generated MCP wrapper reading the secret straight from config.json is flagged.
+cp "$ROOT_DIR/scripts/migrate-secrets.sh" "$TMPROOT/inst3/scripts/"; mkdir -p "$TMPROOT/inst3/hooks/lib"
+cp "$ROOT_DIR/hooks/lib/secrets.sh" "$TMPROOT/inst3/hooks/lib/"
+printf '%s\n' "export M365_CLIENT_SECRET=\"\$(jq -er '.m365_oauth.client_secret' \"\$CONFIG\")\"" > "$TMPROOT/inst3/scripts/run-m365-graph-mcp.sh"
+OUT=$(JUVANT_CONFIG="$CFG3" bash "$TMPROOT/inst3/scripts/migrate-secrets.sh" --dry-run 2>&1)
+t_assert "migrate-secrets flags a direct config.json reader of a moved path" "yes" \
+  "$([[ "$OUT" == *"run-m365-graph-mcp.sh"* && "$OUT" == *"juvant_secret_get"* ]] && echo yes || echo no)"
+t_assert "...and never prints the value" "no" "$([[ "$OUT" == *M365-SECRET-1* || "$OUT" == *VK-1* ]] && echo yes || echo no)"
+JUVANT_CONFIG="$CFG3" bash "$TMPROOT/inst3/scripts/migrate-secrets.sh" >/dev/null 2>&1
+t_assert "m365 client_secret moved; client_id stays in config" "M365-SECRET-1|cid|" \
+  "$(juvant_secret_get '.m365_oauth.client_secret' "$CFG3")|$(jq -r '.m365_oauth.client_id' "$CFG3")|$(jq -r '.m365_oauth.client_secret // empty' "$CFG3")"
+
+EV=".env"   # literal kept out of this file's command lines
+for p in "$EV" "$EV.local" "config/$EV.production" "${EV}rc"; do
+  t_assert "Read on dotenv file $p → deny" "deny" "$(tool Read "$(jq -cn --arg p "$p" '{file_path:$p}')")"
+done
+for p in "$EV.example" "x/$EV.sample" "${EV}ironment" "${EV}.d/../notes.md"; do
+  t_assert "Read on $p → allow" "allow" "$(tool Read "$(jq -cn --arg p "$p" '{file_path:$p}')")"
+done
+for c in "cat $EV" "grep KEY $EV.local" "source $EV" "cat config/$EV.production" "cp $EV /tmp/x" "cat ${EV}rc" "env \$(cat $EV) node app.js"; do
+  t_assert "Bash deny — $c" "deny" "$(bash_cmd "$c")"
+done
+for c in "cat $EV.example" "cp $EV.sample $EV.template" "python3 -m venv .venv" "printenv HOME" "ls -la"; do
+  t_assert "Bash allow — $c" "allow" "$(bash_cmd "$c")"
+done
+t_assert "SQL prose literal naming the secrets file → allow (E-bis: prose is data)" "allow" \
+  "$(bash_cmd "sqlite3 $TMPROOT/x.db \"INSERT INTO messages (from_agent, content) VALUES ('cso', 'moved the tokens to .juvant/$SF as planned')\"")"
+t_assert "SQL one-word literal with the secrets path (readfile) → deny" "deny" \
+  "$(bash_cmd "sqlite3 $TMPROOT/x.db \"SELECT readfile('.juvant/$SF')\"")"
+t_assert "secrets path outside the SQL (redirect) → deny" "deny" \
+  "$(bash_cmd "sqlite3 $TMPROOT/x.db \"SELECT 'a b'\" > .juvant/$SF")"
+
 echo "== SessionStart notice =="
 D2="$TMPROOT/inst2"; mkdir -p "$D2/.juvant"
 echo '{"db":{"provider":"","auth_token":"X"}}' > "$D2/.juvant/config.json"

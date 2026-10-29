@@ -2119,8 +2119,17 @@ fi
 # Residual: a recursive read of the whole repo that ignores .gitignore (`grep -r
 # … .`, `rg -uu`); the secrets file is gitignored, so ripgrep-based tools skip
 # it by default.
+# BUG-084: the dotenv family (.env, .env.local, .env.production, .envrc) is
+# gated the same way — it holds credentials by convention. Committed templates
+# (.env.example / .sample / .template / .dist) stay readable.
+# Also BUG-084: in a DB-CLI command, a mention of the secrets file inside an SQL
+# PROSE literal (a rationale, a finding) is data, not a read — matched on the
+# command with the SQL gate's literal normalisation applied (decisions#303
+# E-bis); a path in a one-word literal (readfile('…')) still counts.
 if [[ "$DECISION" == "allow" ]]; then
   _SG_RE='(^|/)\.juvant/secrets\.json([.][^/]*)?$'
+  _SG_ENV_RE='(^|/)\.env(rc|[.][A-Za-z0-9_.-]+)?$'
+  _SG_ENV_OK_RE='(^|/)\.env[.](example|sample|template|dist)$'
   _SG_DENY=""
   case "$TOOL_NAME" in
     Read|Grep|Edit|Write|MultiEdit|NotebookEdit|NotebookRead)
@@ -2128,21 +2137,40 @@ if [[ "$DECISION" == "allow" ]]; then
       _SG_P="${_SG_P#"$(cd "$SCRIPT_DIR/.." && pwd)"/}"; _SG_P="${_SG_P#./}"
       if [[ "$_SG_P" =~ $_SG_RE ]]; then
         _SG_DENY="$TOOL_NAME on the secrets file"
+      elif [[ "$_SG_P" =~ $_SG_ENV_RE ]] && ! [[ "$_SG_P" =~ $_SG_ENV_OK_RE ]]; then
+        _SG_DENY="$TOOL_NAME on a dotenv file (${_SG_P##*/})"
       elif [[ "$TOOL_NAME" == "Grep" && "${_SG_P%/}" =~ (^|/)\.juvant$ ]]; then
         _SG_DENY="Grep over .juvant/ (it holds the secrets file)"
       fi ;;
     Bash)
       _SG_C=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
       _SG_DIR_RE='(^|[[:space:]"'"'"'=(])\.juvant/?(\*[^[:space:]]*)?([[:space:]"'"'"');|&]|$)'
-      if [[ "$_SG_C" == *secrets.json* ]]; then
+      _SG_ENV_CMD_RE='(^|[[:space:]"'"'"'=(/<>])\.env(rc|[.][A-Za-z0-9_-]+)?\*?([[:space:]"'"'"');|&<>]|$)'
+      _SG_ENV_CMD_OK_RE='(^|[[:space:]"'"'"'=(/<>])\.env[.](example|sample|template|dist)([[:space:]"'"'"');|&<>]|$)'
+      _SG_SCAN="$_SG_C"
+      if [[ "${_SQLG_HAS_DB:-0}" == 1 && "$_SG_C" == *secrets.json* ]]; then
+        for _sg_s in ${_SQLG_SQL[@]+"${_SQLG_SQL[@]}"}; do
+          [[ -n "$_sg_s" && "$_SG_SCAN" == *"$_sg_s"* ]] || continue
+          _SG_SCAN="${_SG_SCAN//"$_sg_s"/$(_sqlg_statements "$_sg_s" | tr '\n' ';')}"
+        done
+      fi
+      _SG_ENV_SCAN="$_SG_C"
+      while [[ "$_SG_ENV_SCAN" =~ $_SG_ENV_CMD_OK_RE ]]; do _SG_ENV_SCAN="${_SG_ENV_SCAN/"${BASH_REMATCH[0]}"/ }"; done
+      if [[ "$_SG_SCAN" == *secrets.json* ]]; then
         _SG_DENY="a Bash command that names the secrets file"
+      elif [[ "$_SG_ENV_SCAN" =~ $_SG_ENV_CMD_RE ]]; then
+        _SG_DENY="a Bash command that names a dotenv file"
       elif [[ "$_SG_C" =~ $_SG_DIR_RE ]] && ! [[ "$_SG_C" =~ ^[[:space:]]*(ls|cd|mkdir|pushd)([[:space:]]|$) && "$_SG_C" != *[\;\&\|]* ]]; then
         _SG_DENY="a Bash command that takes .juvant/ wholesale (it holds the secrets file)"
       fi ;;
   esac
   if [[ -n "$_SG_DENY" ]]; then
     DECISION="deny"
-    DENY_REASON="SECRETS GATE (decisions#305 B1b): ${_SG_DENY} is denied for every agent. Secrets are read only by hook/helper processes (hooks/lib/secrets.sh). To move secrets out of .juvant/config.json run 'bash scripts/migrate-secrets.sh'; to change a secret, edit .juvant/secrets.json from your own terminal, outside Claude Code."
+    if [[ "$_SG_DENY" == *dotenv* ]]; then
+      DENY_REASON="SECRETS GATE (BUG-084): ${_SG_DENY} is denied for every agent — dotenv files hold credentials. Templates (.env.example / .sample / .template / .dist) stay readable; to inspect or change a real one, do it from your own terminal, outside Claude Code."
+    else
+      DENY_REASON="SECRETS GATE (decisions#305 B1b): ${_SG_DENY} is denied for every agent. Secrets are read only by hook/helper processes (hooks/lib/secrets.sh). To move secrets out of .juvant/config.json run 'bash scripts/migrate-secrets.sh'; to change a secret, edit .juvant/secrets.json from your own terminal, outside Claude Code."
+    fi
   fi
 fi
 

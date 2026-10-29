@@ -32,6 +32,33 @@ All written artifacts in English. No exceptions.
   rebuild, not worth the risk on a live DB for a column no gate reads): on
   those, a row that omits `approved_by` still reads `'ceo'` — set it
   explicitly.
+### Security
+
+- **Secrets coverage gaps** (BUG-084, juvant-os-pm#186):
+  - **Credential-shaped config keys now count as secrets.** On an adopter the
+    M365 `client_secret` stayed in `.juvant/config.json` (agent-readable, in
+    git history) because `juvant_secret_paths_in` knew only named paths.
+    Any key named `client_secret`, `secret`, `token`, `password`, `api_key`,
+    `private_key` or ending `_secret` / `_token` / `_password` / `_api_key` /
+    `_private_key` (non-empty string) is now detected by the SessionStart
+    notice and moved by `migrate-secrets.sh` (`max_tokens`, `token_budget`
+    stay put). `migrate-secrets.sh` also lists every script that reads a
+    moved path straight from config.json (e.g. a generated
+    `run-m365-graph-mcp.sh`) with the `juvant_secret_get` fix.
+  - **The M365 wizard no longer writes the client secret to config.json**:
+    the CEO stores it with `set-secret.sh` from their own terminal, and the
+    generated wrapper reads it with `juvant_secret_get`. **Adopter action:**
+    an existing `scripts/run-m365-graph-mcp.sh` that reads
+    `.m365_oauth.client_secret` with `jq` must switch to `juvant_secret_get`
+    before (or right after) running `migrate-secrets.sh`.
+  - **Track 2h now gates dotenv files** (`.env`, `.env.<name>`, `.envrc`) for
+    Read / Grep / Edit / Write and Bash, like the secrets file. Templates
+    (`.env.example` / `.sample` / `.template` / `.dist`) stay readable.
+  - **No more false positive on SQL prose**: a DB-CLI command whose SQL prose
+    literal mentions the secrets-file path (a rationale, a finding) is
+    allowed — matched with the SQL gate's literal normalisation (decisions#303
+    E-bis). A path in a one-word literal (`readfile('…')`) or outside the SQL
+    still denies.
 
 ## [1.14.2] — 2026-10-29 — Prescribed decisions writes land; migrate.sh fails loud
 
