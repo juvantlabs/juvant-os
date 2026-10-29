@@ -13,6 +13,15 @@ All written artifacts in English. No exceptions.
 
 ### Security
 
+- **Track 2e sensitive-space audit rows are written synchronously again
+  (decisions#303 R4, security_audit_log#154).** A legal-ip row that waited in the
+  agent-writable spool until the next drain could be deleted or rewritten before
+  it landed. The row now goes through `juvant_db_exec` inline (bounded by
+  `JUVANT_DB_TIMEOUT`), falling back to the spool only on a transport failure
+  (the decisions#276 pattern), so a DB outage still never loses it. The allow/deny
+  decision is computed first and does not depend on the write; the same-turn
+  alert is unchanged. `agent_actions_log` (Track 3) stays async.
+
 - **One protected-path set for the tamper floor and the integrity check;
   audit spool, backups, helpers and scripts covered (decisions#303 R1/R2 + B2,
   security_audit_log#154, #160).** The audit spool (`.juvant/audit-spool.sql`

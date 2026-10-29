@@ -1172,20 +1172,20 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
         *:deny) _SP_CATEGORY="unauthorized-access" ;;
         *)      _SP_CATEGORY="access-event" ;;
       esac
-      # Spool the audit row instead of writing it inline (FEAT-051). The
-      # allow/deny decision was already computed above and does NOT depend on
-      # this write, so it must not sit on the gating path — a synchronous
-      # network INSERT here adds latency to (or, on a degraded backend, stalls)
-      # every sensitive-space tool call. The async append is local and
-      # hang-impossible; drain-audit-spool flushes it to security_audit_log
-      # out-of-band. (This is the very rule the notification block below already
-      # cites; the INSERT had simply not been converted.)
-      juvant_db_exec_async "INSERT INTO security_audit_log
+      # decisions#303 R4: written SYNCHRONOUSLY again. The spool is
+      # agent-writable (security_audit_log#154) — a sensitive-space row that
+      # sits there until the next drain can be deleted or rewritten before it
+      # lands. juvant_db_exec writes inline (bounded by JUVANT_DB_TIMEOUT) and
+      # falls back to the spool ONLY on a transport failure (the decisions#276
+      # pattern), so a DB outage still never loses the row. The allow/deny
+      # decision above was computed first and does not depend on this write;
+      # its return code is ignored. agent_actions_log (Track 3) stays async.
+      juvant_db_exec "INSERT INTO security_audit_log
         (auditor, scope, audit_type, layer, finding, severity, category, status)
         VALUES
         ('hook:pre-tool-use', 'company', 'incident', 'agents',
          '$(_t2e_esc "$_SP_FINDING")', 'high', '$(_t2e_esc "$_SP_CATEGORY")', 'open');" \
-        || echo "[pre-tool-use] WARN: failed to spool security_audit_log for space-access op" >&2
+        || echo "[pre-tool-use] WARN: security_audit_log row for space-access op not written inline (spooled if the transport failed)" >&2
 
       _SP_MSG="[SECURITY ALERT] sensitive-space op: space=${_SP_NAME} agent=${ROLE} tool=${TOOL_NAME} decision=${DECISION} expected=${_SP_EXPECTED} (ADR 0025)"
       # Notifications are fire-and-forget — NOT a precondition of the allow/deny

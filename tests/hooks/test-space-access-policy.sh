@@ -147,6 +147,23 @@ t_assert "non-allowlisted op → audit row expected=false" "1" \
 t_assert "two legal-ip ops → 2 high-severity audit rows" "2" \
   "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
 
+echo "=== decisions#303 R4 — the Track 2e row is written synchronously (spool only on transport failure) ==="
+_spool_sal() { { grep -o 'INSERT INTO security_audit_log' "$JUVANT_SPOOL" 2>/dev/null || true; } | wc -l | tr -d ' '; }
+_reset_audit
+_r4_dec=$(decide cfo mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY")
+t_assert "R4 DB up: row present when the hook returns (no drain)" "1" \
+  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%';")"
+t_assert "R4 DB up: no security_audit_log statement left in the spool" "0" "$(_spool_sal)"
+_reset_audit
+_r4_down=$(FAKE_CURL_MODE=network decide cfo mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY")
+t_assert "R4 DB down: decision unchanged" "$_r4_dec" "$_r4_down"
+t_assert "R4 DB down: row not in the DB yet" "0" \
+  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log;")"
+t_assert "R4 DB down: row spooled for the drain" "1" "$(_spool_sal)"
+_drain_audit
+t_assert "R4 DB down → drain later lands the row" "1" \
+  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE '%legal-ip%';")"
+
 echo "=== gate-c: blind enumeration (empty args) denied — no driveId leak (bug_010) ==="
 t_assert "non-allowlisted cfo + list_drives {} → deny" "deny" \
   "$(decide cfo mcp__m365-graph__list_drives '{}')"
