@@ -233,7 +233,9 @@ _quarantine() {
 # One high-severity security_audit_log row (written SYNCHRONOUSLY — never via
 # the spool it is reporting on) + one fire-and-forget alert per run. Runs on
 # EXIT so every exit path of the drain reports what it quarantined.
-# shellcheck disable=SC2329  # invoked via `trap … EXIT`
+# SC2329 (newer shellcheck) / SC2317 (older, e.g. the CI runner's): the body is
+# reached only via `trap … EXIT`, which neither version can see.
+# shellcheck disable=SC2317,SC2329
 _quarantine_report() {
   [[ $(( _Q_COUNT + _Q_KEPT )) -gt 0 ]] || return 0
   local _finding _cfg _msg _hook _card _tg_token _tg_chat _kept=""
