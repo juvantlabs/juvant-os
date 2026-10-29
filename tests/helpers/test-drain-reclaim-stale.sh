@@ -42,6 +42,8 @@ mkdir -p "$TMP/helpers" "$TMP/hooks/lib" "$TMP/.juvant"
 cp "$REPO/helpers/drain-audit-spool.sh" "$TMP/helpers/"
 cp "$REPO/hooks/lib/db.sh" "$TMP/hooks/lib/"
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
+# G6 (decisions#303): writes go over libsql HTTP since #276 — fake BOTH transports.
+cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 
 DBFILE="$TMP/.juvant/state.db"
 SCHEMA="$REPO/scripts/schema.sql"

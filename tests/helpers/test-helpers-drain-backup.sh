@@ -58,6 +58,8 @@ cp "$REPO/hooks/lib/db.sh" "$TMP/hooks/lib/"
 
 # Fake turso (cli shim backed by sqlite3).
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
+# G6 (decisions#303): writes go over libsql HTTP since #276 — fake BOTH transports.
+cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 
 DBFILE="$TMP/.juvant/state.db"
 SCHEMA="$REPO/scripts/schema.sql"

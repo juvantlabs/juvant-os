@@ -169,6 +169,8 @@ jobs:
           # Guards the upstream-sync whitelist completeness, compile-templates
           # --check-only safety, and v0-matrix doc/JSON count consistency.
           bash tests/sync/test-sync-compile.sh
+          # G6 (decisions#303): tests that fake turso must fake curl too.
+          bash tests/sync/test-fake-db-pairing.sh
 
       - name: Hook tests (FEAT-008 L2)
         run: |

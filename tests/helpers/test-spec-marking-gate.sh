@@ -44,6 +44,8 @@ chmod +x "$TMP/hooks/notification.sh"
 : > "$TMP/.juvant/transcript.jsonl"    # dummy transcript so stop.sh proceeds
 
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
+# G6 (decisions#303): writes go over libsql HTTP since #276 — fake BOTH transports.
+cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 # Fake gh: auth ok; `pr view <N>` → body keyed on N (55 refs decisions#1; 66 none).
 cat > "$FAKEBIN/gh" <<'GH'
 #!/usr/bin/env bash

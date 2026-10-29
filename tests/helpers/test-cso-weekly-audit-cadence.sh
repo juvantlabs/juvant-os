@@ -49,6 +49,8 @@ cp "$REPO/hooks/lib/pause-windows.sh"  "$TMP/hooks/lib/"
 
 # Fake turso shim (not used for local provider, but placed on PATH for parity).
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
+# G6 (decisions#303): writes go over libsql HTTP since #276 — fake BOTH transports.
+cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 
 # Fake curl: suppress Teams HTTP calls so the test never makes network requests.
 cat > "$FAKEBIN/curl" <<'SH'

@@ -4904,6 +4904,7 @@ tests/helpers/test-pause-windows.sh
 tests/helpers/test-spec-marking-gate.sh
 tests/helpers/test-turso-backup-archival.sh
 tests/sync/test-sync-compile.sh
+tests/sync/test-fake-db-pairing.sh
 ```
 
 `tests/` entries are an **explicit framework-owned file list, never a glob**

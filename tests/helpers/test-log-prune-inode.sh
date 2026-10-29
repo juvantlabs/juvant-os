@@ -36,6 +36,8 @@ cp "$REPO/hooks/lib/db.sh" "$TMP/hooks/lib/"
 printf '#!/usr/bin/env bash\ncat >/dev/null 2>&1 || true\nexit 0\n' > "$TMP/hooks/notification.sh"
 chmod +x "$TMP/hooks/notification.sh"
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
+# G6 (decisions#303): writes go over libsql HTTP since #276 — fake BOTH transports.
+cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 # curl stub so morning-brief reaches its final stdout line instead of erroring.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 
