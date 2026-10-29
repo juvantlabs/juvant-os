@@ -48,7 +48,7 @@ programs() { # every program path the installed jobs run
       plutil -extract ProgramArguments.1 raw -o - "$p" 2>/dev/null; echo
     done
   else
-    awk '{print $3}' "$CRON_FILE"
+    awk '{for (i = 1; i <= NF; i++) if ($i == "/bin/bash") { print $(i + 1); break }}' "$CRON_FILE"
   fi
 }
 
