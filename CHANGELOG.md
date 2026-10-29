@@ -13,6 +13,28 @@ All written artifacts in English. No exceptions.
 
 ### Security
 
+- **Secrets move to a gated `.juvant/secrets.json`; least-privilege read token;
+  DB token off the curl command line (decisions#305 B1b).** DB tokens, webhook
+  URLs and bot tokens sat in `.juvant/config.json`, which every agent can `Read`.
+  CEO ruling (2026-10-29): a separate secrets file behind the hook gate — not
+  the OS keychain (portable, no OS coupling, no unlock prompts for launchd).
+  - New `hooks/lib/secrets.sh` (`juvant_secret_get`): every hook, helper and
+    script reads secrets through it — `.juvant/secrets.json` first (same key
+    paths as config.json), legacy config.json for one minor version with a
+    deprecation warning.
+  - New PreToolUse **Track 2h**: Read / Grep / Edit / Write on the secrets file,
+    any Bash command that names it, and Bash commands that take `.juvant/`
+    wholesale are denied for every role, main thread included.
+  - `scripts/migrate-secrets.sh` moves the secrets (0600, verified before they
+    leave config.json, never prints a value); `scripts/set-secret.sh` adds one
+    from stdin, **add-only** (an agent can't redirect alerts or swap a token).
+    SessionStart tells the main thread when secrets are still in config.json.
+  - `hooks/lib/db.sh` uses a **read-only token** (`.db.read_token`, from `turso
+    db tokens create <db> --read-only`) for every read and the write token only
+    for writes, and passes the bearer token to curl on **stdin** (`--config -`)
+    instead of argv, where any process of the user could read it (`ps`).
+  - R2 template denies `Read/Edit/Write(.juvant/secrets.json)`; `.gitignore`
+    covers it.
 - **Connector document surface denied (decisions#306, security_audit_log#156).**
   The claude.ai Microsoft 365 connector reached the legal-ip space with no Track
   2e coverage: `sharepoint_search` / `sharepoint_folder_search` take only free
@@ -179,6 +201,13 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- **An Edit whose `old_string` has a multi-byte character at byte 80 was
+  blocked.** The Track 3 summary cut `old_string` with `head -c 80` (bytes),
+  splitting the character; the SQL escape (`sed`) then aborted with "illegal
+  byte sequence" and, under FEAT-061 `onFailure:"block"`, the hook failure
+  blocked the tool call. Truncation is now character-safe and every SQL escape
+  in the hooks runs under `LC_ALL=C`, so a stray byte can't fail it again.
+  Regression test in `run-tests.sh`.
 - **Tests that fake the DB fake both transports (decisions#303 G6).** Since
   decisions#276 the cloud DB layer writes over libsql HTTP (curl), but seven
   helper tests still faked only the turso CLI, so their writes went down the

@@ -96,7 +96,7 @@ _sql_quote() {
     printf 'NULL'
   else
     local esc
-    esc=$(printf '%s' "$v" | sed "s/'/''/g")
+    esc=$(printf '%s' "$v" | LC_ALL=C sed "s/'/''/g")
     printf "'%s'" "$esc"
   fi
 }

@@ -98,7 +98,12 @@ case "$TOOL_NAME" in
     INPUT_SUMMARY=$(printf '%.200s' "$_RAW") ;;
   Edit)
     _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
-    _OLD=$(echo "$EVENT_JSON" | jq -r '.tool_input.old_string // ""' 2>/dev/null | head -c 80 || echo "")
+    # Character-safe truncation: `head -c 80` cut BYTES, splitting a multi-byte
+    # character, and the SQL escape below then aborted the hook ("illegal byte
+    # sequence") — with onFailure:block that BLOCKED the Edit. (Escapes are now
+    # LC_ALL=C as well, so a stray byte can never fail them again.)
+    _OLD=$(echo "$EVENT_JSON" | jq -r '.tool_input.old_string // ""' 2>/dev/null || echo "")
+    _OLD="${_OLD:0:80}"
     INPUT_SUMMARY=$(printf '%.200s' "Edit $_FILE: $_OLD") ;;
   Write)
     _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
@@ -1379,6 +1384,15 @@ fi
 # denied, a high row is written and the CEO is alerted. Notification SECRETS
 # still come from .juvant/config.json (never in the committed policy).
 _T2E_CFG="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
+# Notification secrets come from .juvant/secrets.json (decisions#305 B1b).
+if ! declare -F juvant_secret_get >/dev/null 2>&1; then
+  if [[ -f "$SCRIPT_DIR/lib/secrets.sh" ]]; then
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/lib/secrets.sh"
+  else
+    juvant_secret_get() { jq -r "(${1}) // empty" "${2:-$_T2E_CFG}" 2>/dev/null || true; }
+  fi
+fi
 JUVANT_POLICY_STATE="absent"; JUVANT_POLICY_JSON="{}"
 if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
   # shellcheck disable=SC1091
@@ -1388,12 +1402,12 @@ fi
 _t2e_alert() {
   # Fire-and-forget alert on the configured channels (never on the gating path).
   local msg="$1" wh tok chat card
-  wh=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+  wh=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2E_CFG")
   if [[ -n "$wh" ]]; then
     card=$(jq -n --arg msg "$msg" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
     curl -s --connect-timeout 5 --max-time 10 -X POST "$wh" -H "Content-Type: application/json" -d "$card" >/dev/null 2>&1 &
   fi
-  tok=$(jq -r '.notifications.telegram_bot_token // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+  tok=$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2E_CFG")
   chat=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null || echo "")
   if [[ -n "$tok" && -n "$chat" ]]; then
     curl -s --connect-timeout 5 --max-time 10 -X POST "https://api.telegram.org/bot${tok}/sendMessage" \
@@ -1406,7 +1420,7 @@ if [[ ( "$JUVANT_POLICY_STATE" == "invalid" || "$JUVANT_POLICY_STATE" == "delete
   . "$SCRIPT_DIR/lib/db.sh"
   DECISION="deny"
   DENY_REASON="SECURITY POLICY FAIL-CLOSED (decisions#305): security/policy.json on origin/main is ${JUVANT_POLICY_STATE} (${JUVANT_POLICY_ERR:-}) — every MCP tool call is denied until a valid policy is merged to main. Surface this to the CEO and the CSO."
-  _pf_finding=$(printf 'security policy %s (%s); MCP call denied: tool=%s agent=%s' "$JUVANT_POLICY_STATE" "${JUVANT_POLICY_ERR:-}" "$TOOL_NAME" "$ROLE" | sed "s/'/''/g")
+  _pf_finding=$(printf 'security policy %s (%s); MCP call denied: tool=%s agent=%s' "$JUVANT_POLICY_STATE" "${JUVANT_POLICY_ERR:-}" "$TOOL_NAME" "$ROLE" | LC_ALL=C sed "s/'/''/g")
   juvant_db_exec "INSERT INTO security_audit_log
     (auditor, scope, audit_type, layer, finding, severity, category, status)
     VALUES ('hook:pre-tool-use', 'company', 'incident', 'agents', '${_pf_finding}', 'high', 'policy-fail-closed', 'open');" \
@@ -1451,7 +1465,7 @@ if [[ "$DECISION" == "allow" && -n "$_T2EC_PREFIX" && "$TOOL_NAME" == "$_T2EC_PR
     if [[ -n "$_T2EC_HIT" ]]; then
       # shellcheck disable=SC1091
       . "$SCRIPT_DIR/lib/db.sh"
-      _T2EC_FINDING=$(printf "connector call naming a sensitive space denied: tool=%s agent=%s match='%s'" "$TOOL_NAME" "$ROLE" "$_T2EC_HIT" | sed "s/'/''/g")
+      _T2EC_FINDING=$(printf "connector call naming a sensitive space denied: tool=%s agent=%s match='%s'" "$TOOL_NAME" "$ROLE" "$_T2EC_HIT" | LC_ALL=C sed "s/'/''/g")
       juvant_db_exec "INSERT INTO security_audit_log
         (auditor, scope, audit_type, layer, finding, severity, category, status)
         VALUES ('hook:pre-tool-use', 'company', 'incident', 'agents', '${_T2EC_FINDING}', 'high', 'unauthorized-read', 'open');" \
@@ -1464,7 +1478,7 @@ fi
 if [[ "$DECISION" == "allow" ]] && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.space_access // []) | length > 0' >/dev/null 2>&1; then
   # shellcheck disable=SC1091
   . "$SCRIPT_DIR/lib/db.sh"
-  _t2e_esc() { printf '%s' "$1" | sed "s/'/''/g"; }
+  _t2e_esc() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 
   _T2E_ARGS=$(echo "$EVENT_JSON" | jq -c '.tool_input // {}' 2>/dev/null || echo "{}")
   _T2E_DRIVE_ID=$(echo "$_T2E_ARGS" | jq -r '.drive_id // .driveId // ""' 2>/dev/null || echo "")
@@ -1562,8 +1576,8 @@ if [[ "$DECISION" == "allow" ]] && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.
       _SP_MISSING=""
       while IFS= read -r _ch; do
         case "$_ch" in
-          teams)    [[ -n "$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2E_CFG" 2>/dev/null)" ]] || _SP_MISSING+="teams " ;;
-          telegram) [[ -n "$(jq -r '.notifications.telegram_bot_token // ""' "$_T2E_CFG" 2>/dev/null)" && \
+          teams)    [[ -n "$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2E_CFG")" ]] || _SP_MISSING+="teams " ;;
+          telegram) [[ -n "$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2E_CFG")" && \
                        -n "$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null)" ]] || _SP_MISSING+="telegram " ;;
         esac
       done < <(printf '%s' "$JUVANT_POLICY_JSON" | jq -r '.alert_routing.required[]?' 2>/dev/null)
@@ -1603,13 +1617,13 @@ if [[ "$DECISION" == "allow" ]] && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.
       # FEAT-051 for the audit INSERT). Backgrounded with fds closed so the hook
       # emits its decision immediately instead of waiting up to ~20s on a
       # degraded network.
-      _SP_WEBHOOK=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+      _SP_WEBHOOK=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2E_CFG")
       if [[ -n "$_SP_WEBHOOK" ]]; then
         _SP_CARD=$(jq -n --arg msg "$_SP_MSG" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
         curl -s --connect-timeout 5 --max-time 10 -X POST "$_SP_WEBHOOK" \
           -H "Content-Type: application/json" -d "$_SP_CARD" >/dev/null 2>&1 &
       fi
-      _SP_TG_TOKEN=$(jq -r '.notifications.telegram_bot_token // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+      _SP_TG_TOKEN=$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2E_CFG")
       _SP_TG_CHAT=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null || echo "")
       if [[ -n "$_SP_TG_TOKEN" && -n "$_SP_TG_CHAT" ]]; then
         curl -s --connect-timeout 5 --max-time 10 -X POST \
@@ -1667,7 +1681,7 @@ if [[ "$DECISION" == "allow" && -f "$_T2G_CFG" ]] \
   if [[ -n "$_T2G_UPN" ]]; then
     # shellcheck disable=SC1091
     . "$SCRIPT_DIR/lib/db.sh"
-    _t2g_esc() { printf '%s' "$1" | sed "s/'/''/g"; }
+    _t2g_esc() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
     _T2G_UPN_LC=$(printf '%s' "$_T2G_UPN" | tr '[:upper:]' '[:lower:]')
 
     # Op class from the tool verb. The live name is
@@ -1752,13 +1766,13 @@ if [[ "$DECISION" == "allow" && -f "$_T2G_CFG" ]] \
     if [[ "$_T2G_DECISION" == "deny" ]]; then
       _T2G_MSG="[SECURITY ALERT] shared-mailbox op denied: mailbox=${_T2G_UPN} agent=${_T2G_ROLE} tool=${_T2G_TOOL} class=${_T2G_CLASS} (decisions#301 K2)"
       # Fire-and-forget, fds closed — never on the gating path (Track 2e rule).
-      _T2G_WEBHOOK=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2G_CFG" 2>/dev/null || echo "")
+      _T2G_WEBHOOK=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2G_CFG")
       if [[ -n "$_T2G_WEBHOOK" ]]; then
         _T2G_CARD=$(jq -n --arg msg "$_T2G_MSG" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
         curl -s --connect-timeout 5 --max-time 10 -X POST "$_T2G_WEBHOOK" \
           -H "Content-Type: application/json" -d "$_T2G_CARD" >/dev/null 2>&1 &
       fi
-      _T2G_TG_TOKEN=$(jq -r '.notifications.telegram_bot_token // ""' "$_T2G_CFG" 2>/dev/null || echo "")
+      _T2G_TG_TOKEN=$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2G_CFG")
       _T2G_TG_CHAT=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2G_CFG" 2>/dev/null || echo "")
       if [[ -n "$_T2G_TG_TOKEN" && -n "$_T2G_TG_CHAT" ]]; then
         curl -s --connect-timeout 5 --max-time 10 -X POST \
@@ -2090,6 +2104,49 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
 fi
 
 # ─────────────────────────────────────────────
+# Track 2h — secrets read gate (decisions#305 B1b)
+# ─────────────────────────────────────────────
+# .juvant/secrets.json (DB tokens, webhook URLs, bot tokens) is read ONLY by
+# hook / helper processes via hooks/lib/secrets.sh. No tool call may read or
+# write it — every role, main thread included, framework dev included (there
+# is nothing to develop in an instance's secrets): Read / Grep / Edit / Write /
+# NotebookEdit on it, any Bash command that names it, and Bash commands that
+# take the .juvant/ directory wholesale (`cat .juvant/*`, `cp -r .juvant`,
+# `tar … .juvant`, `find .juvant …`). `ls`/`cd`/`mkdir` on the directory and
+# reads of named non-secret files (.juvant/config.json) stay allowed, and
+# `bash scripts/migrate-secrets.sh` (which never prints a value) is the
+# sanctioned way to move secrets in.
+# Residual: a recursive read of the whole repo that ignores .gitignore (`grep -r
+# … .`, `rg -uu`); the secrets file is gitignored, so ripgrep-based tools skip
+# it by default.
+if [[ "$DECISION" == "allow" ]]; then
+  _SG_RE='(^|/)\.juvant/secrets\.json([.][^/]*)?$'
+  _SG_DENY=""
+  case "$TOOL_NAME" in
+    Read|Grep|Edit|Write|MultiEdit|NotebookEdit|NotebookRead)
+      _SG_P=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // .tool_input.path // .tool_input.notebook_path // ""' 2>/dev/null || echo "")
+      _SG_P="${_SG_P#"$(cd "$SCRIPT_DIR/.." && pwd)"/}"; _SG_P="${_SG_P#./}"
+      if [[ "$_SG_P" =~ $_SG_RE ]]; then
+        _SG_DENY="$TOOL_NAME on the secrets file"
+      elif [[ "$TOOL_NAME" == "Grep" && "${_SG_P%/}" =~ (^|/)\.juvant$ ]]; then
+        _SG_DENY="Grep over .juvant/ (it holds the secrets file)"
+      fi ;;
+    Bash)
+      _SG_C=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
+      _SG_DIR_RE='(^|[[:space:]"'"'"'=(])\.juvant/?(\*[^[:space:]]*)?([[:space:]"'"'"');|&]|$)'
+      if [[ "$_SG_C" == *secrets.json* ]]; then
+        _SG_DENY="a Bash command that names the secrets file"
+      elif [[ "$_SG_C" =~ $_SG_DIR_RE ]] && ! [[ "$_SG_C" =~ ^[[:space:]]*(ls|cd|mkdir|pushd)([[:space:]]|$) && "$_SG_C" != *[\;\&\|]* ]]; then
+        _SG_DENY="a Bash command that takes .juvant/ wholesale (it holds the secrets file)"
+      fi ;;
+  esac
+  if [[ -n "$_SG_DENY" ]]; then
+    DECISION="deny"
+    DENY_REASON="SECRETS GATE (decisions#305 B1b): ${_SG_DENY} is denied for every agent. Secrets are read only by hook/helper processes (hooks/lib/secrets.sh). To move secrets out of .juvant/config.json run 'bash scripts/migrate-secrets.sh'; to change a secret, edit .juvant/secrets.json from your own terminal, outside Claude Code."
+  fi
+fi
+
+# ─────────────────────────────────────────────
 # Track 3 — append-only audit log
 # ─────────────────────────────────────────────
 # Routes via hooks/lib/db.sh so Local SQLite adopters get audit-log
@@ -2104,7 +2161,7 @@ fi
 # `${V//\'/\'\'}` produces `\'\'` on macOS default bash, which is
 # not valid SQL escaping — would silently fail every INSERT carrying
 # apostrophes. See FEAT-008 layer-2 dogfood finding (2026-05-08).
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 
 STATUS="pending"
 DENY_SQL="NULL"

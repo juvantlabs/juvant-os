@@ -79,7 +79,7 @@ fi
 PROJECT_ROLES=(pca product-lead design-lead eng-lead eng-api eng-backend eng-frontend eng-ai)
 if [[ -n "$PROJECT_SLUG" ]]; then
   DB_URL=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG")
-  DB_TOKEN=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.auth_token // .projects[$s].auth_token // ""' "$CONFIG")
+  DB_TOKEN=$(juvant_secret_get ".projects[\"$PROJECT_SLUG\"].db.auth_token // .projects[\"$PROJECT_SLUG\"].auth_token" "$CONFIG")
   if [[ -z "$DB_URL" ]]; then
     echo "ERROR: project '$PROJECT_SLUG' not found in $CONFIG." >&2; exit 1
   fi

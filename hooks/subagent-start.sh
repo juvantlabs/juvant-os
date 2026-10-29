@@ -38,7 +38,7 @@ fi
 SUBAGENT_ROLE="${SUBAGENT_ROLE:-${AGENT_ROLE:-unknown}}"
 
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 ROLE_ESC=$(sql_escape "$SUBAGENT_ROLE")
 
 # Update agent status

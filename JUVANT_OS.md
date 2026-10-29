@@ -1234,22 +1234,41 @@ missing, fail gracefully with the install hint:
 **CLI path** — guide the CEO through auth, then create:
 - `company-{{COMPANY_NAME_SLUG}}` DB (e.g. `company-juvant`).
 - Capture endpoint + token from CLI output.
-- Write to `.juvant/config.json`:
+- Write the non-secret keys to `.juvant/config.json`:
 
 ```json
 {
   "db": {
     "provider": "turso",
     "url": "libsql://company-juvant-juvantlabs.turso.io",
-    "auth_token": "<token>",
     "scope": "company"
   },
   "turso_url": "libsql://company-juvant-juvantlabs.turso.io",
-  "turso_token": "<token>",
   "turso_db_name": "company-{{COMPANY_NAME_SLUG}}",
   "portal_available": true
 }
 ```
+
+- Write the **tokens** to `.juvant/secrets.json` (decisions#305 B1b) — same key
+  paths, gitignored, `chmod 600`. Only hook/helper processes read it; the
+  PreToolUse secrets gate (Track 2h) denies every agent any tool access to it,
+  so the wizard stores each token with
+  `printf '%s' "<token>" | bash scripts/set-secret.sh .db.auth_token`
+  (add-only: an existing value is never replaced from inside Claude Code —
+  rotation is done by the CEO from their own terminal). Create a
+  least-privilege read-only token for the hooks' reads and store it as
+  `.db.read_token`:
+  `turso db tokens create company-{{COMPANY_NAME_SLUG}} --read-only`.
+
+```json
+{
+  "db": { "auth_token": "<write-token>", "read_token": "<read-only-token>" }
+}
+```
+
+Existing instances: `bash scripts/migrate-secrets.sh` moves every secret out of
+`config.json` (it never prints a value); the legacy location is still read, with
+a deprecation warning, for one minor version.
 
 **On `turso_db_name`**: Turso CLI's `.dump` command does NOT work via
 `libsql://` URLs — it tries to make an HTTP request to `<url>/dump`
@@ -1358,7 +1377,10 @@ top-level `notifications` object** — the shipped code reads them as
 `.notifications.teams_webhooks.<key>`, `.notifications.telegram_bot_token`, etc.
 Writing them at the document root leaves every read empty (`// ""`) and silently
 disables all Telegram/Teams sends (the BUG-057 failure mode). Write the wrapper
-exactly as shown:
+exactly as shown. The bot token and the webhook URLs are **secrets**: they go in
+`.juvant/secrets.json` under the same `notifications` paths (decisions#305 B1b);
+`telegram_chat_id` and the Morning Brief keys stay in `config.json`. The block
+below shows the full logical shape:
 
 ```json
 {
@@ -4914,7 +4936,7 @@ hooks/post-compact.sh         hooks/pre-compact.sh
 hooks/config-change.sh        hooks/lib/pause-windows.sh
 hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
 hooks/lib/hooks-integrity.sh  hooks/lib/guardrail-paths.sh
-hooks/lib/security-policy.sh
+hooks/lib/security-policy.sh  hooks/lib/secrets.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh
@@ -4930,6 +4952,7 @@ scripts/sync-project-globs.sh scripts/governance-backfill.sh
 scripts/seed-matrix.sh        scripts/templates/v0-agent-tool-matrix.json
 scripts/sync-hooks.sh         scripts/templates/hooks-registration.json
 scripts/deadlines.json        scripts/validate-security-policy.sh
+scripts/migrate-secrets.sh    scripts/set-secret.sh
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md
@@ -4955,6 +4978,7 @@ tests/hooks/test-pretooluse-wrapper.sh
 tests/hooks/test-hooks-integrity.sh
 tests/hooks/test-security-policy.sh
 tests/hooks/test-connector-gate.sh
+tests/hooks/test-secrets.sh
 tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh

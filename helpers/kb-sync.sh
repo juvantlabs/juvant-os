@@ -26,6 +26,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
+# decisions#305 B1b: tokens come from .juvant/secrets.json.
+if [[ -f "$SCRIPT_DIR/../hooks/lib/secrets.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/../hooks/lib/secrets.sh"
+else
+  juvant_secret_get() { jq -r "(${1}) // empty" "${2:-$CONFIG}" 2>/dev/null || true; }
+fi
 
 if [[ ! -f "$CONFIG" ]]; then
   echo "[kb-sync] SKIP: no config.json found" >&2
@@ -81,7 +88,7 @@ upsert_snapshot() {
 }
 
 # ─── GitHub sources ───────────────────────────────────────────────────────────
-GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN:-$(jq -r '.github_token // ""' "$CONFIG" 2>/dev/null || echo "")}
+GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN:-$(juvant_secret_get '.github_token' "$CONFIG")}
 
 if [[ -n "$GH_TOKEN" ]]; then
   # Collect repos from github_user_map projects + company repos

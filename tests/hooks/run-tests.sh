@@ -1551,6 +1551,18 @@ printf '' | bash "$HOOKS_DIR/config-change.sh" 2>/dev/null
 t_assert "empty event still exits 0 (observational, never blocks)" "0" "$?"
 
 # ─────────────────────────────────────────────
+# Multi-byte Edit summary (found 2026-10-29): `head -c 80` cut a multi-byte
+# character in half and the SQL escape then aborted the hook ("illegal byte
+# sequence") — under onFailure:block that BLOCKED the Edit itself.
+# ─────────────────────────────────────────────
+suite "Edit with a multi-byte character at the 80-byte summary boundary"
+_mb_old=$(printf '    fi\n  fi\nfi\n\n# ')$(printf '\xe2\x94\x80%.0s' $(seq 1 40))
+_mb_ev=$(jq -cn --arg o "$_mb_old" '{tool_name:"Edit",session_id:"s-mb",tool_input:{file_path:"docs/x.md",old_string:$o,new_string:"y"}}')
+_mb_out=$(echo "$_mb_ev" | bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null); _mb_rc=$?
+t_assert "hook exits 0 (does not abort)" "0" "$_mb_rc"
+t_assert "decision is allow" "allow" "$(echo "$_mb_out" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)"
+
+# ─────────────────────────────────────────────
 # G6 (decisions#303): with BOTH transports faked, a full drain must leave the
 # spool empty. Anything left means some write took a path the fakes don't
 # cover (e.g. a new curl endpoint, or a turso-only fake) and the suite passed

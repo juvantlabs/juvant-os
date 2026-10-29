@@ -252,13 +252,13 @@ _quarantine_report() {
   _cfg="${JUVANT_CONFIG:-$REPO_ROOT/.juvant/config.json}"
   if [[ -f "$_cfg" ]] && command -v jq >/dev/null 2>&1; then
     # Same notification path as pre-tool-use.sh Track 2e; fire-and-forget.
-    _hook=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_cfg" 2>/dev/null || echo "")
+    _hook=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_cfg")
     if [[ -n "$_hook" ]]; then
       _card=$(jq -n --arg msg "$_msg" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
       curl -s --connect-timeout 5 --max-time 10 -X POST "$_hook" \
         -H "Content-Type: application/json" -d "$_card" >/dev/null 2>&1 &
     fi
-    _tg_token=$(jq -r '.notifications.telegram_bot_token // ""' "$_cfg" 2>/dev/null || echo "")
+    _tg_token=$(juvant_secret_get '.notifications.telegram_bot_token' "$_cfg")
     _tg_chat=$(jq -r '.notifications.telegram_chat_id // ""' "$_cfg" 2>/dev/null || echo "")
     if [[ -n "$_tg_token" && -n "$_tg_chat" ]]; then
       curl -s --connect-timeout 5 --max-time 10 -X POST \

@@ -56,7 +56,7 @@ SUMMARY="config change: ${SOURCE}${BASE:+ (}${BASE}${BASE:+)}"
 SUMMARY="${SUMMARY:0:200}"
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
 
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 HASH_ESC=$(sql_escape "$HASH")
 SUM_ESC=$(sql_escape "$SUMMARY")
 if [[ -n "$SESSION_ID" ]]; then

@@ -10,7 +10,16 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="$SCRIPT_DIR/../.juvant/config.json"
+CONFIG="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
+# decisions#305 B1b: bot tokens / webhook URLs come from .juvant/secrets.json.
+# (A failed `.` aborts bash outright — `|| fallback` never runs — so test first.)
+if [[ -f "$SCRIPT_DIR/lib/secrets.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/secrets.sh"
+else
+  juvant_secret_get() { jq -r "(${1}) // empty" "${2:-$CONFIG}" 2>/dev/null || true; }
+fi
+_ns_key() { [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]] && printf '%s' "$1"; }
 
 # Read notification event from stdin
 EVENT_JSON=""
@@ -21,7 +30,7 @@ fi
 # Load Telegram credentials
 if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
   if [[ -f "$CONFIG" ]]; then
-    TELEGRAM_BOT_TOKEN=$(jq -r '.notifications.telegram_bot_token // ""' "$CONFIG" 2>/dev/null || echo "")
+    TELEGRAM_BOT_TOKEN=$(juvant_secret_get '.notifications.telegram_bot_token' "$CONFIG")
     TELEGRAM_CHAT_ID=$(jq -r '.notifications.telegram_chat_id // ""' "$CONFIG" 2>/dev/null || echo "")
   fi
 fi
@@ -35,13 +44,12 @@ NOTIFY_CHANNEL="${JUVANT_NOTIFY_CHANNEL:-approvals}"
 NOTIFY_PROJECT="${JUVANT_NOTIFY_PROJECT:-}"
 TEAMS_WEBHOOK_URL=""
 if [[ -f "$CONFIG" ]] && command -v jq &>/dev/null; then
-  if [[ -n "$NOTIFY_PROJECT" ]]; then
-    TEAMS_WEBHOOK_URL=$(jq -r --arg slug "$NOTIFY_PROJECT" --arg ch "$NOTIFY_CHANNEL" \
-      '.projects[$slug].notifications.teams_webhooks[$ch] // ""' "$CONFIG" 2>/dev/null || echo "")
+  _ns_ch=$(_ns_key "$NOTIFY_CHANNEL" || true); _ns_pj=$(_ns_key "$NOTIFY_PROJECT" || true)
+  if [[ -n "$_ns_pj" && -n "$_ns_ch" ]]; then
+    TEAMS_WEBHOOK_URL=$(juvant_secret_get ".projects[\"$_ns_pj\"].notifications.teams_webhooks[\"$_ns_ch\"]" "$CONFIG")
   fi
-  if [[ -z "$TEAMS_WEBHOOK_URL" ]]; then
-    TEAMS_WEBHOOK_URL=$(jq -r --arg ch "$NOTIFY_CHANNEL" \
-      '.notifications.teams_webhooks[$ch] // ""' "$CONFIG" 2>/dev/null || echo "")
+  if [[ -z "$TEAMS_WEBHOOK_URL" && -n "$_ns_ch" ]]; then
+    TEAMS_WEBHOOK_URL=$(juvant_secret_get ".notifications.teams_webhooks[\"$_ns_ch\"]" "$CONFIG")
   fi
 fi
 

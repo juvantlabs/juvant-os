@@ -29,6 +29,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG="$ROOT/.juvant/config.json"
+# decisions#305 B1b: tokens come from .juvant/secrets.json.
+if [[ -f "$ROOT/hooks/lib/secrets.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$ROOT/hooks/lib/secrets.sh"
+else
+  juvant_secret_get() { jq -r "(${1}) // empty" "${2:-$CONFIG}" 2>/dev/null || true; }
+fi
 LOG_DIR="$ROOT/.juvant/logs"
 DATE=$(date -u +"%Y-%m-%d")
 REPORT_FILE="$LOG_DIR/governance-backfill-${DATE}.md"
@@ -216,7 +223,7 @@ phase_0b() {
   report "=== Phase 0b: Lifecycle reconciliation ($db_label) ==="
 
   local gh_token=""
-  gh_token=$(jq -r '.github_token // ""' "$CONFIG" 2>/dev/null || true)
+  gh_token=$(juvant_secret_get '.github_token' "$CONFIG")
 
   local n_checked=0 n_executed=0 n_open=0
 

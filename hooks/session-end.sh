@@ -43,7 +43,7 @@ fi
 
 ROLE="${AGENT_ROLE:-cos}"
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 ROLE_ESC=$(sql_escape "$ROLE")
 
 juvant_db_exec \
@@ -106,7 +106,7 @@ if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
 
   WRAP_TOTAL=$((PENDING_QUEUE + PROPOSED_DECISIONS + UNREAD_CEO))
   if [[ "$WRAP_TOTAL" -gt 0 ]]; then
-    SESSION_ESC=$(printf '%s' "${SESSION_ID:-}" | sed "s/'/''/g")
+    SESSION_ESC=$(printf '%s' "${SESSION_ID:-}" | LC_ALL=C sed "s/'/''/g")
     CONTENT=$(printf '{"pending_queue":%s,"proposed_decisions":%s,"unread_ceo_messages":%s,"session_id":"%s"}' \
       "$PENDING_QUEUE" "$PROPOSED_DECISIONS" "$UNREAD_CEO" "$SESSION_ESC")
     juvant_db_exec \

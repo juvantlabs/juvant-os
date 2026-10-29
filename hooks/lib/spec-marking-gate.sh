@@ -38,10 +38,10 @@ spec_marking_gate() {
     bash "$hooks_dir/../helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true
   fi
 
-  sess_esc="$(printf '%s' "$session_id" | sed "s/'/''/g")"
+  sess_esc="$(printf '%s' "$session_id" | LC_ALL=C sed "s/'/''/g")"
   role_pred=""
   if [[ -n "$role" && "$role" != "unknown" ]]; then
-    role_pred="AND agent = '$(printf '%s' "$role" | sed "s/'/''/g")'"
+    role_pred="AND agent = '$(printf '%s' "$role" | LC_ALL=C sed "s/'/''/g")'"
   fi
 
   # ── Path 1 (ADR 0029): artifact-less executions via a stamped spec_id ────────
@@ -85,7 +85,7 @@ spec_marking_gate() {
     if [[ -n "$role" ]]; then
       actor_pred="$role_pred"
     else
-      main_role="$(printf '%s' "${AGENT_ROLE:-cos}" | sed "s/'/''/g")"
+      main_role="$(printf '%s' "${AGENT_ROLE:-cos}" | LC_ALL=C sed "s/'/''/g")"
       actor_pred="AND agent IN ('cos', 'unknown', '$main_role')"
     fi
     part_rows="$(juvant_db_query "

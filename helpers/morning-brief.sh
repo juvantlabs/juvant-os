@@ -56,7 +56,7 @@ if ! juvant_db_cli_ok; then
   exit 1
 fi
 
-TEAMS_URL=$(jq -r '.notifications.teams_webhooks.ops // ""' "$CONFIG" 2>/dev/null || echo "")
+TEAMS_URL=$(juvant_secret_get '.notifications.teams_webhooks.ops' "$CONFIG")
 if [[ -z "$TEAMS_URL" ]]; then
   echo "[morning-brief] WARN: notifications.teams_webhooks.ops not configured — skipping" >&2
   exit 0
