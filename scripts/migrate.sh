@@ -79,6 +79,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCHEMA="$SCRIPT_DIR/schema.sql"
 CONFIG="$ROOT/.juvant/config.json"
+# decisions#305 B1b: DB tokens come from .juvant/secrets.json.
+# (A failed `.` aborts bash outright — `|| fallback` never runs — so test first.)
+if [[ -f "$ROOT/hooks/lib/secrets.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$ROOT/hooks/lib/secrets.sh"
+else
+  juvant_secret_get() { jq -r "(${1}) // empty" "${2:-$CONFIG}" 2>/dev/null || true; }
+fi
 
 # ─────────────────────────────────────────────
 # Mode selection
@@ -121,11 +129,11 @@ run_schema_apply() {
       # Support both nested (.db.provider) and flat (.provider) config shapes.
       PROVIDER=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.provider // .projects[$s].provider // ""' "$CONFIG")
       DB_URL=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG")
-      DB_TOKEN=$(jq -r --arg s "$PROJECT_SLUG" '.projects[$s].db.auth_token // .projects[$s].auth_token // ""' "$CONFIG")
+      DB_TOKEN=$(juvant_secret_get ".projects[\"$PROJECT_SLUG\"].db.auth_token // .projects[\"$PROJECT_SLUG\"].auth_token" "$CONFIG")
     else
       PROVIDER=$(jq -r '.db.provider // ""' "$CONFIG")
       DB_URL=$(jq -r '.db.url // ""' "$CONFIG")
-      DB_TOKEN=$(jq -r '.db.auth_token // ""' "$CONFIG")
+      DB_TOKEN=$(juvant_secret_get '.db.auth_token' "$CONFIG")
     fi
   fi
 

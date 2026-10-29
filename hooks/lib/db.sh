@@ -55,6 +55,28 @@ _juvant_db_run() {
   fi
 }
 
+# decisions#305 B1b: the bearer token goes to curl on STDIN (`--config -`),
+# never in its argv — argv is world-readable to every process of the user
+# (`ps`), so an agent could otherwise lift the DB token off a running hook.
+# Usage: _juvant_db_curl <token-or-empty> <curl args…>
+_juvant_db_curl() {
+  local tok="$1"; shift
+  if [[ -n "$tok" ]]; then
+    _juvant_db_run curl --config - "$@" <<< "header = \"Authorization: Bearer ${tok}\""
+  else
+    _juvant_db_run curl "$@"
+  fi
+}
+
+# shellcheck disable=SC1091
+if [[ -f "$(dirname "${BASH_SOURCE[0]}")/secrets.sh" ]]; then
+  . "$(dirname "${BASH_SOURCE[0]}")/secrets.sh"
+else
+  # secrets.sh missing (partial sync / a helper staged with db.sh alone):
+  # read from the config file as before so the DB layer keeps working.
+  juvant_secret_get() { jq -r "(${1}) // empty" "${2:-${JUVANT_CONFIG:-$(dirname "${BASH_SOURCE[0]}")/../../.juvant/config.json}}" 2>/dev/null || true; }
+fi
+
 # Resolve provider + endpoint. Reads .juvant/config.json; cloud
 # paths accept TURSO_URL/TURSO_TOKEN override.
 # Sets globals JUVANT_DB_PROVIDER, JUVANT_DB_URL, JUVANT_DB_TOKEN,
@@ -64,12 +86,18 @@ juvant_db_resolve() {
   JUVANT_DB_PROVIDER=""
   JUVANT_DB_URL=""
   JUVANT_DB_TOKEN=""
+  JUVANT_DB_READ_TOKEN=""
   JUVANT_DB_PATH=""
 
   if [[ -f "$config" ]] && command -v jq &>/dev/null; then
     JUVANT_DB_PROVIDER=$(jq -r '.db.provider // ""' "$config" 2>/dev/null)
     JUVANT_DB_URL=$(jq -r '.db.url // .turso_url // ""' "$config" 2>/dev/null)
-    JUVANT_DB_TOKEN=$(jq -r '.db.auth_token // .turso_token // ""' "$config" 2>/dev/null)
+    # decisions#305 B1b: tokens come from .juvant/secrets.json (legacy:
+    # config.json, one minor version). The WRITE token is used only by
+    # juvant_db_exec; reads use the least-privilege read-only token when one is
+    # configured (`turso db tokens create <db> --read-only` → .db.read_token).
+    JUVANT_DB_TOKEN=$(juvant_secret_get '.db.auth_token // .turso_token' "$config")
+    JUVANT_DB_READ_TOKEN=$(juvant_secret_get '.db.read_token' "$config")
     # Legacy-config inference: a pre-v0.8 config carries top-level `.turso_url`
     # with no `.db.provider`. The URL read above already falls back to
     # `.turso_url`, but the provider would stay empty — so every query/exec
@@ -84,7 +112,8 @@ juvant_db_resolve() {
   # Env override (cloud paths only).
   if [[ -n "${TURSO_URL:-}" ]]; then JUVANT_DB_URL="$TURSO_URL"; fi
   # shellcheck disable=SC2034  # JUVANT_DB_TOKEN read by juvant_db_exec in same file
-  if [[ -n "${TURSO_TOKEN:-}" ]]; then JUVANT_DB_TOKEN="$TURSO_TOKEN"; fi
+  if [[ -n "${TURSO_TOKEN:-}" ]]; then JUVANT_DB_TOKEN="$TURSO_TOKEN"; JUVANT_DB_READ_TOKEN=""; fi
+  if [[ -n "${TURSO_READ_TOKEN:-}" ]]; then JUVANT_DB_READ_TOKEN="$TURSO_READ_TOKEN"; fi
 
   # Default provider for env-only invocations.
   if [[ -z "$JUVANT_DB_PROVIDER" && ( -n "${TURSO_URL:-}" || -n "${TURSO_TOKEN:-}" ) ]]; then
@@ -175,16 +204,9 @@ juvant_db_exec() {
       _http="${JUVANT_DB_URL/#libsql:\/\//https://}"
       _req=$(jq -n --arg sql "$sql" \
         '{requests:[{type:"execute",stmt:{sql:$sql}},{type:"close"}]}')
-      if [[ -n "$JUVANT_DB_TOKEN" ]]; then
-        _resp=$(_juvant_db_run curl -sS -w "\n%{http_code}" \
-          -H "Authorization: Bearer $JUVANT_DB_TOKEN" \
-          -H "Content-Type: application/json" \
-          --data "$_req" "$_http/v2/pipeline" 2>&1); _rc=$?
-      else
-        _resp=$(_juvant_db_run curl -sS -w "\n%{http_code}" \
-          -H "Content-Type: application/json" \
-          --data "$_req" "$_http/v2/pipeline" 2>&1); _rc=$?
-      fi
+      _resp=$(_juvant_db_curl "$JUVANT_DB_TOKEN" -sS -w "\n%{http_code}" \
+        -H "Content-Type: application/json" \
+        --data "$_req" "$_http/v2/pipeline" 2>&1); _rc=$?
       _http_code=$(printf "%s" "$_resp" | awk 'END{print}')
       _body=$(printf "%s" "$_resp" | sed '$d')
       if [[ "$_rc" -ne 0 ]] || [[ ! "$_http_code" =~ ^2[0-9][0-9]$ ]] || \
@@ -369,17 +391,10 @@ juvant_db_query() {
       _http="${JUVANT_DB_URL/#libsql:\/\//https://}"   # libsql:// → https://; http(s):// kept
       _req=$(jq -n --arg sql "$sql" \
         '{requests:[{type:"execute",stmt:{sql:$sql}},{type:"close"}]}')
-      if [[ -n "$JUVANT_DB_TOKEN" ]]; then
-        _resp=$(_juvant_db_run curl -sS -H "Authorization: Bearer $JUVANT_DB_TOKEN" \
-          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
-          echo "[db.sh] juvant_db_query: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
-          return 1; }
-      else
-        _resp=$(_juvant_db_run curl -sS \
-          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
-          echo "[db.sh] juvant_db_query: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
-          return 1; }
-      fi
+      _resp=$(_juvant_db_curl "${JUVANT_DB_READ_TOKEN:-$JUVANT_DB_TOKEN}" -sS \
+        -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
+        echo "[db.sh] juvant_db_query: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
+        return 1; }
       if ! jq -e . >/dev/null 2>&1 <<<"$_resp"; then
         echo "[db.sh] juvant_db_query: non-JSON response from $_http/v2/pipeline: $(printf '%.160s' "$_resp")" >&2
         return 1
@@ -438,17 +453,10 @@ juvant_db_query_csv() {
       _http="${JUVANT_DB_URL/#libsql:\/\//https://}"   # libsql:// → https://; http(s):// kept
       _req=$(jq -n --arg sql "$sql" \
         '{requests:[{type:"execute",stmt:{sql:$sql}},{type:"close"}]}')
-      if [[ -n "$JUVANT_DB_TOKEN" ]]; then
-        _resp=$(_juvant_db_run curl -sS -H "Authorization: Bearer $JUVANT_DB_TOKEN" \
-          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
-          echo "[db.sh] juvant_db_query_csv: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
-          return 1; }
-      else
-        _resp=$(_juvant_db_run curl -sS \
-          -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
-          echo "[db.sh] juvant_db_query_csv: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
-          return 1; }
-      fi
+      _resp=$(_juvant_db_curl "${JUVANT_DB_READ_TOKEN:-$JUVANT_DB_TOKEN}" -sS \
+        -H 'Content-Type: application/json' --data "$_req" "$_http/v2/pipeline" 2>&1) || {
+        echo "[db.sh] juvant_db_query_csv: HTTP request to $_http/v2/pipeline failed: $_resp" >&2
+        return 1; }
       if ! jq -e . >/dev/null 2>&1 <<<"$_resp"; then
         echo "[db.sh] juvant_db_query_csv: non-JSON response from $_http/v2/pipeline: $(printf '%.160s' "$_resp")" >&2
         return 1

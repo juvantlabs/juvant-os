@@ -43,7 +43,7 @@ fi
 
 # Escape single quotes for SQL via sed — bash 3.2 (macOS) parameter
 # expansion `${V//\'/\'\'}` produces `\'\'`, which is not valid SQL.
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 # Store the snapshot base64-encoded (single line, no whitespace, no quotes).
 # A snapshot is multi-line free text; reading it back through a CLI mangles
 # it — `juvant_db_query` strips ALL whitespace on the turso backend and the

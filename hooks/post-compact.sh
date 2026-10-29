@@ -19,7 +19,7 @@ if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
 fi
 
 ROLE="${AGENT_ROLE:-cos}"
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 ROLE_ESC=$(sql_escape "$ROLE")
 
 # Retrieve most recent snapshot for this agent. pre-compact.sh stores it

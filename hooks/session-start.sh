@@ -44,7 +44,7 @@ if [[ -f "$SCRIPT_DIR/lib/hooks-integrity.sh" ]]; then
     echo "SECURITY WARNING (hooks integrity, decisions#300): guardrail files differ from the canonical upstream content — ${_HI_LIST}. The PreToolUse gate may have been tampered with. Surface this to the CEO and the CSO before any other work; restore with 'git checkout upstream/main -- <file>' once reviewed."
     echo "[session-start] SECURITY WARNING: hooks integrity check failed: ${_HI_LIST}" >&2
     if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
-      _HI_SUM=$(printf 'hooks integrity: %s' "$_HI_LIST" | cut -c1-200 | sed "s/'/''/g")
+      _HI_SUM=$(printf 'hooks integrity: %s' "$_HI_LIST" | cut -c1-200 | LC_ALL=C sed "s/'/''/g")
       _HI_HASH=$(printf '%s' "$_HI_OUT" | shasum -a 256 2>/dev/null | cut -d' ' -f1)
       juvant_db_exec_async "INSERT INTO agent_actions_log
         (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at)
@@ -85,7 +85,7 @@ if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
       printf '%s\n' "$JUVANT_POLICY_BLOB" > "$_SP_SEEN_FILE" 2>/dev/null || true ;;
   esac
   if [[ -n "$_SP_ROW" && -n "$JUVANT_DB_PROVIDER" ]]; then
-    _SP_ROW_ESC=$(printf '%s' "$_SP_ROW" | sed "s/'/''/g")
+    _SP_ROW_ESC=$(printf '%s' "$_SP_ROW" | LC_ALL=C sed "s/'/''/g")
     # Not spooled (decisions#303 R3 executes only allowlisted spool shapes);
     # the stdout warning + alert carry the event if the DB is unreachable.
     JUVANT_DB_EXEC_NO_SPOOL=1 juvant_db_exec "INSERT INTO security_audit_log
@@ -97,6 +97,20 @@ if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
     JUVANT_NOTIFY_PRIORITY=critical \
       bash "$SCRIPT_DIR/notification.sh" \
       <<< "$(jq -n --arg m "$_SP_ALERT" '{message:$m}')" >/dev/null 2>&1 || true
+  fi
+fi
+
+# decisions#305 B1b: secrets still sitting in .juvant/config.json (readable by
+# every agent) → tell the main thread how to move them. Paths only, never values.
+if [[ -f "$SCRIPT_DIR/lib/secrets.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/secrets.sh"
+  _SEC_CFG="${JUVANT_CONFIG:-$REPO_ROOT/.juvant/config.json}"
+  if [[ -f "$_SEC_CFG" ]]; then
+    _SEC_N=$(juvant_secret_paths_in "$_SEC_CFG" | grep -c . || true)
+    if [[ "${_SEC_N:-0}" -gt 0 ]]; then
+      echo "SECURITY NOTICE (decisions#305 B1b): ${_SEC_N} secret(s) (DB tokens / webhook URLs / bot tokens) are still in .juvant/config.json, which every agent can read. Ask the CEO to approve running 'bash scripts/migrate-secrets.sh' — it moves them to the gated .juvant/secrets.json and never prints a value."
+    fi
   fi
 fi
 
@@ -136,7 +150,7 @@ if [[ -n "$EVENT_JSON" ]] && command -v jq &>/dev/null; then
 fi
 
 NOW=$(date -u +"%Y-%m-%d %H:%M:%S")
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+sql_escape() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
 ROLE_ESC=$(sql_escape "$ROLE")
 SESSION_ESC=$(sql_escape "$SESSION_ID")
 

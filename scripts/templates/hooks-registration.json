@@ -13,6 +13,9 @@
     "Write(helpers/drain-audit-spool.sh)",
     "Edit(security/policy.json)",
     "Write(security/policy.json)",
+    "Read(.juvant/secrets.json)",
+    "Edit(.juvant/secrets.json)",
+    "Write(.juvant/secrets.json)",
     "mcp__claude_ai_Microsoft_365__sharepoint_search",
     "mcp__claude_ai_Microsoft_365__sharepoint_folder_search"
   ],
