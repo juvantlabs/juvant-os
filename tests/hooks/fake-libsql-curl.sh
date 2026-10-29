@@ -72,6 +72,50 @@ if [[ "$MODE" == "db-error" ]]; then
   exit 0
 fi
 
+# Hrana `batch` request (migrate.sh --rebuild-defaults, H23 / BUG-091): run the
+# steps on ONE connection — like the libsql server's stream — honouring each
+# step's condition (ok / not / and / or) so BEGIN … COMMIT / ROLLBACK is a real
+# transaction. FAKE_BATCH_FAIL_AT=<substring>: the first step whose SQL
+# contains it fails (fault injection between the copy and the rename).
+if [[ "$(printf '%s' "$data" | jq -r '.requests[0].type // ""' 2>/dev/null)" == "batch" ]]; then
+  # shellcheck disable=SC2016
+  _fake_batch_py='
+import json, os, sqlite3, sys
+req = json.load(sys.stdin)["requests"][0]["batch"]["steps"]
+con = sqlite3.connect(os.environ["JUVANT_TEST_DB_FILE"], isolation_level=None)
+fail_at = os.environ.get("FAKE_BATCH_FAIL_AT", "")
+results, errors = [], []
+def holds(c):
+    if c is None: return True
+    t = c["type"]
+    if t == "ok": return results[c["step"]] is not None
+    if t == "error": return errors[c["step"]] is not None
+    if t == "not": return not holds(c["cond"])
+    if t == "and": return all(holds(x) for x in c["conds"])
+    if t == "or": return any(holds(x) for x in c["conds"])
+    raise ValueError(t)
+for st in req:
+    if not holds(st.get("condition")):
+        results.append(None); errors.append(None); continue
+    sql = st["stmt"]["sql"]
+    try:
+        if fail_at and fail_at in sql:
+            fail_at = ""
+            raise sqlite3.OperationalError("injected failure (FAKE_BATCH_FAIL_AT)")
+        cur = con.execute(sql)
+        rows = cur.fetchall() if cur.description else []
+        results.append({"cols": [], "rows": [[{"value": None if v is None else str(v)} for v in r] for r in rows]})
+        errors.append(None)
+    except sqlite3.Error as e:
+        results.append(None); errors.append({"message": str(e)})
+print(json.dumps({"results": [{"type": "ok", "response": {"type": "batch",
+      "result": {"step_results": results, "step_errors": errors}}}, {"type": "ok", "response": {"type": "close"}}]}))
+'
+  printf '%s' "$data" | python3 -I -c "$_fake_batch_py"
+  [[ "$has_w" -eq 1 ]] && printf '\n200'
+  exit 0
+fi
+
 # Default (MODE="" or MODE="200"): execute the SQL for real.
 sql=$(printf '%s' "$data" | jq -r '.requests[0].stmt.sql // ""' 2>/dev/null)
 if out=$(sqlite3 -json "$JUVANT_TEST_DB_FILE" "$sql" 2>&1); then
