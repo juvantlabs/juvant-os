@@ -32,6 +32,20 @@ All written artifacts in English. No exceptions.
   because `schema.sql` creates the correct trigger first; fixed anyway.
 - `governance-backfill.sh` phase 0a no longer remaps categories that are now
   canonical (`system-audit`, `deployment`, `versioning`, `manifesto`, …).
+- **`migrate.sh` could leave `security_audit_log` unwritable** (BUG-080 #1,
+  juvant-os-pm#182). On a DB without `security_audit_log.session_id`,
+  `schema.sql` created the R5 triggers that name it before the ADD COLUMN patch
+  ran; until then every write failed with `no such column`, and a run that
+  aborted in between left it that way. The ADD COLUMN patches now also run
+  before `schema.sql` (a fresh DB's "no such table" is benign there).
+- **`migrate.sh` reported success after a silent no-op** (BUG-080 #2). With
+  expired turso auth the CLI exits 0 having applied nothing. The run now reads
+  back every table, trigger and view `schema.sql` and the patches create, and
+  every patched column, and exits 1 with the missing objects and a
+  `turso auth` hint instead of "Schema applied successfully".
+- `migrate.sh` keeps one copy of the patch lists for both the local and the
+  turso branch (they were duplicated, identical), and the DB CLI no longer
+  inherits the patch loop's stdin.
 
 ### Added
 
@@ -39,6 +53,9 @@ All written artifacts in English. No exceptions.
   allowlist must agree, every category a template tells an agent to write to
   `decisions` must be in it, and no `migrate.sh` INSERT trigger may reference
   `OLD`. The class had bitten four times (BUG-055, BUG-063, BUG-074).
+- **`tests/migrate/test-schema-apply-order.sh`** (CI): an interrupted
+  migration of an old-shape DB leaves `security_audit_log` writable; a DB CLI
+  that exits 0 without applying makes `migrate.sh` fail.
 
 ## [1.14.1] — 2026-10-29 — Security policy validator checks the right repo
 

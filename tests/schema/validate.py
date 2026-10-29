@@ -343,10 +343,12 @@ check(
     _r5_drops == set(_r5_mig),
     f"missing DROP: {sorted(set(_r5_mig) - _r5_drops)}",
 )
+# One shared patch list (_patch_list) feeds both the local and the turso
+# branch since BUG-080; it must include R5_AUDIT_PATCHES.
 _r5_uses = _mig_txt.count('"${R5_AUDIT_PATCHES[@]}"')
 check(
-    "both migrate branches (local + turso) apply R5_AUDIT_PATCHES",
-    _r5_uses == 2,
+    "the shared migrate patch list (local + turso) applies R5_AUDIT_PATCHES",
+    _r5_uses == 1 and "_patch_list()" in _mig_txt,
     f"found {_r5_uses} use(s)",
 )
 _conn = fresh_conn()
