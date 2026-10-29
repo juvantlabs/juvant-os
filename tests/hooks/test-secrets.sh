@@ -165,6 +165,39 @@ t_assert "SQL one-word literal with the secrets path (readfile) → deny" "deny"
 t_assert "secrets path outside the SQL (redirect) → deny" "deny" \
   "$(bash_cmd "sqlite3 $TMPROOT/x.db \"SELECT 'a b'\" > .juvant/$SF")"
 
+echo "== H13: dotenv acceptance set + policy secrets_paths =="
+for p in "$EV.local" "sub/dir/$EV" "$EV.local.bak-20261029"; do
+  t_assert "H13 deny — Read $p" "deny" "$(tool Read "$(jq -cn --arg p "$p" '{file_path:$p}')")"
+done
+t_assert "H13 deny — Grep in $EV.production" "deny" "$(tool Grep "$(jq -cn --arg p "$EV.production" '{pattern:"FOO",path:$p}')")"
+t_assert "H13 deny — Grep with glob $EV*" "deny" "$(tool Grep "$(jq -cn --arg g "$EV*" '{pattern:"FOO",glob:$g}')")"
+t_assert "H13 deny — Grep with glob **/$EV.local" "deny" "$(tool Grep "$(jq -cn --arg g "**/$EV.local" '{pattern:"FOO",glob:$g}')")"
+for c in "cat $EV.local" "grep -c FOO $EV.local" "source $EV.local" ". ./$EV.local" "cat $EV*" "cat *$EV" "cp $EV.local /tmp/x" \
+         "export \$(cat $EV.local | xargs)" "ls -l $EV.local && cat $EV.local" "ls -l $EV.local; grep X $EV.local"; do
+  t_assert "H13 deny — Bash $c" "deny" "$(bash_cmd "$c")"
+done
+t_assert "H13 allow — Read $EV.example" "allow" "$(tool Read "$(jq -cn --arg p "$EV.example" '{file_path:$p}')")"
+t_assert "H13 allow — Grep with glob *.md" "allow" "$(tool Grep '{"pattern":"FOO","glob":"*.md"}')"
+for c in "ls -l $EV.local" "ls -la $EV*" "node -e 'console.log(process${EV}.HOME)'" "grep -rn dotenv .mcp.json" "grep -rn 'process${EV}' src"; do
+  t_assert "H13 allow — Bash $c" "allow" "$(bash_cmd "$c")"
+done
+# Policy-configured extra paths (test mode stands in for origin/main).
+POL="$TMPROOT/policy.json"; echo '{"version":1,"secrets_paths":["*.pem","credentials.json"]}' > "$POL"
+ptool() { jq -n --arg t "$1" --argjson i "$2" '{tool_name:$t, tool_input:$i, session_id:"s-sec", agent_type:"cso"}' \
+  | JUVANT_POLICY_TEST=1 JUVANT_POLICY_FILE="$POL" JUVANT_CONFIG="$TMPROOT/none.json" bash "$H" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision'; }
+pbash() { ptool Bash "$(jq -cn --arg c "$1" '{command:$c}')"; }
+t_assert "secrets_paths deny — Read certs/server.pem" "deny" "$(ptool Read '{"file_path":"certs/server.pem"}')"
+t_assert "secrets_paths deny — Read credentials.json" "deny" "$(ptool Read '{"file_path":"credentials.json"}')"
+t_assert "secrets_paths deny — Bash cat config/credentials.json" "deny" "$(pbash 'cat config/credentials.json')"
+t_assert "secrets_paths deny — Bash openssl x509 -in \"certs/server.pem\"" "deny" "$(pbash 'openssl x509 -in "certs/server.pem" -noout')"
+t_assert "secrets_paths allow — Read credentials.json.example" "allow" "$(ptool Read '{"file_path":"credentials.json.example"}')"
+t_assert "secrets_paths allow — Bash ls -l certs/server.pem (mode check)" "allow" "$(pbash 'ls -l certs/server.pem')"
+t_assert "secrets_paths unset → *.pem readable (no default beyond dotenv + secrets file)" "allow" \
+  "$(tool Read '{"file_path":"certs/server.pem"}')"
+echo '{"version":1,"secrets_paths":["*"]}' > "$POL"
+t_assert "secrets_paths catch-all \"*\" → policy invalid → mcp__ fails closed, validator rejects" "1" \
+  "$(bash "$ROOT_DIR/scripts/validate-security-policy.sh" "$POL" >/dev/null 2>&1; echo $?)"
+
 echo "== SessionStart notice =="
 D2="$TMPROOT/inst2"; mkdir -p "$D2/.juvant"
 echo '{"db":{"provider":"","auth_token":"X"}}' > "$D2/.juvant/config.json"

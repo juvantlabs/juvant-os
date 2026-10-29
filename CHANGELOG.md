@@ -51,9 +51,21 @@ All written artifacts in English. No exceptions.
     an existing `scripts/run-m365-graph-mcp.sh` that reads
     `.m365_oauth.client_secret` with `jq` must switch to `juvant_secret_get`
     before (or right after) running `migrate-secrets.sh`.
-  - **Track 2h now gates dotenv files** (`.env`, `.env.<name>`, `.envrc`) for
-    Read / Grep / Edit / Write and Bash, like the secrets file. Templates
-    (`.env.example` / `.sample` / `.template` / `.dist`) stay readable.
+  - **Track 2h now gates dotenv files** (`.env`, `.env.<anything>`, `.envrc`;
+    adopter finding H13, security_audit_log#166) for Read / Grep / Edit /
+    Write and Bash — by path token, by glob (`.env*`, `*.env`), `source` /
+    `.` / `export $(cat …)`, and Grep `glob` targeting them — like the
+    secrets file, for every role. Templates (`.env.example` / `.sample` /
+    `.template` / `.dist`) stay readable; a bare unchained `ls` / `cd` /
+    `mkdir` stays allowed (a CSO `ls -l .env.local` mode check); words that
+    merely contain `.env` (`process.env.HOME`) are not paths and pass.
+    MCP servers launched through `dotenv-cli -e .env.local` are process
+    spawns by Claude Code, not tool calls, so they are unaffected.
+  - **Configurable extra secret paths**: `secrets_paths` in
+    `security/policy.json` (e.g. `["*.pem", "credentials.json"]`) adds path
+    globs to the gate, matched on the repo-relative path, the basename and as
+    Bash tokens; a catch-all (`*`) is rejected by the validator.
+    `.envrc` added to the template `.gitignore`.
   - **No more false positive on SQL prose**: a DB-CLI command whose SQL prose
     literal mentions the secrets-file path (a rationale, a finding) is
     allowed — matched with the SQL gate's literal normalisation (decisions#303

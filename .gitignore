@@ -13,6 +13,7 @@
 *.env.*
 .env.local
 .env.*.local
+.envrc
 
 # Key material — defense-in-depth (CSO Layer 2 secrets-scan reference)
 *.pem

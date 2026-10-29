@@ -66,6 +66,8 @@ juvant_policy_validate() {
              or ((.connector_tool_allowlist.allow // []) | strarr | not)
              or ((.connector_tool_allowlist.read_resource_uri_prefixes // []) | strarr | not))
       then "connector_tool_allowlist needs tool_prefix and string arrays allow/read_resource_uri_prefixes"
+    elif has("secrets_paths") and ((.secrets_paths | strarr | not) or any(.secrets_paths[]; . == "" or . == "*" or . == "**" or . == "*/*"))
+      then "secrets_paths must be an array of non-empty path globs (not a catch-all like \"*\")"
     elif has("alert_routing") and (.alert_routing | type != "object") then "alert_routing must be an object"
     elif has("alert_routing") and ((.alert_routing.required // []) | (strarr and all(.[]; . == "teams" or . == "telegram")) | not)
       then "alert_routing.required must be a subset of [\"teams\",\"telegram\"]"
