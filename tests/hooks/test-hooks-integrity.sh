@@ -130,7 +130,7 @@ if command -v plutil >/dev/null 2>&1; then
   INST8="$TMPROOT/instance8"; mk_instance "$INST8"
   LA="$TMPROOT/LaunchAgents"; mkdir -p "$LA"
   # "Install" the real generator's output for this instance.
-  HOME="$TMPROOT/home8" JUVANT_LAUNCHCTL=false JUVANT_SCHED_SELFCHECK=0 \
+  HOME="$TMPROOT/home8" JUVANT_LAUNCHCTL=false JUVANT_SCHED_SELFCHECK=0 JUVANT_SCHED_PINNED=0 \
     bash "$INST8/helpers/install-schedules.sh" install >/dev/null 2>&1 || true
   cp "$TMPROOT/home8/Library/LaunchAgents/"io.juvant.guardrails.*.plist "$LA/"
   OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?

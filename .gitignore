@@ -4,6 +4,7 @@
 .juvant/secrets.json.*
 .juvant/sessions/
 .juvant/state.db
+.juvant/pinned-main/
 
 # FEAT-051: local audit spool + its drain work/merge temp files
 # (instance runtime artifact — never committed)

@@ -4896,10 +4896,16 @@ trail. **Company-scope agents only** — no project agents involved.
    `helpers/install-schedules.sh` generates.
 
 8. **Post-apply steps** (auto-executed, no additional CEO input):
-   - Any `helpers/*.sh` or `hooks/*.sh` changed →
-     reload affected launchd plists:
-     `launchctl bootout gui/$(id -u)/io.juvant.guardrails.<label>` then
-     `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.juvant.guardrails.<label>.plist`.
+   - Any `helpers/*.sh`, `hooks/*.sh` or `scripts/*.sh` changed → the
+     scheduled guardrail jobs run a **pinned, read-only checkout of
+     `origin/main`** (`.juvant/pinned-main`, BUG-089), not the sync branch:
+     they pick the change up only once it is merged. **After the CEO merges
+     the sync PR** (step 12), the CEO re-runs
+     `bash helpers/install-schedules.sh` from their own terminal — it moves
+     the pin to the merged `origin/main` and reloads the jobs. (`launchctl`
+     load/unload of `io.juvant.*` jobs, `crontab` writes and editing the
+     plists or the pinned tree are denied to agents by Track 2f; SessionStart
+     says when the pin is behind `origin/main`.)
    - **Any agent template** (`agents/company/*.md`, `agents/projects/*.md`,
      `agents/components/*.md`) **or `scripts/compile-templates.sh` itself** changed →
      re-run the compiler for the affected scope(s), so the live compiled output /
@@ -4963,7 +4969,10 @@ trail. **Company-scope agents only** — no project agents involved.
     `security/policy.json`. Surface results to CEO alongside the PR's CI status.
 
 12. **Record completion + CHRO re-validation** (after the CEO has merged the
-    PR; then `git checkout main && git pull --ff-only origin main`):
+    PR; then `git checkout main && git pull --ff-only origin main`; if
+    `helpers/`, `hooks/` or `scripts/` changed, ask the CEO to re-run
+    `bash helpers/install-schedules.sh` so the scheduled jobs run the merged
+    code — BUG-089):
     - ```sql
       UPDATE decisions
       SET status='executed', executed_by='cos', executed_at=CURRENT_TIMESTAMP
@@ -5048,6 +5057,7 @@ tests/helpers/test-helpers-db-routing.sh
 tests/helpers/test-helpers-drain-backup.sh
 tests/helpers/test-install-schedules-interval.sh
 tests/helpers/test-install-schedules-weekday.sh
+tests/helpers/test-schedules-pinned.sh
 tests/helpers/test-log-prune-inode.sh
 tests/helpers/test-pause-windows.sh
 tests/helpers/test-spec-marking-gate.sh

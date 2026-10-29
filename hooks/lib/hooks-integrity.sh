@@ -139,7 +139,9 @@ _juvant_plist_findings() {
   # Generate into a scratch HOME. launchctl is replaced by `false` (nothing is
   # loaded; `print` reports not-loaded so the bootout wait exits at once) and
   # the post-install self-check is off. Only the plist files are used.
-  HOME="$tmp" JUVANT_LAUNCHCTL=false JUVANT_SCHED_SELFCHECK=0 \
+  # JUVANT_SCHED_GENERATE_ONLY: emit the plists for the mode already installed
+  # (pinned checkout or working tree, BUG-089) without touching git.
+  HOME="$tmp" JUVANT_LAUNCHCTL=false JUVANT_SCHED_SELFCHECK=0 JUVANT_SCHED_GENERATE_ONLY=1 \
     bash "$root/helpers/install-schedules.sh" install >/dev/null 2>&1 || true
   for p in "$la"/io.juvant.guardrails.*.plist; do
     base="${p##*/}"

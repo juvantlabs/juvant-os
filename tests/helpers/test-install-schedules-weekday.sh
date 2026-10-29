@@ -21,6 +21,9 @@
 # weekday, so the expected values are identical across OSes.
 
 set -uo pipefail
+# These tests run the installer straight from this repo: keep the jobs on the
+# working tree (no pinned worktree of the repo itself — BUG-089 has its own test).
+export JUVANT_SCHED_PINNED=0
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$REPO_ROOT/helpers/install-schedules.sh"

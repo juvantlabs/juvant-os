@@ -15,6 +15,8 @@
 #                                .juvant/audit-spool.quarantine
 #   • pre-drain backups          .juvant/backups/**
 #   • alert delivery receipts    .juvant/alert-receipts.jsonl (BUG-087)
+#   • scheduled guardrail jobs   ~/Library/LaunchAgents/io.juvant.* and the
+#                                pinned checkout .juvant/pinned-main/** (BUG-089)
 # Directories and globs over those trees count too (`rm -rf helpers`,
 # `cp x hooks/*`). Anything under a tests/ directory is NOT protected — the
 # suites are instance-editable (decisions#300 item 9).
@@ -37,6 +39,10 @@ JUVANT_GUARDRAIL_FILE_RES=(
   '(^|/)\.juvant/policy-blob-seen$'
   # BUG-087: alert delivery receipts (hook-only append).
   '(^|/)\.juvant/alert-receipts\.jsonl$'
+  # BUG-089: the guardrail launchd jobs (and globs over them) and the pinned,
+  # read-only checkout of main the jobs execute.
+  '(^|/)Library/LaunchAgents/(io\.juvant[^/]*|\*[^/]*)$'
+  '(^|/)\.juvant/pinned-main(/.*)?$'
 )
 # Directory / glob targets (whole-tree operations).
 JUVANT_GUARDRAIL_DIR_RES=(
@@ -51,7 +57,7 @@ JUVANT_GUARDRAIL_DIR_RES=(
 )
 # Raw substrings that reference a protected path inside code we do not parse
 # (interpreters, heredocs, $(…)). The captured prefix is checked for tests/.
-JUVANT_GUARDRAIL_RAW_RE='([^[:space:]"'"'"'(),=:;`]*)(hooks/([A-Za-z0-9_.*-]+\.sh|lib/[A-Za-z0-9_.*-]+\.sh|bash-policy\.json|lib/?|\*)|helpers/[A-Za-z0-9_.*-]+\.sh|scripts/[A-Za-z0-9_.*-]+\.sh|\.juvant/audit-spool|\.juvant/backups|audit-spool\.(sql|quarantine)|security/policy\.json|\.git/|policy-blob-seen|alert-receipts\.jsonl)'
+JUVANT_GUARDRAIL_RAW_RE='([^[:space:]"'"'"'(),=:;`]*)(hooks/([A-Za-z0-9_.*-]+\.sh|lib/[A-Za-z0-9_.*-]+\.sh|bash-policy\.json|lib/?|\*)|helpers/[A-Za-z0-9_.*-]+\.sh|scripts/[A-Za-z0-9_.*-]+\.sh|\.juvant/audit-spool|\.juvant/backups|audit-spool\.(sql|quarantine)|security/policy\.json|\.git/|policy-blob-seen|alert-receipts\.jsonl|LaunchAgents/io\.juvant|pinned-main)'
 # Directories a `cd` may enter, after which bare names are resolved inside.
 JUVANT_GUARDRAIL_CD_RE='(^|/)(hooks(/lib)?|helpers|scripts|\.juvant(/backups)?|security|\.git(/[^/]+)*)$'
 
