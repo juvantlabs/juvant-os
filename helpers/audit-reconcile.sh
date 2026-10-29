@@ -121,7 +121,11 @@ if [[ -n "$_AC_REPO" ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev
     _AC_NUM=$(echo "$_AC_HITS" | jq -r '.[0].number' 2>/dev/null || echo "")
     _AC_TIME=$(echo "$_AC_HITS" | jq -r --arg k "$_AC_TKEY" '.[0][$k]' 2>/dev/null || echo "")
     [[ "$_AC_NUM" =~ ^[0-9]+$ && -n "$_AC_TIME" ]] || continue
-    if juvant_db_exec "UPDATE decisions SET status='executed', executed_by='audit-reconcile', executed_at='${_AC_TIME}', source_ref='${_AC_REPO}#${_AC_NUM}' WHERE id=${_AC_ID} AND status='approved' AND category='${_AC_CAT}';" >/dev/null 2>&1; then
+    # decisions#303 R3: never spool this governance write on a transport failure
+    # (JUVANT_DB_EXEC_NO_SPOOL=1). The drain's statement allowlist accepts NO
+    # write to the decisions table — a spooled one would be quarantined — and
+    # this pass is idempotent: the next scheduled run simply retries it.
+    if JUVANT_DB_EXEC_NO_SPOOL=1 juvant_db_exec "UPDATE decisions SET status='executed', executed_by='audit-reconcile', executed_at='${_AC_TIME}', source_ref='${_AC_REPO}#${_AC_NUM}' WHERE id=${_AC_ID} AND status='approved' AND category='${_AC_CAT}';" >/dev/null 2>&1; then
       AUTO_CLOSED=$((AUTO_CLOSED + 1))
       echo "[audit-reconcile] auto-closed decisions#${_AC_ID} (${_AC_CAT}) → ${_AC_REPO}#${_AC_NUM} (${_AC_TIME})" | tee -a "$_LOG" >&2
     fi

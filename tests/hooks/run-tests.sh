@@ -721,25 +721,32 @@ t_assert "snapshot is stored single-line (base64 ⇒ zero embedded newlines)" "0
 # the already-committed head on the next run, duplicating audit rows.
 suite "drain-audit-spool.sh (no dup on partial failure)"
 
-t_db "DELETE FROM messages WHERE from_agent='drain-t';"
+# Spooled statements use real writer shapes (decisions#303 R3: the drain only
+# executes allowlisted shapes). The failing middle statement is an allowlisted
+# shape the DB rejects: a 'denied' row with an empty input_summary trips the
+# action_log_denied_requires_summary trigger.
+_dt_row() { # status summary
+  printf "INSERT INTO agent_actions_log (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at) VALUES ('drain-t', 'cos', 'Bash', 'h', '%s', 'r', '%s', '2026-10-28 10:00:00');" "$1" "$2"
+}
+t_db "DELETE FROM agent_actions_log WHERE session_id='drain-t';"
 rm -f "$JUVANT_SPOOL"
 {
-  echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-t','x','task','one');"
-  echo "INSERT INTO no_such_table_xyz (a) VALUES (1);"
-  echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-t','x','task','three');"
+  _dt_row pending one; echo
+  _dt_row denied "";   echo
+  _dt_row pending three; echo
 } > "$JUVANT_SPOOL"
 bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
 t_assert "partial drain applies only the head (1 row, not 2)" "1" \
-  "$(t_db "SELECT COUNT(*) FROM messages WHERE from_agent='drain-t';")"
+  "$(t_db "SELECT COUNT(*) FROM agent_actions_log WHERE session_id='drain-t';")"
 t_assert "partial drain re-queues the unapplied tail (2 lines)" "2" \
   "$([[ -f "$JUVANT_SPOOL" ]] && grep -c . "$JUVANT_SPOOL" || echo 0)"
 # Repair the failing statement and drain again — the head must NOT re-apply.
-echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-t','x','task','three');" > "$JUVANT_SPOOL"
+{ _dt_row pending three; echo; } > "$JUVANT_SPOOL"
 bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
 t_assert "second drain adds the tail without duplicating the head (2 rows total)" "2" \
-  "$(t_db "SELECT COUNT(*) FROM messages WHERE from_agent='drain-t';")"
+  "$(t_db "SELECT COUNT(*) FROM agent_actions_log WHERE session_id='drain-t';")"
 t_assert "'one' was applied exactly once across both drains" "1" \
-  "$(t_db "SELECT COUNT(*) FROM messages WHERE from_agent='drain-t' AND content='one';")"
+  "$(t_db "SELECT COUNT(*) FROM agent_actions_log WHERE session_id='drain-t' AND input_summary='one';")"
 
 # ─────────────────────────────────────────────
 # drain-audit-spool.sh — BUG-052 orphaned-pending reconcile
@@ -764,8 +771,9 @@ t_db "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status
       VALUES ('s-done','cto','Read','h3','success', datetime('now','-2 hours'), datetime('now','-2 hours'));"
 
 rm -f "$JUVANT_SPOOL"
-# non-empty spool with a valid statement so the drain reaches the reconcile block
-echo "INSERT INTO messages (from_agent,to_agent,type,content) VALUES ('drain-r','x','task','trigger');" > "$JUVANT_SPOOL"
+# non-empty spool with a valid (allowlisted, decisions#303 R3) statement so the
+# drain reaches the reconcile block
+echo "UPDATE agents SET status='active', updated_at='2026-10-28 10:00:00' WHERE role='drain-r';" > "$JUVANT_SPOOL"
 bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1
 
 t_assert "BUG-052: old orphan pending → terminated" "terminated" \

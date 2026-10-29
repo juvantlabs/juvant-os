@@ -39,6 +39,29 @@ All written artifacts in English. No exceptions.
   `info` on allow) and a deny notifies. No `by_agent` key ⇒ no-op; calls without
   `shared_user` are untouched. Schema documented in JUVANT_OS.md and
   `.juvant/config.example.json`.
+- **Audit-spool drain statement allowlist (decisions#303 R3, security_audit_log#154).**
+  `helpers/drain-audit-spool.sh` used to execute every line of the agent-writable
+  `.juvant/audit-spool.sql` (and of stranded `.draining.<pid>` / `.merge.<pid>`
+  batches) verbatim with the hook's DB credentials — an SQL injection channel
+  (e.g. a planted `INSERT INTO decisions (… approved_by='ceo')`). Each line is now
+  matched strictly against the closed set of statement shapes the framework
+  writes (Track-3 `agent_actions_log` INSERT/UPDATEs, `security_audit_log`
+  incident rows, `agents` status UPDATEs, `session_snapshots`, the two `messages`
+  writers, `agent_token_usage`): statement type, table, exact column list, the
+  UPDATE SET/WHERE skeleton, and literal-only values (quoted string, number,
+  `NULL`, or the writer's constant) — no subquery, function call, operator or
+  stacked statement. A non-matching line is not executed: it goes to
+  `.juvant/audit-spool.quarantine` (next to the spool; follows `JUVANT_SPOOL`),
+  and the run writes one `high` `security_audit_log` row (category
+  `spool-injection`, synchronous, never via the spool) and sends a
+  fire-and-forget alert on the Track 2e notification path with only a
+  sanitised excerpt. If the quarantine file cannot be written, the line is kept
+  unexecuted in the spool and still reported. `audit-reconcile.sh` no longer
+  spools its `UPDATE decisions` on a transport failure (it retries on its next
+  run), so no write to `decisions` is ever accepted from the spool. Drain test
+  fixtures that used non-production statement shapes now use the real ones; new
+  `tests/helpers/test-drain-statement-allowlist.sh`.
+
 ### Fixed
 
 - **Test suites pass on adopters, not only upstream (decisions#302; found syncing

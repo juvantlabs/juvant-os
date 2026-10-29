@@ -82,7 +82,24 @@ seed_spec(){ sq "INSERT INTO decisions (id,agent,title,category,status,approved_
       VALUES ($1,'eng-lead','Spec $1','pr-spec','$2','ceo',datetime('now','-1 days'),datetime('now','-1 days'));"; }
 merge_sql(){ printf "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,input_summary,started_at) VALUES ('%s','eng-lead','Bash','h','success','gh pr merge %s --repo %s --squash',datetime('now','-5 minutes'));" "$1" "$2" "$REPOSLUG"; }
 seed_merge(){ sq "$(merge_sql "$1" "$2")"; }                 # → straight to DB
-spool_merge(){ printf '%s\n' "$(merge_sql "$1" "$2")" > "$SPOOL"; }  # → async spool only
+# Spooled rows use the EXACT shapes pre-tool-use.sh / post-tool-use.sh write
+# (decisions#303 R3: the drain executes only allowlisted statement shapes, with
+# literal values — a datetime() call or a reduced column list is quarantined).
+SPOOL_TS="$(sqlite3 :memory: "SELECT datetime('now','-5 minutes');")"
+spool_insert_sql(){ # session role summary [spec_id]
+  if [[ -n "${4:-}" ]]; then
+    printf "INSERT INTO agent_actions_log (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at, spec_id) VALUES ('%s', '%s', 'Bash', 'h', 'pending', NULL, '%s', '%s', %s);" "$1" "$2" "$3" "$SPOOL_TS" "$4"
+  else
+    printf "INSERT INTO agent_actions_log (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at) VALUES ('%s', '%s', 'Bash', 'h', 'pending', NULL, '%s', '%s');" "$1" "$2" "$3" "$SPOOL_TS"
+  fi
+}
+spool_success_sql(){ # session role
+  printf "UPDATE agent_actions_log SET status = 'success', result_hash = 'r', ended_at = '%s' WHERE id = ( SELECT id FROM agent_actions_log WHERE session_id = '%s' AND agent = '%s' AND tool_name = 'Bash' AND status = 'pending' AND args_hash = 'h' ORDER BY started_at DESC LIMIT 1 );" "$SPOOL_TS" "$1" "$2"
+}
+spool_merge(){ # → async spool only (pre-tool-use INSERT + post-tool-use UPDATE)
+  { spool_insert_sql "$1" eng-lead "gh pr merge $2 --repo $REPOSLUG --squash"; echo
+    spool_success_sql "$1" eng-lead; echo; } > "$SPOOL"
+}
 
 # run <hook> [no-gh|with-gh] [subagent-role] → sets RC/OUT/ERR
 run(){
@@ -164,7 +181,10 @@ aspec_sql(){ # session id [role]  → a success Bash action carrying spec_id
   printf "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,input_summary,spec_id,started_at) VALUES ('%s','%s','Bash','h','success','JUVANT_EXECUTING_SPEC=%s az keyvault set',%s,datetime('now','-5 minutes'));" "$1" "${3:-eng-platform}" "$2" "$2"
 }
 seed_aspec(){ sq "$(aspec_sql "$1" "$2" "${3:-eng-platform}")"; }
-spool_aspec(){ printf '%s\n' "$(aspec_sql "$1" "$2" "${3:-eng-platform}")" > "$SPOOL"; }
+spool_aspec(){ # session id [role] → the stamped action, spooled in the real shape
+  { spool_insert_sql "$1" "${3:-eng-platform}" "JUVANT_EXECUTING_SPEC=$2 az keyvault set" "$2"; echo
+    spool_success_sql "$1" "${3:-eng-platform}"; echo; } > "$SPOOL"
+}
 
 # 1. company-scope (eng-platform) stamped spec_id + approved decision → block.
 fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
@@ -266,7 +286,7 @@ eq "stop.sh: main-thread partial ack → spec stays 'approved'" "approved" \
 
 # 15. BUG-058 parity: the partial ack is still SPOOLED → gate drains, honours it.
 fresh_db; write_cfg; seed_spec 7 approved; seed_aspec "$SESS" 7 eng-platform
-printf '%s\n' "$(partial_sql "$SESS" 7 eng-platform)" > "$SPOOL"
+{ spool_insert_sql "$SESS" eng-platform "JUVANT_SPEC_PARTIAL=7 echo done: step 1; remaining: step 2"; echo; } > "$SPOOL"
 run subagent-stop.sh with-gh eng-platform
 eq "spooled partial ack (no manual drain) → no block" "0" "$RC"
 

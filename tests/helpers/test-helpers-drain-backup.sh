@@ -73,12 +73,14 @@ write_cfg() { # provider url
     '{db:{provider:$p,url:$u}}' > "$TMP/.juvant/config.json"
 }
 
-# Seed a minimal spool so the [[ -s "$SPOOL" ]] guard passes.
+# Seed a minimal spool so the [[ -s "$SPOOL" ]] guard passes. Rows use the exact
+# pre-tool-use.sh statement shape (decisions#303 R3: the drain executes only
+# allowlisted shapes; anything else would be quarantined, not drained).
 seed_spool() { # line_count (default 3)
   local n="${1:-3}"
   rm -f "$SPOOL_PATH"
   for i in $(seq 1 "$n"); do
-    printf "INSERT INTO agent_actions_log (agent,tool_name,args_hash,status,started_at) VALUES ('tst','Bash','h','success',datetime('now','-%d minutes'));\n" "$i" >> "$SPOOL_PATH"
+    printf "INSERT INTO agent_actions_log (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at) VALUES ('s-bak', 'tst', 'Bash', 'h%d', 'pending', NULL, 'cmd %d', '2026-10-28 10:00:%02d');\n" "$i" "$i" "$i" >> "$SPOOL_PATH"
   done
 }
 
@@ -104,7 +106,8 @@ out=$(run_drain); rc=$?
 backup_count=$(ls "$BACKUP_DIR"/audit-spool.*.sql 2>/dev/null | wc -l | tr -d ' ')
 [[ "$backup_count" -eq 1 ]]  && ok "backup file created" || no "backup file count: $backup_count"
 [[ ! -f "$SPOOL_PATH" ]]      && ok "spool consumed after drain" || no "spool still present after drain"
-has "drain reports success"   "$out" "[drain-audit-spool] drained"
+has "drain reports success"   "$out" "[drain-audit-spool] drained 4 statement(s)"
+hasnt "nothing quarantined"   "$out" "quarantined"
 [[ "$rc" -eq 0 ]]             && ok "exit 0 on success" || no "exit code $rc"
 # Verify backup line count equals original spool (4 statements).
 bak_file=$(ls "$BACKUP_DIR"/audit-spool.*.sql 2>/dev/null | head -1)
