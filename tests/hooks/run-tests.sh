@@ -1529,6 +1529,60 @@ t_assert "main thread, ceo_present_read, mailbox no agent is allowed → deny" "
 t_assert "main thread, deny mode → deny" "deny:k2" "$(_t2g "$_T2G_CFG_C" "" search_messages finance@example.test)"
 t_assert "subagent typed cos is NOT the main thread (ceo_present_read doesn't apply)" "deny:k2" \
   "$(_t2g "$_T2G_CFG_A" cos search_messages finance@example.test)"
+
+# BUG-083: rules from security/policy.json (test mode stands in for origin/main).
+# _t2gp <policy-file> <cfg> <agent_type|""> <tool> <shared_user|""> → as _t2g
+_t2gp() {
+  local ev out dec rsn
+  ev=$(jq -cn --arg a "$3" --arg t "mcp__m365-mail__m365-mail_$4" --arg u "$5" '
+    {tool_name:$t, session_id:"s-k2p", tool_input:(if $u == "" then {query:"x"} else {query:"x", shared_user:$u} end)}
+    + (if $a == "" then {} else {agent_type:$a} end)')
+  out=$(echo "$ev" | JUVANT_POLICY_TEST=1 JUVANT_POLICY_FILE="$1" JUVANT_CONFIG="$2" AGENT_ROLE="" \
+          bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null || true)
+  dec=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)
+  rsn=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+  if [[ "$dec" == "allow" ]]; then echo allow
+  elif [[ "$rsn" == *"MAILBOX-ACCESS POLICY"* ]]; then echo "deny:k2"
+  else echo "deny:other"; fi
+}
+_T2G_POL="$_T2G_DIR/policy.json"
+jq '{version: 1, shared_mailboxes: .shared_mailboxes}' "$_T2G_CFG_DEFAULT" > "$_T2G_POL"
+_T2G_POL_OWNRW="$_T2G_DIR/policy-own-rw.json"
+jq '.shared_mailboxes.own_mailbox = {main_thread: "deny", agents: "readwrite"}' "$_T2G_POL" > "$_T2G_POL_OWNRW"
+_T2G_POL_NOKEY="$_T2G_DIR/policy-nokey.json"; echo '{"version":1}' > "$_T2G_POL_NOKEY"
+_T2G_POL_BAD="$_T2G_DIR/policy-bad.json"
+echo '{"version":1,"shared_mailboxes":{"by_agent":{"cfo":[{"upn":"finance@example.test","scope":"admin"}]}}}' > "$_T2G_POL_BAD"
+# An agent that emptied / rewrote config.json can't widen the policy-file rules.
+_T2G_CFG_OPEN="$_T2G_DIR/cfg-open.json"
+jq '.shared_mailboxes.by_agent.cmo = [ { upn: "legal@example.test", scope: "readwrite" } ]' "$_T2G_CFG_DEFAULT" > "$_T2G_CFG_OPEN"
+t_assert "policy rules: cfo search finance@ → allow" "allow" "$(_t2gp "$_T2G_POL" "$_T2G_CFG_NOKEY" cfo search_messages finance@example.test)"
+t_assert "policy rules + config.json emptied → cmo legal@ still denied (no tamper switch-off)" "deny:k2" \
+  "$(_t2gp "$_T2G_POL" "$_T2G_CFG_NOKEY" cmo search_messages legal@example.test)"
+t_assert "policy rules win over a widened config.json (cmo legal@ readwrite there)" "deny:k2" \
+  "$(_t2gp "$_T2G_POL" "$_T2G_CFG_OPEN" cmo delete_message legal@example.test)"
+t_assert "policy without shared_mailboxes → legacy config.json rules still apply" "deny:k2" \
+  "$(_t2gp "$_T2G_POL_NOKEY" "$_T2G_CFG_DEFAULT" cmo search_messages legal@example.test)"
+t_assert "invalid shared_mailboxes in the policy → fail closed on mcp__ (not a K2 allow)" "deny:other" \
+  "$(_t2gp "$_T2G_POL_BAD" "$_T2G_CFG_NOKEY" cfo search_messages finance@example.test)"
+t_assert "legacy config.json source → DEPRECATED warning on stderr" "yes" "$(
+  jq -cn '{tool_name:"mcp__m365-mail__m365-mail_search_messages", session_id:"s-k2", agent_type:"cfo", tool_input:{shared_user:"finance@example.test"}}' \
+    | JUVANT_CONFIG="$_T2G_CFG_DEFAULT" bash "$HOOKS_DIR/pre-tool-use.sh" 2>&1 >/dev/null | grep -q 'DEPRECATED: shared-mailbox rules' && echo yes || echo no)"
+# Own mailbox (no shared_user) — gated only from the policy file (BUG-083 T2).
+_t2g_audit_reset
+t_assert "own mailbox, subagent read (default agents=read) → allow" "allow" "$(_t2gp "$_T2G_POL" "$_T2G_CFG_NOKEY" cfo search_messages "")"
+t_assert "  …allowed own-mailbox read writes no audit row" "0" \
+  "$(_t2g_audit "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'shared-mailbox%own mailbox%';")"
+_t2g_audit_reset
+for _op in send_mail create_draft delete_message move_message reply_message; do
+  t_assert "own mailbox, subagent $_op (agents=read) → deny" "deny:k2" "$(_t2gp "$_T2G_POL" "$_T2G_CFG_NOKEY" cfo "$_op" "")"
+done
+t_assert "  …own-mailbox write deny is audited (high, unauthorized-write)" "5" \
+  "$(_t2g_audit "SELECT count(*) FROM security_audit_log WHERE severity='high' AND category='unauthorized-write' AND finding LIKE '%own mailbox%';")"
+t_assert "own mailbox, subagent unclassified tool (agents=read) → deny" "deny:k2" "$(_t2gp "$_T2G_POL" "$_T2G_CFG_NOKEY" cfo frobnicate "")"
+t_assert "own mailbox, main thread send (default main_thread=readwrite) → allow" "allow" "$(_t2gp "$_T2G_POL" "$_T2G_CFG_NOKEY" "" send_mail "")"
+t_assert "own mailbox, agents=readwrite → subagent send allowed" "allow" "$(_t2gp "$_T2G_POL_OWNRW" "$_T2G_CFG_NOKEY" cfo send_mail "")"
+t_assert "own mailbox, main_thread=deny → main-thread read denied" "deny:k2" "$(_t2gp "$_T2G_POL_OWNRW" "$_T2G_CFG_NOKEY" "" search_messages "")"
+t_assert "own mailbox from the LEGACY config source → untouched (as before)" "allow" "$(_t2g "$C" cfo send_mail "")"
 rm -rf "$_T2G_DIR"
 
 # ─────────────────────────────────────────────

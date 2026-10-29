@@ -71,6 +71,27 @@ All written artifacts in English. No exceptions.
     allowed — matched with the SQL gate's literal normalisation (decisions#303
     E-bis). A path in a one-word literal (`readfile('…')`) or outside the SQL
     still denies.
+### Security
+
+- **The shared-mailbox gate (Track 2g) read its rules from an agent-writable
+  file** (BUG-083 T1, juvant-os-pm#185). `shared_mailboxes` lived in
+  `.juvant/config.json`: any agent with Write/Edit could empty `by_agent` and
+  switch the gate off without a trace — the pattern ADR 0034 removed from
+  Track 2e. The rules now come from `security/policy.json` on `origin/main`
+  (validated by `juvant_policy_validate` / `validate-security-policy.sh`;
+  invalid → every `mcp__` call fails closed; every change raises the
+  SessionStart change alert). Once the policy has `shared_mailboxes`,
+  config.json is ignored for it. **Adopter action:** move the
+  `shared_mailboxes` block from `.juvant/config.json` into
+  `security/policy.json` via a PR to main. Until then the config block is
+  honoured with a deprecation warning (one minor version) and SessionStart
+  says so.
+- **Own-mailbox calls are now gated** (BUG-083 T2): with the rules in the
+  policy file, `shared_mailboxes.own_mailbox` governs `m365-mail` calls
+  without `shared_user` — `main_thread` (default `readwrite`) and `agents`
+  (default `read`: a subagent can no longer send / move / delete as the
+  mailbox owner). Denies and writes are audited. The legacy config source
+  keeps the old behaviour (own mailbox untouched).
 
 ## [1.14.2] — 2026-10-29 — Prescribed decisions writes land; migrate.sh fails loud
 

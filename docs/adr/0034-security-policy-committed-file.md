@@ -30,7 +30,9 @@ A perimeter whose rules the perimetered party can rewrite is not a perimeter.
 
 1. **The rules move to a committed file, `security/policy.json`, in the
    instance repo.** Not under `.juvant/` (gitignored wholesale). It holds
-   `space_access` (Track 2e), `connector_tool_allowlist` (decisions#306) and
+   `space_access` (Track 2e), `connector_tool_allowlist` (decisions#306),
+   `shared_mailboxes` (Track 2g — added by BUG-083, same reasoning: the
+   per-agent mailbox rules lived in `.juvant/config.json` too) and
    `alert_routing`. **No secrets** — webhook URLs and tokens stay in
    `.juvant/config.json`.
 2. **Intent 1 is kept.** `security/policy.json` is on the JUVANT_OS.md

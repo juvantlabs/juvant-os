@@ -1645,40 +1645,70 @@ fi
 # delegated token and cannot authenticate the caller; the agent identity
 # (agent_type / AGENT_ROLE) is only visible here.
 #
-# Policy is INSTANCE-LOCAL (.juvant/config.json, never synced):
+# Policy source (BUG-083, ADR 0034): `shared_mailboxes` in the COMMITTED
+# security/policy.json, read from origin/main by hooks/lib/security-policy.sh
+# (JUVANT_POLICY_JSON, loaded above) — so an agent that can Write/Edit
+# .juvant/config.json can no longer empty the rules and switch the gate off.
+# Legacy (ONE minor version): with no `shared_mailboxes` in the policy, the old
+# .juvant/config.json `.shared_mailboxes` block is honoured with a deprecation
+# warning. Once the policy has the key, config.json is ignored for it.
 #   "shared_mailboxes": {
 #     "tool_prefix": "mcp__m365-mail__",            (optional, this default)
 #     "main_thread": "explicit",                     (optional, see below)
 #     "by_agent": {
 #       "cfo": [ { "upn": "finance@<domain>", "scope": "read" } ],
-#       "cco": [] } }
-# Absent .shared_mailboxes.by_agent ⇒ this Track is a no-op.
+#       "cco": [] },
+#     "own_mailbox": { "main_thread": "readwrite", "agents": "read" } }
+#                                                    (optional; policy file only)
+# No rules from either source ⇒ this Track is a no-op.
 #
 # Gated calls: tool name starts with tool_prefix AND tool_input.shared_user is
-# non-empty. Calls on the caller's OWN delegated mailbox (no shared_user) are
-# out of scope and untouched.
+# non-empty.
 #   • the agent must have a by_agent entry whose upn == shared_user
 #     (case-insensitive), else deny;
 #   • op class from the tool's verb: A (list/get/search/download) needs scope
 #     read or readwrite; B (create/update/mark/move/delete/send/reply/forward)
 #     needs readwrite; anything unclassified is denied (deny-by-default).
+# Calls on the caller's OWN delegated mailbox (no shared_user) — BUG-083 T2 —
+# are gated only when the rules come from the policy file, by `own_mailbox`:
+# main thread (default "readwrite") and subagents (default "read": class B
+# denied — a subagent can't send / move / delete as the mailbox owner). Each
+# is "readwrite" | "read" | "deny"; unclassified tools need "readwrite".
+# Own-mailbox reads that are allowed write no audit row (volume); denies and
+# allowed writes do. The legacy config.json source leaves own-mailbox calls
+# untouched, as before.
 # Main thread (no agent_type in the event — the CEO-present CoS session) is
 # governed by .shared_mailboxes.main_thread:
 #   "explicit"         (DEFAULT) — treated as role 'cos': needs by_agent.cos;
 #   "ceo_present_read" — class A allowed on ANY upn that some by_agent entry
 #                        allowlists; class B still needs a cos readwrite entry;
 #   "deny"             — every shared-mailbox call from the main thread denied.
-# Every gated call (allow or deny) writes a security_audit_log row (high on
-# deny, info on allow) for the CSO drift check; a deny also notifies.
+# Every gated shared-mailbox call (allow or deny) writes a security_audit_log
+# row (high on deny, info on allow) for the CSO drift check; a deny also
+# notifies.
 _T2G_CFG="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
-if [[ "$DECISION" == "allow" && -f "$_T2G_CFG" ]] \
-   && jq -e '(.shared_mailboxes.by_agent // null) | type == "object"' "$_T2G_CFG" >/dev/null 2>&1; then
-  _T2G_PREFIX=$(jq -r '.shared_mailboxes.tool_prefix // "mcp__m365-mail__"' "$_T2G_CFG" 2>/dev/null || echo "mcp__m365-mail__")
-  _T2G_UPN=""
+_T2G_RULES=""; _T2G_SRC=""
+if [[ "$DECISION" == "allow" && "$TOOL_NAME" == mcp__* ]]; then
+  if [[ ( "$JUVANT_POLICY_STATE" == "ok" || "$JUVANT_POLICY_STATE" == "test" ) ]] \
+     && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.shared_mailboxes.by_agent // null) | type == "object"' >/dev/null 2>&1; then
+    _T2G_RULES=$(printf '%s' "$JUVANT_POLICY_JSON" | jq -c '.shared_mailboxes' 2>/dev/null || echo "")
+    _T2G_SRC="policy"
+  elif [[ -f "$_T2G_CFG" ]] && jq -e '(.shared_mailboxes.by_agent // null) | type == "object"' "$_T2G_CFG" >/dev/null 2>&1; then
+    _T2G_RULES=$(jq -c '.shared_mailboxes' "$_T2G_CFG" 2>/dev/null || echo "")
+    _T2G_SRC="config"
+  fi
+fi
+if [[ -n "$_T2G_RULES" ]]; then
+  _T2G_PREFIX=$(printf '%s' "$_T2G_RULES" | jq -r '.tool_prefix // "mcp__m365-mail__"' 2>/dev/null || echo "mcp__m365-mail__")
+  _T2G_UPN=""; _T2G_OWN=false
   if [[ "$TOOL_NAME" == "$_T2G_PREFIX"* ]]; then
     _T2G_UPN=$(echo "$EVENT_JSON" | jq -r '.tool_input.shared_user // ""' 2>/dev/null || echo "")
+    [[ -z "$_T2G_UPN" && "$_T2G_SRC" == "policy" ]] && _T2G_OWN=true
+    if [[ "$_T2G_SRC" == "config" ]]; then
+      echo "[pre-tool-use] DEPRECATED: shared-mailbox rules read from .juvant/config.json .shared_mailboxes — move them to security/policy.json on main (BUG-083, ADR 0034); the config location is removed in the next minor version." >&2
+    fi
   fi
-  if [[ -n "$_T2G_UPN" ]]; then
+  if [[ -n "$_T2G_UPN" || "$_T2G_OWN" == "true" ]]; then
     # shellcheck disable=SC1091
     . "$SCRIPT_DIR/lib/db.sh"
     _t2g_esc() { printf '%s' "$1" | LC_ALL=C sed "s/'/''/g"; }
@@ -1697,31 +1727,49 @@ if [[ "$DECISION" == "allow" && -f "$_T2G_CFG" ]] \
 
     _T2G_AGENT_TYPE=$(echo "$EVENT_JSON" | jq -r '.agent_type // ""' 2>/dev/null || echo "")
     _T2G_MAIN=false; [[ -z "$_T2G_AGENT_TYPE" ]] && _T2G_MAIN=true
-    _T2G_MODE=$(jq -r '.shared_mailboxes.main_thread // "explicit"' "$_T2G_CFG" 2>/dev/null || echo "explicit")
+    _T2G_MODE=$(printf '%s' "$_T2G_RULES" | jq -r '.main_thread // "explicit"' 2>/dev/null || echo "explicit")
     _T2G_ROLE="$ROLE"
     [[ "$_T2G_MAIN" == "true" ]] && _T2G_ROLE="cos"
 
+    _T2G_DECISION="allow"; _T2G_WHY=""; _T2G_SCOPE=""
+    if [[ "$_T2G_OWN" == "true" ]]; then
+      # BUG-083 T2: the caller's own delegated mailbox.
+      if [[ "$_T2G_MAIN" == "true" ]]; then
+        _T2G_SCOPE=$(printf '%s' "$_T2G_RULES" | jq -r '.own_mailbox.main_thread // "readwrite"' 2>/dev/null || echo "readwrite")
+        _T2G_BASIS="own_mailbox.main_thread"
+      else
+        _T2G_SCOPE=$(printf '%s' "$_T2G_RULES" | jq -r '.own_mailbox.agents // "read"' 2>/dev/null || echo "read")
+        _T2G_BASIS="own_mailbox.agents"
+      fi
+      _T2G_UPN="(own mailbox)"
+      if [[ "$_T2G_SCOPE" == "deny" ]]; then
+        _T2G_DECISION="deny"; _T2G_WHY="own-mailbox access is denied for ${_T2G_BASIS/own_mailbox./} (${_T2G_BASIS}=deny)"
+      elif [[ "$_T2G_SCOPE" != "readwrite" && "$_T2G_CLASS" != "A" ]]; then
+        _T2G_DECISION="deny"; _T2G_WHY="'${_T2G_TOOL}' on the caller's own mailbox needs ${_T2G_BASIS}=readwrite (it is ${_T2G_SCOPE}) — a subagent can't act as the mailbox owner"
+      elif [[ "$_T2G_SCOPE" != "read" && "$_T2G_SCOPE" != "readwrite" ]]; then
+        _T2G_DECISION="deny"; _T2G_WHY="unknown ${_T2G_BASIS} value '${_T2G_SCOPE}'"
+      fi
+    else
     # Scope of the agent's entry for this upn ("" = not allowlisted).
     _t2g_scope_for() {
-      jq -r --arg r "$1" --arg u "$_T2G_UPN_LC" '
-        [ (.shared_mailboxes.by_agent[$r] // [])[]
+      printf '%s' "$_T2G_RULES" | jq -r --arg r "$1" --arg u "$_T2G_UPN_LC" '
+        [ (.by_agent[$r] // [])[]
           | select((.upn // "" | ascii_downcase) == $u) | (.scope // "read") ]
         | if any(. == "readwrite") then "readwrite" elif length > 0 then .[0] else "" end
-      ' "$_T2G_CFG" 2>/dev/null || echo ""
+      ' 2>/dev/null || echo ""
     }
     _T2G_SCOPE=$(_t2g_scope_for "$_T2G_ROLE")
     _T2G_BASIS="by_agent.${_T2G_ROLE}"
     if [[ "$_T2G_MAIN" == "true" && "$_T2G_MODE" == "ceo_present_read" && "$_T2G_CLASS" == "A" && -z "$_T2G_SCOPE" ]]; then
       # Option (a): a CEO-present session may READ any mailbox the instance
       # allowlists for some agent — never one that no agent is allowed.
-      if jq -e --arg u "$_T2G_UPN_LC" '
-           [ .shared_mailboxes.by_agent[][]? | (.upn // "" | ascii_downcase) ] | index($u) != null
-         ' "$_T2G_CFG" >/dev/null 2>&1; then
+      if printf '%s' "$_T2G_RULES" | jq -e --arg u "$_T2G_UPN_LC" '
+           [ .by_agent[][]? | (.upn // "" | ascii_downcase) ] | index($u) != null
+         ' >/dev/null 2>&1; then
         _T2G_SCOPE="read"; _T2G_BASIS="main_thread=ceo_present_read"
       fi
     fi
 
-    _T2G_DECISION="allow"; _T2G_WHY=""
     if [[ "$_T2G_MAIN" == "true" && "$_T2G_MODE" == "deny" ]]; then
       _T2G_DECISION="deny"
       _T2G_WHY="main thread is not allowed shared-mailbox access (shared_mailboxes.main_thread=deny)"
@@ -1738,10 +1786,11 @@ if [[ "$DECISION" == "allow" && -f "$_T2G_CFG" ]] \
       _T2G_DECISION="deny"
       _T2G_WHY="unknown scope '${_T2G_SCOPE}' for agent '${_T2G_ROLE}' on '${_T2G_UPN}'"
     fi
+    fi
 
     if [[ "$_T2G_DECISION" == "deny" ]]; then
       DECISION="deny"
-      DENY_REASON="MAILBOX-ACCESS POLICY (decisions#301 K2): ${_T2G_WHY}. Route the request via the agent that owns this mailbox, or record a matrix change (CTO proposes, CSO reviews, CEO approves) to extend .shared_mailboxes.by_agent."
+      DENY_REASON="MAILBOX-ACCESS POLICY (decisions#301 K2): ${_T2G_WHY}. Route the request via the agent that owns this mailbox, or record a matrix change (CTO proposes, CSO reviews, CEO approves) to extend shared_mailboxes in security/policy.json."
     fi
 
     _T2G_FINDING="shared-mailbox ${_T2G_CLASS} op on '${_T2G_UPN}' by agent '${_T2G_ROLE}' (main_thread=${_T2G_MAIN}, basis=${_T2G_BASIS}, scope=${_T2G_SCOPE:-none}); tool=${TOOL_NAME}; decision=${_T2G_DECISION}"
@@ -1755,13 +1804,16 @@ if [[ "$DECISION" == "allow" && -f "$_T2G_CFG" ]] \
     else
       _T2G_CATEGORY="access-event"; _T2G_SEV="info"
     fi
-    # Spooled, off the gating path (FEAT-051), like Track 2e.
+    # Spooled, off the gating path (FEAT-051), like Track 2e. Allowed
+    # own-mailbox reads are not logged (volume) — denies and writes are.
+    if [[ "$_T2G_OWN" != "true" || "$_T2G_DECISION" == "deny" || "$_T2G_CLASS" != "A" ]]; then
     juvant_db_exec_async "INSERT INTO security_audit_log
       (auditor, scope, audit_type, layer, finding, severity, category, status)
       VALUES
       ('hook:pre-tool-use', 'company', 'incident', 'agents',
        '$(_t2g_esc "$_T2G_FINDING")', '${_T2G_SEV}', '$(_t2g_esc "$_T2G_CATEGORY")', 'open');" \
       || echo "[pre-tool-use] WARN: failed to spool security_audit_log for shared-mailbox op" >&2
+    fi
 
     if [[ "$_T2G_DECISION" == "deny" ]]; then
       _T2G_MSG="[SECURITY ALERT] shared-mailbox op denied: mailbox=${_T2G_UPN} agent=${_T2G_ROLE} tool=${_T2G_TOOL} class=${_T2G_CLASS} (decisions#301 K2)"

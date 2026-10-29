@@ -64,7 +64,8 @@ if err=$(juvant_policy_validate "$raw"); then
   n_sp=$(printf '%s' "$raw" | jq '(.space_access // []) | length')
   has_conn=$(printf '%s' "$raw" | jq -r 'if has("connector_tool_allowlist") then "yes" else "no" end')
   req=$(printf '%s' "$raw" | jq -r '(.alert_routing.required // []) | join(",")')
-  echo "OK — ${label}: ${n_sp} space_access rule(s); connector allowlist: ${has_conn}; required alert channels: ${req:-none}"
+  n_mb=$(printf '%s' "$raw" | jq -r 'if has("shared_mailboxes") then "\(.shared_mailboxes.by_agent | length) agent(s)" else "no" end')
+  echo "OK — ${label}: ${n_sp} space_access rule(s); connector allowlist: ${has_conn}; shared mailboxes: ${n_mb}; required alert channels: ${req:-none}"
   exit 0
 fi
 echo "INVALID — ${label}: ${err}" >&2

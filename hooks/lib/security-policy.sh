@@ -4,7 +4,8 @@
 # ADR 0034 (supersedes ADR 0025 clause 5 only).
 #
 # The sensitive-space rules (`space_access`), the connector tool allowlist
-# (`connector_tool_allowlist`, decisions#306) and the alert routing
+# (`connector_tool_allowlist`, decisions#306), the per-agent shared-mailbox
+# rules (`shared_mailboxes`, Track 2g — BUG-083) and the alert routing
 # (`alert_routing`) live in a COMMITTED file, `security/policy.json`, in the
 # instance repo — never in `.juvant/config.json` (gitignored: no history, no
 # review, no attribution, editable by any agent) and never in an upstream-synced
@@ -68,6 +69,21 @@ juvant_policy_validate() {
       then "connector_tool_allowlist needs tool_prefix and string arrays allow/read_resource_uri_prefixes"
     elif has("secrets_paths") and ((.secrets_paths | strarr | not) or any(.secrets_paths[]; . == "" or . == "*" or . == "**" or . == "*/*"))
       then "secrets_paths must be an array of non-empty path globs (not a catch-all like \"*\")"
+    elif has("shared_mailboxes") and (.shared_mailboxes | type != "object") then "shared_mailboxes must be an object"
+    elif has("shared_mailboxes") and ((.shared_mailboxes.by_agent // null) | type != "object")
+      then "shared_mailboxes.by_agent must be an object (role → array of {upn, scope})"
+    elif has("shared_mailboxes") and any(.shared_mailboxes.by_agent[]; (type != "array")
+             or any(.[]; (type != "object") or ((.upn // "") | str | not) or ((.upn // "") == "")
+                         or ((.scope // "read") | IN("read", "readwrite") | not)))
+      then "each shared_mailboxes.by_agent entry needs a non-empty upn and scope read|readwrite"
+    elif has("shared_mailboxes") and ((.shared_mailboxes.main_thread // "explicit") | IN("explicit", "ceo_present_read", "deny") | not)
+      then "shared_mailboxes.main_thread must be explicit|ceo_present_read|deny"
+    elif has("shared_mailboxes") and (((.shared_mailboxes.tool_prefix // "x") | str | not) or ((.shared_mailboxes.tool_prefix // "x") == ""))
+      then "shared_mailboxes.tool_prefix must be a non-empty string"
+    elif has("shared_mailboxes") and ((.shared_mailboxes.own_mailbox // {}) | (type != "object")
+             or ((.main_thread // "readwrite") | IN("read", "readwrite", "deny") | not)
+             or ((.agents // "read") | IN("read", "readwrite", "deny") | not))
+      then "shared_mailboxes.own_mailbox.{main_thread,agents} must be read|readwrite|deny"
     elif has("alert_routing") and (.alert_routing | type != "object") then "alert_routing must be an object"
     elif has("alert_routing") and ((.alert_routing.required // []) | (strarr and all(.[]; . == "teams" or . == "telegram")) | not)
       then "alert_routing.required must be a subset of [\"teams\",\"telegram\"]"
