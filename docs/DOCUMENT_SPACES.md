@@ -246,6 +246,27 @@ example: `docs/schemas/security-policy.example.json`):
   "alert_routing": { "required": ["telegram"] } }
 ```
 
+**Vendor-hosted connectors (decisions#306).** The claude.ai Microsoft 365
+connector reaches the same libraries with **no hook-visible target**
+(`sharepoint_search` takes free text; `read_resource` one opaque URI), so the
+perimeter cannot be extended to it — it is closed instead. Add a
+`connector_tool_allowlist` to the policy:
+
+```jsonc
+"connector_tool_allowlist": {
+  "tool_prefix": "mcp__claude_ai_Microsoft_365__",
+  "allow": ["outlook_email_search", "outlook_calendar_search", "get_me", "read_resource"],
+  "read_resource_uri_prefixes": ["mail://"],
+  "detect_patterns": ["<your legal site name>"] }
+```
+
+Every other connector tool — including any the vendor adds later — is denied
+for every role, main thread included. A denied call that names a sensitive
+space (its `drive_ids`, `path_patterns`, `space`, or `detect_patterns`) also
+writes a high row and alerts. In-instance **document** search goes through
+`m365-graph`; the connector's effective scope is mail + calendar. The canary
+`tests/hooks/test-connector-gate.sh` re-runs on every upstream sync.
+
 Validate before merging (and in the instance CI):
 `bash scripts/validate-security-policy.sh security/policy.json`.
 **Migration:** commit `security/policy.json` to `main` *before* syncing the

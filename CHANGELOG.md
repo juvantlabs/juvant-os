@@ -24,6 +24,23 @@ All written artifacts in English. No exceptions.
 
 ### Security
 
+- **Connector document surface denied (decisions#306, security_audit_log#156).**
+  The claude.ai Microsoft 365 connector reached the legal-ip space with no Track
+  2e coverage: `sharepoint_search` / `sharepoint_folder_search` take only free
+  text and `read_resource` one opaque URI, so no sensitive identifier is visible
+  in the arguments. Ruling: deny, not extend. The policy's
+  `connector_tool_allowlist` (security/policy.json) names the only connector tools
+  allowed — `outlook_email_search`, `outlook_calendar_search`, `get_me`, and
+  `read_resource` for `mail://` URIs — for every role, main thread included;
+  every other tool, including any the vendor adds later, is denied. A denied
+  call that names a sensitive space writes a high row synchronously and alerts.
+  The R2 template also denies the two SharePoint search tools. New canary
+  `tests/hooks/test-connector-gate.sh`, re-run on every adopter sync (also
+  against the instance's own policy). The connector's effective scope narrows to
+  mail + calendar; document search goes through `m365-graph`.
+
+### Security
+
 - **Instance security policy moves to a committed `security/policy.json` read
   from `origin/main` (decisions#305 B1a, ADR 0034, security_audit_log#159).**
   Track 2e rules lived in gitignored `.juvant/config.json`, where any agent could
