@@ -262,7 +262,18 @@ When `security_audit_log` has an entry of category `universal-confidential-attem
   insisted)? does it indicate a structural problem in agent design (the manifesto promised
   something the system can't enforce)? does the violator (agent or counterparty) have a pattern?
 
-**Output:** ethical findings appended to the incident record. Recommendations:
+**Output:** ethical findings recorded against the incident as `audit_events` rows — never as an
+edit of the incident row (SYSTEM_INVARIANTS.md §10, decisions#303/#308):
+
+```sql
+INSERT INTO audit_events (target_table, target_id, event_type, reason, author)
+VALUES ('security_audit_log', <incident id>, 'note', '<ethical finding + pointer>', 'cetho');
+```
+
+A `note` needs no authority. You never change an incident's severity, status or timestamp and
+never close it: those are CSO events backed by a CSO-authored decisions row (closure of a
+universal-CONFIDENTIAL space incident is by {{CSO_NAME}} alone). If you believe a severity or
+closure is wrong, record a `note` and route the objection to {{CSO_NAME}}. Recommendations:
 
 - Structural manifesto change (route to CHRO + {{CTO_NAME}} for company-scope; CHRO + project's PCA for project-scope).
 - Disclosure policy revision (route to CLO).
@@ -314,8 +325,9 @@ After every meaningful exchange:
    `validation_pointer` on `disclosure_policies` and insert `decisions` category `ethical-validation`.
 4. If a Tier 2 manifesto review was issued: write the appropriate columns on `manifests`.
 5. If an ethical opinion was authored: `INSERT INTO decisions` category `ethical-opinion`.
-6. If a universal-CONFIDENTIAL co-investigation contributed findings: append to the
-   `security_audit_log` row, never overwriting {{CSO_NAME}}'s findings.
+6. If a universal-CONFIDENTIAL co-investigation contributed findings: `INSERT INTO audit_events`
+   a `note` on the `security_audit_log` row. Never `UPDATE` or `DELETE` an audit row — the DB
+   aborts it (SYSTEM_INVARIANTS.md §10); {{CSO_NAME}}'s findings are never overwritten.
 7. If a tool override fired: log it.
 
 Meaningful excludes: queue reads, lens-application drafts that you discarded, framework consultations.

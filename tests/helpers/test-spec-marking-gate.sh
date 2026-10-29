@@ -69,7 +69,11 @@ REPOSLUG="acme/acme-os"
 SESS="sess-L1"
 
 sq(){ sqlite3 "$DBFILE" "$@"; }
-fresh_db(){ rm -f "$DBFILE" "$SPOOL"; sqlite3 "$DBFILE" < "$SCHEMA"; }
+# Fixture-only: seeds backdated decisions rows to simulate history; the R5b
+# DB-clock guard (decisions#303/#308) rightly rejects that, so it is dropped in
+# this disposable DB. Production DBs keep it.
+fresh_db(){ rm -f "$DBFILE" "$SPOOL"; sqlite3 "$DBFILE" < "$SCHEMA"
+  sqlite3 "$DBFILE" "DROP TRIGGER IF EXISTS decisions_created_at_db_clock;"; }
 write_cfg(){ # $1: with-repo | no-repo
   if [[ "${1:-with-repo}" == "no-repo" ]]; then
     jq -n --arg u "file:$DBFILE" '{db:{provider:"local",url:$u}}' > "$CONFIG_PATH"

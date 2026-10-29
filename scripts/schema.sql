@@ -3,6 +3,10 @@
 -- Apply with: ./scripts/migrate.sh
 -- One DB per scope: company-<name>, project-<name>
 -- Immutable rows: supersession only, no in-place edits (agent_tool_matrix, disclosure_policies)
+-- Audit tables (security_audit_log, agent_actions_log, decisions) are DB-enforced
+-- append-only for their evidentiary columns; corrections/annotations go to the
+-- INSERT-only audit_events table. See the AUDIT IMMUTABILITY section at the end
+-- of this file (R5b/R5c, decisions#303/#308; SYSTEM_INVARIANTS §10).
 --
 -- Note on journal mode: Turso (LibSQL) uses WAL by default and rejects the
 -- `PRAGMA journal_mode=WAL` statement when applied via `turso db shell`. For
@@ -139,7 +143,9 @@ CREATE TABLE IF NOT EXISTS decisions (
   status          TEXT DEFAULT 'proposed',
   -- 'proposed' | 'approved' | 'rejected' | 'executed' | 'superseded'
   -- superseded: decision was valid at approval time but replaced by a successor.
-  --   Record the successor decisions.id in the rationale field.
+  --   rationale is immutable (R5b): record the successor decisions.id in an
+  --   audit_events row (event_type='status_change', to_value='superseded',
+  --   reason='superseded by decisions#<id>') — or in the successor's own rationale.
   --   Distinct from 'rejected': the original decision was correct given the
   --   information available at the time.
   scope              TEXT DEFAULT 'company',
@@ -657,6 +663,9 @@ CREATE TABLE IF NOT EXISTS portal_offline_messages (
 -- by PreToolUse + PostToolUse hooks BEFORE the agent has a chance
 -- to write anywhere else. Agents have READ-ONLY convention on this
 -- table — never INSERT / UPDATE / DELETE from agent prompts.
+-- Since R5b this is DB-enforced, not only convention: DELETE aborts, the
+-- fingerprint columns are immutable, and a row is frozen once it leaves
+-- 'pending' (see the AUDIT IMMUTABILITY section at the end of this file).
 -- Reconciliation against decisions detects cover-up (failure mode #6
 -- of ADR 0004 — Replit-style fabrication of state).
 
@@ -806,3 +815,359 @@ VALUES
   ('claude-opus-4-7',           '2026-01-01', NULL, 15.00, 75.00, 18.75, 1.50),
   ('claude-sonnet-4-6',         '2026-01-01', NULL,  3.00, 15.00,  3.75, 0.30),
   ('claude-haiku-4-5-20251001', '2026-01-01', NULL,  1.00,  5.00,  1.25, 0.10);
+
+-- ─────────────────────────────────────────────
+-- AUDIT IMMUTABILITY (R5b) + APPEND-ONLY AUDIT EVENTS (R5c)
+-- decisions#303 / #304 / #308; security_audit_log#155 / #161 / #163 (CEthO)
+-- SYSTEM_INVARIANTS.md §10
+-- ─────────────────────────────────────────────
+-- Why at the DB level: audit rows were DELETEd (security_audit_log 91–95,
+-- 2026-07-04) and edited in place (created_at rewrites, a silent severity
+-- downgrade, labels on hook rows). SQL fed via stdin / a redirect / direct
+-- HTTP with the DB token bypasses every Bash-level rule; a trigger is the
+-- only control every write path must cross.
+--
+-- Rules:
+--   * DELETE on security_audit_log / agent_actions_log / decisions aborts.
+--     INSERT OR REPLACE onto an existing id (a delete+insert in disguise that
+--     does not fire DELETE triggers) aborts too.
+--   * Evidentiary columns are immutable. Columns legitimately set once
+--     (decisions.approved_by/approved_at, agent_actions_log.input_summary)
+--     accept NULL → value only, never value → other value.
+--   * agent_actions_log: a row is frozen once it leaves 'pending' — only the
+--     pending → final transition (post-tool-use, post-tool-use-failure, the
+--     drainer's 'terminated' reconcile) may set status/ended_at/result_hash.
+--   * created_at is the DB clock: an INSERT that supplies created_at more than
+--     120 s away from the DB clock aborts (security_audit_log, decisions,
+--     audit_events). 120 s absorbs client-computed timestamps (date -u in a
+--     hook, NTP skew, a slow libsql round-trip) and is orders of magnitude
+--     below any meaningful backdating. agent_actions_log.started_at is exempt:
+--     the hook sets it at action time (decisions#298) and the spool may drain
+--     much later.
+--   * Lifecycle UPDATEs still allowed for ONE minor version (deprecated —
+--     new writers record audit_events instead): security_audit_log
+--     status/resolved_at; decisions status/executed_by/executed_at/source_ref
+--     (+ upstream_candidate, held_for_fallback, scope — non-evidentiary flags).
+--   * Corrections, annotations, closures and test-artifact marks are rows in
+--     audit_events (INSERT-only). severity_change, timestamp_correction,
+--     closure, test_artifact — and a security_audit_log status_change to a
+--     terminal status — require authority_ref → a decisions row authored by
+--     the CSO (agent='cso') with a rationale (CEO ruling decisions#308: a CoS
+--     message alone is not sufficient).
+--   * CSO verdict rows (security_audit_log.category='audit-verdict') must carry
+--     the severity of the highest finding of the same audit (session_id).
+--
+-- DDL that cannot be enforced by a trigger (DROP TRIGGER / DROP TABLE) stays
+-- covered by the Bash-level SQL deny patterns (BUG-066) and off-host backups.
+-- scripts/migrate.sh re-applies every object below via DROP+CREATE
+-- (R5_AUDIT_PATCHES); tests/schema/validate.py guards that the two copies agree.
+-- Severity rank used below: P0/critical=4, P1/high=3, P2/medium=2, low=1, info=0.
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_table    TEXT NOT NULL
+                  CHECK (target_table IN ('security_audit_log','agent_actions_log','decisions')),
+  target_id       INTEGER NOT NULL,
+  event_type      TEXT NOT NULL
+                  CHECK (event_type IN ('status_change','note','severity_change',
+                                        'timestamp_correction','test_artifact','closure')),
+  from_value      TEXT,
+  to_value        TEXT,
+  -- status_change / severity_change / closure / timestamp_correction: the new
+  -- value (required). note / test_artifact: optional.
+  reason          TEXT NOT NULL CHECK (trim(reason) <> ''),
+  authority_ref   INTEGER REFERENCES decisions(id),
+  -- decisions.id of the authorizing record (CSO-authored for corrections).
+  author          TEXT NOT NULL CHECK (trim(author) <> ''),
+  -- role of the writer, e.g. 'cso' | 'cetho' | 'cos' | 'eng-lead'
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_target
+  ON audit_events(target_table, target_id, event_type, id);
+
+-- ── security_audit_log ──────────────────────────────────────────────────────
+CREATE TRIGGER IF NOT EXISTS security_audit_log_no_delete
+BEFORE DELETE ON security_audit_log
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): DELETE on security_audit_log is forbidden — record a test_artifact or closure row in audit_events instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS security_audit_log_no_replace
+BEFORE INSERT ON security_audit_log
+WHEN NEW.id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): security_audit_log id already exists — rows are never replaced')
+  WHERE EXISTS (SELECT 1 FROM security_audit_log WHERE id = NEW.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS security_audit_log_immutable_fields
+BEFORE UPDATE ON security_audit_log
+WHEN NEW.id IS NOT OLD.id
+  OR NEW.auditor IS NOT OLD.auditor
+  OR NEW.session_id IS NOT OLD.session_id
+  OR NEW.scope IS NOT OLD.scope
+  OR NEW.audit_type IS NOT OLD.audit_type
+  OR NEW.layer IS NOT OLD.layer
+  OR NEW.finding IS NOT OLD.finding
+  OR NEW.severity IS NOT OLD.severity
+  OR NEW.category IS NOT OLD.category
+  OR NEW.bootstrap_baseline IS NOT OLD.bootstrap_baseline
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): security_audit_log evidentiary columns are immutable — record a severity_change / timestamp_correction / note row in audit_events instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS security_audit_log_created_at_db_clock
+BEFORE INSERT ON security_audit_log
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): security_audit_log.created_at must be the DB clock — omit it or use CURRENT_TIMESTAMP (tolerance 120s)')
+  WHERE julianday(NEW.created_at) IS NULL
+     OR abs(julianday(NEW.created_at) - julianday('now')) * 86400.0 > 120;
+END;
+
+CREATE TRIGGER IF NOT EXISTS security_audit_log_verdict_severity
+BEFORE INSERT ON security_audit_log
+WHEN NEW.category = 'audit-verdict' AND NEW.session_id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#308): a CSO verdict row must carry the severity of the highest finding of the same audit (session_id) — write findings first, then the verdict')
+  WHERE COALESCE(CASE lower(trim(NEW.severity))
+                   WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3
+                   WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END, -1)
+      < (SELECT max(CASE lower(trim(f.severity))
+                      WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3
+                      WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END)
+           FROM security_audit_log f
+          WHERE f.session_id = NEW.session_id
+            AND f.auditor = NEW.auditor
+            AND f.category IS NOT 'audit-verdict');
+END;
+
+-- ── agent_actions_log ───────────────────────────────────────────────────────
+CREATE TRIGGER IF NOT EXISTS agent_actions_log_no_delete
+BEFORE DELETE ON agent_actions_log
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): DELETE on agent_actions_log is forbidden — record a test_artifact or note row in audit_events instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS agent_actions_log_no_replace
+BEFORE INSERT ON agent_actions_log
+WHEN NEW.id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): agent_actions_log id already exists — rows are never replaced')
+  WHERE EXISTS (SELECT 1 FROM agent_actions_log WHERE id = NEW.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS agent_actions_log_immutable_fields
+BEFORE UPDATE ON agent_actions_log
+WHEN NEW.id IS NOT OLD.id
+  OR NEW.session_id IS NOT OLD.session_id
+  OR NEW.agent IS NOT OLD.agent
+  OR NEW.tool_name IS NOT OLD.tool_name
+  OR NEW.args_hash IS NOT OLD.args_hash
+  OR NEW.spec_id IS NOT OLD.spec_id
+  OR NEW.started_at IS NOT OLD.started_at
+  OR (OLD.input_summary IS NOT NULL AND NEW.input_summary IS NOT OLD.input_summary)
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): agent_actions_log fingerprint columns are immutable (input_summary is set-once)');
+END;
+
+CREATE TRIGGER IF NOT EXISTS agent_actions_log_final_row_frozen
+BEFORE UPDATE ON agent_actions_log
+WHEN OLD.status IS NOT 'pending'
+  AND (NEW.status IS NOT OLD.status
+    OR NEW.ended_at IS NOT OLD.ended_at
+    OR NEW.result_hash IS NOT OLD.result_hash
+    OR NEW.deny_reason IS NOT OLD.deny_reason)
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): agent_actions_log row is final — only the pending → final transition may set status/ended_at/result_hash');
+END;
+
+-- ── decisions ───────────────────────────────────────────────────────────────
+CREATE TRIGGER IF NOT EXISTS decisions_no_delete
+BEFORE DELETE ON decisions
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): DELETE on decisions is forbidden — set status (rejected/superseded) or record a test_artifact row in audit_events instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS decisions_no_replace
+BEFORE INSERT ON decisions
+WHEN NEW.id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): decisions id already exists — rows are never replaced')
+  WHERE EXISTS (SELECT 1 FROM decisions WHERE id = NEW.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS decisions_immutable_fields
+BEFORE UPDATE ON decisions
+WHEN NEW.id IS NOT OLD.id
+  OR NEW.agent IS NOT OLD.agent
+  OR NEW.title IS NOT OLD.title
+  OR NEW.category IS NOT OLD.category
+  OR NEW.rationale IS NOT OLD.rationale
+  OR NEW.created_at IS NOT OLD.created_at
+  OR (OLD.approved_by IS NOT NULL AND NEW.approved_by IS NOT OLD.approved_by)
+  OR (OLD.approved_at IS NOT NULL AND NEW.approved_at IS NOT OLD.approved_at)
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): decisions title/rationale/agent/category/created_at are immutable and approved_by/approved_at are set-once — record a note or status_change row in audit_events instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS decisions_created_at_db_clock
+BEFORE INSERT ON decisions
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): decisions.created_at must be the DB clock — omit it or use CURRENT_TIMESTAMP (tolerance 120s)')
+  WHERE julianday(NEW.created_at) IS NULL
+     OR abs(julianday(NEW.created_at) - julianday('now')) * 86400.0 > 120;
+END;
+
+-- ── audit_events (INSERT-only) ──────────────────────────────────────────────
+CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+BEFORE UPDATE ON audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events is INSERT-only — append a new event instead');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+BEFORE DELETE ON audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events is INSERT-only — DELETE is forbidden');
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_no_replace
+BEFORE INSERT ON audit_events
+WHEN NEW.id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events id already exists — rows are never replaced')
+  WHERE EXISTS (SELECT 1 FROM audit_events WHERE id = NEW.id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_created_at_db_clock
+BEFORE INSERT ON audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events.created_at must be the DB clock — omit it or use CURRENT_TIMESTAMP (tolerance 120s)')
+  WHERE julianday(NEW.created_at) IS NULL
+     OR abs(julianday(NEW.created_at) - julianday('now')) * 86400.0 > 120;
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_target_exists
+BEFORE INSERT ON audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'audit_events: target_id does not reference an existing row of target_table (R5c)')
+  WHERE (NEW.target_table = 'security_audit_log'
+         AND NOT EXISTS (SELECT 1 FROM security_audit_log WHERE id = NEW.target_id))
+     OR (NEW.target_table = 'agent_actions_log'
+         AND NOT EXISTS (SELECT 1 FROM agent_actions_log WHERE id = NEW.target_id))
+     OR (NEW.target_table = 'decisions'
+         AND NOT EXISTS (SELECT 1 FROM decisions WHERE id = NEW.target_id));
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_shape
+BEFORE INSERT ON audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'audit_events: severity_change applies to security_audit_log only (R5c)')
+  WHERE NEW.event_type = 'severity_change' AND NEW.target_table <> 'security_audit_log';
+  SELECT RAISE(ABORT, 'audit_events: status_change / severity_change / closure / timestamp_correction require to_value (R5c)')
+  WHERE NEW.event_type IN ('status_change','severity_change','closure','timestamp_correction')
+    AND (NEW.to_value IS NULL OR trim(NEW.to_value) = '');
+  SELECT RAISE(ABORT, 'audit_events: authority_ref does not reference an existing decisions row (R5c)')
+  WHERE NEW.authority_ref IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM decisions WHERE id = NEW.authority_ref);
+  SELECT RAISE(ABORT, 'audit_events: timestamp_correction to_value must be a parseable datetime (R5c)')
+  WHERE NEW.event_type = 'timestamp_correction' AND julianday(NEW.to_value) IS NULL;
+  SELECT RAISE(ABORT, 'audit_events: severity_change from_value must equal the current severity of the target row (R5c)')
+  WHERE NEW.event_type = 'severity_change'
+    AND NEW.from_value IS NOT COALESCE(
+          (SELECT e.to_value FROM audit_events e
+            WHERE e.target_table = 'security_audit_log' AND e.target_id = NEW.target_id
+              AND e.event_type = 'severity_change'
+            ORDER BY e.id DESC LIMIT 1),
+          (SELECT s.severity FROM security_audit_log s WHERE s.id = NEW.target_id));
+END;
+
+CREATE TRIGGER IF NOT EXISTS audit_events_cso_authority
+BEFORE INSERT ON audit_events
+WHEN NEW.event_type IN ('severity_change','timestamp_correction','closure','test_artifact')
+  OR (NEW.event_type = 'status_change' AND NEW.target_table = 'security_audit_log'
+      AND lower(trim(NEW.to_value)) IN ('resolved','accepted','closed'))
+BEGIN
+  SELECT RAISE(ABORT, 'audit immutability (decisions#308): this audit_events row requires authority_ref → a decisions row authored by the CSO (agent=cso) with a rationale — a CoS message alone is not sufficient')
+  WHERE NEW.authority_ref IS NULL
+     OR NOT EXISTS (SELECT 1 FROM decisions d
+                     WHERE d.id = NEW.authority_ref
+                       AND d.agent = 'cso'
+                       AND d.rationale IS NOT NULL
+                       AND trim(d.rationale) <> '');
+END;
+
+-- ── Current-state views (base row + latest audit_events) ────────────────────
+-- Readers that need the CURRENT severity/status (boot summaries, CSO triage,
+-- CHRO penalty formula, morning brief) read these views; the base columns keep
+-- the value as originally recorded.
+CREATE VIEW IF NOT EXISTS security_audit_log_current AS
+SELECT s.*,
+  COALESCE((SELECT e.to_value FROM audit_events e
+             WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id
+               AND e.event_type = 'severity_change'
+             ORDER BY e.id DESC LIMIT 1), s.severity) AS current_severity,
+  COALESCE((SELECT e.to_value FROM audit_events e
+             WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id
+               AND e.event_type IN ('status_change','closure')
+             ORDER BY e.id DESC LIMIT 1), s.status) AS current_status,
+  COALESCE((SELECT e.to_value FROM audit_events e
+             WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id
+               AND e.event_type = 'timestamp_correction'
+             ORDER BY e.id DESC LIMIT 1), s.created_at) AS current_created_at,
+  COALESCE((SELECT e.created_at FROM audit_events e
+             WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id
+               AND e.event_type = 'closure'
+             ORDER BY e.id DESC LIMIT 1), s.resolved_at) AS current_resolved_at,
+  EXISTS (SELECT 1 FROM audit_events e
+           WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id
+             AND e.event_type = 'test_artifact') AS is_test_artifact,
+  (SELECT count(*) FROM audit_events e
+    WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id) AS event_count
+FROM security_audit_log s;
+
+CREATE VIEW IF NOT EXISTS decisions_current AS
+SELECT d.*,
+  COALESCE((SELECT e.to_value FROM audit_events e
+             WHERE e.target_table = 'decisions' AND e.target_id = d.id
+               AND e.event_type IN ('status_change','closure')
+             ORDER BY e.id DESC LIMIT 1), d.status) AS current_status,
+  COALESCE((SELECT e.to_value FROM audit_events e
+             WHERE e.target_table = 'decisions' AND e.target_id = d.id
+               AND e.event_type = 'timestamp_correction'
+             ORDER BY e.id DESC LIMIT 1), d.created_at) AS current_created_at,
+  EXISTS (SELECT 1 FROM audit_events e
+           WHERE e.target_table = 'decisions' AND e.target_id = d.id
+             AND e.event_type = 'test_artifact') AS is_test_artifact,
+  (SELECT count(*) FROM audit_events e
+    WHERE e.target_table = 'decisions' AND e.target_id = d.id) AS event_count
+FROM decisions d;
+
+-- Verdict-severity rule (decisions#308), test-checkable: every row here is a
+-- violation. Covers what the INSERT trigger cannot: a finding upgraded by a
+-- severity_change after the verdict, a finding written after its verdict, and
+-- verdict rows without a session_id (unlinkable). Only the latest verdict per
+-- audit (session_id) is judged; test-artifact rows are excluded.
+CREATE VIEW IF NOT EXISTS security_audit_verdict_severity_violations AS
+SELECT v.id AS verdict_id, v.session_id, v.current_severity AS verdict_severity,
+       f.id AS finding_id, f.current_severity AS finding_severity,
+       'finding more severe than verdict' AS violation
+  FROM security_audit_log_current v
+  JOIN security_audit_log_current f
+    ON f.session_id = v.session_id AND f.auditor = v.auditor
+   AND f.id <> v.id AND f.category IS NOT 'audit-verdict' AND f.is_test_artifact = 0
+ WHERE v.category = 'audit-verdict' AND v.is_test_artifact = 0
+   AND v.id = (SELECT max(x.id) FROM security_audit_log x
+                WHERE x.category = 'audit-verdict' AND x.session_id = v.session_id
+                  AND x.auditor = v.auditor)
+   AND CASE lower(trim(f.current_severity))
+         WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3
+         WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END
+     > COALESCE(CASE lower(trim(v.current_severity))
+         WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3
+         WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END, -1)
+UNION ALL
+SELECT v.id, NULL, v.current_severity, NULL, NULL, 'verdict without session_id (unlinkable)'
+  FROM security_audit_log_current v
+ WHERE v.category = 'audit-verdict' AND v.session_id IS NULL AND v.is_test_artifact = 0;

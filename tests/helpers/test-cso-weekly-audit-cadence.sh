@@ -68,6 +68,10 @@ sq(){ sqlite3 "$DBFILE" "$@"; }
 fresh_db(){
   rm -f "$DBFILE"
   sqlite3 "$DBFILE" < "$SCHEMA"
+  # Fixture-only: this suite seeds backdated security_audit_log rows to simulate
+  # audit history; the R5b DB-clock guard (decisions#303/#308) rightly rejects
+  # that, so it is dropped in this disposable DB. Production DBs keep it.
+  sq "DROP TRIGGER IF EXISTS security_audit_log_created_at_db_clock;"
   sq "INSERT INTO master_context (key,value) VALUES ('company_type','master');"
 }
 

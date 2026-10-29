@@ -769,6 +769,58 @@ They are never the implementers.
 used in normal orchestration (upstream sync, compile-templates, Turso
 queries) are unaffected — they go through Bash, not Write/Edit.
 
+## §10 — Audit Immutability
+
+The audit record — `security_audit_log`, `agent_actions_log`, `decisions` —
+is **append-only evidence**. Nobody (agent, CoS, CEO session, helper, or
+direct SQL with the DB token) deletes an audit row or rewrites what it
+recorded. Corrections, annotations and closures are **new rows** in the
+INSERT-only `audit_events` table, never edits in place (decisions#303 /
+#304 / #308; security_audit_log#155 / #161 / #163).
+
+**Enforced in the database** (`scripts/schema.sql` § AUDIT IMMUTABILITY),
+because SQL fed via stdin, a redirect, or direct HTTP bypasses every
+Bash-level rule:
+
+1. `DELETE` on the three tables aborts; so does `INSERT OR REPLACE` onto an
+   existing id. `audit_events` rejects `UPDATE` and `DELETE`.
+2. Evidentiary columns are immutable:
+   - `security_audit_log`: `finding, severity, created_at, auditor, layer,
+     category, scope, audit_type, session_id, bootstrap_baseline`.
+   - `agent_actions_log`: `agent, tool_name, args_hash, started_at,
+     session_id, spec_id`; `input_summary` is set-once; once a row leaves
+     `pending` its `status / ended_at / result_hash / deny_reason` are
+     frozen (only the pending → final transition is allowed).
+   - `decisions`: `title, rationale, created_at, agent, category`;
+     `approved_by / approved_at` are set-once (NULL → value only).
+3. `created_at` is the DB clock: an INSERT that supplies a `created_at` more
+   than 120 s from the DB clock aborts (`security_audit_log`, `decisions`,
+   `audit_events`). `agent_actions_log.started_at` is exempt — the hook sets
+   it at action time (decisions#298).
+4. `severity_change`, `timestamp_correction`, `closure` and `test_artifact`
+   events — and a `security_audit_log` `status_change` to a terminal status
+   — require `authority_ref` → a `decisions` row authored by the CSO
+   (`agent='cso'`) with a rationale. A CoS message alone is not sufficient
+   (CEO ruling decisions#308). A severity **downgrade** at any level counts.
+   Closure of a universal-CONFIDENTIAL space incident (§5, e.g. `legal-ip`)
+   is by the CSO alone, via its own decisions row.
+5. A CSO audit verdict row (`category='audit-verdict'`) carries the severity
+   of the highest finding of that audit (same `session_id`); residual
+   violations are listed by the `security_audit_verdict_severity_violations`
+   view.
+6. Test rows are never deleted: they receive a `test_artifact` event.
+
+Current state is read from the `security_audit_log_current` and
+`decisions_current` views (base row + latest event). Lifecycle `UPDATE`s of
+`security_audit_log.status / resolved_at` and `decisions.status /
+executed_by / executed_at / source_ref` remain accepted for one minor version
+as compatibility; they are deprecated — new writers record `audit_events`.
+
+DDL (`DROP TRIGGER`, `DROP TABLE`) cannot be stopped by a trigger: it stays
+covered by the Bash-level SQL deny patterns (BUG-066), off-host backups, and
+CSO Layer 5 (trigger-presence check). A change to this section is structural
+(Appendix B step 6).
+
 ---
 
 ## Appendix A — Cross-references in subagent files
@@ -804,7 +856,7 @@ Changes to this document follow the standard versioning flow:
    company-scope artifact).
 5. eng-platform opens PR; review involves CHRO + CTO + CSO + CEthO.
 6. After merge, CHRO triggers a system-wide manifesto re-validation pass
-   if the change touches §1, §3, §4, §5, or §6. Changes touching only §2
+   if the change touches §1, §3, §4, §5, §6, or §10. Changes touching only §2
    (naming) or §7 (principles citation) are non-structural and do not
    require re-validation.
 

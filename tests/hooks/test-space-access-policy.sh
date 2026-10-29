@@ -64,7 +64,15 @@ export JUVANT_SPOOL="$TMPROOT/audit-spool.sql"
 
 # Clear both the table AND any pending spooled rows (prior ops in this run
 # spool audit rows too) so each audit block starts from a clean slate.
-_reset_audit() { sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"; rm -f "$JUVANT_SPOOL"; }
+# security_audit_log is append-only at the DB level (R5b, decisions#303/#308), so
+# the fixture reset lifts the DELETE guard for the truncate and restores the
+# exact trigger text in the same sqlite3 call (disposable test DB only).
+_reset_audit() {
+  local _ddl
+  _ddl=$(sqlite3 "$TEST_DB" "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='security_audit_log_no_delete';")
+  sqlite3 "$TEST_DB" "DROP TRIGGER IF EXISTS security_audit_log_no_delete; DELETE FROM security_audit_log; ${_ddl:+$_ddl;}"
+  rm -f "$JUVANT_SPOOL"
+}
 # Flush spooled audit rows into security_audit_log before asserting on them.
 _drain_audit() { bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true; }
 
