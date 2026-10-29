@@ -392,7 +392,9 @@ CREATE TABLE IF NOT EXISTS agent_tool_matrix (
   channels        TEXT,
   -- JSON array e.g. ["m365-mail"]
   -- m365-mail receive for cmo is press scope only
-  approved_by     TEXT DEFAULT 'ceo',
+  approved_by     TEXT,
+  -- no default (BUG-085): NULL until someone approves; a default 'ceo' made
+  -- every row look CEO-approved. Writers set it explicitly.
   version         TEXT,
   superseded_by   INTEGER,
   -- FK to newer row; NULL means current. -1 means "superseded at
@@ -614,7 +616,9 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
   -- 0004 (audit-reconcile pattern).
   promoted_by     TEXT,
   -- 'chro' | 'ca' | 'cro'
-  approved_by     TEXT DEFAULT 'ceo',
+  approved_by     TEXT,
+  -- no default (BUG-085): NULL until someone approves; a default 'ceo' made
+  -- every row look CEO-approved. Writers set it explicitly.
   scope           TEXT DEFAULT 'company',
   -- 'company' | 'global' — only master companies may write 'global'
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP

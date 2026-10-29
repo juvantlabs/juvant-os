@@ -203,10 +203,10 @@ phase_0a() {
       n=${n:-0}
       report "  promote-kb: '$cat' → knowledge_base  ($n rows)"
       run_sql "INSERT OR IGNORE INTO knowledge_base
-                 (category, title, content, source_ref, promoted_by, scope, created_at)
+                 (category, title, content, source_ref, promoted_by, approved_by, scope, created_at)
                SELECT 'decision-archive', title,
                       'Original category: '||category||char(10)||char(10)||coalesce(rationale,''),
-                      'decisions#'||id, 'governance-backfill', scope, CURRENT_TIMESTAMP
+                      'decisions#'||id, 'governance-backfill', NULL, scope, CURRENT_TIMESTAMP
                FROM decisions
                WHERE category='$cat' AND status!='superseded';"
       run_sql "UPDATE decisions

@@ -361,6 +361,20 @@ check(
 )
 
 # ─────────────────────────────────────────────
+# BUG-085: no approved_by column may carry a default — a default 'ceo' made
+# every freshly inserted row look CEO-approved.
+print("\n=== approved_by has no default (BUG-085) ===")
+_conn = fresh_conn()
+_defaulted = [
+    f"{t}.approved_by={d}"
+    for (t,) in _conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    for (_cid, n, _ty, _nn, d, _pk) in _conn.execute(f"PRAGMA table_info('{t}')").fetchall()
+    if n == "approved_by" and d is not None
+]
+_conn.close()
+check("no approved_by column has a DEFAULT", not _defaulted, f"defaulted: {_defaulted}")
+
+# ─────────────────────────────────────────────
 print("\n===================================================")
 total = passes + len(fails)
 print(f"Total: {total} · Passed: {passes} · Failed: {len(fails)}")
