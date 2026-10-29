@@ -11,6 +11,11 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.15.1] — 2026-10-29 — Atomic default rebuild on turso
+
+No adopter action unless a `--rebuild-defaults` run is still pending: it is
+now one transaction on turso too.
+
 ### Fixed
 
 - **`migrate.sh --rebuild-defaults` was not atomic on turso** (H23, BUG-091,
