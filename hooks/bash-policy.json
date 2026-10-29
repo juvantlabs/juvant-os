@@ -52,6 +52,21 @@
     "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
   ],
 
+  "_sql_protected_comment": "decisions#303 R5a / #308 (security_audit_log#155, #161, #163): audit-immutability rules the pre-tool-use SQL gate applies to EVERY statement any DB CLI receives (argument, redirect file, here-string, heredoc), case-insensitively, after SQL comments are removed and prose literals emptied — never on prose. no_delete: DELETE, REPLACE / INSERT OR REPLACE and ALTER TABLE … RENAME|DROP are denied on these tables. frozen_columns: an UPDATE whose SET clause assigns one of these columns is denied ('*' = every column); corrections are recorded as audit_events rows. set_once: the column may only be set by an UPDATE whose WHERE carries '<col> IS NULL' (the documented approval UPDATE). db_clock_tables: an INSERT naming created_at is denied — the DB clock sets it. The schema triggers (scripts/schema.sql, R5b) are the backstop for routes this Bash gate can't see.",
+  "sql_protected": {
+    "no_delete": ["security_audit_log", "agent_actions_log", "decisions", "audit_events"],
+    "frozen_columns": {
+      "security_audit_log": ["finding", "severity", "created_at", "auditor", "layer", "category", "scope", "audit_type"],
+      "agent_actions_log": ["agent", "tool_name", "input_summary", "args_hash", "started_at"],
+      "decisions": ["title", "rationale", "created_at", "agent", "category"],
+      "audit_events": ["*"]
+    },
+    "set_once": {
+      "decisions": ["approved_by", "approved_at"]
+    },
+    "db_clock_tables": ["security_audit_log", "decisions", "audit_events"]
+  },
+
   "_single_writer_gh_comment": "FEAT-052 — single-writer §4 gate for GitHub writes via the gh CLI. With the deprecated github MCP removed, gh is the GitHub mechanism and gh is broadly allow-listed, so WRITE operations must be restricted to the single writer per scope (eng-lead at project scope, eng-platform at company scope) — exactly like git push/commit/merge in Track 2d. pre-tool-use.sh Track 2d matches the Bash command against these patterns; a match by any non-eng-lead/eng-platform subagent is denied (main operator thread is exempt, same as the git gate). Read-only gh (view/list/diff/checks/status, api GET, repo clone/view, release download) is NOT listed and stays open to all gh-allowed agents. gh api with field flags (-f/-F/--field/--raw-field) defaults to POST, so it is gated unless an explicit -X GET is present — that special case is handled in pre-tool-use.sh, not here. Verb-explicit (ERE has no negative lookahead); additions are cheap.",
 
   "single_writer_gh_patterns": [

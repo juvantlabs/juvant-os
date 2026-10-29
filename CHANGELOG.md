@@ -24,6 +24,27 @@ All written artifacts in English. No exceptions.
 
 ### Security
 
+- **SQL content gate: every DB-CLI input route scanned, prose literals are data,
+  audit tables immutable at the Bash level (decisions#303 E / E-bis / R5a,
+  security_audit_log#155, #161, #164).** SQL fed to `turso db shell` / `sqlite3`
+  via a redirect, pipe, here-string or heredoc was never scanned, so every
+  Bash-level SQL rule was bypassable; and the universal deny-list still matched
+  `DROP … TABLE` / the pause keyword inside SQL string literals, blocking
+  legitimate audit INSERTs. A new gate collects the SQL of every DB-CLI segment
+  (quoted/unquoted arguments, a `<` redirect FILE — read and scanned —, a
+  here-string, a heredoc body) and checks it per statement, case-insensitively,
+  after removing comments and emptying prose literals. Routes whose content
+  can't be read statically are denied: piped SQL, `<(…)`, an SQL argument that is
+  a shell expansion, a here-string/heredoc with live expansions, an unreadable or
+  >1 MiB redirect file, `.read`/`.import`/… dot-commands, direct libsql HTTP
+  (`/v2/pipeline`). **R5a** (`bash-policy.json` `.sql_protected`): no DELETE /
+  REPLACE / ALTER RENAME|DROP on `security_audit_log`, `agent_actions_log`,
+  `decisions`, `audit_events`; no UPDATE whose SET clause assigns an evidentiary
+  column (the WHERE is not read as a write); `decisions.approved_by/approved_at`
+  only with an `approved_by IS NULL` guard (the documented approval UPDATE now
+  carries it); no typed `created_at`; no `DROP TRIGGER`. The schema triggers
+  (R5b) stay the backstop for routes a Bash gate can't see.
+
 - **Track 2e sensitive-space audit rows are written synchronously again
   (decisions#303 R4, security_audit_log#154).** A legal-ip row that waited in the
   agent-writable spool until the next drain could be deleted or rewritten before

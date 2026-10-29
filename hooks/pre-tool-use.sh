@@ -258,6 +258,209 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     fi
   fi
 
+  # ── decisions#303 E / E-bis / R5a: SQL content gate ──────────────────────
+  # Every SQL a DB CLI (turso db shell|exec, sqlite3) receives in this command
+  # is collected — quoted/unquoted arguments, a `<` redirect FILE (read and
+  # scanned), a here-string, a heredoc body — and checked statement by
+  # statement (below, after the universal deny-list). Sources whose content
+  # can't be read statically are denied outright: SQL piped in from another
+  # command, `<(…)`, SQL that is entirely a shell expansion ("$SQL", "$(…)"), a
+  # heredoc/here-string with live expansions, an unreadable redirect file.
+  # Before this gate, SQL fed via stdin/redirect was never scanned at all
+  # (security_audit_log#164), and prose inside SQL literals false-denied
+  # legitimate audit INSERTs (DROP…TABLE, the pause keyword).
+  _SQLG_HAS_DB=0; _SQLG_DENY=""; _SQLG_SQL=()
+  _SQLG_CWD=$(echo "$EVENT_JSON" | jq -r '.cwd // empty' 2>/dev/null || echo "")
+  _SQLG_CWD="${_SQLG_CWD:-$PWD}"
+  # Finalise one shell segment: is it a DB CLI? If so, gather its SQL.
+  # Args: <piped-in 0|1> then the segment words; globals _SQLG_W_DYN (parallel
+  # dynamic flags), _SQLG_IN (redirect-in files), _SQLG_HS (here-strings,
+  # "dyn|text"), _SQLG_HD (heredoc bodies, "dyn|text").
+  _sqlg_finish() {
+    local piped="$1"; shift
+    local -a w=() dyn=()
+    [[ $# -gt 0 ]] && w=("$@")
+    [[ ${#_SQLG_W_DYN[@]} -gt 0 ]] && dyn=("${_SQLG_W_DYN[@]}")
+    local i=0 x bin start=-1 n=${#w[@]} f content
+    while [[ $i -lt $n ]]; do
+      x="${w[$i]}"
+      if [[ "$x" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then i=$((i + 1)); continue; fi
+      case "${x##*/}" in command|env|nice|nohup|time|exec) i=$((i + 1)); continue ;; esac
+      break
+    done
+    [[ $i -lt $n ]] || return 0
+    bin="${w[$i]##*/}"
+    if [[ "$bin" == "turso" && "${w[$((i + 1))]:-}" == "db" && ( "${w[$((i + 2))]:-}" == "shell" || "${w[$((i + 2))]:-}" == "exec" ) ]]; then
+      start=$((i + 4))      # turso db shell <db> <sql…>
+    elif [[ "$bin" == "sqlite3" ]]; then
+      i=$((i + 1))
+      while [[ $i -lt $n && "${w[$i]}" == -* ]]; do
+        if [[ "${w[$i]}" == "-init" || "${w[$i]}" == "-cmd" ]]; then
+          if [[ "${w[$i]}" == "-init" ]]; then _SQLG_IN+=("${w[$((i + 1))]:-}"); else _SQLG_SQL+=("${w[$((i + 1))]:-}"); fi
+          i=$((i + 2)); continue
+        fi
+        i=$((i + 1))
+      done
+      start=$((i + 1))      # sqlite3 [opts] <db-file> <sql…>
+    else
+      return 0
+    fi
+    _SQLG_HAS_DB=1
+    if [[ "$piped" == 1 ]]; then
+      _SQLG_DENY="SQL piped into ${bin} from another command can't be read statically"; return 0
+    fi
+    i=$start
+    while [[ $i -lt $n ]]; do
+      if [[ "${dyn[$i]:-0}" == 1 ]]; then
+        _SQLG_DENY="SQL argument to ${bin} is (built from) a shell expansion — its content can't be read statically"; return 0
+      fi
+      _SQLG_SQL+=("${w[$i]}"); i=$((i + 1))
+    done
+    for x in ${_SQLG_HS[@]+"${_SQLG_HS[@]}"} ${_SQLG_HD[@]+"${_SQLG_HD[@]}"}; do
+      if [[ "${x%%|*}" == 1 ]]; then
+        _SQLG_DENY="here-string/heredoc SQL for ${bin} contains a live shell expansion — its content can't be read statically"; return 0
+      fi
+      _SQLG_SQL+=("${x#*|}")
+    done
+    for f in ${_SQLG_IN[@]+"${_SQLG_IN[@]}"}; do
+      [[ "$f" == /* ]] || f="$_SQLG_CWD/$f"
+      if [[ -z "$f" || ! -f "$f" || ! -r "$f" ]] || [[ $(wc -c < "$f" 2>/dev/null || echo 0) -gt 1048576 ]]; then
+        _SQLG_DENY="SQL redirect file for ${bin} is unreadable, missing or larger than 1 MiB — its content can't be scanned"; return 0
+      fi
+      content=$(cat "$f" 2>/dev/null) || { _SQLG_DENY="SQL redirect file for ${bin} could not be read"; return 0; }
+      _SQLG_SQL+=("$content")
+    done
+    return 0
+  }
+  # Quote-aware walk of the command into segments (split on unquoted ; & |
+  # newline ( ) and backtick).
+  # shellcheck disable=SC1003,SC2016
+  _sqlg_collect() {
+    local s="$1" n=${#1} i=0 c q="" word="" inword=0 wdyn=0 piped=0 next_piped=0
+    local expect="" hd_quoted=0 hd_dash=0 line body dl
+    local -a words=() pend_delim=() pend_quoted=() pend_dash=()
+    _SQLG_W_DYN=(); _SQLG_IN=(); _SQLG_HS=(); _SQLG_HD=()
+    _sqlg_flush() {
+      if [[ -n "$word" || "$inword" == 1 ]]; then
+        case "$expect" in
+          in)   _SQLG_IN+=("$word") ;;
+          out)  : ;;
+          hs)   _SQLG_HS+=("$wdyn|$word") ;;
+          hd)   pend_delim+=("$word"); pend_quoted+=("$hd_quoted"); pend_dash+=("$hd_dash") ;;
+          *)    words+=("$word"); _SQLG_W_DYN+=("$wdyn") ;;
+        esac
+        expect=""
+      fi
+      word=""; inword=0; wdyn=0
+    }
+    _sqlg_seg() {
+      _sqlg_flush
+      _sqlg_finish "$piped" ${words[@]+"${words[@]}"}
+      words=(); _SQLG_W_DYN=(); _SQLG_IN=(); _SQLG_HS=(); _SQLG_HD=()
+      piped="$next_piped"; next_piped=0
+    }
+    while [[ $i -lt $n ]]; do
+      c="${s:$i:1}"
+      if [[ -n "$q" ]]; then
+        if [[ "$c" == "$q" ]]; then q=""
+        elif [[ "$q" == '"' && "$c" == '\' ]]; then i=$((i + 1)); word+="${s:$i:1}"
+        else
+          if [[ "$q" == '"' && ( "$c" == '$' || "$c" == '`' ) ]]; then wdyn=1; [[ "$expect" == "hd" ]] && hd_quoted=0; fi
+          word+="$c"
+        fi
+        i=$((i + 1)); continue
+      fi
+      case "$c" in
+        "'"|'"') q="$c"; inword=1; [[ "$expect" == "hd" ]] && hd_quoted=1 ;;
+        '\') i=$((i + 1)); word+="${s:$i:1}"; inword=1 ;;
+        '$') word+="$c"; inword=1; wdyn=1 ;;
+        ' '|$'\t') _sqlg_flush ;;
+        '<')
+          _sqlg_flush
+          if [[ "${s:$((i + 1)):2}" == "<<" ]]; then i=$((i + 2)); expect="hs"
+          elif [[ "${s:$((i + 1)):1}" == "<" ]]; then
+            i=$((i + 1)); expect="hd"; hd_quoted=0; hd_dash=0
+            if [[ "${s:$((i + 1)):1}" == "-" ]]; then i=$((i + 1)); hd_dash=1; fi
+          elif [[ "${s:$((i + 1)):1}" == "(" ]]; then
+            _SQLG_DENY_PS=1; expect="in"
+          else expect="in"; fi ;;
+        '>')
+          _sqlg_flush
+          [[ "${s:$((i + 1)):1}" == '>' || "${s:$((i + 1)):1}" == '|' ]] && i=$((i + 1))
+          if [[ "${s:$((i + 1)):1}" == '&' ]]; then
+            i=$((i + 1)); while [[ "${s:$((i + 1)):1}" =~ [0-9-] ]]; do i=$((i + 1)); done
+          else expect="out"; fi ;;
+        '|')
+          if [[ "${s:$((i + 1)):1}" == '|' ]]; then i=$((i + 1)); _sqlg_seg
+          else _sqlg_seg; piped=1; fi ;;
+        ';'|'&'|'('|')'|'`') [[ "$c" == '`' || "$c" == '(' ]] && wdyn=1; _sqlg_seg ;;
+        $'\n')
+          _sqlg_flush
+          # Heredoc bodies start on the next line: consume them now.
+          if [[ ${#pend_delim[@]} -gt 0 ]]; then
+            local k=0
+            while [[ $k -lt ${#pend_delim[@]} ]]; do
+              dl="${pend_delim[$k]}"; body=""
+              i=$((i + 1))
+              while [[ $i -lt $n ]]; do
+                line="${s:$i}"; line="${line%%$'\n'*}"
+                i=$((i + ${#line}))
+                local cmp="$line"
+                if [[ "${pend_dash[$k]}" == 1 ]]; then while [[ "${cmp:0:1}" == $'\t' ]]; do cmp="${cmp:1}"; done; fi
+                if [[ "$cmp" == "$dl" ]]; then break; fi
+                body+="$line"$'\n'
+                [[ $i -lt $n ]] && i=$((i + 1))
+              done
+              local bdyn=0
+              if [[ "${pend_quoted[$k]}" == 0 ]] && [[ "$body" == *'$'* || "$body" == *'`'* ]]; then bdyn=1; fi
+              _SQLG_HD+=("$bdyn|$body")
+              k=$((k + 1))
+            done
+            pend_delim=(); pend_quoted=(); pend_dash=()
+          fi
+          _sqlg_seg ;;
+        *) word+="$c"; inword=1 ;;
+      esac
+      i=$((i + 1))
+    done
+    _sqlg_seg
+  }
+  # SQL statements of one collected text, literal-normalised: comments removed,
+  # string literals that contain whitespace (prose) emptied, short literals
+  # kept (so scope='global' / status='approved' stay visible), split on ';'.
+  _sqlg_statements() {
+    local t="$1" n=${#1} i=0 c out="" lit="" inlit=0
+    while [[ $i -lt $n ]]; do
+      c="${t:$i:1}"
+      if [[ "$inlit" == 1 ]]; then
+        if [[ "$c" == "'" ]]; then
+          if [[ "${t:$((i + 1)):1}" == "'" ]]; then lit+="''"; i=$((i + 2)); continue; fi
+          case "$lit" in *[[:space:]]*) out+="''" ;; *) out+="'$lit'" ;; esac
+          inlit=0; lit=""
+        else lit+="$c"; fi
+      elif [[ "$c" == "'" ]]; then inlit=1; lit=""
+      elif [[ "$c" == "-" && "${t:$((i + 1)):1}" == "-" ]]; then
+        while [[ $i -lt $n && "${t:$i:1}" != $'\n' ]]; do i=$((i + 1)); done
+        continue
+      elif [[ "$c" == "/" && "${t:$((i + 1)):1}" == "*" ]]; then
+        i=$((i + 2)); while [[ $i -lt $n && "${t:$i:2}" != "*/" ]]; do i=$((i + 1)); done
+        i=$((i + 2)); out+=" "; continue
+      else out+="$c"; fi
+      i=$((i + 1))
+    done
+    [[ "$inlit" == 1 ]] && out+="'$lit"
+    out="${out//$'\n'/ }"; out="${out//$'\r'/ }"
+    # Trailing newline: `while read` would drop a final unterminated statement.
+    printf '%s\n' "$out" | tr ';' '\n'
+  }
+  _SQLG_DENY_PS=0
+  if [[ "$COMMAND" == *turso* || "$COMMAND" == *sqlite3* ]]; then
+    _sqlg_collect "$COMMAND"
+    if [[ "$_SQLG_HAS_DB" == 1 && "$_SQLG_DENY_PS" == 1 && -z "$_SQLG_DENY" ]]; then
+      _SQLG_DENY="process substitution <(…) as SQL input can't be read statically"
+    fi
+  fi
+
   _TURSO_SQL_MODE=0
   _TURSO_SQL_PAYLOAD=""
   _dft_line=""
@@ -330,7 +533,14 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     while IFS= read -r pattern; do
       [[ -z "$pattern" || "$pattern" == "null" ]] && continue
       _pat_view="$_CMD_SCAN"
-      case "$pattern" in DROP*|TRUNCATE*|'(INSERT|UPDATE)'*) _pat_view="$COMMAND" ;; esac
+      case "$pattern" in
+        DROP*|TRUNCATE*|'(INSERT|UPDATE)'*)
+          # SQL-content rules. For a DB CLI command the SQL gate below applies
+          # them per statement with prose literals emptied (decisions#303 E), so
+          # the full-text match — which hit prose in audit INSERTs — is skipped.
+          [[ "$_SQLG_HAS_DB" == 1 ]] && continue
+          _pat_view="$COMMAND" ;;
+      esac
       if [[ "$_pat_view" =~ $pattern ]]; then
         DECISION="deny"
         DENY_REASON="universal deny-list match: $pattern (handbook ADR 0004 Track 2)"
@@ -356,20 +566,114 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
   # no SQL arg) yields an empty payload; iterating an empty array under `set -u`
   # would abort the hook (→ empty decision, a fail-open crash). Nothing to deny
   # when there is no SQL, so skip.
-  if [[ "$DECISION" == "allow" && "$_TURSO_SQL_MODE" -eq 1 && -n "$_TURSO_SQL_PAYLOAD" ]]; then
-    _sql_norm="${_TURSO_SQL_PAYLOAD//$'\n'/ }"
-    IFS=';' read -ra _sql_stmts <<< "$_sql_norm"
-    for _sql_stmt in "${_sql_stmts[@]}"; do
-      [[ "$DECISION" == "deny" ]] && break
-      while IFS= read -r pattern; do
-        [[ -z "$pattern" || "$pattern" == "null" ]] && continue
-        if [[ "$_sql_stmt" =~ $pattern ]]; then
-          DECISION="deny"
-          DENY_REASON="turso:sql deny-list match: $pattern (handbook ADR 0004 Track 2)"
-          break
+  #
+  # decisions#303 E / E-bis / R5a: this now runs on EVERY SQL text the SQL
+  # gate collected (any DB CLI segment, any input route — not only the BUG-072
+  # simple-command payload), case-insensitively, on literal-normalised
+  # statements (_sqlg_statements), plus the structured audit-immutability rules
+  # in bash-policy.json `.sql_protected` (R5a):
+  #   • no DELETE, REPLACE / INSERT OR REPLACE, ALTER … RENAME|DROP on a
+  #     protected table; no DROP TRIGGER at all;
+  #   • no UPDATE that SETs a frozen column (only the SET clause is read — a
+  #     column in the WHERE is not a write); `*` freezes every column;
+  #   • set-once columns (decisions.approved_by/approved_at) only with a
+  #     `<col> IS NULL` guard in the WHERE — the documented approval UPDATE;
+  #   • no typed created_at in an INSERT into a DB-clock table;
+  #   • dot-commands that read or write outside the statement (.read, .import,
+  #     .restore, .load, .open, .shell, .system) are denied.
+  # The DB triggers (schema R5b) remain the backstop for every route this gate
+  # can't see (direct HTTP with the token, other clients).
+  if [[ "$DECISION" == "allow" && -n "$_SQLG_DENY" ]]; then
+    DECISION="deny"
+    DENY_REASON="SQL gate (decisions#303 E-bis): $_SQLG_DENY. Pass SQL as a quoted argument or a readable file redirect (turso db shell <db> < file.sql) so it can be scanned."
+  fi
+  _sqlg_deny() { DECISION="deny"; DENY_REASON="SQL gate (decisions#303 R5a/E): $1 — statement: ${2:0:120}"; }
+  _sqlg_check_stmt() {
+    local st="$1" pattern t cols set where col re_t
+    while [[ "${st:0:1}" == " " || "${st:0:1}" == $'\t' ]]; do st="${st:1}"; done
+    [[ -n "$st" ]] || return 0
+    shopt -s nocasematch
+    while IFS= read -r pattern; do
+      [[ -z "$pattern" || "$pattern" == "null" ]] && continue
+      if [[ "$st" =~ $pattern ]]; then
+        shopt -u nocasematch
+        DECISION="deny"; DENY_REASON="turso:sql deny-list match: $pattern (handbook ADR 0004 Track 2)"; return 0
+      fi
+    done < <(jq -r '.sql_deny_patterns[]?' "$POLICY" 2>/dev/null)
+    if [[ "$st" =~ ^\.(read|import|restore|load|open|shell|system)([[:space:]]|$) ]]; then
+      shopt -u nocasematch; _sqlg_deny "dot-command .${BASH_REMATCH[1]} reads or writes outside the scanned statement" "$st"; return 0
+    fi
+    if [[ "$st" =~ ^DROP[[:space:]]+TRIGGER ]]; then
+      shopt -u nocasematch; _sqlg_deny "DROP TRIGGER removes the DB-level audit guards" "$st"; return 0
+    fi
+    while IFS= read -r t; do
+      [[ -z "$t" ]] && continue
+      re_t="([A-Za-z_]+\\.)?[\"\`[]?${t}[]\"\`]?([^A-Za-z0-9_]|$)"
+      if [[ "$st" =~ ^DELETE[[:space:]]+FROM[[:space:]]+${re_t} ]]; then
+        shopt -u nocasematch; _sqlg_deny "DELETE on protected audit table '$t'" "$st"; return 0
+      fi
+      if [[ "$st" =~ ^(REPLACE|INSERT[[:space:]]+OR[[:space:]]+REPLACE)[[:space:]]+INTO[[:space:]]+${re_t} ]]; then
+        shopt -u nocasematch; _sqlg_deny "REPLACE rewrites a row of protected audit table '$t'" "$st"; return 0
+      fi
+      if [[ "$st" =~ ^ALTER[[:space:]]+TABLE[[:space:]]+${re_t}.*(RENAME|DROP) ]]; then
+        shopt -u nocasematch; _sqlg_deny "ALTER TABLE … RENAME/DROP on protected audit table '$t'" "$st"; return 0
+      fi
+    done < <(jq -r '.sql_protected.no_delete[]?' "$POLICY" 2>/dev/null)
+    while IFS= read -r t; do
+      [[ -z "$t" ]] && continue
+      re_t="([A-Za-z_]+\\.)?[\"\`[]?${t}[]\"\`]?"
+      if [[ "$st" =~ ^UPDATE[[:space:]]+(OR[[:space:]]+[A-Z]+[[:space:]]+)?${re_t}[[:space:]]+SET[[:space:]]+(.*)$ ]]; then
+        set="${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"; where=""
+        if [[ "$set" =~ ^(.*)[[:space:]]WHERE[[:space:]](.*)$ ]]; then set="${BASH_REMATCH[1]}"; where="${BASH_REMATCH[2]}"; fi
+        while IFS= read -r col; do
+          [[ -z "$col" ]] && continue
+          if [[ "$col" == "*" ]] || [[ " ,$set" =~ [[:space:],]${col}[[:space:]]*= ]]; then
+            shopt -u nocasematch; _sqlg_deny "UPDATE of frozen evidentiary column '${col}' on '$t' (record an audit_events row instead)" "$st"; return 0
+          fi
+        done < <(jq -r --arg t "$t" '.sql_protected.frozen_columns[$t][]?' "$POLICY" 2>/dev/null)
+        # Set-once columns are set together (approved_by + approved_at): one
+        # `<set-once col> IS NULL` guard in the WHERE covers the group.
+        local guard=0 so
+        while IFS= read -r so; do
+          [[ -n "$so" && "$where" =~ (^|[^A-Za-z0-9_])${so}[[:space:]]+IS[[:space:]]+NULL ]] && guard=1
+        done < <(jq -r --arg t "$t" '.sql_protected.set_once[$t][]?' "$POLICY" 2>/dev/null)
+        while IFS= read -r col; do
+          [[ -z "$col" ]] && continue
+          if [[ " ,$set" =~ [[:space:],]${col}[[:space:]]*= ]] && [[ "$guard" == 0 ]]; then
+            shopt -u nocasematch; _sqlg_deny "'${col}' on '$t' is set once — the UPDATE must guard with '${col} IS NULL'" "$st"; return 0
+          fi
+        done < <(jq -r --arg t "$t" '.sql_protected.set_once[$t][]?' "$POLICY" 2>/dev/null)
+      fi
+    done < <(jq -r '(.sql_protected.frozen_columns // {} | keys[]), (.sql_protected.set_once // {} | keys[])' "$POLICY" 2>/dev/null | sort -u)
+    while IFS= read -r t; do
+      [[ -z "$t" ]] && continue
+      re_t="([A-Za-z_]+\\.)?[\"\`[]?${t}[]\"\`]?"
+      if [[ "$st" =~ ^INSERT[[:space:]]+(OR[[:space:]]+[A-Z]+[[:space:]]+)?INTO[[:space:]]+${re_t}[[:space:]]*\(([^\)]*)\) ]]; then
+        cols="${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}"
+        if [[ ",$cols," =~ [[:space:],]created_at[[:space:],] ]]; then
+          shopt -u nocasematch; _sqlg_deny "typed created_at on '$t' — the DB clock sets it" "$st"; return 0
         fi
-      done < <(jq -r '.sql_deny_patterns[]?' "$POLICY" 2>/dev/null)
+      fi
+    done < <(jq -r '.sql_protected.db_clock_tables[]?' "$POLICY" 2>/dev/null)
+    shopt -u nocasematch
+    return 0
+  }
+  if [[ "$DECISION" == "allow" && "$_SQLG_HAS_DB" == 1 ]]; then
+    for _sqlg_text in ${_SQLG_SQL[@]+"${_SQLG_SQL[@]}"}; do
+      while IFS= read -r _sqlg_st; do
+        _sqlg_check_stmt "$_sqlg_st"
+        [[ "$DECISION" == "deny" ]] && break
+      done < <(_sqlg_statements "$_sqlg_text")
+      [[ "$DECISION" == "deny" ]] && break
     done
+  fi
+  # Direct libsql HTTP from an agent shell (an HTTP client hitting the pipeline
+  # endpoint) bypasses every gate above. A pipeline URL handed to `turso db
+  # shell` as its DB argument is not HTTP from the shell and stays allowed.
+  _sqlg_http_re='(^|[^A-Za-z0-9_.-])(curl|wget|http|https|xh|httpie|nc|ncat)[[:space:]].*/v2/pipeline'
+  if [[ "$DECISION" == "allow" && "$_CMD_SCAN" =~ $_sqlg_http_re ]]; then
+    DECISION="deny"
+    DENY_REASON="SQL gate (decisions#303 E-bis): direct libsql HTTP (/v2/pipeline) from a Bash command bypasses the SQL gate — use turso db shell with the SQL as an argument or a readable file."
   fi
 
   # Agent-role deny-list (R3 defense-in-depth, security incident class:
