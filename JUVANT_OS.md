@@ -1283,7 +1283,10 @@ missing, fail gracefully with the install hint:
   so the wizard stores each token with
   `printf '%s' "<token>" | bash scripts/set-secret.sh .db.auth_token`
   (add-only: an existing value is never replaced from inside Claude Code —
-  rotation is done by the CEO from their own terminal). Create a
+  rotation is done by the CEO from their own terminal — or with Claude Code's
+  `!` shell mode, which is the CEO's own input and does not pass through the
+  PreToolUse gate (verified on an adopter, H14); the same holds for MCP server
+  launches such as `dotenv-cli -e <dotenv file> -- npx …`). Create a
   least-privilege read-only token for the hooks' reads and store it as
   `.db.read_token`:
   `turso db tokens create company-{{COMPANY_NAME_SLUG}} --read-only`.
