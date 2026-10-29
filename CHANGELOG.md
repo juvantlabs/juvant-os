@@ -11,29 +11,39 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
-### Fixed
+## [1.14.3] — 2026-10-29 — Mailbox rules and secrets behind the reviewed policy; tests reach adopters
 
-- **The schema and migrate tests never reached adopters** (BUG-086,
-  juvant-os-pm#189). The upstream-sync whitelist synced `scripts/schema.sql`
-  and `scripts/migrate.sh` but not the tests that guard them. It now lists
-  `tests/schema/{validate.py,test-audit-immutability.sh,test-category-allowlist.py}`,
-  `tests/migrate/test-*.sh` and `scripts/upgrade-v0.5.sql` (read by
-  `validate.py`); the sync smoke-test step runs them when `schema.sql` or
-  `migrate.sh` changed; `tests/sync/test-sync-compile.sh` now also enforces
-  that every framework file under `tests/schema/` and `tests/migrate/` is
-  whitelisted.
-- **A freshly inserted `knowledge_base` / `agent_tool_matrix` row looked
-  CEO-approved** (BUG-085, juvant-os-pm#187): `approved_by` defaulted to
-  `'ceo'`. New DBs get no default (NULL until someone approves);
-  `governance-backfill.sh` now writes `approved_by` NULL explicitly; the
-  `JUVANT_OS.md` schema reference tells writers to set it explicitly.
-  `validate.py` fails on any `approved_by` column with a default. Existing DBs
-  keep the old default (SQLite cannot drop a column default without a table
-  rebuild, not worth the risk on a live DB for a column no gate reads): on
-  those, a row that omits `approved_by` still reads `'ceo'` — set it
-  explicitly.
+**Adopter actions** after syncing:
+1. Move the `shared_mailboxes` block from `.juvant/config.json` into
+   `security/policy.json` via a PR to main (add `own_mailbox` if the defaults
+   don't fit); validate with `bash scripts/validate-security-policy.sh`.
+2. Switch an existing `scripts/run-m365-graph-mcp.sh` to `juvant_secret_get`,
+   then run `bash scripts/migrate-secrets.sh` (it now moves credential-shaped
+   keys such as `m365_oauth.client_secret` and lists direct readers).
+3. Optionally list extra secret paths (`*.pem`, `credentials.json`) in
+   `security/policy.json` `secrets_paths`.
+
 ### Security
 
+- **The shared-mailbox gate (Track 2g) read its rules from an agent-writable
+  file** (BUG-083 T1, juvant-os-pm#185). `shared_mailboxes` lived in
+  `.juvant/config.json`: any agent with Write/Edit could empty `by_agent` and
+  switch the gate off without a trace — the pattern ADR 0034 removed from
+  Track 2e. The rules now come from `security/policy.json` on `origin/main`
+  (validated by `juvant_policy_validate` / `validate-security-policy.sh`;
+  invalid → every `mcp__` call fails closed; every change raises the
+  SessionStart change alert). Once the policy has `shared_mailboxes`,
+  config.json is ignored for it. **Adopter action:** move the
+  `shared_mailboxes` block from `.juvant/config.json` into
+  `security/policy.json` via a PR to main. Until then the config block is
+  honoured with a deprecation warning (one minor version) and SessionStart
+  says so.
+- **Own-mailbox calls are now gated** (BUG-083 T2): with the rules in the
+  policy file, `shared_mailboxes.own_mailbox` governs `m365-mail` calls
+  without `shared_user` — `main_thread` (default `readwrite`) and `agents`
+  (default `read`: a subagent can no longer send / move / delete as the
+  mailbox owner). Denies and writes are audited. The legacy config source
+  keeps the old behaviour (own mailbox untouched).
 - **Secrets coverage gaps** (BUG-084, juvant-os-pm#186):
   - **Credential-shaped config keys now count as secrets.** On an adopter the
     M365 `client_secret` stayed in `.juvant/config.json` (agent-readable, in
@@ -71,27 +81,28 @@ All written artifacts in English. No exceptions.
     allowed — matched with the SQL gate's literal normalisation (decisions#303
     E-bis). A path in a one-word literal (`readfile('…')`) or outside the SQL
     still denies.
-### Security
 
-- **The shared-mailbox gate (Track 2g) read its rules from an agent-writable
-  file** (BUG-083 T1, juvant-os-pm#185). `shared_mailboxes` lived in
-  `.juvant/config.json`: any agent with Write/Edit could empty `by_agent` and
-  switch the gate off without a trace — the pattern ADR 0034 removed from
-  Track 2e. The rules now come from `security/policy.json` on `origin/main`
-  (validated by `juvant_policy_validate` / `validate-security-policy.sh`;
-  invalid → every `mcp__` call fails closed; every change raises the
-  SessionStart change alert). Once the policy has `shared_mailboxes`,
-  config.json is ignored for it. **Adopter action:** move the
-  `shared_mailboxes` block from `.juvant/config.json` into
-  `security/policy.json` via a PR to main. Until then the config block is
-  honoured with a deprecation warning (one minor version) and SessionStart
-  says so.
-- **Own-mailbox calls are now gated** (BUG-083 T2): with the rules in the
-  policy file, `shared_mailboxes.own_mailbox` governs `m365-mail` calls
-  without `shared_user` — `main_thread` (default `readwrite`) and `agents`
-  (default `read`: a subagent can no longer send / move / delete as the
-  mailbox owner). Denies and writes are audited. The legacy config source
-  keeps the old behaviour (own mailbox untouched).
+### Fixed
+
+- **The schema and migrate tests never reached adopters** (BUG-086,
+  juvant-os-pm#189). The upstream-sync whitelist synced `scripts/schema.sql`
+  and `scripts/migrate.sh` but not the tests that guard them. It now lists
+  `tests/schema/{validate.py,test-audit-immutability.sh,test-category-allowlist.py}`,
+  `tests/migrate/test-*.sh` and `scripts/upgrade-v0.5.sql` (read by
+  `validate.py`); the sync smoke-test step runs them when `schema.sql` or
+  `migrate.sh` changed; `tests/sync/test-sync-compile.sh` now also enforces
+  that every framework file under `tests/schema/` and `tests/migrate/` is
+  whitelisted.
+- **A freshly inserted `knowledge_base` / `agent_tool_matrix` row looked
+  CEO-approved** (BUG-085, juvant-os-pm#187): `approved_by` defaulted to
+  `'ceo'`. New DBs get no default (NULL until someone approves);
+  `governance-backfill.sh` now writes `approved_by` NULL explicitly; the
+  `JUVANT_OS.md` schema reference tells writers to set it explicitly.
+  `validate.py` fails on any `approved_by` column with a default. Existing DBs
+  keep the old default (SQLite cannot drop a column default without a table
+  rebuild, not worth the risk on a live DB for a column no gate reads): on
+  those, a row that omits `approved_by` still reads `'ceo'` — set it
+  explicitly.
 
 ## [1.14.2] — 2026-10-29 — Prescribed decisions writes land; migrate.sh fails loud
 
