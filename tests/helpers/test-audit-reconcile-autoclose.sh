@@ -52,6 +52,8 @@ chmod +x "$TMP/hooks/notification.sh"
 
 # turso shim (unused for provider=local, but on PATH for parity).
 cp "$FAKETURSO" "$FAKEBIN/turso"; chmod +x "$FAKEBIN/turso"
+# G6 (decisions#303): writes go over libsql HTTP since #276 — fake BOTH transports.
+cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$FAKEBIN/curl"; chmod +x "$FAKEBIN/curl"
 
 # Fake gh: `auth status` → ok; `pr list --search "decisions#<id> …"` → JSON keyed
 # on <id>. id 1 → exactly one merged PR (closeable); id 4 → two (ambiguous, must

@@ -11,6 +11,17 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tests that fake the DB fake both transports (decisions#303 G6).** Since
+  decisions#276 the cloud DB layer writes over libsql HTTP (curl), but seven
+  helper tests still faked only the turso CLI, so their writes went down the
+  real network path, failed and spooled — passing for the wrong reason. They now
+  also install `tests/hooks/fake-libsql-curl.sh`. Two guards keep it that way:
+  `tests/sync/test-fake-db-pairing.sh` (every test that installs `fake-turso`
+  must install `fake-libsql-curl`; in CI) and a final "spool empty after a full
+  drain" assertion in `tests/hooks/run-tests.sh` and the space-access canary.
+
 ### Security
 
 - **Per-agent shared-mailbox gate for `m365-mail` (decisions#301 K2).** The

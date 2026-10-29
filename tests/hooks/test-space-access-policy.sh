@@ -182,6 +182,12 @@ t_assert "Class-C deny → category=unauthorized-escalation" "1" \
 t_assert "allowlisted allow → category=access-event" "1" \
   "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='access-event';")"
 
+# G6 (decisions#303): both transports are faked, so a full drain must leave
+# the spool empty — leftovers mean a write took a path the fakes don't cover.
+_drain_audit
+t_assert "G6: spool empty after a full drain" "0" \
+  "$( { [[ -f "$JUVANT_SPOOL" ]] && grep -c . "$JUVANT_SPOOL"; } 2>/dev/null || echo 0)"
+
 echo "======================================================="
 echo " RESULTS: $PASS passed, $FAIL failed"
 if [[ "$FAIL" -eq 0 ]]; then echo " CANARY STATUS: PASS"; exit 0

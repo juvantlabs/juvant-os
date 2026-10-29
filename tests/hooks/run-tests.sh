@@ -1392,6 +1392,17 @@ t_assert "row agent='system' + session captured" "system|sess-cc-1" \
 printf '' | bash "$HOOKS_DIR/config-change.sh" 2>/dev/null
 t_assert "empty event still exits 0 (observational, never blocks)" "0" "$?"
 
+# ─────────────────────────────────────────────
+# G6 (decisions#303): with BOTH transports faked, a full drain must leave the
+# spool empty. Anything left means some write took a path the fakes don't
+# cover (e.g. a new curl endpoint, or a turso-only fake) and the suite passed
+# for the wrong reason.
+# ─────────────────────────────────────────────
+suite "G6: spool empty after a full drain"
+bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true
+t_assert "spool has no pending statements after the final drain" "0" \
+  "$( { [[ -f "$JUVANT_SPOOL" ]] && grep -c . "$JUVANT_SPOOL"; } 2>/dev/null || echo 0)"
+
 echo
 echo "==================================================="
 TOTAL=$((PASS+FAIL))
