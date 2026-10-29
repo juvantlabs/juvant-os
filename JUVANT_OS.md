@@ -4759,8 +4759,13 @@ trail. **Company-scope agents only** — no project agents involved.
    ```sql
    UPDATE decisions
    SET status='approved', approved_by='ceo', approved_at=CURRENT_TIMESTAMP
-   WHERE id=<row_id>;
+   WHERE id=<row_id> AND approved_by IS NULL;
    ```
+
+   `approved_by` / `approved_at` are set once (decisions#303 R5a): the
+   `approved_by IS NULL` guard is required — the hook denies an approval
+   UPDATE without it, and the schema trigger rejects overwriting an existing
+   approval.
 
 5. **Compute diff** — for each file in the **framework whitelist** below,
    run `git diff HEAD upstream/main -- <file>`. Skip files with no diff.

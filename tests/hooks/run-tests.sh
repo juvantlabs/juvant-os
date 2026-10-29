@@ -1330,6 +1330,71 @@ t_assert "allow-list: 'curlzz; ls' names the binary 'curlzz', not 'curlzz;'" "ye
   "$(_r=$(_gp_reason cso 'curlzz; ls'); [[ "$_r" == "deny:allow-list:curlzz "* ]] && echo yes || echo "no: ${_r:0:40}")"
 t_assert "allow-list: 'curlzz&& ls' / 'curlzz|ls' → binary 'curlzz'" "yes yes" \
   "$(for _c in 'curlzz&& ls' 'curlzz|ls'; do _r=$(_gp_reason cso "$_c"); [[ "$_r" == "deny:allow-list:curlzz "* ]] && printf 'yes ' || printf 'no '; done | sed 's/ $//')"
+
+# ─────────────────────────────────────────────
+# SQL content gate (decisions#303 E / E-bis / R5a)
+# ─────────────────────────────────────────────
+suite "SQL gate: prose literals, stdin/redirect SQL, audit immutability (decisions#303)"
+_SQ_DIR="$(mktemp -d)"
+printf 'DELETE FROM security_audit_log WHERE id=91;\n' > "$_SQ_DIR/del.sql"
+printf 'SELECT id, severity FROM security_audit_log\nWHERE id BETWEEN 154 AND 164;\n' > "$_SQ_DIR/sel.sql"
+printf "INSERT INTO messages (content) VALUES ('we will DROP TABLE x; and halt now');\n" > "$_SQ_DIR/prose.sql"
+_SAL_INS="INSERT INTO security_audit_log (auditor,scope,audit_type,layer,finding,severity,category,status) VALUES"
+# E — prose inside SQL literals is data; real statements are not.
+t_assert "E: audit INSERT whose finding mentions DROP TABLE / TRUNCATE TABLE / halt → allow" "allow" \
+  "$(_gp cso "turso db shell company-x \"$_SAL_INS ('cso','company','audit','agents','legal-ip: someone may DROP TABLE decisions; also TRUNCATE TABLE x; the pause window halt','high','finding','open')\"")"
+t_assert "E: same prose INSERT inside a compound command → allow" "allow" \
+  "$(_gp cso "turso db shell company-x \"$_SAL_INS ('cso','company','audit','agents','DROP TABLE prose','high','finding','open')\" && echo done")"
+t_assert "E: real DROP TABLE → deny" "deny" "$(_gp cso 'turso db shell company-x "DROP TABLE decisions"')"
+t_assert "E: stacked lowercase drop table → deny" "deny" "$(_gp cso 'turso db shell company-x "SELECT 1; drop table decisions"')"
+t_assert "E: prose INSERT from a redirect file (';' and DROP inside the literal) → allow" "allow" \
+  "$(_gp cso "turso db shell company-x < $_SQ_DIR/prose.sql")"
+# E-bis — every input route is scanned or denied.
+t_assert "E-bis: < file with DELETE on security_audit_log → deny" "deny" "$(_gp cso "turso db shell company-x < $_SQ_DIR/del.sql")"
+t_assert "E-bis: < file with a SELECT → allow" "allow" "$(_gp cso "turso db shell company-x < $_SQ_DIR/sel.sql")"
+t_assert "E-bis: < missing file → deny" "deny" "$(_gp cso 'turso db shell company-x < /nonexistent/x.sql')"
+t_assert "E-bis: SQL piped in (cat f |) → deny" "deny" "$(_gp cso 'cat /tmp/x.sql | turso db shell company-x')"
+t_assert "E-bis: SQL piped in (echo DELETE |) → deny" "deny" "$(_gp cso "echo 'DELETE FROM decisions' | turso db shell company-x")"
+t_assert "E-bis: here-string DELETE → deny" "deny" "$(_gp cso "turso db shell company-x <<< 'DELETE FROM decisions WHERE id=1'")"
+t_assert "E-bis: here-string SELECT → allow" "allow" "$(_gp cso "turso db shell company-x <<< 'SELECT 1'")"
+t_assert "E-bis: here-string from a variable → deny" "deny" "$(_gp cso 'turso db shell company-x <<< "$SQL"')"
+t_assert "E-bis: quoted heredoc DELETE → deny" "deny" \
+  "$(_gp cso "$(printf "turso db shell company-x <<'SQL'\nDELETE FROM security_audit_log WHERE id=1;\nSQL")")"
+t_assert "E-bis: quoted heredoc SELECT → allow" "allow" \
+  "$(_gp cso "$(printf "turso db shell company-x <<'SQL'\nSELECT count(*) FROM security_audit_log;\nSQL")")"
+t_assert "E-bis: unquoted heredoc with a live expansion → deny" "deny" \
+  "$(_gp cso "$(printf 'turso db shell company-x <<SQL\nSELECT * FROM t WHERE id=$ID;\nSQL')")"
+t_assert "E-bis: SQL argument that is a variable → deny" "deny" "$(_gp cso 'turso db shell company-x "$SQL"')"
+t_assert "E-bis: SQL argument from \$(cat …) → deny" "deny" "$(_gp cso 'turso db shell company-x "$(cat /tmp/x.sql)"')"
+t_assert "E-bis: DB URL from a variable + literal SQL → allow" "allow" "$(_gp cso 'turso db shell "$TURSO_DATABASE_URL" "SELECT 1"')"
+t_assert "E-bis: process substitution <(…) → deny" "deny" "$(_gp cso "turso db shell company-x < <(echo 'DELETE FROM decisions')")"
+t_assert "E-bis: .read dot-command → deny" "deny" "$(_gp cso 'turso db shell company-x ".read /tmp/x.sql"')"
+t_assert "E-bis: .dump → allow" "allow" "$(_gp cso 'turso db shell company-x .dump')"
+t_assert "E-bis: direct libsql HTTP (/v2/pipeline) → deny" "deny" "$(_gp cso "curl -s -X POST https://x.turso.io/v2/pipeline -d '{}'")"
+t_assert "E-bis: sqlite3 DELETE on decisions → deny" "deny" "$(_gp cso 'sqlite3 .juvant/state.db "DELETE FROM decisions"')"
+t_assert "E-bis: sqlite3 SELECT → allow" "allow" "$(_gp cso 'sqlite3 .juvant/state.db "SELECT count(*) FROM decisions"')"
+# R5a — audit immutability at the Bash level.
+t_assert "R5a: DELETE FROM security_audit_log → deny" "deny" "$(_gp cso 'turso db shell company-x "DELETE FROM security_audit_log WHERE id=91"')"
+t_assert "R5a: lowercase delete from agent_actions_log → deny" "deny" "$(_gp cso 'turso db shell company-x "delete from agent_actions_log"')"
+t_assert "R5a: severity downgrade by UPDATE → deny" "deny" "$(_gp cso "turso db shell company-x \"UPDATE security_audit_log SET severity='low' WHERE id=150\"")"
+t_assert "R5a: status UPDATE whose WHERE names severity → allow (WHERE is not a write)" "allow" \
+  "$(_gp cso "turso db shell company-x \"UPDATE security_audit_log SET status='resolved' WHERE severity='high' AND id=150\"")"
+t_assert "R5a: created_at rewrite → deny" "deny" \
+  "$(_gp cso "turso db shell company-x \"UPDATE security_audit_log SET status='resolved', created_at='2026-01-01' WHERE id=150\"")"
+t_assert "R5a: decisions rationale rewrite → deny" "deny" "$(_gp cso "turso db shell company-x \"UPDATE decisions SET rationale='x' WHERE id=5\"")"
+t_assert "R5a: documented approval UPDATE (approved_by IS NULL guard) → allow" "allow" \
+  "$(_gp cos "turso db shell company-x \"UPDATE decisions SET status='approved', approved_by='ceo', approved_at=CURRENT_TIMESTAMP WHERE id=5 AND approved_by IS NULL\"")"
+t_assert "R5a: approval UPDATE without the guard → deny" "deny" \
+  "$(_gp cos "turso db shell company-x \"UPDATE decisions SET status='approved', approved_by='ceo', approved_at=CURRENT_TIMESTAMP WHERE id=5\"")"
+t_assert "R5a: typed created_at on INSERT → deny" "deny" \
+  "$(_gp cso "turso db shell company-x \"INSERT INTO security_audit_log (auditor,finding,severity,created_at) VALUES ('cso','x','high','2026-07-01')\"")"
+t_assert "R5a: INSERT OR REPLACE into decisions → deny" "deny" "$(_gp cso "turso db shell company-x \"INSERT OR REPLACE INTO decisions (id,title) VALUES (5,'x')\"")"
+t_assert "R5a: DROP TRIGGER → deny" "deny" "$(_gp cso 'turso db shell company-x "DROP TRIGGER decisions_no_delete"')"
+t_assert "R5a: UPDATE audit_events → deny" "deny" "$(_gp cso "turso db shell company-x \"UPDATE audit_events SET reason='x' WHERE id=1\"")"
+t_assert "R5a: INSERT audit_events → allow" "allow" \
+  "$(_gp cso "turso db shell company-x \"INSERT INTO audit_events (target_table,target_id,event_type,reason,author,authority_ref) VALUES ('security_audit_log',150,'note','context','cso',300)\"")"
+t_assert "R5a: prose mentioning DELETE FROM in a non-DB command → allow" "allow" "$(_gp cso 'git status && echo "DELETE FROM decisions mention"')"
+rm -rf "$_SQ_DIR"
 rm -f "$_GP_CFG"
 
 # ─────────────────────────────────────────────
