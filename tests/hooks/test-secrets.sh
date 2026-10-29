@@ -41,17 +41,17 @@ echo "== accessor: legacy fallback + precedence =="
 t_assert "legacy: value read from config.json" "WRITE-TOKEN-1" "$(JUVANT_SECRETS_QUIET=1 juvant_secret_get '.db.auth_token' "$CFG")"
 t_assert "legacy: deprecation warning on stderr" "yes" \
   "$(juvant_secret_get '.db.auth_token' "$CFG" 2>&1 >/dev/null | grep -q DEPRECATED && echo yes || echo no)"
-t_assert "secret paths detected in config" "7" "$(juvant_secret_paths_in "$CFG" | grep -c .)"
+t_assert "secret paths detected in config (incl. telegram_chat_id, BUG-088)" "8" "$(juvant_secret_paths_in "$CFG" | grep -c .)"
 
 echo "== migrate-secrets.sh =="
 OUT=$(JUVANT_CONFIG="$CFG" bash "$ROOT_DIR/scripts/migrate-secrets.sh" --dry-run)
-t_assert "dry-run changes nothing" "no|7" "$([[ -f "$SEC" ]] && echo yes || echo no)|$(juvant_secret_paths_in "$CFG" | grep -c .)"
+t_assert "dry-run changes nothing" "no|8" "$([[ -f "$SEC" ]] && echo yes || echo no)|$(juvant_secret_paths_in "$CFG" | grep -c .)"
 t_assert "dry-run never prints a value" "no" "$([[ "$OUT" == *WRITE-TOKEN-1* || "$OUT" == *BOT-1* ]] && echo yes || echo no)"
 OUT=$(JUVANT_CONFIG="$CFG" bash "$ROOT_DIR/scripts/migrate-secrets.sh")
 t_assert "migration never prints a value" "no" "$([[ "$OUT" == *WRITE-TOKEN-1* || "$OUT" == *PTOK-1* || "$OUT" == *https://hook* ]] && echo yes || echo no)"
 t_assert "config.json no longer holds secrets" "0" "$(juvant_secret_paths_in "$CFG" | grep -c . || true)"
-t_assert "non-secret keys stay in config" "finance@example.test|42|project-p1" \
-  "$(jq -r '.mail_enabled_agents.cfo + "|" + .notifications.telegram_chat_id + "|" + .projects.p1.turso_db_name' "$CFG")"
+t_assert "non-secret keys stay in config; the chat id moved (BUG-088)" "finance@example.test||project-p1|42" \
+  "$(jq -r '.mail_enabled_agents.cfo + "|" + (.notifications.telegram_chat_id // "") + "|" + .projects.p1.turso_db_name' "$CFG")|$(juvant_secret_get '.notifications.telegram_chat_id' "$CFG")"
 # GNU stat first: on Linux `stat -f` exists but means "filesystem status".
 fmode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 t_assert "secrets file mode 600" "600" "$(fmode "$SEC")"

@@ -67,14 +67,19 @@ printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKEBIN/gh"            # gh "not auth
 # FAKE_WRITE_FAIL=1, reads keep working); anything else = a notification → log it.
 cat > "$FAKEBIN/curl" <<'CURL'
 #!/usr/bin/env bash
-data=""; url=""; prev=""
+data=""; url=""; prev=""; cfgin=0
 for a in "$@"; do
-  case "$prev" in --data|--data-raw|-d) data="$a" ;; esac
+  case "$prev" in --data|--data-raw|-d) data="$a" ;; --config) [[ "$a" == "-" ]] && cfgin=1 ;; esac
   [[ "$a" == http://* || "$a" == https://* ]] && url="$a"
   prev="$a"
 done
+# hooks/lib/alert.sh passes the URL on stdin (`--config -`, token off argv).
+if [[ -z "$url" && "$cfgin" == 1 ]]; then
+  url=$(sed -n 's/^url = "\(.*\)"$/\1/p' | head -1)
+fi
 if [[ "$url" != *"/v2/pipeline" ]]; then
   printf '%s\t%s\n' "$url" "$data" >> "${ALERT_LOG:-/dev/null}"
+  [[ " $* " == *" -w "* ]] && printf '200'
   exit 0
 fi
 if [[ "${FAKE_WRITE_FAIL:-0}" == "1" ]]; then

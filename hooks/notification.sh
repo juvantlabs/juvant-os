@@ -31,7 +31,7 @@ fi
 if [[ -z "${TELEGRAM_BOT_TOKEN:-}" || -z "${TELEGRAM_CHAT_ID:-}" ]]; then
   if [[ -f "$CONFIG" ]]; then
     TELEGRAM_BOT_TOKEN=$(juvant_secret_get '.notifications.telegram_bot_token' "$CONFIG")
-    TELEGRAM_CHAT_ID=$(jq -r '.notifications.telegram_chat_id // ""' "$CONFIG" 2>/dev/null || echo "")
+    TELEGRAM_CHAT_ID=$(juvant_secret_get '.notifications.telegram_chat_id' "$CONFIG")   # gated (BUG-088)
   fi
 fi
 

@@ -11,6 +11,30 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Security
+
+- **Security alerts now leave a delivery receipt** (BUG-087, juvant-os-pm#190;
+  adopter finding #158). Every alert sender (Track 2e, Track 2g, the policy
+  fail-closed alert, the drainer's spool-injection alert) goes through one
+  library, `hooks/lib/alert.sh`. Each channel attempt appends a receipt to
+  `.juvant/alert-receipts.jsonl` (Track 2f-protected, mode 600): time,
+  channel, `delivered` / `failed`, HTTP status, curl exit code, and the alert
+  id — never the text, the URL or the token. The alert id is also written into
+  the audit row's finding (`alert=<id>`), linking the two. A failed attempt
+  additionally writes a high `alert-delivery-failed` row. Sends stay off the
+  gating path, and the Telegram token no longer appears in a curl argv.
+- **Alert destinations come from the gated secrets file** (BUG-088,
+  juvant-os-pm#191; adopter finding #159). `notifications.telegram_chat_id`
+  was read from the agent-writable `.juvant/config.json`, so an agent could
+  silently redirect the CEO's alerts. It is now a secret path
+  (`migrate-secrets.sh` moves it), and the `alert_routing.required` gate
+  accepts a channel only when its FULL destination — the teams `approvals`
+  webhook; telegram bot token **and** chat id — is in the gated file: a value
+  still in config.json does not count, so a sensitive-space op fails closed.
+  **Adopter action:** run `bash scripts/migrate-secrets.sh` after syncing —
+  with `alert_routing.required` set, sensitive-space ops are denied until the
+  chat id is in the gated file.
+
 ## [1.14.4] — 2026-10-29 — Audit views protected; stale approval defaults rebuilt
 
 **Adopter actions** after syncing: rehearse on a DB copy, then

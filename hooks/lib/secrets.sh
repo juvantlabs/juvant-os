@@ -13,7 +13,7 @@
 #
 # secrets.json mirrors config.json's paths for the keys it holds, e.g.
 #   { "db": { "auth_token": "…", "read_token": "…" },
-#     "notifications": { "telegram_bot_token": "…",
+#     "notifications": { "telegram_bot_token": "…", "telegram_chat_id": "…",
 #                        "teams_webhooks": { "approvals": "…", "ops": "…" } },
 #     "projects": { "<slug>": { "db": { "auth_token": "…" } } },
 #     "github_token": "…",
@@ -72,6 +72,9 @@ juvant_secret_paths_in() {
       | select(
           ($p == ["db","auth_token"]) or ($p == ["db","read_token"]) or ($p == ["turso_token"]) or
           ($p == ["notifications","telegram_bot_token"]) or
+          # BUG-088: the chat id is the other half of the alert destination —
+          # agent-writable in config.json, it could silently redirect alerts.
+          ($p == ["notifications","telegram_chat_id"]) or
           ($p[0:2] == ["notifications","teams_webhooks"]) or
           ($p == ["github_token"]) or
           ($p[0] == "projects" and (($p[2:] == ["db","auth_token"]) or ($p[2:] == ["db","read_token"])
