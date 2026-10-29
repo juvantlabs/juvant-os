@@ -4881,8 +4881,11 @@ trail. **Company-scope agents only** — no project agents involved.
 11. **Smoke tests** — on the sync branch, before the CEO merges: run
     `bash helpers/anomaly-check.sh` and `bash helpers/audit-reconcile.sh`,
     plus `bash tests/hooks/run-tests.sh` and `bash tests/sync/test-sync-compile.sh`
-    whenever `hooks/`, `helpers/`, `scripts/` or `tests/` changed. Surface
-    results to CEO alongside the PR's CI status.
+    whenever `hooks/`, `helpers/`, `scripts/` or `tests/` changed. **Always**
+    run `bash tests/hooks/test-connector-gate.sh` (decisions#306): the
+    claude.ai M365 connector is vendor-hosted and unversioned, so its canary
+    re-runs on every sync — including against the instance's own
+    `security/policy.json`. Surface results to CEO alongside the PR's CI status.
 
 12. **Record completion + CHRO re-validation** (after the CEO has merged the
     PR; then `git checkout main && git pull --ff-only origin main`):
@@ -4951,6 +4954,7 @@ tests/hooks/test-space-access-policy.sh
 tests/hooks/test-pretooluse-wrapper.sh
 tests/hooks/test-hooks-integrity.sh
 tests/hooks/test-security-policy.sh
+tests/hooks/test-connector-gate.sh
 tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh

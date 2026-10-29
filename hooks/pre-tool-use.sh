@@ -1413,6 +1413,54 @@ if [[ ( "$JUVANT_POLICY_STATE" == "invalid" || "$JUVANT_POLICY_STATE" == "delete
     >/dev/null 2>&1 || true
   _t2e_alert "[SECURITY ALERT] security policy ${JUVANT_POLICY_STATE} — all MCP calls denied (decisions#305)"
 fi
+# ── Track 2e connector surface (decisions#306, security_audit_log#156) ──────
+# A vendor-hosted connector (the claude.ai Microsoft 365 connector) reaches the
+# legal-ip space with NO hook-visible target: sharepoint_search /
+# sharepoint_folder_search take only free text, read_resource one opaque URI.
+# Track 2e's argument matching cannot cover it, so the ruling is DENY, not
+# extend: the policy's `connector_tool_allowlist` names the only tools allowed
+# (deny-by-default — a tool the vendor adds later is denied until listed), for
+# EVERY role, main thread included. read_resource is allowed only for the URI
+# prefixes listed (mail://). A denied call whose arguments name a sensitive
+# space (its drive_ids / path_patterns, or the allowlist's detect_patterns) is
+# also an incident: high row written synchronously (R4) + alert.
+# In-instance document search goes through the perimetered m365-graph server.
+_T2EC_PREFIX=$(printf '%s' "$JUVANT_POLICY_JSON" | jq -r '.connector_tool_allowlist.tool_prefix // ""' 2>/dev/null || echo "")
+if [[ "$DECISION" == "allow" && -n "$_T2EC_PREFIX" && "$TOOL_NAME" == "$_T2EC_PREFIX"* ]]; then
+  _T2EC_TOOL="${TOOL_NAME#"$_T2EC_PREFIX"}"
+  _T2EC_ARGS=$(echo "$EVENT_JSON" | jq -c '.tool_input // {}' 2>/dev/null || echo "{}")
+  _T2EC_WHY=""
+  if ! printf '%s' "$JUVANT_POLICY_JSON" | jq -e --arg t "$_T2EC_TOOL" '(.connector_tool_allowlist.allow // []) | index($t) != null' >/dev/null 2>&1; then
+    _T2EC_WHY="connector tool '${_T2EC_TOOL}' is not in the policy allowlist (deny-by-default)"
+  elif [[ "$_T2EC_TOOL" == "read_resource" ]]; then
+    _T2EC_URI=$(printf '%s' "$_T2EC_ARGS" | jq -r '.uri // ""' 2>/dev/null || echo "")
+    if ! printf '%s' "$JUVANT_POLICY_JSON" | jq -e --arg u "$_T2EC_URI" \
+         '[(.connector_tool_allowlist.read_resource_uri_prefixes // [])[] as $p | ($u | startswith($p))] | any' >/dev/null 2>&1; then
+      _T2EC_WHY="read_resource on '${_T2EC_URI:0:60}' — only $(printf '%s' "$JUVANT_POLICY_JSON" | jq -r '(.connector_tool_allowlist.read_resource_uri_prefixes // []) | join(", ")') URIs are allowed"
+    fi
+  fi
+  if [[ -n "$_T2EC_WHY" ]]; then
+    DECISION="deny"
+    DENY_REASON="CONNECTOR SURFACE DENIED (decisions#306): ${_T2EC_WHY}. The connector's document surface is closed to every role; search documents through the m365-graph server (perimeter + audit rows), mail and calendar through the allowed connector tools."
+    _T2EC_HIT=""
+    while IFS= read -r _pat; do
+      [[ -n "$_pat" && "$_T2EC_ARGS" == *"$_pat"* ]] && { _T2EC_HIT="$_pat"; break; }
+    done < <(printf '%s' "$JUVANT_POLICY_JSON" | jq -r '
+               ((.space_access // [])[] | ((.drive_ids // [])[], (.path_patterns // [])[], (.space // empty))),
+               ((.connector_tool_allowlist.detect_patterns // [])[])' 2>/dev/null)
+    if [[ -n "$_T2EC_HIT" ]]; then
+      # shellcheck disable=SC1091
+      . "$SCRIPT_DIR/lib/db.sh"
+      _T2EC_FINDING=$(printf "connector call naming a sensitive space denied: tool=%s agent=%s match='%s'" "$TOOL_NAME" "$ROLE" "$_T2EC_HIT" | sed "s/'/''/g")
+      juvant_db_exec "INSERT INTO security_audit_log
+        (auditor, scope, audit_type, layer, finding, severity, category, status)
+        VALUES ('hook:pre-tool-use', 'company', 'incident', 'agents', '${_T2EC_FINDING}', 'high', 'unauthorized-read', 'open');" \
+        >/dev/null 2>&1 || echo "[pre-tool-use] WARN: connector incident row not written inline (spooled if the transport failed)" >&2
+      _t2e_alert "[SECURITY ALERT] connector call naming a sensitive space denied: agent=${ROLE} tool=${_T2EC_TOOL} (decisions#306)"
+    fi
+  fi
+fi
+
 if [[ "$DECISION" == "allow" ]] && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.space_access // []) | length > 0' >/dev/null 2>&1; then
   # shellcheck disable=SC1091
   . "$SCRIPT_DIR/lib/db.sh"
