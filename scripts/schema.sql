@@ -199,7 +199,26 @@ BEGIN
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
     'arch-decision','operational-violation','kb-orphan-review',
     'legal','product','business',
-    'system-audit','incident-response','security-remediation'
+    'system-audit','incident-response','security-remediation',
+    -- Agent-template write categories, BUG-074 — every category an agent
+    -- template / JUVANT_OS.md tells an agent to write to decisions.
+    'accessibility-audit','aggregate-health-flag','analyst-briefing',
+    'backlog-transition','bank-unavailable','binding-confirmation',
+    'brand-advisory','brand-mode-ratification-routed','brand-spec',
+    'competitor-move','content-performance','content-published',
+    'cross-project-dependency','cross-project-release-coordination',
+    'cross-project-tech-debt','cso-audit-request','data-deletion-proposal',
+    'demo-conducted','deployment','design-debt','design-system-drift',
+    'direct-session','disclosure-audit','drift-audit','drift-finding',
+    'eng-finding','eng-work-completed','ethical-concern','ethical-opinion',
+    'ethical-validation','eval-run','gh-pr-review-spec',
+    'kb-promotion-candidate','knowledge-base-retraction','manifesto',
+    'mcp-install-confirmed','monthly-ranking','offboarding',
+    'offboarding-action','pipeline-outcome','pipeline-stage','prd-published',
+    'prd-retro','press-interaction','proposal-sent','release-published',
+    'research-output','research-published','roadmap-transition',
+    'spec-paused-cascade','spec-rejected','tech-exception','tech-standard',
+    'ux-research-published','versioning','weekly-engineering-report'
   );
 END;
 
@@ -218,7 +237,26 @@ BEGIN
     'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
     'arch-decision','operational-violation','kb-orphan-review',
     'legal','product','business',
-    'system-audit','incident-response','security-remediation'
+    'system-audit','incident-response','security-remediation',
+    -- Agent-template write categories, BUG-074 — every category an agent
+    -- template / JUVANT_OS.md tells an agent to write to decisions.
+    'accessibility-audit','aggregate-health-flag','analyst-briefing',
+    'backlog-transition','bank-unavailable','binding-confirmation',
+    'brand-advisory','brand-mode-ratification-routed','brand-spec',
+    'competitor-move','content-performance','content-published',
+    'cross-project-dependency','cross-project-release-coordination',
+    'cross-project-tech-debt','cso-audit-request','data-deletion-proposal',
+    'demo-conducted','deployment','design-debt','design-system-drift',
+    'direct-session','disclosure-audit','drift-audit','drift-finding',
+    'eng-finding','eng-work-completed','ethical-concern','ethical-opinion',
+    'ethical-validation','eval-run','gh-pr-review-spec',
+    'kb-promotion-candidate','knowledge-base-retraction','manifesto',
+    'mcp-install-confirmed','monthly-ranking','offboarding',
+    'offboarding-action','pipeline-outcome','pipeline-stage','prd-published',
+    'prd-retro','press-interaction','proposal-sent','release-published',
+    'research-output','research-published','roadmap-transition',
+    'spec-paused-cascade','spec-rejected','tech-exception','tech-standard',
+    'ux-research-published','versioning','weekly-engineering-report'
   );
 END;
 

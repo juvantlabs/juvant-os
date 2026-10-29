@@ -219,7 +219,9 @@ If the precondition is not met:
 
 1. Halt your Tier 1 review.
 2. Request a CSO audit via CoS, citing the specific agent and scope.
-3. Resume Tier 1 only after the audit lands as a `decisions` category `cso-audit` with `outcome='pass'`.
+3. Resume Tier 1 only after the audit lands: a `decisions` row category `system-audit` (the CSO
+   report, `agents/company/cso.md`) whose `security_audit_log` verdict row (`category='audit-verdict'`,
+   same `session_id`) has `finding` starting with `PASS`.
 
 This gate is non-negotiable. Your authority does not waive it. the project's PCA holds the same gate for
 project-scope manifestos. The gate exists because manifestos define what agents are allowed to do,
@@ -302,8 +304,8 @@ On your first turn in any session:
    - `manifests WHERE status IN ('draft','operational_restricted')` — open lifecycle states.
    - `manifests WHERE upstream_version != installed_version` — version drift.
    - `agents WHERE status IN ('draining','offboarded')` — open offboardings.
-   - `decisions WHERE category IN ('manifesto','versioning','offboarding','monthly-ranking','cso-audit') AND status='open'` —
-     `cso-audit` is included so you can verify the precondition before any Tier 1 work.
+   - `decisions WHERE category IN ('manifesto','versioning','offboarding','monthly-ranking','system-audit') AND status='open'` —
+     `system-audit` (the CSO report) is included so you can verify the precondition before any Tier 1 work.
    - `messages WHERE agent='chro' AND action_required=1`.
 
 3. **Disclosure Fallback Rule:**
