@@ -129,7 +129,11 @@ t_assert "teams required, no webhook → op on legal-ip denied even for clo" "de
 t_assert "  …reason cites the missing channel" "yes" "$([[ "$(reason clo $GET "$LEGAL")" == *"alert channel(s) teams"* ]] && echo yes || echo no)"
 t_assert "teams required, no webhook → op elsewhere unaffected" "allow" "$(decide clo $GET "$OTHER")"
 jq '.notifications.teams_webhooks = {approvals:"https://example.invalid/hook"}' "$INST/.juvant/config.json" > "$INST/.juvant/c2" && mv "$INST/.juvant/c2" "$INST/.juvant/config.json"
-t_assert "teams webhook configured → clo allowed" "allow" "$(decide clo $GET "$LEGAL")"
+# BUG-088: only the gated secrets file counts for a required channel.
+t_assert "teams webhook only in config.json → still denied (gated file required)" "deny" "$(decide clo $GET "$LEGAL")"
+_SECF="$INST/.juvant/secrets"".json"
+jq -n '{notifications:{teams_webhooks:{approvals:"https://example.invalid/hook"}}}' > "$_SECF"
+t_assert "teams webhook in the gated secrets file → clo allowed" "allow" "$(decide clo $GET "$LEGAL")"
 
 echo "== test mode =="
 TP="$TMPROOT/test-policy.json"; policy_json '["cfo"]' > "$TP"

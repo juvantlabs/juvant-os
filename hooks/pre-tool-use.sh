@@ -1392,8 +1392,15 @@ if ! declare -F juvant_secret_get >/dev/null 2>&1; then
     # shellcheck disable=SC1091
     . "$SCRIPT_DIR/lib/secrets.sh"
   else
+    # shellcheck disable=SC2329  # called by hooks/lib/alert.sh
     juvant_secret_get() { jq -r "(${1}) // empty" "${2:-$_T2E_CFG}" 2>/dev/null || true; }
   fi
+fi
+# BUG-087 / BUG-088: one alert sender — destinations from the gated secrets
+# file, a delivery receipt per channel attempt (hooks/lib/alert.sh).
+if [[ -f "$SCRIPT_DIR/lib/alert.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/alert.sh"
 fi
 JUVANT_POLICY_STATE="absent"; JUVANT_POLICY_JSON="{}"
 if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
@@ -1402,19 +1409,10 @@ if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
   juvant_policy_load "$(cd "$SCRIPT_DIR/.." && pwd)" || true
 fi
 _t2e_alert() {
-  # Fire-and-forget alert on the configured channels (never on the gating path).
-  local msg="$1" wh tok chat card
-  wh=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2E_CFG")
-  if [[ -n "$wh" ]]; then
-    card=$(jq -n --arg msg "$msg" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
-    curl -s --connect-timeout 5 --max-time 10 -X POST "$wh" -H "Content-Type: application/json" -d "$card" >/dev/null 2>&1 &
-  fi
-  tok=$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2E_CFG")
-  chat=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null || echo "")
-  if [[ -n "$tok" && -n "$chat" ]]; then
-    curl -s --connect-timeout 5 --max-time 10 -X POST "https://api.telegram.org/bot${tok}/sendMessage" \
-      -d "chat_id=${chat}" --data-urlencode "text=${msg}" >/dev/null 2>&1 &
-  fi
+  # Fire-and-forget alert on the configured channels (never on the gating path),
+  # with a delivery receipt per channel (BUG-087). $2 = alert id (optional).
+  declare -F juvant_alert_send >/dev/null 2>&1 || return 0
+  juvant_alert_send "$1" "${2:-$(juvant_alert_id)}" "pre-tool-use" "$_T2E_CFG"
   return 0
 }
 if [[ ( "$JUVANT_POLICY_STATE" == "invalid" || "$JUVANT_POLICY_STATE" == "deleted" ) && "$TOOL_NAME" == mcp__* && "$DECISION" == "allow" ]]; then
@@ -1422,12 +1420,13 @@ if [[ ( "$JUVANT_POLICY_STATE" == "invalid" || "$JUVANT_POLICY_STATE" == "delete
   . "$SCRIPT_DIR/lib/db.sh"
   DECISION="deny"
   DENY_REASON="SECURITY POLICY FAIL-CLOSED (decisions#305): security/policy.json on origin/main is ${JUVANT_POLICY_STATE} (${JUVANT_POLICY_ERR:-}) — every MCP tool call is denied until a valid policy is merged to main. Surface this to the CEO and the CSO."
-  _pf_finding=$(printf 'security policy %s (%s); MCP call denied: tool=%s agent=%s' "$JUVANT_POLICY_STATE" "${JUVANT_POLICY_ERR:-}" "$TOOL_NAME" "$ROLE" | LC_ALL=C sed "s/'/''/g")
+  _PF_ALERT_ID=$(juvant_alert_id 2>/dev/null || echo "")
+  _pf_finding=$(printf 'security policy %s (%s); MCP call denied: tool=%s agent=%s; alert=%s' "$JUVANT_POLICY_STATE" "${JUVANT_POLICY_ERR:-}" "$TOOL_NAME" "$ROLE" "$_PF_ALERT_ID" | LC_ALL=C sed "s/'/''/g")
   juvant_db_exec "INSERT INTO security_audit_log
     (auditor, scope, audit_type, layer, finding, severity, category, status)
     VALUES ('hook:pre-tool-use', 'company', 'incident', 'agents', '${_pf_finding}', 'high', 'policy-fail-closed', 'open');" \
     >/dev/null 2>&1 || true
-  _t2e_alert "[SECURITY ALERT] security policy ${JUVANT_POLICY_STATE} — all MCP calls denied (decisions#305)"
+  _t2e_alert "[SECURITY ALERT] security policy ${JUVANT_POLICY_STATE} — all MCP calls denied (decisions#305)" "$_PF_ALERT_ID"
 fi
 # ── Track 2e connector surface (decisions#306, security_audit_log#156) ──────
 # A vendor-hosted connector (the claude.ai Microsoft 365 connector) reaches the
@@ -1578,17 +1577,16 @@ if [[ "$DECISION" == "allow" ]] && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.
       _SP_MISSING=""
       while IFS= read -r _ch; do
         case "$_ch" in
-          teams)    [[ -n "$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2E_CFG")" ]] || _SP_MISSING+="teams " ;;
-          telegram) [[ -n "$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2E_CFG")" && \
-                       -n "$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null)" ]] || _SP_MISSING+="telegram " ;;
+          teams|telegram) juvant_alert_channel_ready "$_ch" "$_T2E_CFG" || _SP_MISSING+="$_ch " ;;
         esac
       done < <(printf '%s' "$JUVANT_POLICY_JSON" | jq -r '.alert_routing.required[]?' 2>/dev/null)
       if [[ -n "$_SP_MISSING" && "$DECISION" == "allow" ]]; then
         DECISION="deny"
-        DENY_REASON="SPACE-ACCESS POLICY (decisions#305): this op touches the '${_SP_NAME}' space, but required alert channel(s) ${_SP_MISSING% } have no secret configured in .juvant/config.json — a sensitive-space access must never go unalerted. Configure the channel, then retry."
+        DENY_REASON="SPACE-ACCESS POLICY (decisions#305): this op touches the '${_SP_NAME}' space, but required alert channel(s) ${_SP_MISSING% } have no complete destination in the gated secrets file (teams: the approvals webhook; telegram: bot token AND chat id — BUG-088; a value still in .juvant/config.json does not count: run 'bash scripts/migrate-secrets.sh') — a sensitive-space access must never go unalerted. Configure the channel, then retry."
       fi
       _SP_EXPECTED="false"; [[ "$_SP_ALLOW" == "true" ]] && _SP_EXPECTED="true"
-      _SP_FINDING="space-access ${_T2E_OP_CLASS} op on '${_SP_NAME}' by agent '${ROLE}' (expected=${_SP_EXPECTED}); tool=${TOOL_NAME}; drive_match=${_SP_DRIVE_HIT}; path_match=${_SP_PATH_HIT}; decision=${DECISION}"
+      _SP_ALERT_ID=$(juvant_alert_id 2>/dev/null || echo "")
+      _SP_FINDING="space-access ${_T2E_OP_CLASS} op on '${_SP_NAME}' by agent '${ROLE}' (expected=${_SP_EXPECTED}); tool=${TOOL_NAME}; drive_match=${_SP_DRIVE_HIT}; path_match=${_SP_PATH_HIT}; decision=${DECISION}; alert=${_SP_ALERT_ID}"
       # Structured category derived from (op-class, decision) so Layer-5 / CSO
       # roll-ups filter correctly (bug_004 — not every row is 'unauthorized-write').
       case "${_T2E_OP_CLASS}:${DECISION}" in
@@ -1619,19 +1617,7 @@ if [[ "$DECISION" == "allow" ]] && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.
       # FEAT-051 for the audit INSERT). Backgrounded with fds closed so the hook
       # emits its decision immediately instead of waiting up to ~20s on a
       # degraded network.
-      _SP_WEBHOOK=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2E_CFG")
-      if [[ -n "$_SP_WEBHOOK" ]]; then
-        _SP_CARD=$(jq -n --arg msg "$_SP_MSG" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
-        curl -s --connect-timeout 5 --max-time 10 -X POST "$_SP_WEBHOOK" \
-          -H "Content-Type: application/json" -d "$_SP_CARD" >/dev/null 2>&1 &
-      fi
-      _SP_TG_TOKEN=$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2E_CFG")
-      _SP_TG_CHAT=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null || echo "")
-      if [[ -n "$_SP_TG_TOKEN" && -n "$_SP_TG_CHAT" ]]; then
-        curl -s --connect-timeout 5 --max-time 10 -X POST \
-          "https://api.telegram.org/bot${_SP_TG_TOKEN}/sendMessage" \
-          -d "chat_id=${_SP_TG_CHAT}" --data-urlencode "text=${_SP_MSG}" >/dev/null 2>&1 &
-      fi
+      _t2e_alert "$_SP_MSG" "$_SP_ALERT_ID"
     fi
   done
 fi
@@ -1795,7 +1781,9 @@ if [[ -n "$_T2G_RULES" ]]; then
       DENY_REASON="MAILBOX-ACCESS POLICY (decisions#301 K2): ${_T2G_WHY}. Route the request via the agent that owns this mailbox, or record a matrix change (CTO proposes, CSO reviews, CEO approves) to extend shared_mailboxes in security/policy.json."
     fi
 
-    _T2G_FINDING="shared-mailbox ${_T2G_CLASS} op on '${_T2G_UPN}' by agent '${_T2G_ROLE}' (main_thread=${_T2G_MAIN}, basis=${_T2G_BASIS}, scope=${_T2G_SCOPE:-none}); tool=${TOOL_NAME}; decision=${_T2G_DECISION}"
+    _T2G_ALERT_ID=""
+    [[ "$_T2G_DECISION" == "deny" ]] && _T2G_ALERT_ID=$(juvant_alert_id 2>/dev/null || echo "")
+    _T2G_FINDING="shared-mailbox ${_T2G_CLASS} op on '${_T2G_UPN}' by agent '${_T2G_ROLE}' (main_thread=${_T2G_MAIN}, basis=${_T2G_BASIS}, scope=${_T2G_SCOPE:-none}); tool=${TOOL_NAME}; decision=${_T2G_DECISION}${_T2G_ALERT_ID:+; alert=${_T2G_ALERT_ID}}"
     if [[ "$_T2G_DECISION" == "deny" ]]; then
       case "$_T2G_CLASS" in
         B) _T2G_CATEGORY="unauthorized-write" ;;
@@ -1819,20 +1807,8 @@ if [[ -n "$_T2G_RULES" ]]; then
 
     if [[ "$_T2G_DECISION" == "deny" ]]; then
       _T2G_MSG="[SECURITY ALERT] shared-mailbox op denied: mailbox=${_T2G_UPN} agent=${_T2G_ROLE} tool=${_T2G_TOOL} class=${_T2G_CLASS} (decisions#301 K2)"
-      # Fire-and-forget, fds closed — never on the gating path (Track 2e rule).
-      _T2G_WEBHOOK=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_T2G_CFG")
-      if [[ -n "$_T2G_WEBHOOK" ]]; then
-        _T2G_CARD=$(jq -n --arg msg "$_T2G_MSG" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
-        curl -s --connect-timeout 5 --max-time 10 -X POST "$_T2G_WEBHOOK" \
-          -H "Content-Type: application/json" -d "$_T2G_CARD" >/dev/null 2>&1 &
-      fi
-      _T2G_TG_TOKEN=$(juvant_secret_get '.notifications.telegram_bot_token' "$_T2G_CFG")
-      _T2G_TG_CHAT=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2G_CFG" 2>/dev/null || echo "")
-      if [[ -n "$_T2G_TG_TOKEN" && -n "$_T2G_TG_CHAT" ]]; then
-        curl -s --connect-timeout 5 --max-time 10 -X POST \
-          "https://api.telegram.org/bot${_T2G_TG_TOKEN}/sendMessage" \
-          -d "chat_id=${_T2G_TG_CHAT}" --data-urlencode "text=${_T2G_MSG}" >/dev/null 2>&1 &
-      fi
+      # Fire-and-forget, never on the gating path; receipt per channel (BUG-087).
+      _t2e_alert "$_T2G_MSG" "$_T2G_ALERT_ID"
     fi
   fi
 fi

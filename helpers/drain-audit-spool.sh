@@ -39,6 +39,8 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 SCRIPT_DIR="$REPO_ROOT/hooks"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/hooks/lib/db.sh"
+# shellcheck disable=SC1091
+[[ -f "$REPO_ROOT/hooks/lib/alert.sh" ]] && . "$REPO_ROOT/hooks/lib/alert.sh"
 # Disable juvant_db_exec's own spool fallback: this script is the drain and
 # is the single source of re-queueing (REMAINING+merge). Two spoolers on the
 # same statement produce duplicate audit rows — the invariant this script is
@@ -238,9 +240,10 @@ _quarantine() {
 # shellcheck disable=SC2317,SC2329
 _quarantine_report() {
   [[ $(( _Q_COUNT + _Q_KEPT )) -gt 0 ]] || return 0
-  local _finding _cfg _msg _hook _card _tg_token _tg_chat _kept=""
+  local _finding _cfg _msg _kept="" _aid=""
   [[ "$_Q_KEPT" -gt 0 ]] && _kept="; ${_Q_KEPT} more kept UNEXECUTED in the spool because the quarantine file could not be written"
-  _finding="audit-spool injection: ${_Q_COUNT} spooled statement(s) outside the drain statement allowlist were quarantined and NOT executed (${_Q_STALE} from stranded batches)${_kept}; quarantine=$(basename "$QUARANTINE"); first sha256=${_Q_FIRST_HASH}; first excerpt (sanitised): ${_Q_FIRST_EXCERPT} (decisions#303 R3)"
+  declare -F juvant_alert_id >/dev/null 2>&1 && _aid=$(juvant_alert_id)
+  _finding="audit-spool injection: ${_Q_COUNT} spooled statement(s) outside the drain statement allowlist were quarantined and NOT executed (${_Q_STALE} from stranded batches)${_kept}; quarantine=$(basename "$QUARANTINE"); first sha256=${_Q_FIRST_HASH}; first excerpt (sanitised): ${_Q_FIRST_EXCERPT} (decisions#303 R3)${_aid:+; alert=${_aid}}"
   juvant_db_exec "INSERT INTO security_audit_log
     (auditor, scope, audit_type, layer, finding, severity, category, status)
     VALUES
@@ -250,21 +253,10 @@ _quarantine_report() {
 
   _msg="[SECURITY ALERT] audit spool injection: $(( _Q_COUNT + _Q_KEPT )) statement(s) outside the allowlist, not executed (drain-audit-spool, decisions#303 R3). First excerpt: ${_Q_FIRST_EXCERPT} — review $(basename "$QUARANTINE") with the CSO."
   _cfg="${JUVANT_CONFIG:-$REPO_ROOT/.juvant/config.json}"
-  if [[ -f "$_cfg" ]] && command -v jq >/dev/null 2>&1; then
-    # Same notification path as pre-tool-use.sh Track 2e; fire-and-forget.
-    _hook=$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$_cfg")
-    if [[ -n "$_hook" ]]; then
-      _card=$(jq -n --arg msg "$_msg" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
-      curl -s --connect-timeout 5 --max-time 10 -X POST "$_hook" \
-        -H "Content-Type: application/json" -d "$_card" >/dev/null 2>&1 &
-    fi
-    _tg_token=$(juvant_secret_get '.notifications.telegram_bot_token' "$_cfg")
-    _tg_chat=$(jq -r '.notifications.telegram_chat_id // ""' "$_cfg" 2>/dev/null || echo "")
-    if [[ -n "$_tg_token" && -n "$_tg_chat" ]]; then
-      curl -s --connect-timeout 5 --max-time 10 -X POST \
-        "https://api.telegram.org/bot${_tg_token}/sendMessage" \
-        -d "chat_id=${_tg_chat}" --data-urlencode "text=${_msg}" >/dev/null 2>&1 &
-    fi
+  if [[ -f "$_cfg" ]] && command -v jq >/dev/null 2>&1 && declare -F juvant_alert_send >/dev/null 2>&1; then
+    # Same sender as pre-tool-use.sh (hooks/lib/alert.sh): gated destinations,
+    # a delivery receipt per channel (BUG-087 / BUG-088); fire-and-forget.
+    juvant_alert_send "$_msg" "$_aid" "drain-audit-spool" "$_cfg"
   fi
   return 0
 }
