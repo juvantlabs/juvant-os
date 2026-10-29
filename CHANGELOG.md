@@ -11,17 +11,6 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Tests that fake the DB fake both transports (decisions#303 G6).** Since
-  decisions#276 the cloud DB layer writes over libsql HTTP (curl), but seven
-  helper tests still faked only the turso CLI, so their writes went down the
-  real network path, failed and spooled — passing for the wrong reason. They now
-  also install `tests/hooks/fake-libsql-curl.sh`. Two guards keep it that way:
-  `tests/sync/test-fake-db-pairing.sh` (every test that installs `fake-turso`
-  must install `fake-libsql-curl`; in CI) and a final "spool empty after a full
-  drain" assertion in `tests/hooks/run-tests.sh` and the space-access canary.
-
 ### Security
 
 - **Connector document surface denied (decisions#306, security_audit_log#156).**
@@ -38,9 +27,6 @@ All written artifacts in English. No exceptions.
   `tests/hooks/test-connector-gate.sh`, re-run on every adopter sync (also
   against the instance's own policy). The connector's effective scope narrows to
   mail + calendar; document search goes through `m365-graph`.
-
-### Security
-
 - **Instance security policy moves to a committed `security/policy.json` read
   from `origin/main` (decisions#305 B1a, ADR 0034, security_audit_log#159).**
   Track 2e rules lived in gitignored `.juvant/config.json`, where any agent could
@@ -61,7 +47,6 @@ All written artifacts in English. No exceptions.
   `docs/schemas/security-policy.schema.json`. ADR 0034 supersedes ADR 0025
   clause 5 only; `security/policy.json` joins the never-touched list.
   **Adopters: commit `security/policy.json` to `main` before syncing this.**
-
 - **SQL content gate: every DB-CLI input route scanned, prose literals are data,
   audit tables immutable at the Bash level (decisions#303 E / E-bis / R5a,
   security_audit_log#155, #161, #164).** SQL fed to `turso db shell` / `sqlite3`
@@ -82,7 +67,6 @@ All written artifacts in English. No exceptions.
   only with an `approved_by IS NULL` guard (the documented approval UPDATE now
   carries it); no typed `created_at`; no `DROP TRIGGER`. The schema triggers
   (R5b) stay the backstop for routes a Bash gate can't see.
-
 - **Track 2e sensitive-space audit rows are written synchronously again
   (decisions#303 R4, security_audit_log#154).** A legal-ip row that waited in the
   agent-writable spool until the next drain could be deleted or rewritten before
@@ -91,7 +75,6 @@ All written artifacts in English. No exceptions.
   (the decisions#276 pattern), so a DB outage still never loses it. The allow/deny
   decision is computed first and does not depend on the write; the same-turn
   alert is unchanged. `agent_actions_log` (Track 3) stays async.
-
 - **One protected-path set for the tamper floor and the integrity check;
   audit spool, backups, helpers and scripts covered (decisions#303 R1/R2 + B2,
   security_audit_log#154, #160).** The audit spool (`.juvant/audit-spool.sql`
@@ -114,7 +97,6 @@ All written artifacts in English. No exceptions.
   `.claude/settings.json` without removing instance entries (skipped in the
   framework repo, where an absolute deny would block framework development), and
   corrects the stale comment that claimed `.juvant/config.json` was denied.
-
 - **Per-agent shared-mailbox gate for `m365-mail` (decisions#301 K2).** The
   server's single allowlist (`M365_MAIL_ALLOWED_SHARED_USERS`) is the union of
   every shared mailbox, so any agent that loaded it could read all of them (R1),
@@ -197,6 +179,14 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- **Tests that fake the DB fake both transports (decisions#303 G6).** Since
+  decisions#276 the cloud DB layer writes over libsql HTTP (curl), but seven
+  helper tests still faked only the turso CLI, so their writes went down the
+  real network path, failed and spooled — passing for the wrong reason. They now
+  also install `tests/hooks/fake-libsql-curl.sh`. Two guards keep it that way:
+  `tests/sync/test-fake-db-pairing.sh` (every test that installs `fake-turso`
+  must install `fake-libsql-curl`; in CI) and a final "spool empty after a full
+  drain" assertion in `tests/hooks/run-tests.sh` and the space-access canary.
 - **Test suites pass on adopters, not only upstream (decisions#302; found syncing
   v1.12.0-9 into an instance, CSO verdict security_audit_log#154).**
   - `tests/sync/test-sync-compile.sh`: `cd "$REPO" || exit 1` (ShellCheck SC2164
