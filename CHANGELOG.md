@@ -11,6 +11,11 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.14.2] — 2026-10-29 — Prescribed decisions writes land; migrate.sh fails loud
+
+**Adopter action:** run `bash scripts/migrate.sh`, plus `--project=<slug>` for
+each project DB (DROP + CREATE of the category triggers; no row is rewritten).
+
 ### Fixed
 
 - **Agent writes to `decisions` were aborted for 56 of the categories the
