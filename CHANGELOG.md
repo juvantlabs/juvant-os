@@ -11,6 +11,32 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Security
+
+- **`DROP VIEW` was not denied** (H18, BUG-090, juvant-os-pm#193). The SQL gate
+  already denied `DROP TRIGGER` (v1.14.0, R5a), but `DROP VIEW` could remove
+  the §10 audit views (`*_current`, the verdict-violations view). Both are now
+  denied for every role on both DB CLIs (turso, sqlite3) — in the
+  per-statement SQL gate (`TEMP` forms included) and `sql_deny_patterns`.
+  Prose inside SQL literals, commit messages and PR titles still pass: the
+  rule is deliberately not in the universal full-command `deny_patterns`.
+  Residual: SQL executed through an interpreter (e.g. python's sqlite3
+  module) is not statement-scanned.
+
+### Fixed
+
+- **Secrets-gate false positives in SQL prose** (H20, BUG-090): the BUG-084
+  literal normalisation now applies to every Track 2h matcher, not only the
+  secrets file — an INSERT whose rationale mentions a dotenv file or the
+  `.juvant/` directory passes; `readfile('<dotenv>')` and redirects still
+  deny.
+- **`tests/hooks/test-space-access-policy.sh` tested the instance's own policy**
+  (H21, BUG-090): the hook read `security/policy.json` from `origin/main`, so
+  on an instance with a policy the canary failed 13 cases. It now pins its
+  synthetic policy (`JUVANT_POLICY_TEST=1` + `JUVANT_POLICY_FILE`).
+- Documented (H14): the CEO's `!` shell-mode input and MCP server launches are
+  outside the PreToolUse perimeter (verified on an adopter).
+
 ## [1.14.3] — 2026-10-29 — Mailbox rules and secrets behind the reviewed policy; tests reach adopters
 
 **Adopter actions** after syncing:

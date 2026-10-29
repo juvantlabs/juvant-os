@@ -1416,6 +1416,19 @@ t_assert "R5a: typed created_at on INSERT → deny" "deny" \
   "$(_gp cso "turso db shell company-x \"INSERT INTO security_audit_log (auditor,finding,severity,created_at) VALUES ('cso','x','high','2026-07-01')\"")"
 t_assert "R5a: INSERT OR REPLACE into decisions → deny" "deny" "$(_gp cso "turso db shell company-x \"INSERT OR REPLACE INTO decisions (id,title) VALUES (5,'x')\"")"
 t_assert "R5a: DROP TRIGGER → deny" "deny" "$(_gp cso 'turso db shell company-x "DROP TRIGGER decisions_no_delete"')"
+# H18 / BUG-090: the adopter's acceptance case, plus DROP VIEW (any role) on
+# both DB CLIs. The rule lives in the per-statement SQL gate and
+# sql_deny_patterns only — NOT the universal full-command deny_patterns, which
+# would deny every commit message / PR title that mentions it (CEO call).
+t_assert "H18: DROP TRIGGER security_audit_log_no_delete → deny" "deny" \
+  "$(_gp cso 'turso db shell company-x "DROP TRIGGER IF EXISTS security_audit_log_no_delete"')"
+t_assert "H18: DROP VIEW decisions_current → deny" "deny" "$(_gp cos 'turso db shell company-x "DROP VIEW decisions_current"')"
+t_assert "H18: DROP TEMP VIEW → deny" "deny" "$(_gp cos 'turso db shell company-x "DROP TEMP VIEW x"')"
+t_assert "H18: DROP VIEW via sqlite3 → deny" "deny" "$(_gp cso 'sqlite3 /tmp/x.db "DROP VIEW IF EXISTS security_audit_log_current"')"
+t_assert "H18: a commit message mentioning DROP VIEW → allow (not a DB command)" "allow" \
+  "$(_gp cso "git commit -q -m 'docs: why DROP VIEW is denied'")"
+t_assert "H18: prose 'drop view' inside an INSERT literal → allow" "allow" \
+  "$(_gp cso "turso db shell company-x \"INSERT INTO audit_events (target_table,target_id,event_type,reason,author,authority_ref) VALUES ('decisions',5,'note','checked that no one can DROP VIEW here','cso',300)\"")"
 t_assert "R5a: UPDATE audit_events → deny" "deny" "$(_gp cso "turso db shell company-x \"UPDATE audit_events SET reason='x' WHERE id=1\"")"
 t_assert "R5a: INSERT audit_events → allow" "allow" \
   "$(_gp cso "turso db shell company-x \"INSERT INTO audit_events (target_table,target_id,event_type,reason,author,authority_ref) VALUES ('security_audit_log',150,'note','context','cso',300)\"")"

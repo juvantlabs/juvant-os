@@ -47,7 +47,7 @@
   "_sql_deny_patterns_comment": "BUG-066 / decisions#272: DDL-destructive patterns for SQL payloads. Applied ONLY when FIRST_TOKEN is turso and the invocation is db shell/exec. Patterns are anchored (^) so prose inside SQL string literals (INSERT INTO … VALUES ('DROP TABLE foo')) does not trigger them — only a statement that BEGINS with the destructive keyword fires. For non-turso SQL executors (psql, sqlite3), deny_patterns still apply full-string and catch DROP TABLE anywhere in the command.",
 
   "sql_deny_patterns": [
-    "^[[:space:]]*(DROP)[[:space:]]+(DATABASE|SCHEMA|TABLE|USER|ROLE)",
+    "^[[:space:]]*(DROP)[[:space:]]+(DATABASE|SCHEMA|TABLE|USER|ROLE|TRIGGER|VIEW)",
     "^[[:space:]]*(TRUNCATE)[[:space:]]+TABLE",
     "(INSERT|UPDATE)[^;]*scope[[:space:]]*=[[:space:]]*'global'"
   ],

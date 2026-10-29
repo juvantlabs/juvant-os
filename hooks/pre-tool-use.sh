@@ -608,8 +608,10 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
     if [[ "$st" =~ ^\.(read|import|restore|load|open|shell|system)([[:space:]]|$) ]]; then
       shopt -u nocasematch; _sqlg_deny "dot-command .${BASH_REMATCH[1]} reads or writes outside the scanned statement" "$st"; return 0
     fi
-    if [[ "$st" =~ ^DROP[[:space:]]+TRIGGER ]]; then
-      shopt -u nocasematch; _sqlg_deny "DROP TRIGGER removes the DB-level audit guards" "$st"; return 0
+    # DROP VIEW too (H18 / BUG-090): the *_current views and the verdict
+    # violations view are how readers and the CSO see audit state (§10).
+    if [[ "$st" =~ ^DROP[[:space:]]+(TEMP[[:space:]]+|TEMPORARY[[:space:]]+)?(TRIGGER|VIEW) ]]; then
+      shopt -u nocasematch; _sqlg_deny "DROP ${BASH_REMATCH[2]^^} removes the DB-level audit guards / audit views (SYSTEM_INVARIANTS §10)" "$st"; return 0
     fi
     while IFS= read -r t; do
       [[ -z "$t" ]] && continue
@@ -2171,6 +2173,10 @@ fi
 # Residual: a recursive read of the whole repo that ignores .gitignore (`grep -r
 # … .`, `rg -uu`); the secrets file is gitignored, so ripgrep-based tools skip
 # it by default.
+# Outside the perimeter by design (verified on an adopter, H14): the CEO's own
+# `!` shell-mode input in Claude Code does not pass through PreToolUse, and
+# neither do MCP server launches (e.g. `dotenv-cli -e <dotenv> -- npx …`) —
+# both are the CEO's / Claude Code's process spawns, not agent tool calls.
 # BUG-084: the dotenv family (.env, .env.local, .env.production, .envrc) is
 # gated the same way — it holds credentials by convention. Committed templates
 # (.env.example / .sample / .template / .dist) stay readable.
@@ -2225,23 +2231,25 @@ if [[ "$DECISION" == "allow" ]]; then
       _SG_DIR_RE='(^|[[:space:]"'"'"'=(])\.juvant/?(\*[^[:space:]]*)?([[:space:]"'"'"');|&]|$)'
       _SG_ENV_CMD_RE='(^|[[:space:]"'"'"'=(/<>])(\.env(rc|[.][^[:space:]"'"'"');|&<>]+)?\*?|[^[:space:]"'"'"';|&<>]*\*\.env)([[:space:]"'"'"');|&<>]|$)'
       _SG_ENV_CMD_OK_RE='(^|[[:space:]"'"'"'=(/<>])\.env[.](example|sample|template|dist)([[:space:]"'"'"');|&<>]|$)'
+      # SQL prose literals are data (E-bis) for EVERY matcher below — the
+      # secrets file, dotenv names, .juvant/ and policy paths (H20 / BUG-090).
       _SG_SCAN="$_SG_C"
-      if [[ "${_SQLG_HAS_DB:-0}" == 1 && "$_SG_C" == *secrets.json* ]]; then
+      if [[ "${_SQLG_HAS_DB:-0}" == 1 ]]; then
         for _sg_s in ${_SQLG_SQL[@]+"${_SQLG_SQL[@]}"}; do
           [[ -n "$_sg_s" && "$_SG_SCAN" == *"$_sg_s"* ]] || continue
           _SG_SCAN="${_SG_SCAN//"$_sg_s"/$(_sqlg_statements "$_sg_s" | tr '\n' ';')}"
         done
       fi
-      _SG_ENV_SCAN="$_SG_C"
+      _SG_ENV_SCAN="$_SG_SCAN"
       while [[ "$_SG_ENV_SCAN" =~ $_SG_ENV_CMD_OK_RE ]]; do _SG_ENV_SCAN="${_SG_ENV_SCAN/"${BASH_REMATCH[0]}"/ }"; done
       if [[ "$_SG_SCAN" == *secrets.json* ]]; then
         _SG_DENY="a Bash command that names the secrets file"
       elif [[ "$_SG_ENV_SCAN" =~ $_SG_ENV_CMD_RE ]] && ! [[ "$_SG_C" =~ $_SG_BARE_RE && "$_SG_C" != *[\;\&\|\<\>\`\$]* ]]; then
         _SG_DENY="a Bash command that names a dotenv file"
       elif [[ ${#_SG_EXTRA[@]} -gt 0 ]] && ! [[ "$_SG_C" =~ $_SG_BARE_RE && "$_SG_C" != *[\;\&\|\<\>\`\$]* ]] \
-           && _sg_g=$(for _sg_t in $(printf '%s' "$_SG_C" | tr -d "\"'" | tr ';|&<>()=' ' '); do _sg_extra_hit "$_sg_t" && break; done); then
+           && _sg_g=$(for _sg_t in $(printf '%s' "$_SG_SCAN" | tr -d "\"'" | tr ';|&<>()=' ' '); do _sg_extra_hit "$_sg_t" && break; done); then
         _SG_DENY="a Bash command that names a policy secrets path (~ ${_sg_g}; dotenv-class)"
-      elif [[ "$_SG_C" =~ $_SG_DIR_RE ]] && ! [[ "$_SG_C" =~ ^[[:space:]]*(ls|cd|mkdir|pushd)([[:space:]]|$) && "$_SG_C" != *[\;\&\|]* ]]; then
+      elif [[ "$_SG_SCAN" =~ $_SG_DIR_RE ]] && ! [[ "$_SG_C" =~ ^[[:space:]]*(ls|cd|mkdir|pushd)([[:space:]]|$) && "$_SG_C" != *[\;\&\|]* ]]; then
         _SG_DENY="a Bash command that takes .juvant/ wholesale (it holds the secrets file)"
       fi ;;
   esac

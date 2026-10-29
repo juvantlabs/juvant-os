@@ -165,6 +165,16 @@ t_assert "SQL one-word literal with the secrets path (readfile) → deny" "deny"
 t_assert "secrets path outside the SQL (redirect) → deny" "deny" \
   "$(bash_cmd "sqlite3 $TMPROOT/x.db \"SELECT 'a b'\" > .juvant/$SF")"
 
+echo "== H20: SQL prose literals are data for the dotenv / .juvant matchers too =="
+t_assert "H20 allow — INSERT whose rationale mentions $EV.local" "allow" \
+  "$(bash_cmd "sqlite3 $TMPROOT/x.db \"INSERT INTO messages (from_agent, content) VALUES ('cso', 'rotated the key in $EV.local and set mode 600')\"")"
+t_assert "H20 allow — INSERT whose rationale mentions the .juvant/ directory" "allow" \
+  "$(bash_cmd "sqlite3 $TMPROOT/x.db \"INSERT INTO messages (from_agent, content) VALUES ('cso', 'checked .juvant/ permissions and the spool')\"")"
+t_assert "H20 deny — readfile('$EV.local') (one-word literal)" "deny" \
+  "$(bash_cmd "sqlite3 $TMPROOT/x.db \"SELECT readfile('$EV.local')\"")"
+t_assert "H20 deny — dotenv redirect outside the SQL" "deny" \
+  "$(bash_cmd "sqlite3 $TMPROOT/x.db \"SELECT 'a b'\" > $EV.local")"
+
 echo "== H13: dotenv acceptance set + policy secrets_paths =="
 for p in "$EV.local" "sub/dir/$EV" "$EV.local.bak-20261029"; do
   t_assert "H13 deny — Read $p" "deny" "$(tool Read "$(jq -cn --arg p "$p" '{file_path:$p}')")"

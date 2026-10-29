@@ -57,6 +57,12 @@ cat > "$FAKE_CONFIG" <<JSON
 }
 JSON
 export JUVANT_CONFIG="$FAKE_CONFIG"
+# Pin the hook to THIS synthetic policy (H21 / BUG-090): without it the hook
+# reads the repo's own security/policy.json from origin/main, so on an instance
+# that has one the canary tested the instance policy instead of these rules.
+FAKE_POLICY="$TMPROOT/policy.json"
+jq '{version: 1, space_access: .security.space_access}' "$FAKE_CONFIG" > "$FAKE_POLICY"
+export JUVANT_POLICY_TEST=1 JUVANT_POLICY_FILE="$FAKE_POLICY"
 # The Track 2e audit row is spooled (FEAT-051), not written inline, so the
 # row reaches security_audit_log only after a drain. Isolate the spool to the
 # temp dir and provide reset/drain helpers for the audit-row assertions.
@@ -139,8 +145,9 @@ t_assert "cmo + gtm path → allow" "allow" \
 echo "=== No-op when .security.space_access is absent (default framework state) ==="
 NOSPACE_CFG="$TMPROOT/nospace.json"
 echo '{ "db": { "provider": "turso", "url": "libsql://test.fake" } }' > "$NOSPACE_CFG"
+NOSPACE_POLICY="$TMPROOT/nospace-policy.json"; echo '{ "version": 1 }' > "$NOSPACE_POLICY"
 t_assert "absent space_access → ordinary m365 op allowed" "allow" \
-  "$(JUVANT_CONFIG="$NOSPACE_CFG" decide cfo mcp__m365-graph__upload_file "$ARGS_DRIVE_ONLY")"
+  "$(JUVANT_CONFIG="$NOSPACE_CFG" JUVANT_POLICY_FILE="$NOSPACE_POLICY" decide cfo mcp__m365-graph__upload_file "$ARGS_DRIVE_ONLY")"
 
 echo "=== Condition #1 — security_audit_log fires (expected + unexpected), severity=high ==="
 # Re-run two ops to seed audit rows in a clean DB.
