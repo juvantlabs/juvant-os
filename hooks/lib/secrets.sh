@@ -16,7 +16,11 @@
 #     "notifications": { "telegram_bot_token": "…",
 #                        "teams_webhooks": { "approvals": "…", "ops": "…" } },
 #     "projects": { "<slug>": { "db": { "auth_token": "…" } } },
-#     "github_token": "…" }
+#     "github_token": "…",
+#     "m365_oauth": { "client_secret": "…" } }
+# Beyond the named paths, any key shaped like a credential (client_secret,
+# *_secret, *_token, password, api_key, private_key …) counts as a secret
+# (BUG-084).
 #
 # Location: $JUVANT_SECRETS, else secrets.json in the same directory as the
 # config file in use (so a test's JUVANT_CONFIG fixture gets its own secrets).
@@ -72,6 +76,12 @@ juvant_secret_paths_in() {
           ($p == ["github_token"]) or
           ($p[0] == "projects" and (($p[2:] == ["db","auth_token"]) or ($p[2:] == ["db","read_token"])
                                    or ($p[2:] == ["auth_token"]) or ($p[2:] == ["db_token"])
-                                   or ($p[2:4] == ["notifications","teams_webhooks"]))))
-      | $p ] | .[] | tojson' "$1" 2>/dev/null || true
+                                   or ($p[2:4] == ["notifications","teams_webhooks"]))) or
+          # BUG-084: any other key shaped like a credential, wherever it sits
+          # (e.g. .m365_oauth.client_secret, .m365.client_secret). Non-empty
+          # strings only; word-anchored so max_tokens / token_budget stay put.
+          ((($p[-1] | type) == "string") and
+           ($p[-1] | test("^(client_secret|secret|token|password|passwd|api_?key|private_key)$|_(secret|token|password|passwd|api_?key|private_key)$"; "i")) and
+           ((getpath($p) | type) == "string") and ((getpath($p) | length) > 0)))
+      | $p ] | unique | .[] | tojson' "$1" 2>/dev/null || true
 }

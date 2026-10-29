@@ -7,7 +7,10 @@
 # .db.read_token, .turso_token, .notifications.telegram_bot_token,
 # .notifications.teams_webhooks.*, .github_token, and per project
 # .projects.<slug>.{db.auth_token, db.read_token, auth_token, db_token,
-# notifications.teams_webhooks.*}.
+# notifications.teams_webhooks.*}, and any other credential-shaped key
+# (client_secret, *_secret, *_token, password, api_key, … — e.g.
+# .m365_oauth.client_secret; BUG-084). Files that read a moved path straight
+# from config.json are listed so they can switch to juvant_secret_get.
 #
 # Steps: merge those paths into secrets.json (created 0600; existing secret
 # values win over config copies), verify every moved value reads back
@@ -42,6 +45,24 @@ if [[ "$count" -eq 0 ]]; then
 fi
 echo "migrate-secrets: ${count} secret path(s) in $(basename "$CONFIG"):"
 jq -r '.[] | map(tostring) | join(".") | "  - " + .' <<< "$paths_json"
+
+# BUG-084: a script that reads a moved path straight from config.json (e.g. a
+# generated MCP wrapper doing `jq -er '.m365_oauth.client_secret' config.json`)
+# gets nothing once it moves. Point at every such reader; the fix is
+# `. hooks/lib/secrets.sh; juvant_secret_get '<path>'` (reads the secrets file,
+# falls back to config.json), as in JUVANT_OS.md's M365 wrapper template.
+readers=""
+while IFS= read -r dot; do
+  hits=$(grep -rnF -- "$dot" "$ROOT/scripts" "$ROOT/helpers" "$ROOT/hooks" "$ROOT/.mcp.json" 2>/dev/null \
+           | grep -v 'juvant_secret_get' | grep -v '/hooks/lib/secrets.sh:' | grep -v '/scripts/migrate-secrets.sh:' \
+           | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' | cut -d: -f1-2 || true)
+  [[ -n "$hits" ]] && readers+="  ${dot} ← read directly by:"$'\n'"      ${hits//$'\n'/$'\n'      }"$'\n'
+done < <(jq -r '.[] | select(all(.[]; type == "string")) | "." + join(".")' <<< "$paths_json")
+if [[ -n "$readers" ]]; then
+  echo "migrate-secrets: WARNING — these files read a secret straight from config.json and will get NOTHING after the move:"
+  printf '%s' "$readers"
+  echo "  Change each read to: . hooks/lib/secrets.sh; juvant_secret_get '<path>' \"\$CONFIG\""
+fi
 if [[ "$DRY" -eq 1 ]]; then echo "migrate-secrets: --dry-run — no file changed"; exit 0; fi
 
 # 1. Build the merged secrets object (existing secrets.json values win).

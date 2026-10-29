@@ -15,6 +15,7 @@
     "read_resource_uri_prefixes": ["mail://"],
     "detect_patterns": ["REPLACE_WITH_THE_LEGAL_SITE_NAME"]
   },
+  "secrets_paths": ["*.pem", "credentials.json"],
   "alert_routing": {
     "required": ["telegram"]
   }
