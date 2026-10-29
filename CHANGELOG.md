@@ -11,6 +11,35 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Agent writes to `decisions` were aborted for 56 of the categories the
+  templates prescribe** (BUG-074, juvant-os-pm#161). The
+  `decisions_category_check_*` allowlist held 29 values; agent templates and
+  `JUVANT_OS.md` tell agents to write 85, mostly in the Memory Commit step, so
+  the row never landed. The allowlist now holds all 85, in `scripts/schema.sql`,
+  both `scripts/migrate.sh` patch sets, `scripts/governance-backfill.sh` and both
+  `JUVANT_OS.md` enumerations. Existing instances pick it up with
+  `bash scripts/migrate.sh` (DROP + CREATE of the two triggers; no row is
+  rewritten). This is Option A of the issue; reconciling each template's boot
+  reads with what it writes (Option B) follows separately.
+- **CHRO's CSO-precondition gate read a category nobody writes.** It waited for
+  `decisions` category `cso-audit` with `outcome='pass'`; CSO writes
+  `system-audit`, and `decisions` has no `outcome` column. The gate now reads
+  the `system-audit` row and its `audit-verdict` row in `security_audit_log`.
+- **`migrate.sh`: two `BEFORE INSERT` trigger patches referenced `OLD.status`**
+  (BUG-079 nit, juvant-os-pm#181), which an INSERT trigger does not have. Masked
+  because `schema.sql` creates the correct trigger first; fixed anyway.
+- `governance-backfill.sh` phase 0a no longer remaps categories that are now
+  canonical (`system-audit`, `deployment`, `versioning`, `manifesto`, …).
+
+### Added
+
+- **`tests/schema/test-category-allowlist.py`** (CI): every copy of the
+  allowlist must agree, every category a template tells an agent to write to
+  `decisions` must be in it, and no `migrate.sh` INSERT trigger may reference
+  `OLD`. The class had bitten four times (BUG-055, BUG-063, BUG-074).
+
 ## [1.14.1] — 2026-10-29 — Security policy validator checks the right repo
 
 ### Fixed

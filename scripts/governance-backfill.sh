@@ -91,23 +91,22 @@ count_sql() {
 
 # ─── Category mapping (bash 3.2 compatible — case instead of declare -A) ─────
 # Returns the canonical target for a non-canonical category, or empty string.
+# Only called for categories NOT in CANONICAL_LIST — a canonical name listed
+# here would be dead code (BUG-074 made several former targets canonical).
 map_category() {
   case "$1" in
     gh-execution-confirmed|gh-issue-spec-execution-confirmed)
       echo "gh-issue-spec" ;;
-    infra-spec|infra|infra-config|security-remediation)
+    infra-spec|infra|infra-config)
       echo "eng-platform-spec" ;;
-    deployment)
-      echo "deployment-spec" ;;
     gh-project-spec)
       echo "gh-project-update-spec" ;;
     review-scheduled)
       echo "migration-watch" ;;
-    versioning|manifesto|manifesto-review|manifesto-update|\
-    direct-session|policy-promotion|system-audit|\
-    security-consult|ethical-validation|spec-rejected|milestone)
+    manifesto-review|manifesto-update|policy-promotion|\
+    security-consult|milestone)
       echo "bootstrap-action" ;;
-    tech-standard|convention|technical)
+    convention|technical)
       echo "tool-matrix-change" ;;
     architecture)
       echo "arch-decision" ;;
@@ -142,9 +141,27 @@ CANONICAL_LIST="'model-override','tool-matrix-change','pr-spec','gh-issue-spec',
 'gh-project-update-spec','gh-milestone-spec','install-spec',
 'branch-protection-spec','release-spec','deployment-spec',
 'secret-rotation-spec','eng-output-held','disclosure-unavailable',
-'bootstrap-action','cascade-escalation','cascade-postmortem',
-'skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec',
-'arch-decision','operational-violation','kb-orphan-review'"
+'bootstrap-action','cascade-escalation','cascade-postmortem','skill-gap',
+'migration-watch','upstream-sync-proposal','eng-platform-spec','arch-decision',
+'operational-violation','kb-orphan-review','legal','product','business',
+'system-audit','incident-response','security-remediation',
+'accessibility-audit','aggregate-health-flag','analyst-briefing',
+'backlog-transition','bank-unavailable','binding-confirmation',
+'brand-advisory','brand-mode-ratification-routed','brand-spec',
+'competitor-move','content-performance','content-published',
+'cross-project-dependency','cross-project-release-coordination',
+'cross-project-tech-debt','cso-audit-request','data-deletion-proposal',
+'demo-conducted','deployment','design-debt','design-system-drift',
+'direct-session','disclosure-audit','drift-audit','drift-finding',
+'eng-finding','eng-work-completed','ethical-concern','ethical-opinion',
+'ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate',
+'knowledge-base-retraction','manifesto','mcp-install-confirmed',
+'monthly-ranking','offboarding','offboarding-action','pipeline-outcome',
+'pipeline-stage','prd-published','prd-retro','press-interaction',
+'proposal-sent','release-published','research-output','research-published',
+'roadmap-transition','spec-paused-cascade','spec-rejected','tech-exception',
+'tech-standard','ux-research-published','versioning',
+'weekly-engineering-report'"
 
 # ─── Phase 0a: Category normalization ────────────────────────────────────────
 phase_0a() {

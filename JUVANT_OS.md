@@ -3295,7 +3295,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a top-level column: never use `WHERE category=` or `SELECT category`. For filtering: `json_extract(content, '$.category')`. For inserting: include as a key inside `json_object('category', '...')`** |
-| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record the successor `id` in an `audit_events` `status_change` row's `reason`; `rationale` is immutable); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'\|'legal'\|'product'\|'business'\|'system-audit'\|'incident-response'\|'security-remediation'` — `arch-decision`: architectural decision, durable rationale, no GH action; `system-audit`/`incident-response`/`security-remediation`: CSO audit + incident records (agents/company/cso.md); `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
+| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record the successor `id` in an `audit_events` `status_change` row's `reason`; `rationale` is immutable); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'\|'legal'\|'product'\|'business'\|'system-audit'\|'incident-response'\|'security-remediation'\|'accessibility-audit'\|'aggregate-health-flag'\|'analyst-briefing'\|'backlog-transition'\|'bank-unavailable'\|'binding-confirmation'\|'brand-advisory'\|'brand-mode-ratification-routed'\|'brand-spec'\|'competitor-move'\|'content-performance'\|'content-published'\|'cross-project-dependency'\|'cross-project-release-coordination'\|'cross-project-tech-debt'\|'cso-audit-request'\|'data-deletion-proposal'\|'demo-conducted'\|'deployment'\|'design-debt'\|'design-system-drift'\|'direct-session'\|'disclosure-audit'\|'drift-audit'\|'drift-finding'\|'eng-finding'\|'eng-work-completed'\|'ethical-concern'\|'ethical-opinion'\|'ethical-validation'\|'eval-run'\|'gh-pr-review-spec'\|'kb-promotion-candidate'\|'knowledge-base-retraction'\|'manifesto'\|'mcp-install-confirmed'\|'monthly-ranking'\|'offboarding'\|'offboarding-action'\|'pipeline-outcome'\|'pipeline-stage'\|'prd-published'\|'prd-retro'\|'press-interaction'\|'proposal-sent'\|'release-published'\|'research-output'\|'research-published'\|'roadmap-transition'\|'spec-paused-cascade'\|'spec-rejected'\|'tech-exception'\|'tech-standard'\|'ux-research-published'\|'versioning'\|'weekly-engineering-report'` — `arch-decision`: architectural decision, durable rationale, no GH action; `system-audit`/`incident-response`/`security-remediation`: CSO audit + incident records (agents/company/cso.md); `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` — append-only (SYSTEM_INVARIANTS §10): no DELETE, evidentiary columns immutable, `created_at` = DB clock (omit it); CSO verdict rows use `category='audit-verdict'`. Read current state from the view `security_audit_log_current` (adds `current_severity, current_status, current_created_at, current_resolved_at, is_test_artifact, event_count`) |
@@ -4077,14 +4077,31 @@ state change — NOT clarification turns or housekeeping):
    ```
    `category` MUST be one of the schema-documented canonical values (kept in
    lockstep with the `decisions_category_check_*` triggers in scripts/schema.sql
-   + scripts/migrate.sh): model-override, tool-matrix-change, pr-spec,
-   gh-issue-spec, gh-project-update-spec, gh-milestone-spec, install-spec,
-   branch-protection-spec, release-spec, deployment-spec, secret-rotation-spec,
-   eng-output-held, disclosure-unavailable, bootstrap-action, cascade-escalation,
-   cascade-postmortem, skill-gap, migration-watch, upstream-sync-proposal,
-   eng-platform-spec, arch-decision, operational-violation, kb-orphan-review,
-   legal, product, business, system-audit, incident-response,
-   security-remediation.
+   + scripts/migrate.sh): model-override, tool-matrix-change, pr-spec, gh-issue-spec,
+   gh-project-update-spec, gh-milestone-spec, install-spec,
+   branch-protection-spec, release-spec, deployment-spec,
+   secret-rotation-spec, eng-output-held, disclosure-unavailable,
+   bootstrap-action, cascade-escalation, cascade-postmortem, skill-gap,
+   migration-watch, upstream-sync-proposal, eng-platform-spec,
+   arch-decision, operational-violation, kb-orphan-review, legal,
+   product, business, system-audit, incident-response,
+   security-remediation, accessibility-audit, aggregate-health-flag,
+   analyst-briefing, backlog-transition, bank-unavailable,
+   binding-confirmation, brand-advisory, brand-mode-ratification-routed,
+   brand-spec, competitor-move, content-performance, content-published,
+   cross-project-dependency, cross-project-release-coordination,
+   cross-project-tech-debt, cso-audit-request, data-deletion-proposal,
+   demo-conducted, deployment, design-debt, design-system-drift,
+   direct-session, disclosure-audit, drift-audit, drift-finding,
+   eng-finding, eng-work-completed, ethical-concern, ethical-opinion,
+   ethical-validation, eval-run, gh-pr-review-spec,
+   kb-promotion-candidate, knowledge-base-retraction, manifesto,
+   mcp-install-confirmed, monthly-ranking, offboarding,
+   offboarding-action, pipeline-outcome, pipeline-stage, prd-published,
+   prd-retro, press-interaction, proposal-sent, release-published,
+   research-output, research-published, roadmap-transition,
+   spec-paused-cascade, spec-rejected, tech-exception, tech-standard,
+   ux-research-published, versioning, weekly-engineering-report.
 
 5. **Cascade fired** → see "Disclosure fallback cascade" below.
 
