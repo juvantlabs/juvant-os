@@ -4911,6 +4911,7 @@ hooks/post-compact.sh         hooks/pre-compact.sh
 hooks/config-change.sh        hooks/lib/pause-windows.sh
 hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
 hooks/lib/hooks-integrity.sh  hooks/lib/guardrail-paths.sh
+hooks/lib/security-policy.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh
@@ -4925,7 +4926,7 @@ scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
 scripts/sync-project-globs.sh scripts/governance-backfill.sh
 scripts/seed-matrix.sh        scripts/templates/v0-agent-tool-matrix.json
 scripts/sync-hooks.sh         scripts/templates/hooks-registration.json
-scripts/deadlines.json
+scripts/deadlines.json        scripts/validate-security-policy.sh
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md
@@ -4942,12 +4943,14 @@ JUVANT_OS.md                  SYSTEM_INVARIANTS.md
 CHANGELOG.md                  VERSION
 docs/MCP_INVENTORY.md         docs/branch-protection-spec.md
 docs/DOCUMENT_SPACES.md
+docs/schemas/security-policy.schema.json  docs/schemas/security-policy.example.json
 agents/projects/*.md          agents/components/maintainer.md
 tests/hooks/run-tests.sh      tests/hooks/track2b/run-tests.sh
 tests/hooks/fake-turso.sh     tests/hooks/fake-libsql-curl.sh
 tests/hooks/test-space-access-policy.sh
 tests/hooks/test-pretooluse-wrapper.sh
 tests/hooks/test-hooks-integrity.sh
+tests/hooks/test-security-policy.sh
 tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh
@@ -4978,7 +4981,8 @@ clobbered. Every framework file under `tests/hooks/`, `tests/helpers/` and
 enforces it, as it does for `hooks/` and `helpers/`.
 
 **Files NEVER touched** (instance-specific — skip regardless of diff):
-`.juvant/config.json`, `agents/company/*.md`, `agents/projects/*/`,
+`.juvant/config.json`, `security/policy.json` (the instance security policy —
+ADR 0034, decisions#305), `agents/company/*.md`, `agents/projects/*/`,
 `agents/components/*/`, `.claude/agents/*.md`, `.github/CODEOWNERS`,
 `CLAUDE.md`, `MANIFESTO.md`, `README.md`, `SECURITY.md`, `docs/adr/`,
 `tests/` (everything **except** the framework-owned test files listed in the

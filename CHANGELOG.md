@@ -24,6 +24,27 @@ All written artifacts in English. No exceptions.
 
 ### Security
 
+- **Instance security policy moves to a committed `security/policy.json` read
+  from `origin/main` (decisions#305 B1a, ADR 0034, security_audit_log#159).**
+  Track 2e rules lived in gitignored `.juvant/config.json`, where any agent could
+  empty `.security.space_access` and silently disable the perimeter. New
+  `hooks/lib/security-policy.sh` reads the policy with
+  `GIT_NO_REPLACE_OBJECTS=1 git cat-file -p refs/remotes/origin/main:security/policy.json`
+  — working-tree edits, local commits, branch switches, a shadowing local
+  `origin/main` branch/tag and `git replace` have no effect. Invalid or deleted
+  (after it existed) → **fail closed**: every `mcp__` call denied + high row +
+  alert. `alert_routing.required` channels without a secret deny ops that would
+  raise a sensitive-space row. SessionStart raises a high row + CEO alert when
+  the policy blob changes, and the integrity check flags `JUVANT_*` overrides in
+  `.claude/settings*.json` `env`. Track 2f protects `security/policy.json`,
+  `.git/**` and the git operations that move or redefine remote refs.
+  `JUVANT_CONFIG` never selects the policy (tests: `JUVANT_POLICY_TEST=1`).
+  Legacy config rules are honoured for one minor version with a deprecation
+  warning. New `scripts/validate-security-policy.sh` +
+  `docs/schemas/security-policy.schema.json`. ADR 0034 supersedes ADR 0025
+  clause 5 only; `security/policy.json` joins the never-touched list.
+  **Adopters: commit `security/policy.json` to `main` before syncing this.**
+
 - **SQL content gate: every DB-CLI input route scanned, prose literals are data,
   audit tables immutable at the Bash level (decisions#303 E / E-bis / R5a,
   security_audit_log#155, #161, #164).** SQL fed to `turso db shell` / `sqlite3`

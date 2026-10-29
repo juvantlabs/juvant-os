@@ -111,6 +111,17 @@ juvant_hooks_integrity_check() {
 
   _juvant_plist_findings "$root" && found=1
 
+  # decisions#305: an `env` block in .claude/settings*.json reaches every hook
+  # process. JUVANT_FRAMEWORK_DEV=1 there would switch Track 2f off, and the
+  # test-only policy / config overrides would redirect the policy source.
+  local sf key
+  for sf in "$root/.claude/settings.json" "$root/.claude/settings.local.json"; do
+    [[ -f "$sf" ]] || continue
+    while IFS= read -r key; do
+      [[ -n "$key" ]] && { echo "settings-env-override: ${sf#"$root"/} sets $key"; found=1; }
+    done < <(jq -r '(.env // {}) | keys[] | select(test("^JUVANT_(FRAMEWORK_DEV|POLICY_TEST|POLICY_FILE|CONFIG)$"))' "$sf" 2>/dev/null)
+  done
+
   [[ "$mode" == head ]] && echo "baseline: HEAD (no canonical upstream/main ref — uncommitted drift only)"
   [[ "$found" == 1 ]] && return 1
   return 0

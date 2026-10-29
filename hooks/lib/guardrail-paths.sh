@@ -28,6 +28,12 @@ JUVANT_GUARDRAIL_FILE_RES=(
   '(^|/)scripts/[^/]+\.sh$'
   '(^|/)\.juvant/audit-spool\.(sql([.][^/]*)?|quarantine)$'
   '(^|/)\.juvant/backups(/.*)?$'
+  # decisions#305 (B1a): the committed security policy, the git store whose
+  # remote refs the hook reads it from (refs, packed-refs, config, objects),
+  # and the SessionStart "last policy blob seen" marker.
+  '(^|/)security/policy\.json$'
+  '(^|/)\.git(/.*)?$'
+  '(^|/)\.juvant/policy-blob-seen$'
 )
 # Directory / glob targets (whole-tree operations).
 JUVANT_GUARDRAIL_DIR_RES=(
@@ -37,12 +43,14 @@ JUVANT_GUARDRAIL_DIR_RES=(
   '(^|/)(helpers|scripts)/\*[^/]*$'
   '(^|/)\.juvant/?$'
   '(^|/)\.juvant/(\*[^/]*|audit-spool\*[^/]*)$'
+  '(^|/)security/?$'
+  '(^|/)security/\*[^/]*$'
 )
 # Raw substrings that reference a protected path inside code we do not parse
 # (interpreters, heredocs, $(…)). The captured prefix is checked for tests/.
-JUVANT_GUARDRAIL_RAW_RE='([^[:space:]"'"'"'(),=:;`]*)(hooks/([A-Za-z0-9_.*-]+\.sh|lib/[A-Za-z0-9_.*-]+\.sh|bash-policy\.json|lib/?|\*)|helpers/[A-Za-z0-9_.*-]+\.sh|scripts/[A-Za-z0-9_.*-]+\.sh|\.juvant/audit-spool|\.juvant/backups|audit-spool\.(sql|quarantine))'
+JUVANT_GUARDRAIL_RAW_RE='([^[:space:]"'"'"'(),=:;`]*)(hooks/([A-Za-z0-9_.*-]+\.sh|lib/[A-Za-z0-9_.*-]+\.sh|bash-policy\.json|lib/?|\*)|helpers/[A-Za-z0-9_.*-]+\.sh|scripts/[A-Za-z0-9_.*-]+\.sh|\.juvant/audit-spool|\.juvant/backups|audit-spool\.(sql|quarantine)|security/policy\.json|\.git/|policy-blob-seen)'
 # Directories a `cd` may enter, after which bare names are resolved inside.
-JUVANT_GUARDRAIL_CD_RE='(^|/)(hooks(/lib)?|helpers|scripts|\.juvant(/backups)?)$'
+JUVANT_GUARDRAIL_CD_RE='(^|/)(hooks(/lib)?|helpers|scripts|\.juvant(/backups)?|security|\.git(/[^/]+)*)$'
 
 # juvant_guardrail_is_path <path> [cwd-dir]
 #   0 if <path> (quotes already removed) is protected. When [cwd-dir] is set

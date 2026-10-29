@@ -53,6 +53,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0031](0031-plugin-packaging-distribution.md) | Package Juvant OS as a plugin for distribution + versioned updates (hybrid); agents stay filesystem-compiled because plugin subagents ignore per-agent `mcpServers` | Accepted | 2026-10-28 |
 | [0032](0032-memory-tool-vs-turso.md) | Agent memory stays on Turso (reaffirm 0003); the client-side API memory tool is deferred to the Agent-SDK path (we don't own the API loop in-harness) | Accepted | 2026-10-28 |
 | [0033](0033-claude-mods-not-adopted.md) | Do not adopt Claude Mods; governance stays in the auditable bash-hook layer (unsandboxed mods expand the threat model), with a narrow revisit condition | Accepted | 2026-10-28 |
+| [0034](0034-security-policy-committed-file.md) | Instance security policy is a committed `security/policy.json` read from `origin/main` (never the working tree), fails closed; supersedes ADR 0025 clause 5 only | Proposed | 2026-10-29 |
 
 ## Modification governance
 

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/juvantlabs/juvant-os/docs/schemas/security-policy.schema.json",
+  "title": "Juvant OS instance security policy (security/policy.json)",
+  "description": "decisions#305 / ADR 0034. Committed in the instance repo (never upstream-synced, never under .juvant/). Read by the PreToolUse hook from refs/remotes/origin/main. No secrets: webhook URLs and tokens stay in .juvant/config.json. The authoritative structural check is hooks/lib/security-policy.sh (juvant_policy_validate), run by scripts/validate-security-policy.sh.",
+  "type": "object",
+  "properties": {
+    "version": { "const": 1 },
+    "space_access": {
+      "description": "Sensitive document-space perimeter (Track 2e, ADR 0025).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool_prefix"],
+        "properties": {
+          "space": { "type": "string" },
+          "tool_prefix": { "type": "string", "minLength": 1 },
+          "drive_ids": { "type": "array", "items": { "type": "string" } },
+          "path_patterns": { "type": "array", "items": { "type": "string" } },
+          "allowlist": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "connector_tool_allowlist": {
+      "description": "Deny-by-default allowlist for a vendor-hosted connector's tools (decisions#306).",
+      "type": "object",
+      "required": ["tool_prefix"],
+      "properties": {
+        "tool_prefix": { "type": "string", "minLength": 1 },
+        "allow": { "type": "array", "items": { "type": "string" } },
+        "read_resource_uri_prefixes": { "type": "array", "items": { "type": "string" } },
+        "detect_patterns": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "alert_routing": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "description": "Channels that must have a secret configured; an op that would raise a sensitive-space row is denied otherwise.",
+          "type": "array",
+          "items": { "enum": ["teams", "telegram"] }
+        }
+      }
+    }
+  }
+}
