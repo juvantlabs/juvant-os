@@ -11,6 +11,17 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`validate-security-policy.sh --ref` checked the wrong repo when run from a
+  framework checkout (decisions#305).** `--ref` read `security/policy.json` from
+  the repo the *script* lives in, so validating an instance's `origin/main` from
+  a juvant-os checkout looked at juvant-os. `--ref` now resolves against
+  `--repo <dir>`, else the git repo of the current directory, else the script's
+  repo; and like the hook it reads `origin/…` as `refs/remotes/origin/…`, so a
+  local branch named `origin/main` can't shadow it. Reported by the adopter
+  instance while staging its policy.
+
 ## [1.14.0] — 2026-10-29 — Audit integrity, policy as a reviewed file, gated secrets (decisions#301–#306, #308)
 
 ### Security

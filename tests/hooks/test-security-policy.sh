@@ -153,6 +153,23 @@ push_policy "" "delete again"
 OUT4=$(ss)
 t_assert "deleted policy → SessionStart warns fail-closed" "yes" "$([[ "$OUT4" == *"is deleted"* ]] && echo yes || echo no)"
 
+echo "== validator --ref against another repo =="
+V="$ROOT_DIR/scripts/validate-security-policy.sh"
+push_policy "$(policy_json '["clo","cso"]')" "valid again for the validator"
+OUT=$(bash "$V" --repo "$INST" --ref origin/main 2>&1); RC=$?
+t_assert "--repo <instance> --ref origin/main → validates the INSTANCE policy" "0|yes" \
+  "$RC|$([[ "$OUT" == *"$INST@refs/remotes/origin/main"* ]] && echo yes || echo no)"
+OUT=$(cd "$INST" && bash "$V" --ref origin/main 2>&1); RC=$?
+t_assert "run from inside the instance (script elsewhere) → instance repo used" "0" "$RC"
+OUT=$(cd "$TMPROOT" && bash "$V" --repo "$FRESH" --ref origin/main 2>&1); RC=$?
+t_assert "repo without a policy → exit 2, names the repo" "2|yes" "$RC|$([[ "$OUT" == *"$FRESH"* ]] && echo yes || echo no)"
+g -C "$INST" branch -q -f origin/main "$(g -C "$INST" rev-parse HEAD)" 2>/dev/null
+OUT=$(bash "$V" --repo "$INST" --ref origin/main 2>&1); RC=$?
+t_assert "validator reads refs/remotes/origin/main, not a shadowing local branch" "0" "$RC"
+push_policy '{"version":1,"space_access":[{"allowlist":["clo"]}]}' "broken for the validator"
+OUT=$(bash "$V" --repo "$INST" --ref origin/main 2>&1); RC=$?
+t_assert "invalid policy on origin/main → exit 1" "1" "$RC"
+
 echo "== settings env override is an integrity finding =="
 # shellcheck disable=SC1091
 . "$ROOT_DIR/hooks/lib/hooks-integrity.sh"
