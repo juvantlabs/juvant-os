@@ -22,6 +22,16 @@ All written artifacts in English. No exceptions.
   `migrate.sh` changed; `tests/sync/test-sync-compile.sh` now also enforces
   that every framework file under `tests/schema/` and `tests/migrate/` is
   whitelisted.
+- **A freshly inserted `knowledge_base` / `agent_tool_matrix` row looked
+  CEO-approved** (BUG-085, juvant-os-pm#187): `approved_by` defaulted to
+  `'ceo'`. New DBs get no default (NULL until someone approves);
+  `governance-backfill.sh` now writes `approved_by` NULL explicitly; the
+  `JUVANT_OS.md` schema reference tells writers to set it explicitly.
+  `validate.py` fails on any `approved_by` column with a default. Existing DBs
+  keep the old default (SQLite cannot drop a column default without a table
+  rebuild, not worth the risk on a live DB for a column no gate reads): on
+  those, a row that omits `approved_by` still reads `'ceo'` — set it
+  explicitly.
 
 ## [1.14.2] — 2026-10-29 — Prescribed decisions writes land; migrate.sh fails loud
 
