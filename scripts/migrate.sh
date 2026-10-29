@@ -6,6 +6,9 @@
 # 1) Schema apply (default; backward-compat with pre-v0.8 callers):
 #    ./scripts/migrate.sh                       # company DB
 #    ./scripts/migrate.sh --project=<slug>      # per-project DB (F-24, v0.7.1+)
+#    ./scripts/migrate.sh --rebuild-defaults    # also rebuild tables whose approved_by
+#                                               # still DEFAULTs to 'ceo' (BUG-085; rehearse
+#                                               # on a DB copy first)
 #
 #    Reads provider + endpoint from .juvant/config.json:
 #      --scope company (default): .db.{provider,url,auth_token}
@@ -57,6 +60,7 @@ PROJECT_SLUG=""
 FROM_VERSION=""
 TO_VERSION=""
 DRY_RUN=0
+REBUILD_DEFAULTS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -67,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --to) TO_VERSION="$2"; shift 2 ;;
     --to=*) TO_VERSION="${1#--to=}"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --rebuild-defaults) REBUILD_DEFAULTS=1; shift ;;
     -h|--help)
       sed -n '/^# Modes:/,/^# Exit codes:/p' "$0" | sed 's/^# *//' | sed '$d'
       exit 0
@@ -175,6 +180,7 @@ run_schema_apply() {
       echo "Applying schema to local SQLite ($SCOPE_LABEL): $DB_PATH"
       PATCH_PROVIDER=local; PATCH_TARGET="$DB_PATH"
       apply_column_prepatches "$PROJECT_SLUG"
+      rebuild_stale_defaults || exit 1
       sqlite3 "$DB_PATH" < "$SCHEMA"
       apply_schema_patches "$PROJECT_SLUG"
       verify_schema "$PROJECT_SLUG" || exit 1
@@ -199,6 +205,7 @@ run_schema_apply() {
       echo "Applying schema to ($SCOPE_LABEL): $DB_URL"
       PATCH_PROVIDER=turso; PATCH_TARGET="$DB_URL"
       apply_column_prepatches "$PROJECT_SLUG"
+      rebuild_stale_defaults || exit 1
       turso db shell "$DB_URL" < "$SCHEMA"
       apply_schema_patches "$PROJECT_SLUG"
       verify_schema "$PROJECT_SLUG" || exit 1
@@ -393,6 +400,64 @@ apply_schema_patches() {
   if [[ "$MIGRATE_PATCH_WARNINGS" -gt 0 ]]; then
     printf 'WARN [migrate]: %d non-benign schema patch(es) failed (see above) — schema may be inconsistent (e.g. a trigger created without its prerequisite column). Inspect before use. (BUG-040)\n' "$MIGRATE_PATCH_WARNINGS" >&2
   fi
+}
+
+# BUG-085 / H19: `approved_by TEXT DEFAULT 'ceo'` made every row that omits the
+# column look CEO-approved. schema.sql dropped the default in v1.14.3, but
+# CREATE TABLE IF NOT EXISTS never alters a live table, and SQLite can't drop a
+# column default in place — only a table rebuild does. With --rebuild-defaults
+# each affected table is rebuilt from schema.sql's canonical DDL in ONE
+# transaction (create copy → copy rows → drop old → rename), and the row count
+# is checked; schema.sql (applied next) re-creates the table's triggers and
+# indexes. Without the flag the stale default is only reported. Refuses when the
+# live table has a column the canonical DDL lacks (it would be lost).
+# Rehearse on a copy of the DB first (turso db create <copy> --from-db <db>).
+_DEFAULT_REBUILD_TABLES=(knowledge_base agent_tool_matrix)
+_q1() { # <sql whose single result value is prefixed 'v='> → the value
+  _patch_sql "$1" 2>/dev/null | tr -d '\r' | sed -n 's/^[[:space:]]*v=//p' | tail -n1 | sed 's/[[:space:]]*$//'
+}
+rebuild_stale_defaults() {
+  local t dflt live canon cols missing n0 n1 ddl tmpf
+  for t in "${_DEFAULT_REBUILD_TABLES[@]}"; do
+    dflt=$(_q1 "SELECT 'v=' || coalesce(dflt_value, 'NULL') FROM pragma_table_info('$t') WHERE name = 'approved_by';")
+    [[ "$dflt" == "'ceo'" ]] || continue
+    if [[ "${REBUILD_DEFAULTS:-0}" != "1" ]]; then
+      echo "WARN [migrate]: $t.approved_by still DEFAULT 'ceo' on this DB (BUG-085): a row that omits approved_by reads as CEO-approved. Rehearse on a copy, then re-run with --rebuild-defaults to rebuild the table without the default." >&2
+      continue
+    fi
+    ddl=$(awk -v t="$t" '$0 ~ "^CREATE TABLE IF NOT EXISTS " t " \\(" {f=1} f {print} f && /^\);/ {exit}' "$SCHEMA")
+    [[ -n "$ddl" ]] || { echo "ERROR [migrate]: no canonical DDL for $t in $SCHEMA" >&2; return 1; }
+    live=$(_q1 "SELECT 'v=' || group_concat(name, ',') FROM pragma_table_info('$t');")
+    canon=$(printf '%s\n' "$ddl" | sed -n 's/^  \([a-z_][a-z0-9_]*\)[[:space:]].*/\1/p' | paste -sd, -)
+    missing=""; cols=""
+    for c in ${live//,/ }; do
+      if [[ ",$canon," == *",$c,"* ]]; then cols+="${cols:+, }$c"; else missing+=" $c"; fi
+    done
+    if [[ -n "$missing" ]]; then
+      echo "ERROR [migrate]: $t has column(s) not in the canonical DDL:${missing} — not rebuilding (they would be lost). Resolve by hand." >&2
+      return 1
+    fi
+    n0=$(_q1 "SELECT 'v=' || count(*) FROM $t;")
+    tmpf=$(mktemp)
+    {
+      echo "BEGIN;"
+      printf '%s\n' "$ddl" | sed "1s/^CREATE TABLE IF NOT EXISTS $t (/CREATE TABLE ${t}__bug085 (/"
+      echo "INSERT INTO ${t}__bug085 ($cols) SELECT $cols FROM $t;"
+      echo "DROP TABLE $t;"
+      echo "ALTER TABLE ${t}__bug085 RENAME TO $t;"
+      echo "COMMIT;"
+    } > "$tmpf"
+    if [[ "$PATCH_PROVIDER" == "local" ]]; then sqlite3 "$PATCH_TARGET" < "$tmpf"; else turso db shell "$PATCH_TARGET" < "$tmpf"; fi
+    rm -f "$tmpf"
+    n1=$(_q1 "SELECT 'v=' || count(*) FROM $t;")
+    dflt=$(_q1 "SELECT 'v=' || coalesce(dflt_value, 'NULL') FROM pragma_table_info('$t') WHERE name = 'approved_by';")
+    if [[ "$n1" != "$n0" || "$dflt" != "NULL" ]]; then
+      echo "ERROR [migrate]: rebuild of $t did not verify (rows $n0 → ${n1:-?}, approved_by default ${dflt:-?}). If ${t}__bug085 exists, the data is there — stop and inspect before anything else." >&2
+      return 1
+    fi
+    echo "Rebuilt $t without the approved_by default (BUG-085): $n1 rows kept."
+  done
+  return 0
 }
 
 # verify_schema <project_slug> — read back every table, trigger and view that

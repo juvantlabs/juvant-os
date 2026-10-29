@@ -36,6 +36,19 @@ All written artifacts in English. No exceptions.
   synthetic policy (`JUVANT_POLICY_TEST=1` + `JUVANT_POLICY_FILE`).
 - Documented (H14): the CEO's `!` shell-mode input and MCP server launches are
   outside the PreToolUse perimeter (verified on an adopter).
+### Fixed
+
+- **BUG-085 did not reach existing DBs** (H19, BUG-090, juvant-os-pm#193):
+  `CREATE TABLE IF NOT EXISTS` never alters a live table, so on DBs created
+  before v1.14.3 `knowledge_base.approved_by` / `agent_tool_matrix.approved_by`
+  still defaulted to `'ceo'`. `migrate.sh` now reports the stale default, and
+  `migrate.sh --rebuild-defaults` rebuilds each affected table from
+  `schema.sql`'s canonical DDL in one transaction (copy → drop → rename; row
+  count and default verified; triggers and indexes re-created by schema.sql),
+  refusing when the live table has a column the canonical DDL lacks.
+  **Adopter action:** rehearse on a DB copy, then
+  `bash scripts/migrate.sh --rebuild-defaults` (+ `--project=<slug>`).
+  Covered by `tests/migrate/test-rebuild-defaults.sh` (CI, sync whitelist).
 
 ## [1.14.3] — 2026-10-29 — Mailbox rules and secrets behind the reviewed policy; tests reach adopters
 
