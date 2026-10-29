@@ -3,9 +3,9 @@
 tests/schema/test-category-allowlist.py — decisions.category allowlist drift guard
 (BUG-063 / BUG-074, decisions#267).
 
-The allowlist lives in seven places that must agree:
+The allowlist lives in six places that must agree:
   scripts/schema.sql            decisions_category_check_ins + _upd
-  scripts/migrate.sh            the same two triggers, in the local AND turso patch sets
+  scripts/migrate.sh            the same two triggers (COMMON_PATCHES, shared by local + turso)
   scripts/governance-backfill.sh CANONICAL_LIST
   JUVANT_OS.md                  the schema quick reference + the Memory Commit enumeration
 
@@ -57,7 +57,7 @@ check("schema.sql: no duplicates", len(ref) == len(canon["decisions_category_che
 
 mig = (ROOT / "scripts/migrate.sh").read_text()
 lists = re.findall(r"CREATE TRIGGER decisions_category_check_(ins|upd) .*?NOT IN \((.*?)\); END;", mig)
-check("migrate.sh: 4 category triggers (local + turso, ins + upd)", len(lists) == 4, f"found {len(lists)}")
+check("migrate.sh: 2 category triggers (ins + upd, shared by local + turso)", len(lists) == 2, f"found {len(lists)}")
 for i, (kind, body) in enumerate(lists):
     check(f"migrate.sh: trigger #{i + 1} ({kind}) matches schema.sql", set(names(body)) == ref,
           diff(set(names(body)), ref))

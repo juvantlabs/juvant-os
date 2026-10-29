@@ -173,8 +173,11 @@ run_schema_apply() {
       fi
       mkdir -p "$(dirname "$DB_PATH")"
       echo "Applying schema to local SQLite ($SCOPE_LABEL): $DB_PATH"
+      PATCH_PROVIDER=local; PATCH_TARGET="$DB_PATH"
+      apply_column_prepatches "$PROJECT_SLUG"
       sqlite3 "$DB_PATH" < "$SCHEMA"
-      apply_schema_patches_local "$DB_PATH" "$PROJECT_SLUG"
+      apply_schema_patches "$PROJECT_SLUG"
+      verify_schema "$PROJECT_SLUG" || exit 1
       echo "Schema applied successfully."
       ;;
     turso|azure|aws|gcp)
@@ -194,8 +197,11 @@ run_schema_apply() {
         return 0
       fi
       echo "Applying schema to ($SCOPE_LABEL): $DB_URL"
+      PATCH_PROVIDER=turso; PATCH_TARGET="$DB_URL"
+      apply_column_prepatches "$PROJECT_SLUG"
       turso db shell "$DB_URL" < "$SCHEMA"
-      apply_schema_patches_turso "$DB_URL" "$PROJECT_SLUG"
+      apply_schema_patches "$PROJECT_SLUG"
+      verify_schema "$PROJECT_SLUG" || exit 1
       echo "Schema applied successfully."
       ;;
     *)
@@ -205,16 +211,26 @@ run_schema_apply() {
   esac
 }
 
-# Idempotent column patches — called after schema.sql apply.
-# Turso/libSQL does not support ALTER TABLE ADD COLUMN IF NOT EXISTS,
-# so each statement runs separately. Failures are classified rather than
-# blanket-suppressed (BUG-040): a benign "duplicate column" / "already
-# exists" on an idempotent re-run is ignored, but any OTHER failure is
-# surfaced as a warning and counted — so a dependent object (e.g. a trigger
-# whose prerequisite column failed to add) is never created against a
-# silently-broken schema unnoticed.
+# Idempotent schema patches. Turso/libSQL has no ALTER TABLE ADD COLUMN
+# IF NOT EXISTS, so each statement runs separately. Failures are classified
+# rather than blanket-suppressed (BUG-040): a benign "duplicate column" /
+# "already exists" on an idempotent re-run is ignored, any OTHER failure is
+# surfaced as a counted warning. One copy of every patch list serves both the
+# local and the turso branch (PATCH_PROVIDER / PATCH_TARGET), so they cannot
+# drift.
+#
+# Order (BUG-080 #1): the ADD COLUMN patches run BEFORE schema.sql as well as
+# after it. schema.sql creates triggers that name columns an old DB may lack
+# (e.g. security_audit_log.session_id); SQLite does not validate a trigger body
+# at CREATE time, so until the column exists every write to that table fails
+# with "no such column" — and if the run aborted in between, the gap stayed.
+# Then verify_schema (BUG-080 #2) reads back every object the run should have
+# produced, because the turso CLI can exit 0 without having done anything
+# (expired auth).
 
 MIGRATE_PATCH_WARNINGS=0
+PATCH_PROVIDER=""
+PATCH_TARGET=""
 
 _is_benign_patch_err() {
   case "$1" in
@@ -223,20 +239,21 @@ _is_benign_patch_err() {
   esac
 }
 
-# Run one idempotent patch; suppress only benign idempotent-re-run errors,
-# surface everything else as a counted warning (BUG-040).
-_run_patch_local() {
-  local db="$1" sql="$2" err
-  err=$(sqlite3 "$db" "$sql" 2>&1) && return 0
-  _is_benign_patch_err "$err" && return 0
-  printf 'WARN [migrate]: non-benign schema patch failure: %s\n  SQL: %.140s\n' "$err" "$sql" >&2
-  MIGRATE_PATCH_WARNINGS=$((MIGRATE_PATCH_WARNINGS + 1))
+# </dev/null: callers loop over `_patch_list` on stdin — the CLI must not eat it.
+_patch_sql() {
+  if [[ "$PATCH_PROVIDER" == "local" ]]; then sqlite3 "$PATCH_TARGET" "$1" </dev/null
+  else turso db shell "$PATCH_TARGET" "$1" </dev/null; fi
 }
 
-_run_patch_turso() {
-  local url="$1" sql="$2" err
-  err=$(turso db shell "$url" "$sql" 2>&1) && return 0
+# Run one idempotent patch; suppress only benign idempotent-re-run errors,
+# surface everything else as a counted warning (BUG-040). $2 = 1 also treats
+# "no such table" as benign (the pre-schema pass, where a fresh DB has no
+# tables yet — schema.sql creates them with every column).
+_run_patch() {
+  local sql="$1" pre="${2:-0}" err
+  err=$(_patch_sql "$sql" 2>&1) && return 0
   _is_benign_patch_err "$err" && return 0
+  [[ "$pre" == "1" && "$err" == *"no such table"* ]] && return 0
   printf 'WARN [migrate]: non-benign schema patch failure: %s\n  SQL: %.140s\n' "$err" "$sql" >&2
   MIGRATE_PATCH_WARNINGS=$((MIGRATE_PATCH_WARNINGS + 1))
 }
@@ -323,94 +340,95 @@ R5_AUDIT_PATCHES=(
   "CREATE VIEW security_audit_verdict_severity_violations AS SELECT v.id AS verdict_id, v.session_id, v.current_severity AS verdict_severity, f.id AS finding_id, f.current_severity AS finding_severity, 'finding more severe than verdict' AS violation FROM security_audit_log_current v JOIN security_audit_log_current f ON f.session_id = v.session_id AND f.auditor = v.auditor AND f.id <> v.id AND f.category IS NOT 'audit-verdict' AND f.is_test_artifact = 0 WHERE v.category = 'audit-verdict' AND v.is_test_artifact = 0 AND v.id = (SELECT max(x.id) FROM security_audit_log x WHERE x.category = 'audit-verdict' AND x.session_id = v.session_id AND x.auditor = v.auditor) AND CASE lower(trim(f.current_severity)) WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3 WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END > COALESCE(CASE lower(trim(v.current_severity)) WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3 WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END, -1) UNION ALL SELECT v.id, NULL, v.current_severity, NULL, NULL, 'verdict without session_id (unlinkable)' FROM security_audit_log_current v WHERE v.category = 'audit-verdict' AND v.session_id IS NULL AND v.is_test_artifact = 0;"
 )
 
-apply_schema_patches_local() {
-  local db="$1" project_slug="${2:-}"
-  # Patches that apply to ALL DBs (company + project)
-  local common_patches=(
-    "ALTER TABLE disclosure_policies ADD COLUMN status          TEXT DEFAULT 'draft';"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_by    TEXT;"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
-    "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
-    "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
-    "ALTER TABLE decisions ADD COLUMN source_ref               TEXT;"
-    "ALTER TABLE agent_actions_log ADD COLUMN input_summary    TEXT;"
-    "ALTER TABLE agent_actions_log ADD COLUMN spec_id          INTEGER;"
-    "CREATE TRIGGER IF NOT EXISTS action_log_denied_requires_summary BEFORE INSERT ON agent_actions_log WHEN NEW.status = 'denied' BEGIN SELECT RAISE(ABORT,'agent_actions_log denied rows require input_summary — set it in pre-tool-use.sh') WHERE NEW.input_summary IS NULL OR trim(NEW.input_summary) = ''; END;"
-    "DROP TRIGGER IF EXISTS decisions_category_check_ins;"
-    "CREATE TRIGGER decisions_category_check_ins BEFORE INSERT ON decisions WHEN NEW.category IS NOT NULL BEGIN SELECT RAISE(ABORT,'decisions.category value not in canonical list — see JUVANT_OS.md schema reference') WHERE NEW.category NOT IN ('model-override','tool-matrix-change','pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec','eng-output-held','disclosure-unavailable','bootstrap-action','cascade-escalation','cascade-postmortem','skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec','arch-decision','operational-violation','kb-orphan-review','legal','product','business','system-audit','incident-response','security-remediation','accessibility-audit','aggregate-health-flag','analyst-briefing','backlog-transition','bank-unavailable','binding-confirmation','brand-advisory','brand-mode-ratification-routed','brand-spec','competitor-move','content-performance','content-published','cross-project-dependency','cross-project-release-coordination','cross-project-tech-debt','cso-audit-request','data-deletion-proposal','demo-conducted','deployment','design-debt','design-system-drift','direct-session','disclosure-audit','drift-audit','drift-finding','eng-finding','eng-work-completed','ethical-concern','ethical-opinion','ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate','knowledge-base-retraction','manifesto','mcp-install-confirmed','monthly-ranking','offboarding','offboarding-action','pipeline-outcome','pipeline-stage','prd-published','prd-retro','press-interaction','proposal-sent','release-published','research-output','research-published','roadmap-transition','spec-paused-cascade','spec-rejected','tech-exception','tech-standard','ux-research-published','versioning','weekly-engineering-report'); END;"
-    "DROP TRIGGER IF EXISTS decisions_category_check_upd;"
-    "CREATE TRIGGER decisions_category_check_upd BEFORE UPDATE ON decisions WHEN NEW.category IS NOT NULL AND NEW.category != OLD.category BEGIN SELECT RAISE(ABORT,'decisions.category value not in canonical list — see JUVANT_OS.md schema reference') WHERE NEW.category NOT IN ('model-override','tool-matrix-change','pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec','eng-output-held','disclosure-unavailable','bootstrap-action','cascade-escalation','cascade-postmortem','skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec','arch-decision','operational-violation','kb-orphan-review','legal','product','business','system-audit','incident-response','security-remediation','accessibility-audit','aggregate-health-flag','analyst-briefing','backlog-transition','bank-unavailable','binding-confirmation','brand-advisory','brand-mode-ratification-routed','brand-spec','competitor-move','content-performance','content-published','cross-project-dependency','cross-project-release-coordination','cross-project-tech-debt','cso-audit-request','data-deletion-proposal','demo-conducted','deployment','design-debt','design-system-drift','direct-session','disclosure-audit','drift-audit','drift-finding','eng-finding','eng-work-completed','ethical-concern','ethical-opinion','ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate','knowledge-base-retraction','manifesto','mcp-install-confirmed','monthly-ranking','offboarding','offboarding-action','pipeline-outcome','pipeline-stage','prd-published','prd-retro','press-interaction','proposal-sent','release-published','research-output','research-published','roadmap-transition','spec-paused-cascade','spec-rejected','tech-exception','tech-standard','ux-research-published','versioning','weekly-engineering-report'); END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_approved_requires_approver_ins BEFORE INSERT ON decisions WHEN NEW.status = 'approved' BEGIN SELECT RAISE(ABORT,'decisions status=approved requires approved_by and approved_at') WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL; END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_approved_requires_approver_upd BEFORE UPDATE ON decisions WHEN NEW.status = 'approved' AND OLD.status != 'approved' BEGIN SELECT RAISE(ABORT,'decisions status=approved requires approved_by and approved_at') WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL; END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_ins BEFORE INSERT ON decisions WHEN NEW.status = 'executed' AND NEW.category IN ('pr-spec','gh-issue-spec','deployment-spec','install-spec','eng-platform-spec','branch-protection-spec','release-spec','secret-rotation-spec') BEGIN SELECT RAISE(ABORT,'decisions status=executed requires executed_by, executed_at, and source_ref for spec categories') WHERE NEW.executed_by IS NULL OR NEW.executed_at IS NULL OR NEW.source_ref IS NULL; END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_upd BEFORE UPDATE ON decisions WHEN NEW.status = 'executed' AND OLD.status != 'executed' AND NEW.category IN ('pr-spec','gh-issue-spec','deployment-spec','install-spec','eng-platform-spec','branch-protection-spec','release-spec','secret-rotation-spec') BEGIN SELECT RAISE(ABORT,'decisions status=executed requires executed_by, executed_at, and source_ref for spec categories') WHERE NEW.executed_by IS NULL OR NEW.executed_at IS NULL OR NEW.source_ref IS NULL; END;"
-  )
-  # Patches that apply to COMPANY DB only (not project DBs)
-  local company_patches=(
-    "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
-    "ALTER TABLE decisions ADD COLUMN scope                     TEXT DEFAULT 'company';"
-    "ALTER TABLE decisions ADD COLUMN upstream_candidate        INTEGER DEFAULT 0;"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only BEFORE INSERT ON decisions WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only_upd BEFORE UPDATE ON decisions WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-    "ALTER TABLE knowledge_base ADD COLUMN scope TEXT DEFAULT 'company';"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only BEFORE INSERT ON knowledge_base WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-  )
-  for sql in "${common_patches[@]}" "${R5_AUDIT_PATCHES[@]}"; do
-    _run_patch_local "$db" "$sql"
-  done
-  if [[ -z "$project_slug" ]]; then
-    for sql in "${company_patches[@]}"; do
-      _run_patch_local "$db" "$sql"
-    done
-  fi
+# Patches that apply to ALL DBs (company + project)
+COMMON_PATCHES=(
+  "ALTER TABLE disclosure_policies ADD COLUMN status          TEXT DEFAULT 'draft';"
+  "ALTER TABLE disclosure_policies ADD COLUMN validated_by    TEXT;"
+  "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
+  "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
+  "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
+  "ALTER TABLE decisions ADD COLUMN source_ref               TEXT;"
+  "ALTER TABLE agent_actions_log ADD COLUMN input_summary    TEXT;"
+  "ALTER TABLE agent_actions_log ADD COLUMN spec_id          INTEGER;"
+  "CREATE TRIGGER IF NOT EXISTS action_log_denied_requires_summary BEFORE INSERT ON agent_actions_log WHEN NEW.status = 'denied' BEGIN SELECT RAISE(ABORT,'agent_actions_log denied rows require input_summary — set it in pre-tool-use.sh') WHERE NEW.input_summary IS NULL OR trim(NEW.input_summary) = ''; END;"
+  "DROP TRIGGER IF EXISTS decisions_category_check_ins;"
+  "CREATE TRIGGER decisions_category_check_ins BEFORE INSERT ON decisions WHEN NEW.category IS NOT NULL BEGIN SELECT RAISE(ABORT,'decisions.category value not in canonical list — see JUVANT_OS.md schema reference') WHERE NEW.category NOT IN ('model-override','tool-matrix-change','pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec','eng-output-held','disclosure-unavailable','bootstrap-action','cascade-escalation','cascade-postmortem','skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec','arch-decision','operational-violation','kb-orphan-review','legal','product','business','system-audit','incident-response','security-remediation','accessibility-audit','aggregate-health-flag','analyst-briefing','backlog-transition','bank-unavailable','binding-confirmation','brand-advisory','brand-mode-ratification-routed','brand-spec','competitor-move','content-performance','content-published','cross-project-dependency','cross-project-release-coordination','cross-project-tech-debt','cso-audit-request','data-deletion-proposal','demo-conducted','deployment','design-debt','design-system-drift','direct-session','disclosure-audit','drift-audit','drift-finding','eng-finding','eng-work-completed','ethical-concern','ethical-opinion','ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate','knowledge-base-retraction','manifesto','mcp-install-confirmed','monthly-ranking','offboarding','offboarding-action','pipeline-outcome','pipeline-stage','prd-published','prd-retro','press-interaction','proposal-sent','release-published','research-output','research-published','roadmap-transition','spec-paused-cascade','spec-rejected','tech-exception','tech-standard','ux-research-published','versioning','weekly-engineering-report'); END;"
+  "DROP TRIGGER IF EXISTS decisions_category_check_upd;"
+  "CREATE TRIGGER decisions_category_check_upd BEFORE UPDATE ON decisions WHEN NEW.category IS NOT NULL AND NEW.category != OLD.category BEGIN SELECT RAISE(ABORT,'decisions.category value not in canonical list — see JUVANT_OS.md schema reference') WHERE NEW.category NOT IN ('model-override','tool-matrix-change','pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec','eng-output-held','disclosure-unavailable','bootstrap-action','cascade-escalation','cascade-postmortem','skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec','arch-decision','operational-violation','kb-orphan-review','legal','product','business','system-audit','incident-response','security-remediation','accessibility-audit','aggregate-health-flag','analyst-briefing','backlog-transition','bank-unavailable','binding-confirmation','brand-advisory','brand-mode-ratification-routed','brand-spec','competitor-move','content-performance','content-published','cross-project-dependency','cross-project-release-coordination','cross-project-tech-debt','cso-audit-request','data-deletion-proposal','demo-conducted','deployment','design-debt','design-system-drift','direct-session','disclosure-audit','drift-audit','drift-finding','eng-finding','eng-work-completed','ethical-concern','ethical-opinion','ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate','knowledge-base-retraction','manifesto','mcp-install-confirmed','monthly-ranking','offboarding','offboarding-action','pipeline-outcome','pipeline-stage','prd-published','prd-retro','press-interaction','proposal-sent','release-published','research-output','research-published','roadmap-transition','spec-paused-cascade','spec-rejected','tech-exception','tech-standard','ux-research-published','versioning','weekly-engineering-report'); END;"
+  "CREATE TRIGGER IF NOT EXISTS decisions_approved_requires_approver_ins BEFORE INSERT ON decisions WHEN NEW.status = 'approved' BEGIN SELECT RAISE(ABORT,'decisions status=approved requires approved_by and approved_at') WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL; END;"
+  "CREATE TRIGGER IF NOT EXISTS decisions_approved_requires_approver_upd BEFORE UPDATE ON decisions WHEN NEW.status = 'approved' AND OLD.status != 'approved' BEGIN SELECT RAISE(ABORT,'decisions status=approved requires approved_by and approved_at') WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL; END;"
+  "CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_ins BEFORE INSERT ON decisions WHEN NEW.status = 'executed' AND NEW.category IN ('pr-spec','gh-issue-spec','deployment-spec','install-spec','eng-platform-spec','branch-protection-spec','release-spec','secret-rotation-spec') BEGIN SELECT RAISE(ABORT,'decisions status=executed requires executed_by, executed_at, and source_ref for spec categories') WHERE NEW.executed_by IS NULL OR NEW.executed_at IS NULL OR NEW.source_ref IS NULL; END;"
+  "CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_upd BEFORE UPDATE ON decisions WHEN NEW.status = 'executed' AND OLD.status != 'executed' AND NEW.category IN ('pr-spec','gh-issue-spec','deployment-spec','install-spec','eng-platform-spec','branch-protection-spec','release-spec','secret-rotation-spec') BEGIN SELECT RAISE(ABORT,'decisions status=executed requires executed_by, executed_at, and source_ref for spec categories') WHERE NEW.executed_by IS NULL OR NEW.executed_at IS NULL OR NEW.source_ref IS NULL; END;"
+)
+# Patches that apply to the COMPANY DB only (not project DBs)
+COMPANY_PATCHES=(
+  "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
+  "ALTER TABLE decisions ADD COLUMN scope                     TEXT DEFAULT 'company';"
+  "ALTER TABLE decisions ADD COLUMN upstream_candidate        INTEGER DEFAULT 0;"
+  "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only BEFORE INSERT ON decisions WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
+  "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only_upd BEFORE UPDATE ON decisions WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
+  "ALTER TABLE knowledge_base ADD COLUMN scope TEXT DEFAULT 'company';"
+  "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only BEFORE INSERT ON knowledge_base WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
+  "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
+)
+
+# _patch_list <project_slug> — every patch for this DB, in apply order.
+_patch_list() {
+  printf '%s\n' "${COMMON_PATCHES[@]}" "${R5_AUDIT_PATCHES[@]}"
+  [[ -n "${1:-}" ]] || printf '%s\n' "${COMPANY_PATCHES[@]}"
+}
+
+# Pre-schema pass: only the ADD COLUMN patches.
+apply_column_prepatches() {
+  local sql
+  while IFS= read -r sql; do
+    [[ "$sql" == "ALTER TABLE "*" ADD COLUMN "* ]] && _run_patch "$sql" 1
+  done < <(_patch_list "${1:-}")
+  return 0
+}
+
+apply_schema_patches() {
+  local sql
+  while IFS= read -r sql; do _run_patch "$sql"; done < <(_patch_list "${1:-}")
   if [[ "$MIGRATE_PATCH_WARNINGS" -gt 0 ]]; then
     printf 'WARN [migrate]: %d non-benign schema patch(es) failed (see above) — schema may be inconsistent (e.g. a trigger created without its prerequisite column). Inspect before use. (BUG-040)\n' "$MIGRATE_PATCH_WARNINGS" >&2
   fi
 }
 
-apply_schema_patches_turso() {
-  local url="$1" project_slug="${2:-}"
-  local common_patches=(
-    "ALTER TABLE disclosure_policies ADD COLUMN status          TEXT DEFAULT 'draft';"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_by    TEXT;"
-    "ALTER TABLE disclosure_policies ADD COLUMN validated_at    DATETIME;"
-    "ALTER TABLE disclosure_policies ADD COLUMN retired_at      DATETIME;"
-    "ALTER TABLE disclosure_policies ADD COLUMN ceo_approved_at DATETIME;"
-    "ALTER TABLE decisions ADD COLUMN source_ref               TEXT;"
-    "ALTER TABLE agent_actions_log ADD COLUMN input_summary    TEXT;"
-    "ALTER TABLE agent_actions_log ADD COLUMN spec_id          INTEGER;"
-    "CREATE TRIGGER IF NOT EXISTS action_log_denied_requires_summary BEFORE INSERT ON agent_actions_log WHEN NEW.status = 'denied' BEGIN SELECT RAISE(ABORT,'agent_actions_log denied rows require input_summary — set it in pre-tool-use.sh') WHERE NEW.input_summary IS NULL OR trim(NEW.input_summary) = ''; END;"
-    "DROP TRIGGER IF EXISTS decisions_category_check_ins;"
-    "CREATE TRIGGER decisions_category_check_ins BEFORE INSERT ON decisions WHEN NEW.category IS NOT NULL BEGIN SELECT RAISE(ABORT,'decisions.category value not in canonical list — see JUVANT_OS.md schema reference') WHERE NEW.category NOT IN ('model-override','tool-matrix-change','pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec','eng-output-held','disclosure-unavailable','bootstrap-action','cascade-escalation','cascade-postmortem','skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec','arch-decision','operational-violation','kb-orphan-review','legal','product','business','system-audit','incident-response','security-remediation','accessibility-audit','aggregate-health-flag','analyst-briefing','backlog-transition','bank-unavailable','binding-confirmation','brand-advisory','brand-mode-ratification-routed','brand-spec','competitor-move','content-performance','content-published','cross-project-dependency','cross-project-release-coordination','cross-project-tech-debt','cso-audit-request','data-deletion-proposal','demo-conducted','deployment','design-debt','design-system-drift','direct-session','disclosure-audit','drift-audit','drift-finding','eng-finding','eng-work-completed','ethical-concern','ethical-opinion','ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate','knowledge-base-retraction','manifesto','mcp-install-confirmed','monthly-ranking','offboarding','offboarding-action','pipeline-outcome','pipeline-stage','prd-published','prd-retro','press-interaction','proposal-sent','release-published','research-output','research-published','roadmap-transition','spec-paused-cascade','spec-rejected','tech-exception','tech-standard','ux-research-published','versioning','weekly-engineering-report'); END;"
-    "DROP TRIGGER IF EXISTS decisions_category_check_upd;"
-    "CREATE TRIGGER decisions_category_check_upd BEFORE UPDATE ON decisions WHEN NEW.category IS NOT NULL AND NEW.category != OLD.category BEGIN SELECT RAISE(ABORT,'decisions.category value not in canonical list — see JUVANT_OS.md schema reference') WHERE NEW.category NOT IN ('model-override','tool-matrix-change','pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec','eng-output-held','disclosure-unavailable','bootstrap-action','cascade-escalation','cascade-postmortem','skill-gap','migration-watch','upstream-sync-proposal','eng-platform-spec','arch-decision','operational-violation','kb-orphan-review','legal','product','business','system-audit','incident-response','security-remediation','accessibility-audit','aggregate-health-flag','analyst-briefing','backlog-transition','bank-unavailable','binding-confirmation','brand-advisory','brand-mode-ratification-routed','brand-spec','competitor-move','content-performance','content-published','cross-project-dependency','cross-project-release-coordination','cross-project-tech-debt','cso-audit-request','data-deletion-proposal','demo-conducted','deployment','design-debt','design-system-drift','direct-session','disclosure-audit','drift-audit','drift-finding','eng-finding','eng-work-completed','ethical-concern','ethical-opinion','ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate','knowledge-base-retraction','manifesto','mcp-install-confirmed','monthly-ranking','offboarding','offboarding-action','pipeline-outcome','pipeline-stage','prd-published','prd-retro','press-interaction','proposal-sent','release-published','research-output','research-published','roadmap-transition','spec-paused-cascade','spec-rejected','tech-exception','tech-standard','ux-research-published','versioning','weekly-engineering-report'); END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_approved_requires_approver_ins BEFORE INSERT ON decisions WHEN NEW.status = 'approved' BEGIN SELECT RAISE(ABORT,'decisions status=approved requires approved_by and approved_at') WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL; END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_approved_requires_approver_upd BEFORE UPDATE ON decisions WHEN NEW.status = 'approved' AND OLD.status != 'approved' BEGIN SELECT RAISE(ABORT,'decisions status=approved requires approved_by and approved_at') WHERE NEW.approved_by IS NULL OR NEW.approved_at IS NULL; END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_ins BEFORE INSERT ON decisions WHEN NEW.status = 'executed' AND NEW.category IN ('pr-spec','gh-issue-spec','deployment-spec','install-spec','eng-platform-spec','branch-protection-spec','release-spec','secret-rotation-spec') BEGIN SELECT RAISE(ABORT,'decisions status=executed requires executed_by, executed_at, and source_ref for spec categories') WHERE NEW.executed_by IS NULL OR NEW.executed_at IS NULL OR NEW.source_ref IS NULL; END;"
-    "CREATE TRIGGER IF NOT EXISTS decisions_executed_requires_executor_upd BEFORE UPDATE ON decisions WHEN NEW.status = 'executed' AND OLD.status != 'executed' AND NEW.category IN ('pr-spec','gh-issue-spec','deployment-spec','install-spec','eng-platform-spec','branch-protection-spec','release-spec','secret-rotation-spec') BEGIN SELECT RAISE(ABORT,'decisions status=executed requires executed_by, executed_at, and source_ref for spec categories') WHERE NEW.executed_by IS NULL OR NEW.executed_at IS NULL OR NEW.source_ref IS NULL; END;"
-  )
-  local company_patches=(
-    "ALTER TABLE projects ADD COLUMN maturity_status            TEXT DEFAULT 'incubation';"
-    "ALTER TABLE decisions ADD COLUMN scope                     TEXT DEFAULT 'company';"
-    "ALTER TABLE decisions ADD COLUMN upstream_candidate        INTEGER DEFAULT 0;"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only BEFORE INSERT ON decisions WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only_upd BEFORE UPDATE ON decisions WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-    "ALTER TABLE knowledge_base ADD COLUMN scope TEXT DEFAULT 'company';"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only BEFORE INSERT ON knowledge_base WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-    "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
-  )
-  for sql in "${common_patches[@]}" "${R5_AUDIT_PATCHES[@]}"; do
-    _run_patch_turso "$url" "$sql"
+# verify_schema <project_slug> — read back every table, trigger and view that
+# schema.sql + the patches create and every column the ADD COLUMN patches add.
+# Fails (non-zero) on anything missing: a CLI that exited 0 without applying
+# (expired turso auth) must not end in "Schema applied successfully".
+verify_schema() {
+  local expected=() actual sql missing=() e re_obj re_col
+  re_obj='^CREATE (TABLE|TRIGGER|VIEW) (IF NOT EXISTS )?([A-Za-z0-9_]+)'
+  re_col='^ALTER TABLE ([A-Za-z0-9_]+) ADD COLUMN +([A-Za-z0-9_]+)'
+  while IFS= read -r sql; do
+    if [[ "$sql" =~ $re_obj ]]; then
+      expected+=("$(tr '[:upper:]' '[:lower:]' <<<"${BASH_REMATCH[1]}"):${BASH_REMATCH[3]}")
+    fi
+  done < <(grep -E '^CREATE (TABLE|TRIGGER|VIEW) IF NOT EXISTS ' "$SCHEMA")
+  while IFS= read -r sql; do
+    if [[ "$sql" =~ $re_obj ]]; then
+      expected+=("$(tr '[:upper:]' '[:lower:]' <<<"${BASH_REMATCH[1]}"):${BASH_REMATCH[3]}")
+    elif [[ "$sql" =~ $re_col ]]; then
+      expected+=("column:${BASH_REMATCH[1]}.${BASH_REMATCH[2]}")
+    fi
+  done < <(_patch_list "${1:-}")
+  actual=$(_patch_sql "SELECT type || ':' || name FROM sqlite_master WHERE type IN ('table','trigger','view') UNION ALL SELECT 'column:' || m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table';" 2>&1 | tr -d ' \r\t') || true
+  for e in "${expected[@]}"; do
+    grep -qxF -- "$e" <<<"$actual" || missing+=("$e")
   done
-  if [[ -z "$project_slug" ]]; then
-    for sql in "${company_patches[@]}"; do
-      _run_patch_turso "$url" "$sql"
-    done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    printf 'ERROR [migrate]: schema verification failed — %d of %d expected objects are missing after the apply:\n' "${#missing[@]}" "${#expected[@]}" >&2
+    printf '  %s\n' "${missing[@]:0:15}" >&2
+    [[ ${#missing[@]} -gt 15 ]] && printf '  … and %d more\n' $(( ${#missing[@]} - 15 )) >&2
+    if [[ "$PATCH_PROVIDER" != "local" ]]; then
+      echo "  The turso CLI can exit 0 without applying anything — check 'turso auth whoami' (re-login with 'turso auth login') and re-run." >&2
+    fi
+    return 1
   fi
-  if [[ "$MIGRATE_PATCH_WARNINGS" -gt 0 ]]; then
-    printf 'WARN [migrate]: %d non-benign schema patch(es) failed (see above) — schema may be inconsistent (e.g. a trigger created without its prerequisite column). Inspect before use. (BUG-040)\n' "$MIGRATE_PATCH_WARNINGS" >&2
-  fi
+  echo "Verified: ${#expected[@]} tables, triggers, views and patched columns present."
 }
 
 # ─────────────────────────────────────────────
