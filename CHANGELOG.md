@@ -34,6 +34,32 @@ All written artifacts in English. No exceptions.
   **Adopter action:** run `bash scripts/migrate-secrets.sh` after syncing —
   with `alert_routing.required` set, sensitive-space ops are denied until the
   chat id is in the gated file.
+- **The scheduled guardrail jobs could be rewritten by agents and ran
+  whatever the working tree held** (BUG-089, juvant-os-pm#192; adopter
+  finding #160).
+  - **Denied for every role (Track 2f):** Write/Edit and Bash writes to
+    `~/Library/LaunchAgents/io.juvant.*` (and globs over them); `launchctl`
+    load / unload / bootstrap / bootout / enable / disable / kickstart / kill /
+    remove on an `io.juvant` job; any `crontab` write (only `crontab -l`
+    reads); `install-schedules.sh --uninstall`; writes to the pinned
+    checkout. Reads (`ls`, `cat`, `launchctl list|print`) stay allowed.
+    Previously a rewritten plist was only caught at the next SessionStart.
+  - **Jobs run a pinned, read-only checkout of `origin/main`**:
+    `helpers/install-schedules.sh` creates `.juvant/pinned-main` (a detached
+    git worktree of `refs/remotes/origin/main`, read with
+    `GIT_NO_REPLACE_OBJECTS=1`, `chmod a-w`, its `.juvant` a symlink to the
+    instance's state) and points every launchd plist / cron entry there, so a
+    branch checkout or an uncommitted edit no longer changes the code the
+    jobs execute. Each install refreshes the pin; SessionStart says when it is
+    behind `origin/main`; the integrity check regenerates plists without
+    touching git (`JUVANT_SCHED_GENERATE_ONLY=1`). `JUVANT_SCHED_PINNED=0`
+    keeps the old working-tree mode.
+  - **Adopter action:** after syncing, the CEO runs
+    `bash helpers/install-schedules.sh` from their own terminal (it needs
+    `refs/remotes/origin/main`), and again after every merged sync that
+    changes `helpers/`, `hooks/` or `scripts/` (the Upstream sync procedure
+    now says so). Add `.juvant/pinned-main/` to the instance `.gitignore` (the
+    installer also adds it to `.git/info/exclude`).
 
 ## [1.14.4] — 2026-10-29 — Audit views protected; stale approval defaults rebuilt
 

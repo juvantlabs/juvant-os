@@ -1135,6 +1135,43 @@ _t2fb() {
   rsn=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
   if [[ "$rsn" == *"Track 2f"* ]]; then echo "yes"; else echo "no"; fi
 }
+# BUG-089 (juvant-os-pm#192): the scheduled guardrail jobs — plists, launchctl,
+# crontab, uninstall, and the pinned checkout of main they run.
+t_assert "2f BUG-089: Write a guardrail plist (abs path) → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"/Users/x/Library/LaunchAgents/io.juvant.guardrails.drain-audit-spool.plist","content":"x"}}')"
+t_assert "2f BUG-089: Edit a file in the pinned checkout → deny" "yes" \
+  "$(_t2f 0 '{"tool_name":"Edit","session_id":"s","tool_input":{"file_path":".juvant/pinned-main/helpers/anomaly-check.sh","old_string":"a","new_string":"b"}}')"
+t_assert "2f BUG-089: Write an unrelated LaunchAgents plist → not 2f" "no" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"/Users/x/Library/LaunchAgents/com.example.other.plist","content":"x"}}')"
+for _c in \
+  'cp /tmp/x.plist ~/Library/LaunchAgents/io.juvant.guardrails.anomaly-check.plist' \
+  'plutil -replace ProgramArguments -json "[]" "$HOME/Library/LaunchAgents/io.juvant.guardrails.drain-audit-spool.plist"' \
+  'rm ~/Library/LaunchAgents/io.juvant.*' \
+  'sed -i "" s/a/b/ ~/Library/LaunchAgents/io.juvant.guardrails.cso-weekly-audit.plist' \
+  'launchctl bootout gui/501/io.juvant.guardrails.drain-audit-spool' \
+  'launchctl unload ~/Library/LaunchAgents/io.juvant.guardrails.anomaly-check.plist' \
+  'launchctl disable gui/501/io.juvant.guardrails.cso-weekly-audit' \
+  'launchctl kickstart -k gui/501/io.juvant.guardrails.audit-reconcile' \
+  'crontab /tmp/evil.cron' \
+  'crontab -r' \
+  'crontab -l | grep -v JUVANT | crontab -' \
+  'bash helpers/install-schedules.sh --uninstall' \
+  'echo x >> .juvant/pinned-main/helpers/drain-audit-spool.sh' \
+  'chmod -R u+w .juvant/pinned-main'; do
+  t_assert "2f BUG-089: Bash deny — $_c" "yes" "$(_t2fb "$_c")"
+done
+for _c in \
+  'ls -l ~/Library/LaunchAgents/' \
+  'cat ~/Library/LaunchAgents/io.juvant.guardrails.anomaly-check.plist' \
+  'launchctl list' \
+  'launchctl print gui/501/io.juvant.guardrails.drain-audit-spool' \
+  'crontab -l' \
+  'bash helpers/install-schedules.sh' \
+  'launchctl bootout gui/501/com.example.other' \
+  'git -C .juvant/pinned-main log -1'; do
+  t_assert "2f BUG-089: Bash allow — $_c" "no" "$(_t2fb "$_c")"
+done
+
 for _c in \
   'git checkout HEAD~3 -- hooks/pre-tool-use.sh' \
   'git restore hooks/bash-policy.json' \

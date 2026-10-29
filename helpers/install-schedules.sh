@@ -63,6 +63,57 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ACTION="${1:-install}"
 
+# BUG-089 (juvant-os-pm#192): the jobs run a PINNED, read-only checkout of
+# origin/main — `.juvant/pinned-main`, a detached git worktree — not the
+# instance working tree, so a branch checkout or an uncommitted edit never
+# changes the code the guardrail jobs execute. Its `.juvant` is a symlink to
+# the instance's, so config, secrets, spool, logs and backups stay where they
+# are; only the CODE is pinned. Every install refreshes it to the current
+# refs/remotes/origin/main (GIT_NO_REPLACE_OBJECTS=1, as the policy is read):
+# re-run this installer after each upstream sync is merged (SessionStart says
+# when the pin is behind). Track 2f protects the pinned tree and the plists.
+#   JUVANT_SCHED_PINNED=0         run from the working tree (old behaviour)
+#   JUVANT_SCHED_GENERATE_ONLY=1  (integrity check) emit the plists for the
+#                                 mode already installed; never touch git
+PINNED_DIR="$REPO_ROOT/.juvant/pinned-main"
+CODE_ROOT="$REPO_ROOT"
+_pinned_wanted() {
+  if [[ "${JUVANT_SCHED_GENERATE_ONLY:-0}" == "1" ]]; then [[ -d "$PINNED_DIR" ]]
+  else [[ "${JUVANT_SCHED_PINNED:-1}" == "1" ]]; fi
+}
+_pinned_rw() { [[ -e "$PINNED_DIR" ]] && find "$PINNED_DIR" -path "$PINNED_DIR/.juvant" -prune -o -exec chmod u+w {} + 2>/dev/null; return 0; }
+_pinned_remove() {
+  [[ -e "$PINNED_DIR" || -L "$PINNED_DIR" ]] || return 0
+  _pinned_rw
+  git -C "$REPO_ROOT" worktree remove --force "$PINNED_DIR" >/dev/null 2>&1 || rm -rf "$PINNED_DIR"
+  git -C "$REPO_ROOT" worktree prune >/dev/null 2>&1 || true
+}
+_pinned_refresh() {
+  local ref="refs/remotes/origin/main" exclude
+  if ! GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_ROOT" rev-parse -q --verify "${ref}^{commit}" >/dev/null 2>&1; then
+    echo "[install-schedules] FATAL: no ${ref} in $REPO_ROOT — run 'git fetch origin' first, or JUVANT_SCHED_PINNED=0 to run the jobs from the working tree." >&2
+    exit 1
+  fi
+  _pinned_remove
+  mkdir -p "$(dirname "$PINNED_DIR")"
+  GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_ROOT" worktree add --detach -q "$PINNED_DIR" "$ref"
+  ln -s "$REPO_ROOT/.juvant" "$PINNED_DIR/.juvant"
+  # Keep the nested worktree out of the instance's `git status`.
+  exclude="$(git -C "$REPO_ROOT" rev-parse --git-common-dir)/info/exclude"
+  [[ "$exclude" == /* ]] || exclude="$REPO_ROOT/$exclude"
+  mkdir -p "$(dirname "$exclude")"
+  grep -qxF '.juvant/pinned-main/' "$exclude" 2>/dev/null || echo '.juvant/pinned-main/' >> "$exclude"
+  find "$PINNED_DIR" -path "$PINNED_DIR/.juvant" -prune -o -exec chmod a-w {} +
+  echo "[install-schedules] pinned checkout: $PINNED_DIR @ $(git -C "$PINNED_DIR" rev-parse --short HEAD) (origin/main, read-only)"
+}
+case "$ACTION" in
+  install|--install)
+    if _pinned_wanted; then
+      [[ "${JUVANT_SCHED_GENERATE_ONLY:-0}" == "1" ]] || _pinned_refresh
+      CODE_ROOT="$PINNED_DIR"
+    fi ;;
+esac
+
 OS=$(uname -s)
 
 case "$OS" in
@@ -167,7 +218,7 @@ case "$OS" in
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/turso-backup.sh</string>
+    <string>${CODE_ROOT}/helpers/turso-backup.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -195,7 +246,7 @@ PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/audit-reconcile.sh</string>
+    <string>${CODE_ROOT}/helpers/audit-reconcile.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -226,7 +277,7 @@ PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/scripts/governance-backfill.sh</string>
+    <string>${CODE_ROOT}/scripts/governance-backfill.sh</string>
     <string>--dry-run</string>
     <string>--all</string>
   </array>
@@ -257,7 +308,7 @@ PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/anomaly-check.sh</string>
+    <string>${CODE_ROOT}/helpers/anomaly-check.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -281,7 +332,7 @@ PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/morning-brief.sh</string>
+    <string>${CODE_ROOT}/helpers/morning-brief.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -309,7 +360,7 @@ PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/cso-weekly-audit.sh</string>
+    <string>${CODE_ROOT}/helpers/cso-weekly-audit.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -341,7 +392,7 @@ PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/drain-audit-spool.sh</string>
+    <string>${CODE_ROOT}/helpers/drain-audit-spool.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -368,7 +419,7 @@ PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>${REPO_ROOT}/helpers/drain-outbox.sh</string>
+    <string>${CODE_ROOT}/helpers/drain-outbox.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -423,6 +474,7 @@ PLIST
           rm -f "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] removed ${PREFIX}.${label}"
         done
+        _pinned_remove
         echo "[install-schedules] OK — Mac launchd schedules uninstalled."
         ;;
 
@@ -442,14 +494,14 @@ PLIST
         TMP=$(mktemp)
         crontab -l 2>/dev/null | grep -v "$CRON_TAG" > "$TMP" || true
         cat >> "$TMP" <<CRON
-0 3 * * *    /bin/bash ${REPO_ROOT}/helpers/turso-backup.sh         >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1          $CRON_TAG
-0 3 * * 6    /bin/bash ${REPO_ROOT}/helpers/audit-reconcile.sh    >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1       $CRON_TAG
-0 4 1 * *    /bin/bash ${REPO_ROOT}/scripts/governance-backfill.sh --dry-run --all >> ${REPO_ROOT}/.juvant/logs/governance-backfill.log 2>&1 $CRON_TAG
-*/15 * * * * /bin/bash ${REPO_ROOT}/helpers/anomaly-check.sh      >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1         $CRON_TAG
-0 8 * * *    /bin/bash ${REPO_ROOT}/helpers/morning-brief.sh      >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1         $CRON_TAG
-0 22 * * 0   /bin/bash ${REPO_ROOT}/helpers/cso-weekly-audit.sh   >> ${REPO_ROOT}/.juvant/logs/cso-weekly-audit.log 2>&1      $CRON_TAG
-*/5 * * * *  /bin/bash ${REPO_ROOT}/helpers/drain-audit-spool.sh  >> ${REPO_ROOT}/.juvant/logs/drain-audit-spool.log 2>&1     $CRON_TAG
-*/15 * * * * /bin/bash ${REPO_ROOT}/helpers/drain-outbox.sh       >> ${REPO_ROOT}/.juvant/logs/drain-outbox.log 2>&1          $CRON_TAG
+0 3 * * *    /bin/bash ${CODE_ROOT}/helpers/turso-backup.sh         >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1          $CRON_TAG
+0 3 * * 6    /bin/bash ${CODE_ROOT}/helpers/audit-reconcile.sh    >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1       $CRON_TAG
+0 4 1 * *    /bin/bash ${CODE_ROOT}/scripts/governance-backfill.sh --dry-run --all >> ${REPO_ROOT}/.juvant/logs/governance-backfill.log 2>&1 $CRON_TAG
+*/15 * * * * /bin/bash ${CODE_ROOT}/helpers/anomaly-check.sh      >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1         $CRON_TAG
+0 8 * * *    /bin/bash ${CODE_ROOT}/helpers/morning-brief.sh      >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1         $CRON_TAG
+0 22 * * 0   /bin/bash ${CODE_ROOT}/helpers/cso-weekly-audit.sh   >> ${REPO_ROOT}/.juvant/logs/cso-weekly-audit.log 2>&1      $CRON_TAG
+*/5 * * * *  /bin/bash ${CODE_ROOT}/helpers/drain-audit-spool.sh  >> ${REPO_ROOT}/.juvant/logs/drain-audit-spool.log 2>&1     $CRON_TAG
+*/15 * * * * /bin/bash ${CODE_ROOT}/helpers/drain-outbox.sh       >> ${REPO_ROOT}/.juvant/logs/drain-outbox.log 2>&1          $CRON_TAG
 CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
@@ -462,6 +514,7 @@ CRON
         crontab -l 2>/dev/null | grep -v "$CRON_TAG" > "$TMP" || true
         crontab "$TMP"
         rm -f "$TMP"
+        _pinned_remove
         echo "[install-schedules] OK — Linux cron entries removed."
         ;;
     esac

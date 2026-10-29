@@ -1867,7 +1867,7 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       _gr_tgt_rel="${_gr_tgt#"$(cd "$SCRIPT_DIR/.." && pwd)"/}"
       if _gr_is_path "$_gr_tgt_rel"; then
         DECISION="deny"
-        DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064, decisions#303): $TOOL_NAME to '$_gr_tgt' is denied in a deployed instance — gate scripts, bash-policy.json, helpers/, scripts/, the audit spool and its backups change via upstream sync or their own helper process, not live agent edits. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+        DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064, decisions#303): $TOOL_NAME to '$_gr_tgt' is denied in a deployed instance — gate scripts, bash-policy.json, helpers/, scripts/, the audit spool and its backups, the guardrail launchd plists and the pinned checkout of main change via upstream sync, helpers/install-schedules.sh or their own helper process, not live agent edits. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
       fi
     else
       # Bash (decisions#300 item 4, security_audit_log#148b). The original
@@ -2111,13 +2111,30 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
 
       if [[ "$_gr_cmd" == *hooks* || "$_gr_cmd" == *bash-policy* || "$_gr_cmd" == *helpers* \
             || "$_gr_cmd" == *scripts* || "$_gr_cmd" == *.juvant* || "$_gr_cmd" == *audit-spool* \
-            || "$_gr_cmd" == *git* || "$_gr_cmd" == *security* ]]; then
+            || "$_gr_cmd" == *git* || "$_gr_cmd" == *security* || "$_gr_cmd" == *LaunchAgents* \
+            || "$_gr_cmd" == *launchctl* || "$_gr_cmd" == *crontab* || "$_gr_cmd" == *pinned-main* ]]; then
         _gr_interp_re='(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua|eval)([[:space:]]|$)|(^|[^A-Za-z0-9_.-])(bash|sh|zsh|dash|ksh)[[:space:]]+-[A-Za-z]*c'
         # Heredoc `<<` (not a `<<<` here-string, which only feeds stdin).
         _gr_heredoc_re='(^|[^<])<<-?[^<]'
+        # BUG-089: the scheduled guardrail jobs. launchctl verbs that load,
+        # unload, (re)start or disable an io.juvant job (by label or plist),
+        # any crontab write (only `crontab -l` reads), and uninstalling the
+        # schedules are the CEO's, from their own terminal.
+        _gr_lc_re='(^|[;&|(`[:space:]])launchctl[[:space:]]+(load|unload|bootstrap|bootout|enable|disable|kickstart|kill|remove|submit|start|stop)([[:space:]]|$)'
+        _gr_ct_re='(^|[;&|(`[:space:]])crontab([[:space:]]|$)'
+        _gr_ct_ro_re='(^|[;&|(`[:space:]])crontab[[:space:]]+-l[[:space:]]*($|[;&|)])'   # each read-only use is removed first
+        _gr_uninst_re='install-schedules\.sh[^;&|]*(--)?uninstall'
         # SC2016: '$(' and '`' are literal metacharacters to look for.
         # shellcheck disable=SC2016
-        if _gr_raw_ref "$_gr_cmd" && { [[ "$_gr_cmd" =~ $_gr_interp_re ]] || [[ "$_gr_cmd" =~ $_gr_heredoc_re ]] || [[ "$_gr_cmd" == *'$('* || "$_gr_cmd" == *'`'* ]]; }; then
+        if [[ "$_gr_cmd" =~ $_gr_lc_re ]] && [[ "$_gr_cmd" == *io.juvant* || "$_gr_cmd" == *LaunchAgents* ]]; then
+          _GR_DENY_WHY="launchctl ${BASH_REMATCH[2]} on a guardrail launchd job (io.juvant.*) — the scheduled guardrails are loaded only by helpers/install-schedules.sh, run by the CEO"
+        elif _gr_ct_rest="$_gr_cmd" \
+             && while [[ "$_gr_ct_rest" =~ $_gr_ct_ro_re ]]; do _gr_ct_rest="${_gr_ct_rest/"${BASH_REMATCH[0]}"/ ; }"; done \
+             && [[ "$_gr_ct_rest" =~ $_gr_ct_re ]]; then
+          _GR_DENY_WHY="crontab write (only 'crontab -l' is allowed) — the scheduled guardrails are installed only by helpers/install-schedules.sh, run by the CEO"
+        elif [[ "$_gr_cmd" =~ $_gr_uninst_re ]]; then
+          _GR_DENY_WHY="uninstalling the scheduled guardrail jobs"
+        elif _gr_raw_ref "$_gr_cmd" && { [[ "$_gr_cmd" =~ $_gr_interp_re ]] || [[ "$_gr_cmd" =~ $_gr_heredoc_re ]] || [[ "$_gr_cmd" == *'$('* || "$_gr_cmd" == *'`'* ]]; }; then
           _GR_DENY_WHY="interpreter / inline code / command substitution / heredoc in a command that references a guardrail file"
         elif _gr_scan_bash "$_gr_cmd"; then
           :

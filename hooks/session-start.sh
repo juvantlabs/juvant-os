@@ -93,6 +93,16 @@ if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
      && [[ -f "$_SP_CFG" ]] && jq -e '(.shared_mailboxes.by_agent // null) | type == "object"' "$_SP_CFG" >/dev/null 2>&1; then
     echo "NOTICE (BUG-083): the shared-mailbox rules (Track 2g) are still read from .juvant/config.json, which any agent with Write/Edit can change to switch the gate off. Move the shared_mailboxes block into security/policy.json via a reviewed PR to main (validate with scripts/validate-security-policy.sh); the config location is removed in the next minor version."
   fi
+  # BUG-089: the scheduled guardrail jobs run the pinned checkout of main —
+  # say so when it is behind origin/main (a merged sync the jobs don't run yet).
+  _PIN_DIR="$REPO_ROOT/.juvant/pinned-main"
+  if [[ -d "$_PIN_DIR" ]]; then
+    _PIN_HEAD=$(git -C "$_PIN_DIR" rev-parse HEAD 2>/dev/null || echo "")
+    _PIN_MAIN=$(GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO_ROOT" rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null || echo "")
+    if [[ -n "$_PIN_MAIN" && "$_PIN_HEAD" != "$_PIN_MAIN" ]]; then
+      echo "NOTICE (BUG-089): the scheduled guardrail jobs run the pinned checkout ${_PIN_HEAD:0:12}, which is behind origin/main (${_PIN_MAIN:0:12}). Ask the CEO to re-run 'bash helpers/install-schedules.sh' from their own terminal to move the jobs to the merged code."
+    fi
+  fi
   if [[ -n "$_SP_ROW" && -n "$JUVANT_DB_PROVIDER" ]]; then
     _SP_ROW_ESC=$(printf '%s' "$_SP_ROW" | LC_ALL=C sed "s/'/''/g")
     # Not spooled (decisions#303 R3 executes only allowlisted spool shapes);
