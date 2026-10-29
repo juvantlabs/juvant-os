@@ -5058,6 +5058,7 @@ tests/schema/test-audit-immutability.sh
 tests/schema/test-category-allowlist.py
 tests/migrate/test-dry-run-no-write.sh
 tests/migrate/test-schema-apply-order.sh
+tests/migrate/test-rebuild-defaults.sh
 tests/migrate/test-v07-to-v08-agents.sh
 ```
 
