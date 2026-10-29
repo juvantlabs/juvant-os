@@ -83,6 +83,16 @@ t_db() {
   sqlite3 "$TEST_DB" "$1"
 }
 
+# t_purge <table> [where] — truncate an append-only audit table in this
+# disposable fixture DB. security_audit_log / agent_actions_log / decisions
+# reject DELETE at the DB level (R5b, decisions#303/#308), so the guard is lifted
+# for the delete and its exact trigger text restored in the same sqlite3 call.
+t_purge() {
+  local _t="$1" _w="${2:-}" _ddl
+  _ddl=$(sqlite3 "$TEST_DB" "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='${_t}_no_delete';")
+  sqlite3 "$TEST_DB" "DROP TRIGGER IF EXISTS ${_t}_no_delete; DELETE FROM ${_t}${_w:+ WHERE $_w}; ${_ddl:+$_ddl;}"
+}
+
 t_reset_agents() {
   t_db "DELETE FROM agents;"
 }
@@ -162,7 +172,7 @@ t_assert "ended_at populated" "true" "$([[ -n "$ended" ]] && echo true || echo f
 # instrumenting the `turso` CLI would count zero round-trips and assert
 # nothing. What is being tested — one round-trip carrying all three counts —
 # is unchanged.
-t_db "DELETE FROM messages; DELETE FROM inbound_queue; DELETE FROM decisions;"
+t_db "DELETE FROM messages; DELETE FROM inbound_queue;"; t_purge decisions
 # Seed observable unsaved work: 2 pending queue, 1 proposed decision, 1 unread CEO.
 t_db "INSERT INTO inbound_queue (counterparty_id, agent_owner, content, confidence, status)
       VALUES ('cp1','cos','x','unknown','pending'),('cp2','cos','y','unknown','pending');"
@@ -238,7 +248,7 @@ suite "pre-tool-use.sh"
 t_reset_agents
 t_seed_agent "cco" "active"
 t_seed_agent "eng-frontend" "active"
-t_db "DELETE FROM agent_actions_log;"
+t_purge agent_actions_log
 t_db "DELETE FROM messages;"
 
 # 1. Universal deny (rm -rf /).
@@ -594,7 +604,7 @@ esac
 # ─────────────────────────────────────────────
 suite "ADR-0029: JUVANT_EXECUTING_SPEC → spec_id stamp"
 
-t_db "DELETE FROM agent_actions_log;"
+t_purge agent_actions_log
 rm -f "$JUVANT_SPOOL"
 event_json='{"tool_name":"Bash","session_id":"sess-0029","tool_input":{"command":"JUVANT_EXECUTING_SPEC=42 git status"}}'
 echo "$event_json" | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
@@ -616,7 +626,7 @@ t_assert "ADR-0029: no prefix → spec_id NULL" "" \
 # ─────────────────────────────────────────────
 suite "decisions#298: audit row started_at is action time, not drain time"
 
-t_db "DELETE FROM agent_actions_log;"
+t_purge agent_actions_log
 rm -f "$JUVANT_SPOOL"
 echo '{"tool_name":"Bash","session_id":"sess-298ts","tool_input":{"command":"git status"}}' \
   | AGENT_ROLE=cos bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
@@ -646,7 +656,7 @@ _t4() {  # $1=db_file_override  -> full hook JSON for eng-platform + a gated db-
   jq -nc --arg c "$T4_CMD" '{tool_name:"Bash",session_id:"s-t4",agent_type:"eng-platform",tool_input:{command:$c}}' \
     | JUVANT_TEST_DB_FILE="$1" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null
 }
-t_db "DELETE FROM decisions;"
+t_purge decisions
 # Reachable, no approved spec → fail-closed with the missing-spec message.
 out=$(_t4 "$TEST_DB")
 t_assert "no spec → deny" "deny" "$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')"
@@ -665,7 +675,7 @@ esac
 t_db "INSERT INTO decisions (agent,title,category,status,approved_by,approved_at,created_at)
       VALUES ('eng-platform','schema bump','install-spec','approved','ceo',datetime('now'),datetime('now'));"
 t_assert "approved spec present → allow" "allow" "$(_t4 "$TEST_DB" | jq -r '.hookSpecificOutput.permissionDecision')"
-t_db "DELETE FROM decisions;"
+t_purge decisions
 
 # ─────────────────────────────────────────────
 # post-tool-use-failure.sh — ROLE derivation parity (audit plumbing)
@@ -678,7 +688,7 @@ t_db "DELETE FROM decisions;"
 # which ignored .agent_type.
 suite "post-tool-use-failure.sh (ROLE parity)"
 
-t_db "DELETE FROM agent_actions_log;"
+t_purge agent_actions_log
 # Seed a pending row exactly as pre-tool-use would for a subagent whose
 # event carries agent_type='cfo' (NOT exported as AGENT_ROLE in the env).
 ptf_event='{"session_id":"sess-ptf","tool_name":"Bash","tool_input":{"command":"terraform apply"},"agent_type":"cfo"}'
@@ -759,7 +769,7 @@ t_assert "'one' was applied exactly once across both drains" "1" \
 # row and any already-finalized row must be left untouched.
 suite "drain-audit-spool.sh (BUG-052 orphaned-pending reconcile)"
 
-t_db "DELETE FROM agent_actions_log;"
+t_purge agent_actions_log
 # old orphan (2h): async tool whose PostToolUse never fired
 t_db "INSERT INTO agent_actions_log (session_id,agent,tool_name,args_hash,status,started_at)
       VALUES ('s-old','cos','SendMessage','h1','pending', datetime('now','-2 hours'));"
@@ -1316,7 +1326,7 @@ _t2g() {
   elif [[ "$rsn" == *"MAILBOX-ACCESS POLICY"* ]]; then echo "deny:k2"
   else echo "deny:other"; fi
 }
-_t2g_audit_reset() { t_db "DELETE FROM security_audit_log;"; rm -f "$JUVANT_SPOOL"; }
+_t2g_audit_reset() { t_purge security_audit_log; rm -f "$JUVANT_SPOOL"; }
 _t2g_audit() { bash "$ROOT_DIR/helpers/drain-audit-spool.sh" >/dev/null 2>&1 || true; t_db "$1"; }
 
 C="$_T2G_CFG_DEFAULT"
@@ -1386,7 +1396,7 @@ rm -rf "$_T2G_DIR"
 # ─────────────────────────────────────────────
 suite "config-change.sh (FEAT-062)"
 
-t_db "DELETE FROM agent_actions_log WHERE tool_name='ConfigChange';"
+t_purge agent_actions_log "tool_name='ConfigChange'"
 cc_event=$(jq -n '{session_id:"sess-cc-1", hook_event_name:"ConfigChange", source:"project_settings", file_path:"/repo/.claude/settings.json"}')
 echo "$cc_event" | bash "$HOOKS_DIR/config-change.sh" 2>/dev/null
 t_assert "ConfigChange hook exits 0 (non-blocking)" "0" "$?"

@@ -120,7 +120,9 @@ injection_rows() { sq "SELECT COUNT(*) FROM security_audit_log WHERE category='s
 legit() { # session n
   printf "INSERT INTO agent_actions_log (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at) VALUES ('%s', 'cos', 'Bash', '%064x', 'pending', NULL, 'cmd %s', '2026-10-28 10:00:0%s');" "$1" "$2" "$2" "$2"
 }
-PLANT="INSERT INTO decisions (agent, title, category, status, approved_by, approved_at, created_at) VALUES ('cos', 'planted approval', 'pr-spec', 'approved', 'ceo', '2026-10-28 10:00:00', '2026-10-28 10:00:00');"
+# No typed created_at: the R5b DB-clock trigger would reject that on its own,
+# and the control below must prove the planted approval is otherwise effective.
+PLANT="INSERT INTO decisions (agent, title, category, status, approved_by, approved_at) VALUES ('cos', 'planted approval', 'pr-spec', 'approved', 'ceo', '2026-10-28 10:00:00');"
 
 DEADPID=$( (sleep 0 & echo $!) ); wait 2>/dev/null
 while kill -0 "$DEADPID" 2>/dev/null; do DEADPID=$(( DEADPID + 7919 )); done

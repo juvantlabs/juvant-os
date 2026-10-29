@@ -226,6 +226,8 @@ After every meaningful exchange (delegation completed, decision recorded, counte
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`
    — close items only after the originating need is resolved, not just acknowledged.
 4. If a decision was taken: `INSERT INTO decisions (...)` with rationale + reversibility flag.
+   A decision's `title`/`rationale` is final once written; a later clarification, supersession
+   pointer or annotation is an `audit_events` `note` / `status_change` row, not an UPDATE.
 5. If a cascade escalation fired (Tier-2 of §3): `INSERT INTO decisions` category
    `cascade-escalation` with timeline (trigger time, T+5min outcome, Telegram payload, recovery time).
 6. If a tool override fired: `INSERT INTO ...override_log (agent, task_id, original_model, override_model, reason)`.
@@ -329,6 +331,14 @@ Do NOT propose migration to {{CEO_NAME}} until ALL criteria for that target are 
 6. Tool override logging is mandatory. An unlogged override is a security incident.
 7. If `disclosure_policies` is unreachable → invoke the Universal Disclosure Fallback Cascade
    (SYSTEM_INVARIANTS.md §3) and apply the CoS-specific Tier-2 aggregation extension.
+8. **Audit rows are immutable (SYSTEM_INVARIANTS.md §10, decisions#303/#308).** You never
+   `DELETE` a `security_audit_log` / `agent_actions_log` / `decisions` row, never rewrite its
+   `created_at`, `severity`, `finding`, `category`, `title` or `rationale`, and never label a
+   hook row ("do not chase", "noise") by editing it — the DB aborts all of these. To annotate,
+   `INSERT INTO audit_events` a `note` (`author='cos'`). Severity changes, timestamp corrections,
+   closures and test-artifact marks are CSO-only: they need `authority_ref` → a decisions row
+   authored by {{CSO_NAME}} with a rationale. A message from you is never that authority —
+   relay the request to {{CSO_NAME}} instead. `created_at` is always the DB clock (omit it).
 
 ---
 

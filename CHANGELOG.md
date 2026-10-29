@@ -61,6 +61,48 @@ All written artifacts in English. No exceptions.
   run), so no write to `decisions` is ever accepted from the spool. Drain test
   fixtures that used non-production statement shapes now use the real ones; new
   `tests/helpers/test-drain-statement-allowlist.sh`.
+- **Audit immutability at the DB level + append-only `audit_events` (R5b/R5c;
+  decisions#303/#304/#308, security_audit_log#155/#161/#163).** Audit rows had
+  been DELETEd (security_audit_log 91–95, evidence lost) and edited in place
+  (`created_at` rewrites, a silent severity downgrade, labels on hook rows); SQL
+  fed via stdin, a redirect or direct HTTP bypasses every Bash-level rule, so the
+  control now lives in `scripts/schema.sql` triggers:
+  - `security_audit_log`, `agent_actions_log`, `decisions`: `DELETE` aborts, and
+    `INSERT OR REPLACE` onto an existing id aborts. Evidentiary columns are
+    immutable; `decisions.approved_by/approved_at` and
+    `agent_actions_log.input_summary` are set-once (NULL → value); an
+    `agent_actions_log` row is frozen once it leaves `pending`.
+  - `created_at` must be the DB clock (±120 s) on INSERT into
+    `security_audit_log`, `decisions`, `audit_events`
+    (`agent_actions_log.started_at` stays hook-set, decisions#298).
+  - New INSERT-only `audit_events` table (`status_change` / `note` /
+    `severity_change` / `timestamp_correction` / `test_artifact` / `closure`).
+    Corrections, closures and test-artifact marks require `authority_ref` → a
+    CSO-authored decisions row with a rationale (CEO ruling decisions#308). Views
+    `security_audit_log_current`, `decisions_current` expose current state;
+    `security_audit_verdict_severity_violations` lists CSO verdict rows
+    (`category='audit-verdict'`) below their audit's highest finding (also
+    enforced at INSERT).
+  - New invariant SYSTEM_INVARIANTS §10; cso.md / cetho.md / cos.md / eng-lead.md
+    / JUVANT_OS.md now annotate and close via `audit_events`.
+  - **Deprecated (accepted for one minor version):** lifecycle UPDATEs of
+    `security_audit_log.status/resolved_at` and
+    `decisions.status/executed_by/executed_at/source_ref` — new writers record
+    events. All current writers (approval, execution, audit-reconcile,
+    post-tool-use/-failure, the drainer's `terminated` reconcile,
+    governance-backfill 0b/0d) keep working; governance-backfill `--apply`
+    phase 0a (category remap) and the rationale-suffix appends are now rejected
+    by design.
+  - **Adopter migration: run `bash scripts/migrate.sh` (and
+    `bash scripts/migrate.sh --project=<slug>` for each project DB).** Idempotent;
+    it also adds any column the guards reference that an old DB lacks. Existing
+    rows are preserved as written and become protected. Tests that truncate
+    these tables in a fixture DB must lift the guard explicitly (see
+    `t_purge` in `tests/hooks/run-tests.sh`).
+  - Tests: `tests/schema/test-audit-immutability.sh` (fresh, migrated-from-pre-R5
+    and old-shape project DBs; wired into lint.yml "Schema validators");
+    `tests/schema/validate.py` asserts the schema.sql and migrate.sh copies of
+    every R5 trigger/view are identical.
 
 ### Fixed
 

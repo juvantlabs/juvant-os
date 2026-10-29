@@ -70,7 +70,11 @@ DBFILE="$TMP/.juvant/state.db"
 CONFIG_PATH="$TMP/.juvant/config.json"
 
 sq(){ sqlite3 "$DBFILE" "$@"; }
-fresh_db(){ rm -f "$DBFILE"; sqlite3 "$DBFILE" < "$SCHEMA"; }
+# Fixture-only: seeds backdated decisions rows to simulate history; the R5b
+# DB-clock guard (decisions#303/#308) rightly rejects that, so it is dropped in
+# this disposable DB. Production DBs keep it.
+fresh_db(){ rm -f "$DBFILE"; sqlite3 "$DBFILE" < "$SCHEMA"
+  sqlite3 "$DBFILE" "DROP TRIGGER IF EXISTS decisions_created_at_db_clock;"; }
 
 write_cfg(){ # provider, url, [teams_ops_webhook]
   local prov="$1" url="$2" teams="${3:-}"

@@ -52,6 +52,8 @@ EXPECTED_TABLES = {
     "agent_token_usage", "model_pricing",
     # Portal
     "portal_offline_messages",
+    # R5c — append-only audit events (decisions#303/#308)
+    "audit_events",
 }
 
 EXPECTED_INDEXES = {
@@ -66,6 +68,7 @@ EXPECTED_INDEXES = {
     "idx_token_usage_session",
     "idx_outbox_drain",
     "idx_outbox_scope",
+    "idx_audit_events_target",
 }
 
 
@@ -288,6 +291,71 @@ check(
     "CSO-required categories present (system-audit/incident-response/security-remediation)",
     _required <= _canon,
     f"missing: {sorted(_required - _canon)}",
+)
+
+# ─────────────────────────────────────────────
+# R5b/R5c audit-immutability DDL consistency (decisions#303/#308). Every
+# trigger/view of the AUDIT IMMUTABILITY section of schema.sql must be
+# re-applied by migrate.sh's shared R5_AUDIT_PATCHES array (DROP+CREATE) with
+# an IDENTICAL body — otherwise an existing DB keeps a stale guard (or none),
+# the drift class BUG-055/BUG-063 already hit for the category allowlist.
+print("\n=== R5b/R5c audit-immutability DDL consistency (schema.sql ⇄ migrate.sh) ===")
+
+
+def _norm_sql(s: str) -> str:
+    s = "\n".join(re.sub(r"--.*$", "", ln) for ln in s.splitlines())
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"\s*([(),;=<>])\s*", r"\1", s)
+    return s.replace("IF NOT EXISTS ", "")
+
+
+def _r5_objects(text: str) -> dict[str, str]:
+    one = re.sub(r"\s+", " ", "\n".join(re.sub(r"--.*$", "", ln) for ln in text.splitlines()))
+    out: dict[str, str] = {}
+    for m in re.finditer(r"CREATE TRIGGER (?:IF NOT EXISTS )?(\w+) (.*? END;)", one):
+        out[m.group(1)] = _norm_sql(f"CREATE TRIGGER {m.group(1)} {m.group(2)}")
+    for m in re.finditer(r"CREATE VIEW (?:IF NOT EXISTS )?(\w+) (AS .*?;)", one):
+        out[m.group(1)] = _norm_sql(f"CREATE VIEW {m.group(1)} {m.group(2)}")
+    return out
+
+
+_schema_txt = SCHEMA_PATH.read_text()
+_marker = "CREATE TABLE IF NOT EXISTS audit_events"
+_r5_schema = _r5_objects(_schema_txt[_schema_txt.index(_marker):]) if _marker in _schema_txt else {}
+_mig_txt = (ROOT / "scripts" / "migrate.sh").read_text()
+_m = re.search(r"\nR5_AUDIT_PATCHES=\((.*?)\n\)\n", _mig_txt, re.S)
+_r5_mig = _r5_objects(_m.group(1)) if _m else {}
+check(
+    "schema.sql AUDIT IMMUTABILITY section + migrate.sh R5_AUDIT_PATCHES found",
+    bool(_r5_schema) and bool(_r5_mig),
+    f"schema objects={len(_r5_schema)} migrate objects={len(_r5_mig)}",
+)
+check(
+    "same R5 trigger/view set in schema.sql and migrate.sh",
+    set(_r5_schema) == set(_r5_mig),
+    f"only schema: {sorted(set(_r5_schema) - set(_r5_mig))} only migrate: {sorted(set(_r5_mig) - set(_r5_schema))}",
+)
+_r5_drift = sorted(n for n in _r5_schema if n in _r5_mig and _r5_schema[n] != _r5_mig[n])
+check("every R5 trigger/view body identical (schema.sql ⇄ migrate.sh)", not _r5_drift, f"drift: {_r5_drift}")
+_r5_drops = set(re.findall(r'"DROP (?:TRIGGER|VIEW) IF EXISTS (\w+);"', _m.group(1) if _m else ""))
+check(
+    "migrate.sh DROPs every R5 object before re-CREATE",
+    _r5_drops == set(_r5_mig),
+    f"missing DROP: {sorted(set(_r5_mig) - _r5_drops)}",
+)
+_r5_uses = _mig_txt.count('"${R5_AUDIT_PATCHES[@]}"')
+check(
+    "both migrate branches (local + turso) apply R5_AUDIT_PATCHES",
+    _r5_uses == 2,
+    f"found {_r5_uses} use(s)",
+)
+_conn = fresh_conn()
+_live = {r[0] for r in _conn.execute("SELECT name FROM sqlite_master WHERE type IN ('trigger','view')")}
+_conn.close()
+check(
+    "every R5 object exists in a fresh schema.sql DB",
+    set(_r5_schema) <= _live,
+    f"missing: {sorted(set(_r5_schema) - _live)}",
 )
 
 # ─────────────────────────────────────────────

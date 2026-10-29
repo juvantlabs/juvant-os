@@ -2158,6 +2158,55 @@ Reconciliation (helpers/audit-reconcile.sh, weekly) detects
 fabricated `decisions` rows that have no preceding action log
 entry.
 
+#### Audit immutability — corrections, annotations, closures (R5b/R5c)
+
+`security_audit_log`, `agent_actions_log` and `decisions` are
+append-only **at the database level** (SYSTEM_INVARIANTS §10;
+decisions#303/#308). Triggers in `scripts/schema.sql` abort, for every
+writer and every path (Bash, stdin/redirect, direct libsql HTTP):
+
+- any `DELETE`, and `INSERT OR REPLACE` onto an existing id;
+- an `UPDATE` of an evidentiary column (`security_audit_log`:
+  finding/severity/created_at/auditor/layer/category/scope/audit_type/
+  session_id; `agent_actions_log`: agent/tool_name/args_hash/started_at/
+  session_id/spec_id, and anything once the row has left `pending`;
+  `decisions`: title/rationale/created_at/agent/category, and
+  `approved_by`/`approved_at` once set);
+- an INSERT whose `created_at` is not the DB clock (±120 s) —
+  `security_audit_log`, `decisions`, `audit_events`. Omit `created_at`
+  or write `CURRENT_TIMESTAMP`.
+
+Everything that used to be an in-place edit is now a row in the
+INSERT-only `audit_events` table:
+
+```sql
+-- annotate any audit row (anyone; no authority needed)
+INSERT INTO audit_events (target_table, target_id, event_type, reason, author)
+VALUES ('security_audit_log', <id>, 'note', '<what and why>', '<your role>');
+
+-- CSO-only corrections: authority_ref = a decisions row the CSO authored
+-- (agent='cso') with the rationale. A CoS message is never sufficient (decisions#308).
+INSERT INTO audit_events (target_table, target_id, event_type, from_value, to_value,
+                          reason, authority_ref, author)
+VALUES ('security_audit_log', <id>, 'severity_change', '<current>', '<new>',
+        '<why>', <cso decisions.id>, 'cso');
+-- same shape for 'timestamp_correction' (to_value = datetime), 'closure'
+-- (to_value = 'resolved'), 'test_artifact' (test rows are never deleted).
+```
+
+Read current state through the views `security_audit_log_current` /
+`decisions_current` (base row + latest event). **Deprecated, accepted
+for one minor version:** `UPDATE security_audit_log SET status/resolved_at`
+and `UPDATE decisions SET status/executed_by/executed_at/source_ref`
+(the approval/execution flows below keep working unchanged); new writers
+record a `status_change` / `closure` event instead.
+
+Adopters: the guards are installed by `bash scripts/migrate.sh` (and
+`bash scripts/migrate.sh --project=<slug>` for each project DB).
+Restoring a backup `.dump` into an **empty** DB works (the dump creates
+triggers after the data); replaying historical rows into a DB that
+already has the guards is rejected by design.
+
 #### Backup operation
 
 Daily at 03:00, `helpers/turso-backup.sh`:
@@ -3224,10 +3273,11 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a top-level column: never use `WHERE category=` or `SELECT category`. For filtering: `json_extract(content, '$.category')`. For inserting: include as a key inside `json_object('category', '...')`** |
-| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record successor `id` in `rationale`); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'\|'legal'\|'product'\|'business'\|'system-audit'\|'incident-response'\|'security-remediation'` — `arch-decision`: architectural decision, durable rationale, no GH action; `system-audit`/`incident-response`/`security-remediation`: CSO audit + incident records (agents/company/cso.md); `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
+| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record the successor `id` in an `audit_events` `status_change` row's `reason`; `rationale` is immutable); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'\|'legal'\|'product'\|'business'\|'system-audit'\|'incident-response'\|'security-remediation'` — `arch-decision`: architectural decision, durable rationale, no GH action; `system-audit`/`incident-response`/`security-remediation`: CSO audit + incident records (agents/company/cso.md); `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
-| `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` |
+| `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` — append-only (SYSTEM_INVARIANTS §10): no DELETE, evidentiary columns immutable, `created_at` = DB clock (omit it); CSO verdict rows use `category='audit-verdict'`. Read current state from the view `security_audit_log_current` (adds `current_severity, current_status, current_created_at, current_resolved_at, is_test_artifact, event_count`) |
+| `audit_events` | `id, target_table, target_id, event_type, from_value, to_value, reason, authority_ref, author, created_at` — INSERT-only; `target_table`: `'security_audit_log'\|'agent_actions_log'\|'decisions'`; `event_type`: `'status_change'\|'note'\|'severity_change'\|'timestamp_correction'\|'test_artifact'\|'closure'`; `authority_ref` → `decisions.id`, REQUIRED (a CSO-authored row with rationale) for `severity_change`/`timestamp_correction`/`closure`/`test_artifact` and for a `security_audit_log` `status_change` to `resolved`/`accepted`/`closed`. Views: `security_audit_log_current`, `decisions_current` (adds `current_status, current_created_at, is_test_artifact, event_count`), `security_audit_verdict_severity_violations` |
 | `knowledge_base` | `id, category, title, content, source_project, source_ref, promoted_by, approved_by, scope, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); project filter = `WHERE source_project='<slug>'`; there is NO `tags` or `updated_at` column |
 | `hiring_log` | `id, role, requested_by, rationale, status, approved_by, approved_at, created_at` |
 | `agents` | `id, role, name, scope, project_id, status, session_id, session_path, model, template_version, manifesto_status, manifesto_tier, bash_allow, created_at, updated_at` |
@@ -3265,7 +3315,7 @@ Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
    - `manifests WHERE status='pending' AND deadline < datetime('now', '+7 days')`.
    - `hiring_log WHERE status='pending'`.
    - `decisions WHERE status='proposed'`.
-   - `security_audit_log WHERE status='open' AND severity IN ('P0','P1')`.
+   - `security_audit_log_current WHERE current_status='open' AND current_severity IN ('P0','P1','critical','high') AND is_test_artifact=0` (the view applies `audit_events` corrections/closures — SYSTEM_INVARIANTS §10).
    - `knowledge_base WHERE source_project IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
    - If a project is active: `knowledge_base WHERE source_project = '<active_project_id>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context). `<active_project_id>` = `master_context.value WHERE key='active_project'` = `projects.id` (the slug, e.g. `'hardys'` — there is no separate `slug` column).
    - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then runs `bash helpers/morning-brief.sh` to send an updated brief to Teams.
@@ -3831,7 +3881,7 @@ Triggered by *"Status"*, *"What's pending?"*, *"Morning brief"*, or any equivale
 - `session_snapshots ORDER BY created_at DESC LIMIT 5` — most recent agent snapshots
   (detect context drift).
 - `productivity WHERE week = ?` (current ISO week) — weekly ranking.
-- `security_audit_log WHERE status='open'` — open security findings.
+- `security_audit_log_current WHERE current_status='open' AND is_test_artifact=0` — open security findings.
 - `inbound_queue WHERE json_extract(content, '$.category')='disclosure-unavailable' AND status='pending'` —
   active fallback cascade rows.
 
@@ -3879,8 +3929,9 @@ Before any Tier 1 review can proceed, verify:
 
 ```sql
 SELECT MAX(created_at) AS last_audit
-FROM security_audit_log
-WHERE auditor='cso' AND audit_type='5-layer' AND status='resolved';
+FROM security_audit_log_current
+WHERE auditor='cso' AND audit_type='5-layer' AND current_status='resolved'
+  AND is_test_artifact=0;
 ```
 
 If the last passing CSO 5-layer audit is older than 30 days → block Tier 1, surface to
@@ -4832,7 +4883,7 @@ trail. **Company-scope agents only** — no project agents involved.
       ```
     - CHRO updates `manifests.version` for all company-scope agents to reflect
       the new upstream tag.
-    - If the sync touched §1, §3, §4, §4b, §5, or §6 of
+    - If the sync touched §1, §3, §4, §4b, §5, §6, or §10 of
       `SYSTEM_INVARIANTS.md`: CHRO triggers a system-wide manifesto
       re-validation pass (Tier 2 async review for all active agents).
     - If the sync touched `scripts/schema.sql`: CSO logs a post-sync note in

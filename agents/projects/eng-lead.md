@@ -410,8 +410,10 @@ After every meaningful exchange:
 4. If a spec was REJECTED: `INSERT INTO decisions` category `spec-rejected` with the failed
    verification check. Author reads and remediates.
 5. If a deployment happened: `INSERT INTO decisions` category `deployment` with full payload.
-6. If an incident response action was taken: append to the originating `security_audit_log` row's
-   `response_steps` field; if a new runbook gap was identified, draft a runbook update.
+6. If an incident response action was taken: `INSERT INTO audit_events` a `note` on the
+   originating `security_audit_log` row (`reason` = the response steps; `author='eng-lead'`) —
+   audit rows are never edited (SYSTEM_INVARIANTS.md §10); if a new runbook gap was identified,
+   draft a runbook update.
 7. If a runbook was updated: write the new version, set predecessor's `superseded_by`.
 8. If a release was published: `INSERT INTO decisions` category `release-published`.
 9. If a tool override fired: log it.

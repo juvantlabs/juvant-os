@@ -233,6 +233,88 @@ _run_patch_turso() {
   MIGRATE_PATCH_WARNINGS=$((MIGRATE_PATCH_WARNINGS + 1))
 }
 
+# R5b/R5c audit immutability (decisions#303/#308) — shared by the local AND the
+# turso branch (one copy, so the two cannot drift). schema.sql's
+# `CREATE … IF NOT EXISTS` installs these objects on a DB that never had them,
+# but never REPLACES a changed definition on an existing DB — hence DROP+CREATE
+# here, like the decisions category triggers. tests/schema/validate.py asserts
+# every CREATE below is identical (whitespace-normalized) to schema.sql's.
+#
+# The leading ADD COLUMN patches make sure every column the triggers reference
+# exists on old DBs: SQLite does not validate trigger bodies at CREATE time, so
+# a trigger naming a missing column would make EVERY later UPDATE on the table
+# fail ("no such column") — silently bricking the audit writers. (decisions.scope
+# is listed for the same reason: the pre-existing enforce_global_scope_master_only_upd
+# trigger reads NEW.scope on every decisions UPDATE, but its ADD COLUMN was
+# company-only, so an old-shape PROJECT DB could not approve/execute decisions.)
+R5_AUDIT_PATCHES=(
+  "ALTER TABLE security_audit_log ADD COLUMN session_id         TEXT;"
+  "ALTER TABLE security_audit_log ADD COLUMN layer              TEXT;"
+  "ALTER TABLE security_audit_log ADD COLUMN finding            TEXT;"
+  "ALTER TABLE security_audit_log ADD COLUMN severity           TEXT;"
+  "ALTER TABLE security_audit_log ADD COLUMN category           TEXT;"
+  "ALTER TABLE security_audit_log ADD COLUMN status             TEXT DEFAULT 'open';"
+  "ALTER TABLE security_audit_log ADD COLUMN bootstrap_baseline INTEGER DEFAULT 0;"
+  "ALTER TABLE security_audit_log ADD COLUMN resolved_at        DATETIME;"
+  "ALTER TABLE agent_actions_log ADD COLUMN session_id          TEXT;"
+  "ALTER TABLE agent_actions_log ADD COLUMN result_hash         TEXT;"
+  "ALTER TABLE agent_actions_log ADD COLUMN deny_reason         TEXT;"
+  "ALTER TABLE agent_actions_log ADD COLUMN ended_at            DATETIME;"
+  "ALTER TABLE decisions ADD COLUMN rationale                   TEXT;"
+  "ALTER TABLE decisions ADD COLUMN category                    TEXT;"
+  "ALTER TABLE decisions ADD COLUMN approved_by                 TEXT;"
+  "ALTER TABLE decisions ADD COLUMN approved_at                 DATETIME;"
+  "ALTER TABLE decisions ADD COLUMN executed_by                 TEXT;"
+  "ALTER TABLE decisions ADD COLUMN executed_at                 DATETIME;"
+  "ALTER TABLE decisions ADD COLUMN scope                       TEXT DEFAULT 'company';"
+  "DROP TRIGGER IF EXISTS security_audit_log_no_delete;"
+  "CREATE TRIGGER security_audit_log_no_delete BEFORE DELETE ON security_audit_log BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): DELETE on security_audit_log is forbidden — record a test_artifact or closure row in audit_events instead'); END;"
+  "DROP TRIGGER IF EXISTS security_audit_log_no_replace;"
+  "CREATE TRIGGER security_audit_log_no_replace BEFORE INSERT ON security_audit_log WHEN NEW.id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): security_audit_log id already exists — rows are never replaced') WHERE EXISTS (SELECT 1 FROM security_audit_log WHERE id = NEW.id); END;"
+  "DROP TRIGGER IF EXISTS security_audit_log_immutable_fields;"
+  "CREATE TRIGGER security_audit_log_immutable_fields BEFORE UPDATE ON security_audit_log WHEN NEW.id IS NOT OLD.id OR NEW.auditor IS NOT OLD.auditor OR NEW.session_id IS NOT OLD.session_id OR NEW.scope IS NOT OLD.scope OR NEW.audit_type IS NOT OLD.audit_type OR NEW.layer IS NOT OLD.layer OR NEW.finding IS NOT OLD.finding OR NEW.severity IS NOT OLD.severity OR NEW.category IS NOT OLD.category OR NEW.bootstrap_baseline IS NOT OLD.bootstrap_baseline OR NEW.created_at IS NOT OLD.created_at BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): security_audit_log evidentiary columns are immutable — record a severity_change / timestamp_correction / note row in audit_events instead'); END;"
+  "DROP TRIGGER IF EXISTS security_audit_log_created_at_db_clock;"
+  "CREATE TRIGGER security_audit_log_created_at_db_clock BEFORE INSERT ON security_audit_log BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): security_audit_log.created_at must be the DB clock — omit it or use CURRENT_TIMESTAMP (tolerance 120s)') WHERE julianday(NEW.created_at) IS NULL OR abs(julianday(NEW.created_at) - julianday('now')) * 86400.0 > 120; END;"
+  "DROP TRIGGER IF EXISTS security_audit_log_verdict_severity;"
+  "CREATE TRIGGER security_audit_log_verdict_severity BEFORE INSERT ON security_audit_log WHEN NEW.category = 'audit-verdict' AND NEW.session_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#308): a CSO verdict row must carry the severity of the highest finding of the same audit (session_id) — write findings first, then the verdict') WHERE COALESCE(CASE lower(trim(NEW.severity)) WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3 WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END, -1) < (SELECT max(CASE lower(trim(f.severity)) WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3 WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END) FROM security_audit_log f WHERE f.session_id = NEW.session_id AND f.auditor = NEW.auditor AND f.category IS NOT 'audit-verdict'); END;"
+  "DROP TRIGGER IF EXISTS agent_actions_log_no_delete;"
+  "CREATE TRIGGER agent_actions_log_no_delete BEFORE DELETE ON agent_actions_log BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): DELETE on agent_actions_log is forbidden — record a test_artifact or note row in audit_events instead'); END;"
+  "DROP TRIGGER IF EXISTS agent_actions_log_no_replace;"
+  "CREATE TRIGGER agent_actions_log_no_replace BEFORE INSERT ON agent_actions_log WHEN NEW.id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): agent_actions_log id already exists — rows are never replaced') WHERE EXISTS (SELECT 1 FROM agent_actions_log WHERE id = NEW.id); END;"
+  "DROP TRIGGER IF EXISTS agent_actions_log_immutable_fields;"
+  "CREATE TRIGGER agent_actions_log_immutable_fields BEFORE UPDATE ON agent_actions_log WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id OR NEW.agent IS NOT OLD.agent OR NEW.tool_name IS NOT OLD.tool_name OR NEW.args_hash IS NOT OLD.args_hash OR NEW.spec_id IS NOT OLD.spec_id OR NEW.started_at IS NOT OLD.started_at OR (OLD.input_summary IS NOT NULL AND NEW.input_summary IS NOT OLD.input_summary) BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): agent_actions_log fingerprint columns are immutable (input_summary is set-once)'); END;"
+  "DROP TRIGGER IF EXISTS agent_actions_log_final_row_frozen;"
+  "CREATE TRIGGER agent_actions_log_final_row_frozen BEFORE UPDATE ON agent_actions_log WHEN OLD.status IS NOT 'pending' AND (NEW.status IS NOT OLD.status OR NEW.ended_at IS NOT OLD.ended_at OR NEW.result_hash IS NOT OLD.result_hash OR NEW.deny_reason IS NOT OLD.deny_reason) BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): agent_actions_log row is final — only the pending → final transition may set status/ended_at/result_hash'); END;"
+  "DROP TRIGGER IF EXISTS decisions_no_delete;"
+  "CREATE TRIGGER decisions_no_delete BEFORE DELETE ON decisions BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): DELETE on decisions is forbidden — set status (rejected/superseded) or record a test_artifact row in audit_events instead'); END;"
+  "DROP TRIGGER IF EXISTS decisions_no_replace;"
+  "CREATE TRIGGER decisions_no_replace BEFORE INSERT ON decisions WHEN NEW.id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): decisions id already exists — rows are never replaced') WHERE EXISTS (SELECT 1 FROM decisions WHERE id = NEW.id); END;"
+  "DROP TRIGGER IF EXISTS decisions_immutable_fields;"
+  "CREATE TRIGGER decisions_immutable_fields BEFORE UPDATE ON decisions WHEN NEW.id IS NOT OLD.id OR NEW.agent IS NOT OLD.agent OR NEW.title IS NOT OLD.title OR NEW.category IS NOT OLD.category OR NEW.rationale IS NOT OLD.rationale OR NEW.created_at IS NOT OLD.created_at OR (OLD.approved_by IS NOT NULL AND NEW.approved_by IS NOT OLD.approved_by) OR (OLD.approved_at IS NOT NULL AND NEW.approved_at IS NOT OLD.approved_at) BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): decisions title/rationale/agent/category/created_at are immutable and approved_by/approved_at are set-once — record a note or status_change row in audit_events instead'); END;"
+  "DROP TRIGGER IF EXISTS decisions_created_at_db_clock;"
+  "CREATE TRIGGER decisions_created_at_db_clock BEFORE INSERT ON decisions BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): decisions.created_at must be the DB clock — omit it or use CURRENT_TIMESTAMP (tolerance 120s)') WHERE julianday(NEW.created_at) IS NULL OR abs(julianday(NEW.created_at) - julianday('now')) * 86400.0 > 120; END;"
+  "DROP TRIGGER IF EXISTS audit_events_no_update;"
+  "CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events is INSERT-only — append a new event instead'); END;"
+  "DROP TRIGGER IF EXISTS audit_events_no_delete;"
+  "CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events is INSERT-only — DELETE is forbidden'); END;"
+  "DROP TRIGGER IF EXISTS audit_events_no_replace;"
+  "CREATE TRIGGER audit_events_no_replace BEFORE INSERT ON audit_events WHEN NEW.id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events id already exists — rows are never replaced') WHERE EXISTS (SELECT 1 FROM audit_events WHERE id = NEW.id); END;"
+  "DROP TRIGGER IF EXISTS audit_events_created_at_db_clock;"
+  "CREATE TRIGGER audit_events_created_at_db_clock BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#303/#308): audit_events.created_at must be the DB clock — omit it or use CURRENT_TIMESTAMP (tolerance 120s)') WHERE julianday(NEW.created_at) IS NULL OR abs(julianday(NEW.created_at) - julianday('now')) * 86400.0 > 120; END;"
+  "DROP TRIGGER IF EXISTS audit_events_target_exists;"
+  "CREATE TRIGGER audit_events_target_exists BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'audit_events: target_id does not reference an existing row of target_table (R5c)') WHERE (NEW.target_table = 'security_audit_log' AND NOT EXISTS (SELECT 1 FROM security_audit_log WHERE id = NEW.target_id)) OR (NEW.target_table = 'agent_actions_log' AND NOT EXISTS (SELECT 1 FROM agent_actions_log WHERE id = NEW.target_id)) OR (NEW.target_table = 'decisions' AND NOT EXISTS (SELECT 1 FROM decisions WHERE id = NEW.target_id)); END;"
+  "DROP TRIGGER IF EXISTS audit_events_shape;"
+  "CREATE TRIGGER audit_events_shape BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT, 'audit_events: severity_change applies to security_audit_log only (R5c)') WHERE NEW.event_type = 'severity_change' AND NEW.target_table <> 'security_audit_log'; SELECT RAISE(ABORT, 'audit_events: status_change / severity_change / closure / timestamp_correction require to_value (R5c)') WHERE NEW.event_type IN ('status_change','severity_change','closure','timestamp_correction') AND (NEW.to_value IS NULL OR trim(NEW.to_value) = ''); SELECT RAISE(ABORT, 'audit_events: authority_ref does not reference an existing decisions row (R5c)') WHERE NEW.authority_ref IS NOT NULL AND NOT EXISTS (SELECT 1 FROM decisions WHERE id = NEW.authority_ref); SELECT RAISE(ABORT, 'audit_events: timestamp_correction to_value must be a parseable datetime (R5c)') WHERE NEW.event_type = 'timestamp_correction' AND julianday(NEW.to_value) IS NULL; SELECT RAISE(ABORT, 'audit_events: severity_change from_value must equal the current severity of the target row (R5c)') WHERE NEW.event_type = 'severity_change' AND NEW.from_value IS NOT COALESCE( (SELECT e.to_value FROM audit_events e WHERE e.target_table = 'security_audit_log' AND e.target_id = NEW.target_id AND e.event_type = 'severity_change' ORDER BY e.id DESC LIMIT 1), (SELECT s.severity FROM security_audit_log s WHERE s.id = NEW.target_id)); END;"
+  "DROP TRIGGER IF EXISTS audit_events_cso_authority;"
+  "CREATE TRIGGER audit_events_cso_authority BEFORE INSERT ON audit_events WHEN NEW.event_type IN ('severity_change','timestamp_correction','closure','test_artifact') OR (NEW.event_type = 'status_change' AND NEW.target_table = 'security_audit_log' AND lower(trim(NEW.to_value)) IN ('resolved','accepted','closed')) BEGIN SELECT RAISE(ABORT, 'audit immutability (decisions#308): this audit_events row requires authority_ref → a decisions row authored by the CSO (agent=cso) with a rationale — a CoS message alone is not sufficient') WHERE NEW.authority_ref IS NULL OR NOT EXISTS (SELECT 1 FROM decisions d WHERE d.id = NEW.authority_ref AND d.agent = 'cso' AND d.rationale IS NOT NULL AND trim(d.rationale) <> ''); END;"
+  "DROP VIEW IF EXISTS security_audit_log_current;"
+  "CREATE VIEW security_audit_log_current AS SELECT s.*, COALESCE((SELECT e.to_value FROM audit_events e WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id AND e.event_type = 'severity_change' ORDER BY e.id DESC LIMIT 1), s.severity) AS current_severity, COALESCE((SELECT e.to_value FROM audit_events e WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id AND e.event_type IN ('status_change','closure') ORDER BY e.id DESC LIMIT 1), s.status) AS current_status, COALESCE((SELECT e.to_value FROM audit_events e WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id AND e.event_type = 'timestamp_correction' ORDER BY e.id DESC LIMIT 1), s.created_at) AS current_created_at, COALESCE((SELECT e.created_at FROM audit_events e WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id AND e.event_type = 'closure' ORDER BY e.id DESC LIMIT 1), s.resolved_at) AS current_resolved_at, EXISTS (SELECT 1 FROM audit_events e WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id AND e.event_type = 'test_artifact') AS is_test_artifact, (SELECT count(*) FROM audit_events e WHERE e.target_table = 'security_audit_log' AND e.target_id = s.id) AS event_count FROM security_audit_log s;"
+  "DROP VIEW IF EXISTS decisions_current;"
+  "CREATE VIEW decisions_current AS SELECT d.*, COALESCE((SELECT e.to_value FROM audit_events e WHERE e.target_table = 'decisions' AND e.target_id = d.id AND e.event_type IN ('status_change','closure') ORDER BY e.id DESC LIMIT 1), d.status) AS current_status, COALESCE((SELECT e.to_value FROM audit_events e WHERE e.target_table = 'decisions' AND e.target_id = d.id AND e.event_type = 'timestamp_correction' ORDER BY e.id DESC LIMIT 1), d.created_at) AS current_created_at, EXISTS (SELECT 1 FROM audit_events e WHERE e.target_table = 'decisions' AND e.target_id = d.id AND e.event_type = 'test_artifact') AS is_test_artifact, (SELECT count(*) FROM audit_events e WHERE e.target_table = 'decisions' AND e.target_id = d.id) AS event_count FROM decisions d;"
+  "DROP VIEW IF EXISTS security_audit_verdict_severity_violations;"
+  "CREATE VIEW security_audit_verdict_severity_violations AS SELECT v.id AS verdict_id, v.session_id, v.current_severity AS verdict_severity, f.id AS finding_id, f.current_severity AS finding_severity, 'finding more severe than verdict' AS violation FROM security_audit_log_current v JOIN security_audit_log_current f ON f.session_id = v.session_id AND f.auditor = v.auditor AND f.id <> v.id AND f.category IS NOT 'audit-verdict' AND f.is_test_artifact = 0 WHERE v.category = 'audit-verdict' AND v.is_test_artifact = 0 AND v.id = (SELECT max(x.id) FROM security_audit_log x WHERE x.category = 'audit-verdict' AND x.session_id = v.session_id AND x.auditor = v.auditor) AND CASE lower(trim(f.current_severity)) WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3 WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END > COALESCE(CASE lower(trim(v.current_severity)) WHEN 'p0' THEN 4 WHEN 'critical' THEN 4 WHEN 'p1' THEN 3 WHEN 'high' THEN 3 WHEN 'p2' THEN 2 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 WHEN 'info' THEN 0 END, -1) UNION ALL SELECT v.id, NULL, v.current_severity, NULL, NULL, 'verdict without session_id (unlinkable)' FROM security_audit_log_current v WHERE v.category = 'audit-verdict' AND v.session_id IS NULL AND v.is_test_artifact = 0;"
+)
+
 apply_schema_patches_local() {
   local db="$1" project_slug="${2:-}"
   # Patches that apply to ALL DBs (company + project)
@@ -266,7 +348,7 @@ apply_schema_patches_local() {
     "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only BEFORE INSERT ON knowledge_base WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
     "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
   )
-  for sql in "${common_patches[@]}"; do
+  for sql in "${common_patches[@]}" "${R5_AUDIT_PATCHES[@]}"; do
     _run_patch_local "$db" "$sql"
   done
   if [[ -z "$project_slug" ]]; then
@@ -310,7 +392,7 @@ apply_schema_patches_turso() {
     "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only BEFORE INSERT ON knowledge_base WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
     "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
   )
-  for sql in "${common_patches[@]}"; do
+  for sql in "${common_patches[@]}" "${R5_AUDIT_PATCHES[@]}"; do
     _run_patch_turso "$url" "$sql"
   done
   if [[ -z "$project_slug" ]]; then
