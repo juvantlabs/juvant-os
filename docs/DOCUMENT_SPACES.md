@@ -223,22 +223,35 @@ would be self-declared and spoofable. Requirements for the hard layer:
   version bump** — a new tool in a later server release must not silently reopen
   a hole.
 
-**Where the rules live — critical.** The concrete `driveId`s and agent allowlists
-are **instance state**. They live in **`.juvant/config.json` under
-`.security.space_access[]`** (a list — gitignored, instance-local). The synced
-framework hook (`hooks/pre-tool-use.sh` **Track 2e**, ADR 0025/0027) reads this
-list and enforces the perimeter; it is a **no-op** when the list is absent
-(the default). **Never** put these rules in `hooks/bash-policy.json` or any other
-synced file — `upstream-sync` would overwrite it and your perimeter would
-evaporate. Each entry:
+**Where the rules live — critical (ADR 0034, decisions#305).** The concrete
+`driveId`s and agent allowlists are **instance state**. They live in a
+**committed** file, **`security/policy.json`**, in the instance repo — not under
+`.juvant/` (gitignored: no history, no review, any agent could edit it) and never
+in `hooks/bash-policy.json` or any other synced file (`upstream-sync` would
+overwrite it). The synced framework hook (`hooks/pre-tool-use.sh` **Track 2e**)
+reads the policy from **`refs/remotes/origin/main`**, never from the working
+tree: change it with a reviewed merge to `main`, then fetch. The hook is a
+**no-op** when no policy ever existed; it **fails closed** (every `mcp__` call
+denied + high row + alert) if the policy on `origin/main` is invalid or was
+deleted. No secrets in the file — notification secrets stay in
+`.juvant/config.json`. Shape (schema: `docs/schemas/security-policy.schema.json`,
+example: `docs/schemas/security-policy.example.json`):
 
 ```jsonc
-"security": { "space_access": [
-  { "space": "legal-ip", "tool_prefix": "mcp__m365-graph__",
-    "drive_ids": ["b!…"], "path_patterns": ["legal-ip","/IP/"],
-    "allowlist": ["lex","atlas","cso"] }
-]}
+{ "version": 1,
+  "space_access": [
+    { "space": "legal-ip", "tool_prefix": "mcp__m365-graph__",
+      "drive_ids": ["b!…"], "path_patterns": ["legal-ip","/IP/"],
+      "allowlist": ["clo","cso"] } ],
+  "alert_routing": { "required": ["telegram"] } }
 ```
+
+Validate before merging (and in the instance CI):
+`bash scripts/validate-security-policy.sh security/policy.json`.
+**Migration:** commit `security/policy.json` to `main` *before* syncing the
+framework version that reads it. The legacy `.juvant/config.json`
+`.security.space_access` is still honoured for one minor version (with a
+deprecation warning) while no policy file exists on `origin/main`.
 
 The canary `tests/hooks/test-space-access-policy.sh` is the standing regression
 gate (CI) — re-run it on every hook change and every classified-MCP bump.

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "space_access": [
+    {
+      "space": "legal-ip",
+      "tool_prefix": "mcp__m365-graph__",
+      "drive_ids": ["b!REPLACE_WITH_THE_SENSITIVE_DRIVE_ID"],
+      "path_patterns": ["legal-ip", "/IP/"],
+      "allowlist": ["clo", "cso"]
+    }
+  ],
+  "alert_routing": {
+    "required": ["telegram"]
+  }
+}

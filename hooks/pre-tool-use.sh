@@ -1369,8 +1369,51 @@ fi
 # Every resolved op writes security_audit_log severity=high + same-turn CoS
 # notification (allowlisted agents tagged expected=true — the row still fires,
 # to catch authorized-but-anomalous access).
+#
+# decisions#305 (B1a, ADR 0034): the RULES now come from the committed
+# security/policy.json read from origin/main (hooks/lib/security-policy.sh) —
+# not from .juvant/config.json, which any agent can edit (emptying
+# `.security.space_access` silently disabled this Track, security_audit_log
+# #159). Legacy config rules are honoured for one minor version. A policy that
+# is invalid, or was deleted from origin/main, FAILS CLOSED: every mcp__ call is
+# denied, a high row is written and the CEO is alerted. Notification SECRETS
+# still come from .juvant/config.json (never in the committed policy).
 _T2E_CFG="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
-if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "$_T2E_CFG" >/dev/null 2>&1; then
+JUVANT_POLICY_STATE="absent"; JUVANT_POLICY_JSON="{}"
+if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/security-policy.sh"
+  juvant_policy_load "$(cd "$SCRIPT_DIR/.." && pwd)" || true
+fi
+_t2e_alert() {
+  # Fire-and-forget alert on the configured channels (never on the gating path).
+  local msg="$1" wh tok chat card
+  wh=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+  if [[ -n "$wh" ]]; then
+    card=$(jq -n --arg msg "$msg" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
+    curl -s --connect-timeout 5 --max-time 10 -X POST "$wh" -H "Content-Type: application/json" -d "$card" >/dev/null 2>&1 &
+  fi
+  tok=$(jq -r '.notifications.telegram_bot_token // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+  chat=$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null || echo "")
+  if [[ -n "$tok" && -n "$chat" ]]; then
+    curl -s --connect-timeout 5 --max-time 10 -X POST "https://api.telegram.org/bot${tok}/sendMessage" \
+      -d "chat_id=${chat}" --data-urlencode "text=${msg}" >/dev/null 2>&1 &
+  fi
+  return 0
+}
+if [[ ( "$JUVANT_POLICY_STATE" == "invalid" || "$JUVANT_POLICY_STATE" == "deleted" ) && "$TOOL_NAME" == mcp__* && "$DECISION" == "allow" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/db.sh"
+  DECISION="deny"
+  DENY_REASON="SECURITY POLICY FAIL-CLOSED (decisions#305): security/policy.json on origin/main is ${JUVANT_POLICY_STATE} (${JUVANT_POLICY_ERR:-}) — every MCP tool call is denied until a valid policy is merged to main. Surface this to the CEO and the CSO."
+  _pf_finding=$(printf 'security policy %s (%s); MCP call denied: tool=%s agent=%s' "$JUVANT_POLICY_STATE" "${JUVANT_POLICY_ERR:-}" "$TOOL_NAME" "$ROLE" | sed "s/'/''/g")
+  juvant_db_exec "INSERT INTO security_audit_log
+    (auditor, scope, audit_type, layer, finding, severity, category, status)
+    VALUES ('hook:pre-tool-use', 'company', 'incident', 'agents', '${_pf_finding}', 'high', 'policy-fail-closed', 'open');" \
+    >/dev/null 2>&1 || true
+  _t2e_alert "[SECURITY ALERT] security policy ${JUVANT_POLICY_STATE} — all MCP calls denied (decisions#305)"
+fi
+if [[ "$DECISION" == "allow" ]] && printf '%s' "$JUVANT_POLICY_JSON" | jq -e '(.space_access // []) | length > 0' >/dev/null 2>&1; then
   # shellcheck disable=SC1091
   . "$SCRIPT_DIR/lib/db.sh"
   _t2e_esc() { printf '%s' "$1" | sed "s/'/''/g"; }
@@ -1394,10 +1437,10 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
   _T2E_HAS_TARGET=false
   [[ -n "$_T2E_DRIVE_ID" || -n "$_T2E_SITE_ID" || -n "$_T2E_PATH" ]] && _T2E_HAS_TARGET=true
 
-  _T2E_NSPACE=$(jq -r '.security.space_access | length' "$_T2E_CFG" 2>/dev/null || echo 0)
+  _T2E_NSPACE=$(printf '%s' "$JUVANT_POLICY_JSON" | jq -r '.space_access | length' 2>/dev/null || echo 0)
   _t2e_i=0
   while [[ "$_t2e_i" -lt "$_T2E_NSPACE" ]]; do
-    _SP=$(jq -c ".security.space_access[$_t2e_i]" "$_T2E_CFG" 2>/dev/null || echo "{}")
+    _SP=$(printf '%s' "$JUVANT_POLICY_JSON" | jq -c ".space_access[$_t2e_i]" 2>/dev/null || echo "{}")
     _t2e_i=$(( _t2e_i + 1 ))
     _SP_PREFIX=$(echo "$_SP" | jq -r '.tool_prefix // ""')
     [[ -n "$_SP_PREFIX" && "$TOOL_NAME" == "$_SP_PREFIX"* ]] || continue
@@ -1465,6 +1508,21 @@ if [[ -f "$_T2E_CFG" ]] && jq -e '(.security.space_access // []) | length > 0' "
     _SP_AUDIT=false
     [[ "$_SP_DRIVE_HIT" == "true" || "$_SP_PATH_HIT" == "true" || "$_SP_DRIVE_IN_ARGS" == "true" ]] && _SP_AUDIT=true
     if [[ "$_SP_AUDIT" == "true" ]]; then
+      # decisions#305: an op that raises a sensitive-space row needs every
+      # alert channel the policy marks required to be configured — a row nobody
+      # is told about is the #159 failure mode. Missing secret ⇒ deny the op.
+      _SP_MISSING=""
+      while IFS= read -r _ch; do
+        case "$_ch" in
+          teams)    [[ -n "$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_T2E_CFG" 2>/dev/null)" ]] || _SP_MISSING+="teams " ;;
+          telegram) [[ -n "$(jq -r '.notifications.telegram_bot_token // ""' "$_T2E_CFG" 2>/dev/null)" && \
+                       -n "$(jq -r '.notifications.telegram_chat_id // ""' "$_T2E_CFG" 2>/dev/null)" ]] || _SP_MISSING+="telegram " ;;
+        esac
+      done < <(printf '%s' "$JUVANT_POLICY_JSON" | jq -r '.alert_routing.required[]?' 2>/dev/null)
+      if [[ -n "$_SP_MISSING" && "$DECISION" == "allow" ]]; then
+        DECISION="deny"
+        DENY_REASON="SPACE-ACCESS POLICY (decisions#305): this op touches the '${_SP_NAME}' space, but required alert channel(s) ${_SP_MISSING% } have no secret configured in .juvant/config.json — a sensitive-space access must never go unalerted. Configure the channel, then retry."
+      fi
       _SP_EXPECTED="false"; [[ "$_SP_ALLOW" == "true" ]] && _SP_EXPECTED="true"
       _SP_FINDING="space-access ${_T2E_OP_CLASS} op on '${_SP_NAME}' by agent '${ROLE}' (expected=${_SP_EXPECTED}); tool=${TOOL_NAME}; drive_match=${_SP_DRIVE_HIT}; path_match=${_SP_PATH_HIT}; decision=${DECISION}"
       # Structured category derived from (op-class, decision) so Layer-5 / CSO
@@ -1790,6 +1848,57 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
             fi
             return 1 ;;
         esac
+        # decisions#305 (B1a): the hook reads security/policy.json from
+        # refs/remotes/origin/main, so whatever can move that ref or redefine
+        # where `origin` points is a policy write. Denied regardless of paths:
+        # update-ref / symbolic-ref on refs/remotes, any `git replace`, `git
+        # remote add|set-url|remove|rm|rename|set-head|set-branches`, `git
+        # config` writes to remote.* / url.* (insteadOf rewrites) / include.*,
+        # and `git fetch` with an explicit refspec into refs/remotes.
+        if [[ "$verb" == "git" ]]; then
+          local gsub="" gi=0 gx gprev="" gread=0 gaction=""
+          for gx in ${args[@]+"${args[@]}"}; do
+            if [[ "$gprev" == "-C" || "$gprev" == "-c" || "$gprev" == "--git-dir" || "$gprev" == "--work-tree" ]]; then gprev="$gx"; gi=$((gi + 1)); continue; fi
+            if [[ "$gx" != -* ]]; then gsub="$gx"; break; fi
+            gprev="$gx"; gi=$((gi + 1))
+          done
+          local -a grest=()
+          [[ $((gi + 1)) -lt ${#args[@]} ]] && grest=("${args[@]:$((gi + 1))}")
+          case "$gsub" in
+            update-ref|symbolic-ref)
+              for gx in ${grest[@]+"${grest[@]}"}; do
+                if [[ "$gx" == *refs/remotes* ]]; then _GR_DENY_WHY="git $gsub on a remote-tracking ref (the policy is read from refs/remotes/origin/main)"; return 0; fi
+              done ;;
+            replace)
+              _GR_DENY_WHY="git replace can substitute the objects the policy is read from"; return 0 ;;
+            remote)
+              for gx in ${grest[@]+"${grest[@]}"}; do
+                [[ "$gx" == -* ]] && continue
+                gaction="$gx"; break
+              done
+              case "$gaction" in
+                add|set-url|remove|rm|rename|set-head|set-branches)
+                  _GR_DENY_WHY="git remote $gaction redefines a remote the policy and the integrity check trust"; return 0 ;;
+              esac ;;
+            config)
+              for gx in ${grest[@]+"${grest[@]}"}; do
+                case "$gx" in --get|--get-all|--get-regexp|--list|-l|--show-origin|--show-scope|--name-only) gread=1 ;; esac
+              done
+              if [[ "$gread" == 0 ]]; then
+                for gx in ${grest[@]+"${grest[@]}"}; do
+                  if [[ "$gx" =~ ^(remote\.|url\.|include\.|includeIf\.) ]]; then
+                    _GR_DENY_WHY="git config write to '$gx' (remote / URL rewrite / include) changes what origin resolves to"; return 0
+                  fi
+                done
+              fi ;;
+            fetch)
+              for gx in ${grest[@]+"${grest[@]}"}; do
+                if [[ "$gx" == *:*refs/remotes* || "$gx" == *:refs/remotes* ]]; then
+                  _GR_DENY_WHY="git fetch with an explicit refspec into refs/remotes"; return 0
+                fi
+              done ;;
+          esac
+        fi
         for x in ${args[@]+"${args[@]}"}; do
           if _gr_is_path "$x"; then has=1; break; fi
         done
@@ -1909,7 +2018,8 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       }
 
       if [[ "$_gr_cmd" == *hooks* || "$_gr_cmd" == *bash-policy* || "$_gr_cmd" == *helpers* \
-            || "$_gr_cmd" == *scripts* || "$_gr_cmd" == *.juvant* || "$_gr_cmd" == *audit-spool* ]]; then
+            || "$_gr_cmd" == *scripts* || "$_gr_cmd" == *.juvant* || "$_gr_cmd" == *audit-spool* \
+            || "$_gr_cmd" == *git* || "$_gr_cmd" == *security* ]]; then
         _gr_interp_re='(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua|eval)([[:space:]]|$)|(^|[^A-Za-z0-9_.-])(bash|sh|zsh|dash|ksh)[[:space:]]+-[A-Za-z]*c'
         # Heredoc `<<` (not a `<<<` here-string, which only feeds stdin).
         _gr_heredoc_re='(^|[^<])<<-?[^<]'

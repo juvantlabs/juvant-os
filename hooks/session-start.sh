@@ -56,6 +56,50 @@ if [[ -f "$SCRIPT_DIR/lib/hooks-integrity.sh" ]]; then
   fi
 fi
 
+# decisions#305 (B1a, ADR 0034): security policy health + change detection.
+# The policy is read from refs/remotes/origin/main. Any change to its blob
+# since the previous session → high row + CEO alert (a policy change must be a
+# reviewed, visible event). invalid / deleted → the PreToolUse gate fails
+# closed on every mcp__ call; say so here too. legacy → deprecation notice.
+if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/security-policy.sh"
+  juvant_policy_load "$REPO_ROOT" 2>/dev/null || true
+  _SP_SEEN_FILE="$REPO_ROOT/.juvant/policy-blob-seen"
+  _SP_ROW=""; _SP_ALERT=""
+  case "$JUVANT_POLICY_STATE" in
+    invalid|deleted)
+      echo "SECURITY WARNING (security policy, decisions#305): security/policy.json on origin/main is ${JUVANT_POLICY_STATE} (${JUVANT_POLICY_ERR:-}). Every MCP tool call is denied (fail closed) until a valid policy is merged to main. Surface this to the CEO and the CSO."
+      _SP_ROW="security policy ${JUVANT_POLICY_STATE} at session start (${JUVANT_POLICY_ERR:-})"
+      _SP_ALERT="Security policy ${JUVANT_POLICY_STATE} on origin/main — all MCP calls are denied (decisions#305)" ;;
+    legacy)
+      echo "NOTICE (decisions#305): sensitive-space rules are still read from .juvant/config.json .security.space_access (deprecated). Move them to a committed security/policy.json on main before the next minor version." ;;
+    ok)
+      _SP_PREV=$(cat "$_SP_SEEN_FILE" 2>/dev/null || echo "")
+      if [[ -n "$_SP_PREV" && "$_SP_PREV" != "$JUVANT_POLICY_BLOB" ]]; then
+        echo "SECURITY NOTICE (decisions#305): security/policy.json on origin/main changed since the last session (blob ${_SP_PREV:0:12} → ${JUVANT_POLICY_BLOB:0:12}). Confirm with the CEO that this change was reviewed and intended."
+        _SP_ROW="security policy changed on origin/main: ${_SP_PREV} -> ${JUVANT_POLICY_BLOB}"
+        _SP_ALERT="security/policy.json changed on origin/main (${_SP_PREV:0:12} → ${JUVANT_POLICY_BLOB:0:12}) — confirm it was reviewed (decisions#305)"
+      fi
+      mkdir -p "$REPO_ROOT/.juvant" 2>/dev/null || true
+      printf '%s\n' "$JUVANT_POLICY_BLOB" > "$_SP_SEEN_FILE" 2>/dev/null || true ;;
+  esac
+  if [[ -n "$_SP_ROW" && -n "$JUVANT_DB_PROVIDER" ]]; then
+    _SP_ROW_ESC=$(printf '%s' "$_SP_ROW" | sed "s/'/''/g")
+    # Not spooled (decisions#303 R3 executes only allowlisted spool shapes);
+    # the stdout warning + alert carry the event if the DB is unreachable.
+    JUVANT_DB_EXEC_NO_SPOOL=1 juvant_db_exec "INSERT INTO security_audit_log
+      (auditor, scope, audit_type, layer, finding, severity, category, status)
+      VALUES ('hook:session-start', 'company', 'incident', 'agents', '${_SP_ROW_ESC}', 'high', 'policy-change', 'open');" \
+      >/dev/null 2>&1 || echo "[session-start] WARN: security-policy row not written inline (spooled if the transport failed)" >&2
+  fi
+  if [[ -n "$_SP_ALERT" ]]; then
+    JUVANT_NOTIFY_PRIORITY=critical \
+      bash "$SCRIPT_DIR/notification.sh" \
+      <<< "$(jq -n --arg m "$_SP_ALERT" '{message:$m}')" >/dev/null 2>&1 || true
+  fi
+fi
+
 if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
   echo "[session-start] WARN: No db.provider configured. Skipping status update." >&2
   exit 0

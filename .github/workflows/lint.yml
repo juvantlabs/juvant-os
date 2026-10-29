@@ -192,6 +192,8 @@ jobs:
           bash tests/hooks/test-pretooluse-wrapper.sh
           # decisions#300 item 13: SessionStart guardrail integrity check.
           bash tests/hooks/test-hooks-integrity.sh
+          # decisions#305 / ADR 0034: security policy read from origin/main, fail closed.
+          bash tests/hooks/test-security-policy.sh
           # decisions#302: Track 2b/2c scope-boundary suite (was stale and
           # off-CI — juvant-os-pm#180).
           bash tests/hooks/track2b/run-tests.sh
