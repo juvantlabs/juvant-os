@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.14.0] — 2026-10-29 — Audit integrity, policy as a reviewed file, gated secrets (decisions#301–#306, #308)
+
 ### Security
 
 - **Secrets move to a gated `.juvant/secrets.json`; least-privilege read token;
