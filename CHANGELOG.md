@@ -11,6 +11,21 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.15.0] — 2026-10-29 — Alerts with receipts and gated destinations; guardrail jobs pinned to main
+
+Minor version: two defaults change. The scheduled guardrail jobs run a pinned
+checkout of `origin/main`, and a required alert channel counts only when its
+full destination is in the gated secrets file.
+
+**Adopter actions** after syncing:
+1. `bash scripts/migrate-secrets.sh` — moves `telegram_chat_id` into the gated
+   file; with `alert_routing.required` set, sensitive-space ops are denied
+   until it is there.
+2. The CEO runs `bash helpers/install-schedules.sh` from their own terminal
+   (needs `refs/remotes/origin/main`), and again after every merged sync that
+   changes `helpers/`, `hooks/` or `scripts/`.
+3. Add `.juvant/pinned-main/` to the instance `.gitignore`.
+
 ### Security
 
 - **Security alerts now leave a delivery receipt** (BUG-087, juvant-os-pm#190;
