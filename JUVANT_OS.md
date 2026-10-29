@@ -4895,6 +4895,7 @@ tests/helpers/test-db-exec-durability.sh
 tests/helpers/test-db-query-csv.sh
 tests/helpers/test-db-query.sh
 tests/helpers/test-drain-reclaim-stale.sh
+tests/helpers/test-drain-statement-allowlist.sh
 tests/helpers/test-helpers-db-routing.sh
 tests/helpers/test-helpers-drain-backup.sh
 tests/helpers/test-install-schedules-interval.sh

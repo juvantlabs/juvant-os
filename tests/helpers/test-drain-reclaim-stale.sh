@@ -137,7 +137,11 @@ eq "stale (older) row got the lower id" "$first" "cmd 1"
 
 echo "=== 8: backend failure mid-reclaim -> tail re-queued, exit 1 ==="
 fresh
-{ row_new 1 "2026-07-28 10:00:00"; echo "THIS IS NOT SQL;"; row_new 3 "2026-07-28 10:00:02"; } > "$SPOOL.draining.$DEADPID"
+# The failing statement must be an ALLOWLISTED shape (decisions#303 R3 — anything
+# else is quarantined, not executed): a 'denied' row with an empty input_summary
+# is rejected by the action_log_denied_requires_summary trigger.
+row_fail() { printf "INSERT INTO agent_actions_log (session_id, agent, tool_name, args_hash, status, deny_reason, input_summary, started_at) VALUES ('sess-1', 'cos', 'Bash', '%s', 'denied', 'x', '', '2026-07-28 10:00:01');\n" "$(H 2)"; }
+{ row_new 1 "2026-07-28 10:00:00"; row_fail; row_new 3 "2026-07-28 10:00:02"; } > "$SPOOL.draining.$DEADPID"
 out=$(run); rc=$?
 eq "exit 1" "$rc" "1"
 eq "statement before the failure applied" "$(count)" "1"

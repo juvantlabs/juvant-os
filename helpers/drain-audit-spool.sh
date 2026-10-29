@@ -48,6 +48,225 @@ export JUVANT_DB_EXEC_NO_SPOOL=1
 # Single source of truth for the spool path (honors JUVANT_SPOOL).
 SPOOL="$(juvant_spool_path)"
 
+# ── decisions#303 R3: drain statement allowlist ──────────────────────────────
+# The spool is a plain file in an agent-writable directory, and every line of it
+# is executed with the HOOK's DB credentials — so, unchecked, it is an SQL
+# injection channel (e.g. a planted `INSERT INTO decisions (…approved_by…)`).
+# Every line is therefore matched STRICTLY against the closed set of statement
+# shapes the framework itself writes to the spool, before it is executed:
+# statement type + target table + exact column list (+ for UPDATEs the exact SET
+# columns and WHERE skeleton). Every value position admits only an SQL literal —
+# a quoted string with '' escaping, a number, or NULL (and, where the writer
+# emits a constant, only that constant). A subquery, a function call, an
+# operator, a comment or a second statement can never sit in a value position,
+# and the anchored `;…$` tail rejects anything stacked after the statement.
+#
+# Shapes (one line == one statement: both spool writers in hooks/lib/db.sh
+# collapse newlines to spaces, so the patterns allow arbitrary whitespace runs):
+#   aal-insert        hooks/pre-tool-use.sh (Track 3 INSERT; ±started_at, ±spec_id
+#                     — the ± forms cover rows spooled by older framework versions)
+#                     and hooks/session-start.sh (HooksIntegrity row)
+#   aal-config        hooks/config-change.sh (sync; spooled on transport failure)
+#   aal-success       hooks/post-tool-use.sh (±args_hash — AskUserQuestion omits it)
+#   aal-failure       hooks/post-tool-use-failure.sh (sync)
+#   sal-incident      hooks/pre-tool-use.sh Track 2e + Track 2g
+#   agents-session    hooks/session-start.sh (sync, with session_id)
+#   agents-status     hooks/session-start.sh, subagent-start.sh, subagent-stop.sh,
+#                     session-end.sh (sync)
+#   snapshot          hooks/pre-compact.sh (sync)
+#   msg-wrap          hooks/session-end.sh wrap-up reminder (sync)
+#   msg-cso           helpers/cso-weekly-audit.sh escalation (sync)
+#   atu-main          hooks/lib/track-tokens.sh main-session UPSERT (sync)
+#   atu-subagent      hooks/lib/track-tokens.sh subagent INSERT (sync)
+# The one other juvant_db_exec write that could reach the spool, audit-reconcile's
+# `UPDATE decisions … status='executed'`, is now never spooled (it re-runs on its
+# schedule), so NO write to the decisions table is ever accepted from the spool.
+#
+# A line that matches no shape is NOT executed: it is appended to the quarantine
+# file next to the spool, and one high-severity security_audit_log row
+# (category 'spool-injection') + one alert are emitted per run (see
+# _quarantine_report). Matching runs in the C locale so a multi-byte or invalid
+# UTF-8 byte in a free-text literal never fails `[^']` (UTF-8 never encodes 0x27
+# inside a multi-byte sequence, so byte-wise matching is exact).
+export LC_ALL=C
+_Q_W='[[:space:]]*'
+_Q_W1='[[:space:]]+'
+_Q_S="'([^']|'')*'"                       # string literal, '' escaping
+_Q_SN="(${_Q_S}|NULL)"
+_Q_N='-?[0-9]+(\.[0-9]+)?'                # numeric literal
+_Q_NN="(${_Q_N}|[Nn][Uu][Ll][Ll])"        # jq -r can emit a bare `null`
+_Q_I='[0-9]+'
+_Q_END="${_Q_W};${_Q_W}\$"
+# _q_list <item>... → "(item, item, …)" with free whitespace around separators.
+_q_list() {
+  local _o="\\(${_Q_W}" _x _first=1
+  for _x in "$@"; do
+    [[ "$_first" -eq 1 ]] || _o+="${_Q_W},${_Q_W}"
+    _o+="$_x"; _first=0
+  done
+  printf '%s' "${_o}${_Q_W}\\)"
+}
+# _q_eq <col> <value-regex> → "col = value"
+_q_eq() { printf '%s' "${1}${_Q_W}=${_Q_W}${2}"; }
+# _q_insert <table> <ncols> <col>... <val>... → full anchored INSERT pattern.
+_q_insert() {
+  local _t="$1" _n="$2"; shift 2
+  printf '%s' "^${_Q_W}INSERT${_Q_W1}INTO${_Q_W1}${_t}${_Q_W}$(_q_list "${@:1:$_n}")${_Q_W}VALUES${_Q_W}$(_q_list "${@:$((_n + 1))}")"
+}
+
+_ALLOW_NAME=(); _ALLOW_RE=()
+_q_add() { _ALLOW_NAME+=("$1"); _ALLOW_RE+=("$2"); }
+
+# agent_actions_log INSERT (pre-tool-use.sh / session-start.sh).
+_AAL_C=(session_id agent tool_name args_hash status deny_reason input_summary)
+_AAL_V=("$_Q_SN" "$_Q_S" "$_Q_S" "$_Q_S" "'(pending|denied|failed)'" "$_Q_SN" "$_Q_S")
+_q_add aal-insert "$(_q_insert agent_actions_log 7 "${_AAL_C[@]}" "${_AAL_V[@]}")${_Q_END}"
+_q_add aal-insert "$(_q_insert agent_actions_log 8 "${_AAL_C[@]}" started_at "${_AAL_V[@]}" "$_Q_S")${_Q_END}"
+_q_add aal-insert "$(_q_insert agent_actions_log 8 "${_AAL_C[@]}" spec_id "${_AAL_V[@]}" "$_Q_I")${_Q_END}"
+_q_add aal-insert "$(_q_insert agent_actions_log 9 "${_AAL_C[@]}" started_at spec_id "${_AAL_V[@]}" "$_Q_S" "$_Q_I")${_Q_END}"
+
+# agent_actions_log INSERT (config-change.sh).
+_q_add aal-config "$(_q_insert agent_actions_log 8 \
+  session_id agent tool_name args_hash status input_summary started_at ended_at \
+  "$_Q_SN" "'system'" "'ConfigChange'" "$_Q_S" "'success'" "$_Q_S" "$_Q_S" "$_Q_S")${_Q_END}"
+
+# agent_actions_log finalizing UPDATEs (post-tool-use.sh / post-tool-use-failure.sh).
+_AAL_SUBQ_HEAD="${_Q_W1}WHERE${_Q_W1}id${_Q_W}=${_Q_W}\\(${_Q_W}SELECT${_Q_W1}id${_Q_W1}FROM${_Q_W1}agent_actions_log${_Q_W1}WHERE${_Q_W1}$(_q_eq session_id "$_Q_S")${_Q_W1}AND${_Q_W1}$(_q_eq agent "$_Q_S")${_Q_W1}AND${_Q_W1}$(_q_eq tool_name "$_Q_S")"
+_AAL_SUBQ_TAIL="${_Q_W1}ORDER${_Q_W1}BY${_Q_W1}started_at${_Q_W1}DESC${_Q_W1}LIMIT${_Q_W1}1${_Q_W}\\)${_Q_END}"
+_q_add aal-success "^${_Q_W}UPDATE${_Q_W1}agent_actions_log${_Q_W1}SET${_Q_W1}$(_q_eq status "'success'")${_Q_W},${_Q_W}$(_q_eq result_hash "$_Q_S")${_Q_W},${_Q_W}$(_q_eq ended_at "$_Q_S")${_AAL_SUBQ_HEAD}${_Q_W1}AND${_Q_W1}$(_q_eq status "'pending'")(${_Q_W1}AND${_Q_W1}$(_q_eq args_hash "$_Q_S"))?${_AAL_SUBQ_TAIL}"
+_q_add aal-failure "^${_Q_W}UPDATE${_Q_W1}agent_actions_log${_Q_W1}SET${_Q_W1}$(_q_eq status "'failure'")${_Q_W},${_Q_W}$(_q_eq ended_at "$_Q_S")${_AAL_SUBQ_HEAD}${_Q_W1}AND${_Q_W1}$(_q_eq args_hash "$_Q_S")${_Q_W1}AND${_Q_W1}$(_q_eq status "'pending'")${_AAL_SUBQ_TAIL}"
+
+# security_audit_log incident row (pre-tool-use.sh Track 2e / Track 2g).
+_q_add sal-incident "$(_q_insert security_audit_log 8 \
+  auditor scope audit_type layer finding severity category status \
+  "'hook:pre-tool-use'" "'company'" "'incident'" "'agents'" "$_Q_S" "'(high|info)'" "$_Q_S" "'open'")${_Q_END}"
+
+# agents status UPDATEs (session-start / subagent-start / subagent-stop / session-end).
+_q_add agents-session "^${_Q_W}UPDATE${_Q_W1}agents${_Q_W1}SET${_Q_W1}$(_q_eq status "'active'")${_Q_W},${_Q_W}$(_q_eq session_id "$_Q_S")${_Q_W},${_Q_W}$(_q_eq updated_at "$_Q_S")${_Q_W1}WHERE${_Q_W1}$(_q_eq role "$_Q_S")${_Q_END}"
+_q_add agents-status "^${_Q_W}UPDATE${_Q_W1}agents${_Q_W1}SET${_Q_W1}$(_q_eq status "'(active|inactive)'")${_Q_W},${_Q_W}$(_q_eq updated_at "$_Q_S")${_Q_W1}WHERE${_Q_W1}$(_q_eq role "$_Q_S")${_Q_END}"
+
+# session_snapshots INSERT (pre-compact.sh; snapshot is base64).
+_q_add snapshot "$(_q_insert session_snapshots 4 agent snapshot session_id created_at \
+  "$_Q_S" "'[A-Za-z0-9+/=]*'" "$_Q_S" "$_Q_S")${_Q_END}"
+
+# messages INSERTs (session-end.sh wrap-up reminder / cso-weekly-audit.sh escalation).
+_q_add msg-wrap "$(_q_insert messages 6 from_agent to_agent type content priority notify_ceo \
+  "'cos'" "'cos'" "'session-wrap-reminder'" "$_Q_S" "'high'" "1")${_Q_END}"
+_q_add msg-cso "$(_q_insert messages 7 from_agent to_agent type content priority notify_ceo created_at \
+  "'cso-weekly-audit'" "'cos'" "'escalation'" "$_Q_S" "'critical'" "1" "$_Q_S")${_Q_END}"
+
+# agent_token_usage INSERTs (hooks/lib/track-tokens.sh).
+_ATU_C=(id session_id parent_session_id agent_name principal_id project_slug model
+        input_tokens output_tokens cache_write_tokens cache_read_tokens
+        started_at ended_at computed_cost_usd)
+_ATU_UPSERT="${_Q_W1}ON${_Q_W1}CONFLICT${_Q_W}\\(${_Q_W}id${_Q_W}\\)${_Q_W1}DO${_Q_W1}UPDATE${_Q_W1}SET${_Q_W1}"
+_first=1
+for _c in input_tokens output_tokens cache_write_tokens cache_read_tokens ended_at computed_cost_usd; do
+  [[ "$_first" -eq 1 ]] || _ATU_UPSERT+="${_Q_W},${_Q_W}"
+  _ATU_UPSERT+="$(_q_eq "$_c" "excluded\\.${_c}")"; _first=0
+done
+unset _first _c
+_q_add atu-main "$(_q_insert agent_token_usage 14 "${_ATU_C[@]}" \
+  "$_Q_S" "$_Q_S" "NULL" "'main'" "$_Q_SN" "$_Q_SN" "$_Q_S" \
+  "$_Q_NN" "$_Q_NN" "$_Q_NN" "$_Q_NN" "$_Q_S" "$_Q_SN" "$_Q_NN")${_ATU_UPSERT}${_Q_END}"
+_q_add atu-subagent "$(_q_insert agent_token_usage 14 "${_ATU_C[@]}" \
+  "$_Q_S" "$_Q_S" "$_Q_S" "$_Q_S" "$_Q_SN" "$_Q_SN" "$_Q_S" \
+  "$_Q_NN" "$_Q_NN" "$_Q_NN" "$_Q_NN" "$_Q_S" "$_Q_S" "$_Q_NN")${_Q_END}"
+
+# 0 (and the shape name in _ALLOW_HIT) if the line is an allowlisted statement.
+_stmt_allowed() {
+  local _i
+  _ALLOW_HIT=""
+  for _i in "${!_ALLOW_RE[@]}"; do
+    if [[ "$1" =~ ${_ALLOW_RE[$_i]} ]]; then
+      _ALLOW_HIT="${_ALLOW_NAME[$_i]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Quarantine file: same directory as the spool (honors JUVANT_SPOOL), e.g.
+# .juvant/audit-spool.sql → .juvant/audit-spool.quarantine.
+_SPOOL_BASE="$(basename "$SPOOL")"
+QUARANTINE="$(dirname "$SPOOL")/${_SPOOL_BASE%.sql}.quarantine"
+_Q_COUNT=0; _Q_STALE=0; _Q_KEPT=0; _Q_FIRST_HASH=""; _Q_FIRST_EXCERPT=""
+
+_sha256() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1
+  elif command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
+  else echo "no-hash"; fi
+}
+
+# Append one non-matching line to the quarantine file (never executed).
+# $1 = statement, $2 = source file name, $3 = 1 if from a stranded batch.
+# Returns 1 if the quarantine write failed — the caller must then keep the line
+# (re-queue it) rather than drop it: unexecuted AND preserved, never lost.
+_quarantine() {
+  local _h _ex _rc=0
+  _h=$(printf '%s' "$1" | _sha256)
+  if { printf -- '-- quarantined %s source=%s sha256=%s (decisions#303 R3: not in the drain statement allowlist; NOT executed)\n' \
+         "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" "$_h"
+       printf '%s\n' "$1"
+     } >> "$QUARANTINE" 2>/dev/null; then
+    chmod 600 "$QUARANTINE" 2>/dev/null || true
+    _Q_COUNT=$(( _Q_COUNT + 1 ))
+    [[ "${3:-0}" == "1" ]] && _Q_STALE=$(( _Q_STALE + 1 ))
+    echo "[drain-audit-spool] SECURITY: quarantined a non-allowlisted spool statement from $2 (sha256=${_h}) — not executed" >&2
+  else
+    # Still an incident: report it, keep the line (unexecuted) for the next run.
+    _Q_KEPT=$(( _Q_KEPT + 1 ))
+    _rc=1
+    echo "[drain-audit-spool] SECURITY: could not write quarantine file $QUARANTINE; non-allowlisted statement from $2 (sha256=${_h}) kept unexecuted for the next run" >&2
+  fi
+  if [[ -z "$_Q_FIRST_HASH" ]]; then
+    _Q_FIRST_HASH="$_h"
+    # Short, sanitised excerpt only: quotes and every other non-allowlisted
+    # character become '?', so neither the DB row nor the alert can carry the
+    # raw quarantined SQL (or anything that re-parses as SQL / markup).
+    _ex=$(printf '%s' "$1" | tr -c 'A-Za-z0-9 _(),.=*-' '?' | tr -s ' ' | cut -c1-80)
+    _Q_FIRST_EXCERPT="$_ex"
+  fi
+  return "$_rc"
+}
+
+# One high-severity security_audit_log row (written SYNCHRONOUSLY — never via
+# the spool it is reporting on) + one fire-and-forget alert per run. Runs on
+# EXIT so every exit path of the drain reports what it quarantined.
+# shellcheck disable=SC2329  # invoked via `trap … EXIT`
+_quarantine_report() {
+  [[ $(( _Q_COUNT + _Q_KEPT )) -gt 0 ]] || return 0
+  local _finding _cfg _msg _hook _card _tg_token _tg_chat _kept=""
+  [[ "$_Q_KEPT" -gt 0 ]] && _kept="; ${_Q_KEPT} more kept UNEXECUTED in the spool because the quarantine file could not be written"
+  _finding="audit-spool injection: ${_Q_COUNT} spooled statement(s) outside the drain statement allowlist were quarantined and NOT executed (${_Q_STALE} from stranded batches)${_kept}; quarantine=$(basename "$QUARANTINE"); first sha256=${_Q_FIRST_HASH}; first excerpt (sanitised): ${_Q_FIRST_EXCERPT} (decisions#303 R3)"
+  juvant_db_exec "INSERT INTO security_audit_log
+    (auditor, scope, audit_type, layer, finding, severity, category, status)
+    VALUES
+    ('helper:drain-audit-spool', 'company', 'incident', 'agents',
+     '$(printf '%s' "$_finding" | sed "s/'/''/g")', 'high', 'spool-injection', 'open');" \
+    || echo "[drain-audit-spool] WARN: failed to write the spool-injection security_audit_log row (quarantine file is the durable record)" >&2
+
+  _msg="[SECURITY ALERT] audit spool injection: $(( _Q_COUNT + _Q_KEPT )) statement(s) outside the allowlist, not executed (drain-audit-spool, decisions#303 R3). First excerpt: ${_Q_FIRST_EXCERPT} — review $(basename "$QUARANTINE") with the CSO."
+  _cfg="${JUVANT_CONFIG:-$REPO_ROOT/.juvant/config.json}"
+  if [[ -f "$_cfg" ]] && command -v jq >/dev/null 2>&1; then
+    # Same notification path as pre-tool-use.sh Track 2e; fire-and-forget.
+    _hook=$(jq -r '.notifications.teams_webhooks.approvals // ""' "$_cfg" 2>/dev/null || echo "")
+    if [[ -n "$_hook" ]]; then
+      _card=$(jq -n --arg msg "$_msg" '{type:"AdaptiveCard","$schema":"http://adaptivecards.io/schemas/adaptive-card.json",version:"1.4",body:[{type:"TextBlock",text:$msg,wrap:true}]}')
+      curl -s --connect-timeout 5 --max-time 10 -X POST "$_hook" \
+        -H "Content-Type: application/json" -d "$_card" >/dev/null 2>&1 &
+    fi
+    _tg_token=$(jq -r '.notifications.telegram_bot_token // ""' "$_cfg" 2>/dev/null || echo "")
+    _tg_chat=$(jq -r '.notifications.telegram_chat_id // ""' "$_cfg" 2>/dev/null || echo "")
+    if [[ -n "$_tg_token" && -n "$_tg_chat" ]]; then
+      curl -s --connect-timeout 5 --max-time 10 -X POST \
+        "https://api.telegram.org/bot${_tg_token}/sendMessage" \
+        -d "chat_id=${_tg_chat}" --data-urlencode "text=${_msg}" >/dev/null 2>&1 &
+    fi
+  fi
+  return 0
+}
+
 # ── decisions#298 (L1-F1): re-claim stranded batches ─────────────────────────
 # A drain killed mid-loop (sleep, SIGKILL, session exit) leaves its claimed
 # batch behind as "$SPOOL.draining.<pid>" (or "$SPOOL.merge.<pid>" if killed
@@ -85,6 +304,8 @@ if [[ -z "$JUVANT_DB_PROVIDER" ]]; then
   echo "[drain-audit-spool] WARN: no db.provider configured; leaving spool intact" >&2
   exit 0
 fi
+# decisions#303 R3: report anything quarantined below, whatever exit path we take.
+trap '_quarantine_report' EXIT
 
 # Rewrite one spooled agent_actions_log INSERT into an idempotent form, so that
 # replaying a batch that was partially applied before the drain died does not
@@ -95,6 +316,8 @@ fi
 # can be collapsed — a deliberate bias toward "no duplicate audit rows" for
 # batches that are already known-damaged. Anything not matching the expected
 # shape (UPDATEs are idempotent; other statements) is passed through unchanged.
+# Only ever called on a line that already passed _stmt_allowed (decisions#303
+# R3), so every captured value is a plain SQL literal.
 _guard_reclaimed() {
   local _s="$1"
   local _re_stmt='^INSERT INTO agent_actions_log[[:space:]]*\(([^)]*)\)[[:space:]]*VALUES[[:space:]]*\((.*)\);[[:space:]]*$'
@@ -136,9 +359,16 @@ _reclaim_one() {
     echo "[drain-audit-spool] WARN: cannot create backup dir $_kdir; leaving $(basename "$_f") in place" >&2
     return 1
   fi
+  # shellcheck disable=SC2094  # $_f is only read here; basename "$_f" is a label
   while IFS= read -r _stmt || [[ -n "$_stmt" ]]; do
-    [[ -z "$_stmt" ]] && continue
+    [[ "$_stmt" =~ ^[[:space:]]*$ ]] && continue
     if [[ "$_failed" -eq 1 ]]; then _rem+="$_stmt"$'\n'; continue; fi
+    # decisions#303 R3: same allowlist as the live spool — a stranded batch is
+    # just as agent-writable, so no unknown statement is ever passed through.
+    if ! _stmt_allowed "$_stmt"; then
+      _quarantine "$_stmt" "$(basename "$_f")" 1 && continue
+      _failed=1; _rem+="$_stmt"$'\n'; continue
+    fi
     if juvant_db_exec "$(_guard_reclaimed "$_stmt")"; then
       _a=$(( _a + 1 ))
     else
@@ -227,9 +457,16 @@ APPLIED=0
 FAILED=0
 REMAINING=""
 while IFS= read -r _stmt || [[ -n "$_stmt" ]]; do
-  [[ -z "$_stmt" ]] && continue
+  [[ "$_stmt" =~ ^[[:space:]]*$ ]] && continue
   if [[ "$FAILED" -eq 1 ]]; then
     REMAINING+="$_stmt"$'\n'           # already failed — defer the rest in order
+    continue
+  fi
+  # decisions#303 R3: never execute a line outside the statement allowlist.
+  if ! _stmt_allowed "$_stmt"; then
+    _quarantine "$_stmt" "$_SPOOL_BASE" 0 && continue
+    FAILED=1                           # could not quarantine: keep it, unexecuted
+    REMAINING+="$_stmt"$'\n'
     continue
   fi
   if juvant_db_exec "$_stmt"; then
@@ -242,7 +479,8 @@ done < "$WORK"
 rm -f "$WORK"
 
 if [[ "$FAILED" -eq 0 ]]; then
-  echo "[drain-audit-spool] drained $APPLIED statement(s) to $JUVANT_DB_PROVIDER"
+  _QMSG=""; [[ "$_Q_COUNT" -gt 0 ]] && _QMSG=" ($_Q_COUNT non-allowlisted statement(s) quarantined, not executed)"
+  echo "[drain-audit-spool] drained $APPLIED statement(s) to $JUVANT_DB_PROVIDER${_QMSG}"
 
   # BUG-052: finalize orphaned 'pending' rows the PostToolUse UPDATE never
   # closed. Two sources: (1) async / fire-and-forget tools (SendMessage,
