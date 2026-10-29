@@ -1174,6 +1174,55 @@ for _c in \
   t_assert "2f adopter: allow (read) — $_c" "no" "$(_t2fb "$_c")"
 done
 
+# decisions#303 R1 + B2: the shared protected-path set (hooks/lib/
+# guardrail-paths.sh) adds the audit spool family, .juvant/backups/,
+# helpers/*.sh and scripts/*.sh.
+for _p in .juvant/audit-spool.sql .juvant/audit-spool.sql.draining.123 .juvant/audit-spool.sql.merge.9 \
+          .juvant/audit-spool.quarantine .juvant/backups/audit-spool.20261028.sql \
+          helpers/drain-audit-spool.sh helpers/install-schedules.sh helpers/kb-sync.sh \
+          scripts/governance-backfill.sh scripts/migrate.sh; do
+  t_assert "2f adopter: Write $_p → deny" "yes" \
+    "$(_t2f 0 "$(jq -cn --arg p "$_p" '{tool_name:"Write",session_id:"s",tool_input:{file_path:$p,content:"x"}}')")"
+done
+t_assert "2f adopter: Edit absolute path to the spool → deny" "yes" \
+  "$(_t2f 0 "$(jq -cn --arg p "$ROOT_DIR/.juvant/audit-spool.sql" '{tool_name:"Edit",session_id:"s",tool_input:{file_path:$p,old_string:"a",new_string:"b"}}')")"
+for _p in .juvant/config.json scripts/schema.sql tests/helpers/test-helpers-drain-backup.sh tests/sync/test-sync-compile.sh; do
+  t_assert "2f adopter: Write $_p → not 2f" "no" \
+    "$(_t2f 0 "$(jq -cn --arg p "$_p" '{tool_name:"Write",session_id:"s",tool_input:{file_path:$p,content:"x"}}')")"
+done
+for _c in \
+  'echo "INSERT INTO decisions (title) VALUES (1)" >> .juvant/audit-spool.sql' \
+  'printf x | tee -a .juvant/audit-spool.sql' \
+  'sed -i s/a/b/ .juvant/audit-spool.sql' \
+  'cp /tmp/x .juvant/audit-spool.sql.draining.42' \
+  'mv .juvant/audit-spool.sql /tmp/x' \
+  'rm -f .juvant/backups/*' \
+  'truncate -s0 .juvant/audit-spool.sql' \
+  'cd .juvant && rm audit-spool.sql' \
+  'find .juvant/backups -delete' \
+  "python3 -c \"open('.juvant/audit-spool.sql','a').write('x')\"" \
+  'chmod +x helpers/drain-audit-spool.sh' \
+  'sed -i s/a/b/ scripts/governance-backfill.sh' \
+  'git checkout HEAD~1 -- helpers/install-schedules.sh' \
+  'cd helpers && cp /tmp/x kb-sync.sh' \
+  'rm -rf helpers' \
+  'ln -sf /tmp/evil.sh scripts/migrate.sh' \
+  ; do
+  t_assert "2f adopter (#303): deny — $_c" "yes" "$(_t2fb "$_c")"
+done
+for _c in \
+  'bash helpers/drain-audit-spool.sh' \
+  'cat .juvant/audit-spool.sql | wc -l' \
+  'bash scripts/migrate.sh --dry-run' \
+  'shellcheck helpers/*.sh scripts/*.sh' \
+  'ls .juvant/backups' \
+  'bash tests/helpers/test-helpers-drain-backup.sh' \
+  'jq . .juvant/config.json' \
+  'cp helpers/turso-backup.sh /tmp/x' \
+  ; do
+  t_assert "2f adopter (#303): allow — $_c" "no" "$(_t2fb "$_c")"
+done
+
 # The one sanctioned Bash write: Upstream sync step 7, from the canonical
 # upstream only. Run against a scratch copy of hooks/ with its own remotes.
 _t2f_up="$(mktemp -d)"

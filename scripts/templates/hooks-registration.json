@@ -1,4 +1,19 @@
 {
+  "_permissions_deny_comment": "decisions#303 R2: framework permission denies that scripts/sync-hooks.sh MERGES into an instance's .claude/settings.json permissions.deny (append missing, keep instance entries; skipped in the framework repo). Second layer behind the Track 2f hook floor for the audit spool family, its backups, the drain helper and the security policy file.",
+  "permissions_deny": [
+    "Edit(.juvant/audit-spool.sql)",
+    "Write(.juvant/audit-spool.sql)",
+    "Edit(.juvant/audit-spool.sql.*)",
+    "Write(.juvant/audit-spool.sql.*)",
+    "Edit(.juvant/audit-spool.quarantine)",
+    "Write(.juvant/audit-spool.quarantine)",
+    "Edit(.juvant/backups/**)",
+    "Write(.juvant/backups/**)",
+    "Edit(helpers/drain-audit-spool.sh)",
+    "Write(helpers/drain-audit-spool.sh)",
+    "Edit(security/policy.json)",
+    "Write(security/policy.json)"
+  ],
   "hooks": {
     "SessionStart": [
       {
