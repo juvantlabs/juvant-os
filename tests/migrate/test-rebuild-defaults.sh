@@ -41,8 +41,12 @@ sqlite3 "$DB" < "$TMP/old.sql"
 eq "fixture: knowledge_base.approved_by DEFAULT 'ceo'" "'ceo'" "$(dflt "$DB" knowledge_base)"
 sqlite3 "$DB" "INSERT INTO knowledge_base (category,title,content) VALUES ('technical','a','x');
                INSERT INTO knowledge_base (category,title,content,approved_by) VALUES ('technical','b','y',NULL);
-               INSERT INTO agent_tool_matrix (role,mcp_servers) VALUES ('cfo','[]');"
+               INSERT INTO agent_tool_matrix (role,mcp_servers) VALUES ('cfo','[]');
+               INSERT INTO knowledge_base (category,title,content) VALUES ('technical','gap','g');
+               DELETE FROM knowledge_base WHERE title='gap';"
 KB0=$(sqlite3 "$DB" "SELECT group_concat(id||':'||title||':'||coalesce(approved_by,'NULL'),'|') FROM knowledge_base;")
+seq() { sqlite3 "$1" "SELECT coalesce((SELECT seq FROM sqlite_sequence WHERE name='$2'),0);"; }
+SEQ0=$(seq "$DB" knowledge_base)
 
 echo "== without --rebuild-defaults: reported, not changed =="
 out=$(bash "$R/scripts/migrate.sh" 2>&1); rc=$?
@@ -60,7 +64,9 @@ eq  "knowledge_base.approved_by has no default" "NULL" "$(dflt "$DB" knowledge_b
 eq  "agent_tool_matrix.approved_by has no default" "NULL" "$(dflt "$DB" agent_tool_matrix)"
 eq  "every existing row kept, values unchanged" "$KB0" \
   "$(sqlite3 "$DB" "SELECT group_concat(id||':'||title||':'||coalesce(approved_by,'NULL'),'|') FROM knowledge_base;")"
+eq  "AUTOINCREMENT sequence carried over (deleted top id not reused)" "$SEQ0" "$(seq "$DB" knowledge_base)"
 sqlite3 "$DB" "INSERT INTO knowledge_base (category,title,content) VALUES ('technical','c','z');"
+eq  "next id continues after the old high-water mark" "$((SEQ0 + 1))" "$(sqlite3 "$DB" "SELECT id FROM knowledge_base WHERE title='c';")"
 eq  "ACCEPTANCE: INSERT omitting approved_by stores NULL" "NULL" \
   "$(sqlite3 "$DB" "SELECT coalesce(approved_by,'NULL') FROM knowledge_base WHERE title='c';")"
 eq  "the table's triggers are back (global-scope guard)" "2" \
@@ -78,6 +84,47 @@ if [[ "$rc" -ne 0 ]]; then ok "non-zero exit"; else no "exited 0"; fi
 has "names the column it would lose" "$out" "instance_extra"
 eq  "table left as it was (default + extra column intact)" "'ceo'|keep me" \
   "$(dflt "$DB2" knowledge_base)|$(sqlite3 "$DB2" "SELECT instance_extra FROM knowledge_base;")"
+
+echo "== local: a failed step rolls the whole rebuild back =="
+R4="$TMP/inst4"; stage "$R4"; DB4="$R4/.juvant/state.db"
+sqlite3 "$DB4" < "$TMP/old.sql"
+sqlite3 "$DB4" "INSERT INTO knowledge_base (category,title,content) VALUES ('technical','a','x');"
+# A trigger that aborts the copy into the rebuild table (an injected failure).
+sqlite3 "$DB4" "CREATE TABLE knowledge_base__bug085_guard (x); CREATE TRIGGER inject BEFORE INSERT ON knowledge_base__bug085_guard BEGIN SELECT RAISE(ABORT,'x'); END;"
+# shellcheck disable=SC2016  # the $t / $cols are migrate.sh's own, matched literally
+sed -i.bak 's/INSERT INTO \${t}__bug085 (\$cols) SELECT \$cols FROM \$t/INSERT INTO ${t}__bug085 ($cols) SELECT $cols FROM $t; INSERT INTO knowledge_base__bug085_guard VALUES (1)/' "$R4/scripts/migrate.sh"
+out=$(bash "$R4/scripts/migrate.sh" --rebuild-defaults 2>&1); rc=$?
+if [[ "$rc" -ne 0 ]]; then ok "local failure → non-zero exit"; else no "local failure exited 0"; fi
+has "reports the rollback" "$out" "rolled back"
+eq  "original table untouched (default + row)" "'ceo'|1" "$(dflt "$DB4" knowledge_base)|$(sqlite3 "$DB4" "SELECT count(*) FROM knowledge_base;")"
+eq  "no leftover rebuild table" "0" "$(sqlite3 "$DB4" "SELECT count(*) FROM sqlite_master WHERE name = 'knowledge_base__bug085';")"
+
+echo "== turso provider: ONE atomic libsql batch (H23 / BUG-091) =="
+R3="$TMP/inst3"; mkdir -p "$R3/scripts" "$R3/.juvant" "$TMP/bin3"
+cp "$REPO/scripts/migrate.sh" "$REPO/scripts/schema.sql" "$R3/scripts/"
+DB3="$TMP/turso.db"
+jq -n '{db:{provider:"turso",url:"libsql://test.fake",auth_token:"T"}}' > "$R3/.juvant/config.json"
+cp "$REPO/tests/hooks/fake-turso.sh" "$TMP/bin3/turso"; cp "$REPO/tests/hooks/fake-libsql-curl.sh" "$TMP/bin3/curl"; chmod +x "$TMP/bin3"/*
+sqlite3 "$DB3" < "$TMP/old.sql"
+sqlite3 "$DB3" "INSERT INTO knowledge_base (category,title,content) VALUES ('technical','a','x');
+                INSERT INTO knowledge_base (category,title,content) VALUES ('technical','b','y');
+                INSERT INTO knowledge_base (category,title,content) VALUES ('technical','gap','g');
+                DELETE FROM knowledge_base WHERE title='gap';
+                INSERT INTO agent_tool_matrix (role,mcp_servers) VALUES ('cfo','[]');"
+SEQ3=$(seq "$DB3" knowledge_base); ROWS3=$(sqlite3 "$DB3" "SELECT count(*) FROM knowledge_base;")
+tmig() { PATH="$TMP/bin3:$PATH" JUVANT_TEST_DB_FILE="$DB3" bash "$R3/scripts/migrate.sh" "$@" 2>&1; }
+out=$(FAKE_BATCH_FAIL_AT="RENAME TO" tmig --rebuild-defaults); rc=$?
+if [[ "$rc" -ne 0 ]]; then ok "ACCEPTANCE: forced failure between copy and RENAME → migrate exits non-zero"; else no "forced failure exited 0"; fi
+has "...and says it rolled back" "$out" "rolled back"
+eq  "ACCEPTANCE: original table in place with ALL rows and its default" "$ROWS3|'ceo'" \
+  "$(sqlite3 "$DB3" "SELECT count(*) FROM knowledge_base;")|$(dflt "$DB3" knowledge_base)"
+eq  "no leftover rebuild table after the rollback" "0" "$(sqlite3 "$DB3" "SELECT count(*) FROM sqlite_master WHERE name LIKE '%__bug085';")"
+out=$(tmig --rebuild-defaults); rc=$?
+eq  "normal turso run exits 0" "0" "$rc"
+if [[ "$out" == *"cannot commit"* ]]; then no "ACCEPTANCE: no 'cannot commit' error"; else ok "ACCEPTANCE: no 'cannot commit' error"; fi
+has "both tables rebuilt" "$out" "Rebuilt agent_tool_matrix"
+eq  "default gone, rows kept" "NULL|$ROWS3" "$(dflt "$DB3" knowledge_base)|$(sqlite3 "$DB3" "SELECT count(*) FROM knowledge_base;")"
+eq  "ACCEPTANCE: sqlite_sequence for the table unchanged" "$SEQ3" "$(seq "$DB3" knowledge_base)"
 
 echo "───────────────────────────────────"
 echo "  migrate rebuild-defaults: $PASS passed, $FAIL failed"

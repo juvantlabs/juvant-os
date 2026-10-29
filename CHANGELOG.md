@@ -11,6 +11,31 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`migrate.sh --rebuild-defaults` was not atomic on turso** (H23, BUG-091,
+  juvant-os-pm#194; adopter finding #171). v1.14.4 piped the rebuild script to
+  `turso db shell`, which runs each statement on its own: `BEGIN` had no
+  effect, the final `COMMIT` failed with "cannot commit - no transaction is
+  active", the error did not stop migrate, and the row count was checked only
+  after the original table was dropped. **The v1.14.4 entry's "one
+  transaction" claim did not hold on turso** (it did on local SQLite). On the
+  adopter every DB ended correct, but a failed copy would have needed a
+  point-in-time restore.
+  - On turso the rebuild is now ONE libsql `/v2/pipeline` request carrying a
+    Hrana batch: `BEGIN`, each step conditioned on the previous one, `COMMIT`,
+    and a `ROLLBACK` that runs unless `COMMIT` did. Locally it is one sqlite3
+    process with `.bail on`. Any failure rolls back, leaves the table
+    untouched, and makes migrate exit non-zero.
+  - A row-count guard now runs **before** the drop and fails the transaction
+    when the copy is short.
+  - The `sqlite_sequence` (AUTOINCREMENT) high-water mark is carried over, so
+    a deleted top id is never reused.
+  - `tests/migrate/test-rebuild-defaults.sh` gains a turso-path case (fake
+    libsql transport, now batch-aware): a forced failure between the copy and
+    the rename leaves the original table with all rows; a normal run has no
+    "cannot commit"; the sequence is unchanged.
+
 ## [1.15.0] — 2026-10-29 — Alerts with receipts and gated destinations; guardrail jobs pinned to main
 
 Minor version: two defaults change. The scheduled guardrail jobs run a pinned

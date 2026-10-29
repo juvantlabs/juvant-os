@@ -407,8 +407,12 @@ apply_schema_patches() {
 # CREATE TABLE IF NOT EXISTS never alters a live table, and SQLite can't drop a
 # column default in place — only a table rebuild does. With --rebuild-defaults
 # each affected table is rebuilt from schema.sql's canonical DDL in ONE
-# transaction (create copy → copy rows → drop old → rename), and the row count
-# is checked; schema.sql (applied next) re-creates the table's triggers and
+# transaction (create copy → copy rows → row-count guard → drop old → rename →
+# carry the AUTOINCREMENT sequence over): one sqlite3 process with .bail on
+# locally, one libsql Hrana batch on turso (H23 / BUG-091 — v1.14.4 piped the
+# script to `turso db shell`, which ran each statement on its own, so it was
+# NOT atomic there). Any failure rolls back and leaves the table untouched;
+# schema.sql (applied next) re-creates the table's triggers and
 # indexes. Without the flag the stale default is only reported. Refuses when the
 # live table has a column the canonical DDL lacks (it would be lost).
 # Rehearse on a copy of the DB first (turso db create <copy> --from-db <db>).
@@ -416,8 +420,48 @@ _DEFAULT_REBUILD_TABLES=(knowledge_base agent_tool_matrix)
 _q1() { # <sql whose single result value is prefixed 'v='> → the value
   _patch_sql "$1" 2>/dev/null | tr -d '\r' | sed -n 's/^[[:space:]]*v=//p' | tail -n1 | sed 's/[[:space:]]*$//'
 }
+# _rebuild_batch_turso <table> <step-sql>… — run the steps as one Hrana batch
+# over libsql HTTP (BEGIN, each step conditioned on the previous one, COMMIT,
+# ROLLBACK unless COMMIT ran). 0 only if every step succeeded and COMMIT ran.
+_rebuild_batch_turso() {
+  local t="$1" http req resp body code n i rc; shift
+  local token="${DB_TOKEN:-${TURSO_TOKEN:-}}"
+  for c in curl jq; do command -v "$c" >/dev/null 2>&1 || { echo "ERROR [migrate]: $c is required for the atomic rebuild on turso." >&2; return 1; }; done
+  [[ -n "$token" ]] || { echo "ERROR [migrate]: no DB token for the atomic rebuild on turso." >&2; return 1; }
+  http="${PATCH_TARGET/#libsql:\/\//https://}"
+  n=$#
+  req=$(printf '%s\0' "$@" | jq -Rs --argjson n "$n" '
+    split("\u0000")[:$n] as $s
+    | [ range(0; $n) as $i
+        | {stmt: {sql: $s[$i]}} + (if $i == 0 then {} else {condition: {type: "ok", step: ($i - 1)}} end) ]
+    | . + [ {condition: {type: "not", cond: {type: "ok", step: ($n - 1)}}, stmt: {sql: "ROLLBACK"}} ]
+    | {requests: [ {type: "batch", batch: {steps: .}}, {type: "close"} ]}')
+  resp=$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+         | curl -sS -w '\n%{http_code}' --config - -H 'Content-Type: application/json' \
+                --data "$req" "$http/v2/pipeline" 2>&1); rc=$?
+  code=$(printf '%s' "$resp" | awk 'END{print}'); body=$(printf '%s' "$resp" | sed '$d')
+  if [[ "$rc" -ne 0 || ! "$code" =~ ^2[0-9][0-9]$ ]] || ! jq -e . >/dev/null 2>&1 <<<"$body"; then
+    echo "ERROR [migrate]: atomic rebuild of $t: transport failure (rc=$rc, http=$code) — nothing committed." >&2
+    return 1
+  fi
+  # Success = the COMMIT step (index n-1) produced a result and no step errored.
+  i=$(jq -r --argjson c "$((n - 1))" '
+    .results[0] as $r
+    | if $r.type != "ok" then "error: " + ($r.error.message // "batch rejected")
+      else ($r.response.result) as $b
+        | ([ $b.step_errors[]? | select(. != null) | .message ] | first) as $e
+        | if $e != null then "error: " + $e
+          elif ($b.step_results[$c] // null) == null then "error: COMMIT did not run"
+          else "ok" end end' <<<"$body" 2>/dev/null || echo "error: unreadable batch response")
+  if [[ "$i" != "ok" ]]; then
+    echo "ERROR [migrate]: atomic rebuild of $t failed and was rolled back — $t is untouched (${i:0:300})." >&2
+    return 1
+  fi
+  return 0
+}
+
 rebuild_stale_defaults() {
-  local t dflt live canon cols missing n0 n1 ddl tmpf
+  local t dflt live canon cols missing n0 n1 seq0 seq1 ddl tmpf err steps
   for t in "${_DEFAULT_REBUILD_TABLES[@]}"; do
     dflt=$(_q1 "SELECT 'v=' || coalesce(dflt_value, 'NULL') FROM pragma_table_info('$t') WHERE name = 'approved_by';")
     [[ "$dflt" == "'ceo'" ]] || continue
@@ -438,18 +482,50 @@ rebuild_stale_defaults() {
       return 1
     fi
     n0=$(_q1 "SELECT 'v=' || count(*) FROM $t;")
-    tmpf=$(mktemp)
-    {
-      echo "BEGIN;"
-      printf '%s\n' "$ddl" | sed "1s/^CREATE TABLE IF NOT EXISTS $t (/CREATE TABLE ${t}__bug085 (/"
-      echo "INSERT INTO ${t}__bug085 ($cols) SELECT $cols FROM $t;"
-      echo "DROP TABLE $t;"
-      echo "ALTER TABLE ${t}__bug085 RENAME TO $t;"
-      echo "COMMIT;"
-    } > "$tmpf"
-    if [[ "$PATCH_PROVIDER" == "local" ]]; then sqlite3 "$PATCH_TARGET" < "$tmpf"; else turso db shell "$PATCH_TARGET" < "$tmpf"; fi
-    rm -f "$tmpf"
+    seq0=$(_q1 "SELECT 'v=' || coalesce((SELECT seq FROM sqlite_sequence WHERE name = '$t'), 0);")
+    [[ "$n0" =~ ^[0-9]+$ && "$seq0" =~ ^[0-9]+$ ]] || { echo "ERROR [migrate]: could not read $t row count / sequence before the rebuild (rows='${n0}', seq='${seq0}') — not rebuilding." >&2; return 1; }
+    # The steps, in order. The row-count guard runs BEFORE the drop and fails
+    # the transaction when the copy is short (abs() of the minimum integer
+    # raises "integer overflow"); the sqlite_sequence steps carry the old
+    # AUTOINCREMENT high-water mark over, so no deleted top id is reused.
+    steps=(
+      "BEGIN"
+      "$(printf '%s\n' "$ddl" | sed "1s/^CREATE TABLE IF NOT EXISTS $t (/CREATE TABLE ${t}__bug085 (/")"
+      "INSERT INTO ${t}__bug085 ($cols) SELECT $cols FROM $t"
+      "SELECT CASE WHEN (SELECT count(*) FROM ${t}__bug085) = (SELECT count(*) FROM $t) THEN 1 ELSE abs(-9223372036854775808) END"
+      "DROP TABLE $t"
+      "ALTER TABLE ${t}__bug085 RENAME TO $t"
+      "UPDATE sqlite_sequence SET seq = max(seq, $seq0) WHERE name = '$t'"
+      "INSERT INTO sqlite_sequence (name, seq) SELECT '$t', $seq0 WHERE $seq0 > 0 AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = '$t')"
+      "COMMIT"
+    )
+    if [[ "$PATCH_PROVIDER" == "local" ]]; then
+      # One sqlite3 process = one connection: the transaction is real, and
+      # .bail stops at the first error (the open transaction rolls back).
+      tmpf=$(mktemp)
+      { echo ".bail on"; printf '%s;\n' "${steps[@]}"; } > "$tmpf"
+      if ! err=$(sqlite3 "$PATCH_TARGET" < "$tmpf" 2>&1 >/dev/null) || [[ "$err" == *"Error"* ]]; then
+        rm -f "$tmpf"
+        echo "ERROR [migrate]: rebuild of $t failed and was rolled back — $t is untouched: ${err:0:300}" >&2
+        return 1
+      fi
+      rm -f "$tmpf"
+    else
+      # H23 / BUG-091: `turso db shell` runs piped statements one by one, so
+      # BEGIN/COMMIT meant nothing there. The rebuild goes as ONE libsql
+      # /v2/pipeline request carrying a Hrana batch: each step runs only if
+      # the previous one succeeded, and a final ROLLBACK runs if COMMIT did
+      # not — the same shape libsql clients use for a transactional batch.
+      if ! _rebuild_batch_turso "$t" "${steps[@]}"; then
+        return 1
+      fi
+    fi
     n1=$(_q1 "SELECT 'v=' || count(*) FROM $t;")
+    seq1=$(_q1 "SELECT 'v=' || coalesce((SELECT seq FROM sqlite_sequence WHERE name = '$t'), 0);")
+    if [[ "$seq1" -lt "$seq0" ]]; then
+      echo "ERROR [migrate]: rebuild of $t lowered its AUTOINCREMENT sequence ($seq0 → $seq1)." >&2
+      return 1
+    fi
     dflt=$(_q1 "SELECT 'v=' || coalesce(dflt_value, 'NULL') FROM pragma_table_info('$t') WHERE name = 'approved_by';")
     if [[ "$n1" != "$n0" || "$dflt" != "NULL" ]]; then
       echo "ERROR [migrate]: rebuild of $t did not verify (rows $n0 → ${n1:-?}, approved_by default ${dflt:-?}). If ${t}__bug085 exists, the data is there — stop and inspect before anything else." >&2
