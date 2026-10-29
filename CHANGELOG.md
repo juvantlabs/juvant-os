@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.14.1] — 2026-10-29 — Security policy validator checks the right repo
+
 ### Fixed
 
 - **`validate-security-policy.sh --ref` checked the wrong repo when run from a
