@@ -11,6 +11,12 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.14.4] — 2026-10-29 — Audit views protected; stale approval defaults rebuilt
+
+**Adopter actions** after syncing: rehearse on a DB copy, then
+`bash scripts/migrate.sh --rebuild-defaults` (+ `--project=<slug>`) to drop
+the `approved_by` 'ceo' default from existing DBs.
+
 ### Security
 
 - **`DROP VIEW` was not denied** (H18, BUG-090, juvant-os-pm#193). The SQL gate
@@ -36,8 +42,6 @@ All written artifacts in English. No exceptions.
   synthetic policy (`JUVANT_POLICY_TEST=1` + `JUVANT_POLICY_FILE`).
 - Documented (H14): the CEO's `!` shell-mode input and MCP server launches are
   outside the PreToolUse perimeter (verified on an adopter).
-### Fixed
-
 - **BUG-085 did not reach existing DBs** (H19, BUG-090, juvant-os-pm#193):
   `CREATE TABLE IF NOT EXISTS` never alters a live table, so on DBs created
   before v1.14.3 `knowledge_base.approved_by` / `agent_tool_matrix.approved_by`
