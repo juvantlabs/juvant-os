@@ -1392,7 +1392,7 @@ if ! declare -F juvant_secret_get >/dev/null 2>&1; then
     # shellcheck disable=SC1091
     . "$SCRIPT_DIR/lib/secrets.sh"
   else
-    # shellcheck disable=SC2329  # called by hooks/lib/alert.sh
+    # shellcheck disable=SC2317,SC2329  # called by hooks/lib/alert.sh
     juvant_secret_get() { jq -r "(${1}) // empty" "${2:-$_T2E_CFG}" 2>/dev/null || true; }
   fi
 fi
