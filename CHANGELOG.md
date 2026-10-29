@@ -16,10 +16,12 @@ All written artifacts in English. No exceptions.
 - **`DROP VIEW` was not denied** (H18, BUG-090, juvant-os-pm#193). The SQL gate
   already denied `DROP TRIGGER` (v1.14.0, R5a), but `DROP VIEW` could remove
   the §10 audit views (`*_current`, the verdict-violations view). Both are now
-  denied for every role — in the per-statement SQL gate (`TEMP` forms
-  included), in `sql_deny_patterns`, and in the universal `deny_patterns` for
-  non-turso executors (sqlite3, python). Prose inside SQL literals still
-  passes.
+  denied for every role on both DB CLIs (turso, sqlite3) — in the
+  per-statement SQL gate (`TEMP` forms included) and `sql_deny_patterns`.
+  Prose inside SQL literals, commit messages and PR titles still pass: the
+  rule is deliberately not in the universal full-command `deny_patterns`.
+  Residual: SQL executed through an interpreter (e.g. python's sqlite3
+  module) is not statement-scanned.
 
 ### Fixed
 

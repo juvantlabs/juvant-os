@@ -29,7 +29,7 @@
     "gh[[:space:]]+repo[[:space:]]+delete",
     "gh[[:space:]]+api[[:space:]]+-X[[:space:]]+DELETE[[:space:]]+orgs",
     "gh[[:space:]]+release[[:space:]]+delete-asset",
-    "DROP[[:space:]]+(DATABASE|SCHEMA|TABLE|USER|ROLE|TRIGGER|VIEW)",
+    "DROP[[:space:]]+(DATABASE|SCHEMA|TABLE|USER|ROLE)",
     "TRUNCATE[[:space:]]+TABLE",
     "turso[[:space:]]+db[[:space:]]+destroy",
     "(>|>>)[[:space:]]*~/\\.ssh/id_",
