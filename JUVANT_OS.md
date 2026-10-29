@@ -4815,7 +4815,7 @@ trail. **Company-scope agents only** — no project agents involved.
    |---|---|
    | `hooks/` | Lifecycle bash scripts |
    | `helpers/` | Scheduled helper scripts |
-   | `tests/` (framework-owned only) | Hook/helper/sync test suites + their fakes — the explicit list in the whitelist, never a glob |
+   | `tests/` (framework-owned only) | Hook/helper/sync/schema/migrate test suites + their fakes — the explicit list in the whitelist, never a glob |
    | `scripts/` | compile-templates, migrate, schema, etc. |
    | `JUVANT_OS.md` | Skill orchestrator |
    | `SYSTEM_INVARIANTS.md` | Cross-cutting invariants |
@@ -4833,8 +4833,10 @@ trail. **Company-scope agents only** — no project agents involved.
    assumptions.
 
    **Tests travel with the code they test.** The framework-owned test files
-   in the whitelist (`tests/hooks/…`, `tests/helpers/…`, `tests/sync/…`)
-   assert the behaviour of the synced `hooks/`, `helpers/` and `scripts/`,
+   in the whitelist (`tests/hooks/…`, `tests/helpers/…`, `tests/sync/…`,
+   `tests/schema/…`, `tests/migrate/…`) assert the behaviour of the synced
+   `hooks/`, `helpers/` and `scripts/` (the schema and migrate tests guard
+   `scripts/schema.sql` and `scripts/migrate.sh`),
    and their fakes (`tests/hooks/fake-turso.sh`, `tests/hooks/fake-libsql-curl.sh`)
    must mirror the live DB transport in `hooks/lib/db.sh`. When the CEO
    approves `hooks/` or `helpers/` while skipping the `tests/` group (or vice
@@ -4920,7 +4922,10 @@ trail. **Company-scope agents only** — no project agents involved.
 11. **Smoke tests** — on the sync branch, before the CEO merges: run
     `bash helpers/anomaly-check.sh` and `bash helpers/audit-reconcile.sh`,
     plus `bash tests/hooks/run-tests.sh` and `bash tests/sync/test-sync-compile.sh`
-    whenever `hooks/`, `helpers/`, `scripts/` or `tests/` changed. **Always**
+    whenever `hooks/`, `helpers/`, `scripts/` or `tests/` changed; when
+    `scripts/schema.sql` or `scripts/migrate.sh` changed, also
+    `python3 tests/schema/validate.py`, `python3 tests/schema/test-category-allowlist.py`,
+    `bash tests/schema/test-audit-immutability.sh` and every `tests/migrate/test-*.sh`. **Always**
     run `bash tests/hooks/test-connector-gate.sh` (decisions#306): the
     claude.ai M365 connector is vendor-hosted and unversioned, so its canary
     re-runs on every sync — including against the instance's own
@@ -4970,6 +4975,7 @@ scripts/seed-matrix.sh        scripts/templates/v0-agent-tool-matrix.json
 scripts/sync-hooks.sh         scripts/templates/hooks-registration.json
 scripts/deadlines.json        scripts/validate-security-policy.sh
 scripts/migrate-secrets.sh    scripts/set-secret.sh
+scripts/upgrade-v0.5.sql
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
 scripts/templates/commands/juv-wrap-up.md
@@ -5016,13 +5022,19 @@ tests/helpers/test-turso-backup-archival.sh
 tests/sync/test-sync-compile.sh
 tests/sync/test-fake-db-pairing.sh
 tests/sync/test-sync-hooks.sh
+tests/schema/validate.py
+tests/schema/test-audit-immutability.sh
+tests/schema/test-category-allowlist.py
+tests/migrate/test-dry-run-no-write.sh
+tests/migrate/test-schema-apply-order.sh
+tests/migrate/test-v07-to-v08-agents.sh
 ```
 
 `tests/` entries are an **explicit framework-owned file list, never a glob**
 (decisions#300): only these exact paths sync, so instance-local tests in the
 same directories (e.g. `tests/hooks/test-<instance>-*.sh`) are never
-clobbered. Every framework file under `tests/hooks/`, `tests/helpers/` and
-`tests/sync/` must be listed here — `tests/sync/test-sync-compile.sh`
+clobbered. Every framework file under `tests/hooks/`, `tests/helpers/`,
+`tests/sync/`, `tests/schema/` and `tests/migrate/` must be listed here — `tests/sync/test-sync-compile.sh`
 enforces it, as it does for `hooks/` and `helpers/`.
 
 **Files NEVER touched** (instance-specific — skip regardless of diff):

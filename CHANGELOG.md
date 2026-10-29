@@ -11,6 +11,18 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The schema and migrate tests never reached adopters** (BUG-086,
+  juvant-os-pm#189). The upstream-sync whitelist synced `scripts/schema.sql`
+  and `scripts/migrate.sh` but not the tests that guard them. It now lists
+  `tests/schema/{validate.py,test-audit-immutability.sh,test-category-allowlist.py}`,
+  `tests/migrate/test-*.sh` and `scripts/upgrade-v0.5.sql` (read by
+  `validate.py`); the sync smoke-test step runs them when `schema.sql` or
+  `migrate.sh` changed; `tests/sync/test-sync-compile.sh` now also enforces
+  that every framework file under `tests/schema/` and `tests/migrate/` is
+  whitelisted.
+
 ## [1.14.2] — 2026-10-29 — Prescribed decisions writes land; migrate.sh fails loud
 
 **Adopter action:** run `bash scripts/migrate.sh`, plus `--project=<slug>` for
