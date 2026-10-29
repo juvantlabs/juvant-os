@@ -50,7 +50,9 @@ printf '%s' "$WL" | grep -qF "hooks/lib/pause-windows.sh" \
 
 # decisions#300 item 10: framework-owned tests travel with the hooks/helpers
 # they test (a test fake must mirror reality). Every tracked file under
-# tests/hooks/, tests/helpers/, tests/sync/ must be whitelisted by FULL path
+# tests/hooks/, tests/helpers/, tests/sync/, tests/schema/, tests/migrate/
+# (BUG-086: the schema/migrate tests guard the synced schema.sql/migrate.sh)
+# must be whitelisted by FULL path
 # (no basename fallback — basenames like run-tests.sh collide across dirs).
 # decisions#302: "framework-owned" means "present in the upstream tree".
 # Instance-local tests (JUVANT_OS.md: e.g. tests/hooks/test-<instance>-*.sh,
@@ -69,12 +71,12 @@ if [[ -z "$_ref" ]]; then
   ok "SKIP test-whitelist completeness: no framework reference tree (not the framework repo, no upstream/main ref)"
 else
   tmiss=0; tlocal=0
-  for f in $(git ls-files 'tests/hooks/*' 'tests/helpers/*' 'tests/sync/*'); do
+  for f in $(git ls-files 'tests/hooks/*' 'tests/helpers/*' 'tests/sync/*' 'tests/schema/*' 'tests/migrate/*'); do
     if ! git cat-file -e "$_ref:$f" 2>/dev/null; then tlocal=$((tlocal+1)); continue; fi
     printf '%s\n' "$WL" | grep -qE "(^|[[:space:]])${f//./\\.}([[:space:]]|$)" \
       || { echo "    test not whitelisted: $f"; tmiss=$((tmiss+1)); }
   done
-  [[ "$tmiss" -eq 0 ]] && ok "every framework file under tests/{hooks,helpers,sync}/ is whitelisted by full path (ref=$_ref; $tlocal instance-local skipped)" \
+  [[ "$tmiss" -eq 0 ]] && ok "every framework file under tests/{hooks,helpers,sync,schema,migrate}/ is whitelisted by full path (ref=$_ref; $tlocal instance-local skipped)" \
                        || no "$tmiss framework test file(s) absent from the whitelist (ref=$_ref)"
 fi
 
