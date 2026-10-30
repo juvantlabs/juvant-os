@@ -22,11 +22,11 @@
 #
 # States (JUVANT_POLICY_STATE):
 #   ok       policy read from origin/main and structurally valid
-#   absent   no policy file ever existed on origin/main (and no legacy block)
-#            → the consumers are a no-op, as before
-#   legacy   no policy file; legacy `.security.space_access` found in
-#            .juvant/config.json — honoured for ONE minor version, with a
-#            deprecation warning on stderr
+#   absent   no policy file ever existed on origin/main (and no leftover
+#            config.json rules) → the consumers are a no-op, as before
+#   unmigrated  no policy file, but `.security.space_access` rules are left in
+#            .juvant/config.json — never read (that location was removed in
+#            v1.16.1), so the rules were never migrated → FAIL CLOSED
 #   invalid  policy present but unparseable / structurally invalid  → FAIL CLOSED
 #   deleted  no policy file at origin/main, but git history shows one existed
 #            → FAIL CLOSED
@@ -106,7 +106,7 @@ juvant_policy_load() {
       fi
       return 0
     fi
-    # Test mode without a file falls through to the legacy loader below.
+    # Test mode without a file falls through to the leftover check below.
   elif git -C "$root" rev-parse --verify -q "$JUVANT_POLICY_REF" >/dev/null 2>&1; then
     JUVANT_POLICY_BLOB=$(GIT_NO_REPLACE_OBJECTS=1 git -C "$root" rev-parse -q --verify "$JUVANT_POLICY_REF:$JUVANT_POLICY_PATH" 2>/dev/null || echo "")
     if [[ -n "$JUVANT_POLICY_BLOB" ]]; then
@@ -123,12 +123,13 @@ juvant_policy_load() {
       return 0
     fi
   fi
-  # Legacy fallback (ONE minor version): .juvant/config.json .security.*
+  # The config.json location (.security.space_access) is never read — removed
+  # in v1.16.1. Rules left there with no policy file were never migrated: fail
+  # closed rather than drop the perimeter silently.
   cfg="${JUVANT_CONFIG:-$root/.juvant/config.json}"
   if [[ -f "$cfg" ]] && jq -e '(.security.space_access // []) | length > 0' "$cfg" >/dev/null 2>&1; then
-    JUVANT_POLICY_STATE="legacy"
-    JUVANT_POLICY_JSON=$(jq -c '{version:1, space_access:(.security.space_access // [])}' "$cfg" 2>/dev/null || echo "{}")
-    echo "[security-policy] DEPRECATED: sensitive-space rules read from .juvant/config.json .security.space_access — move them to a committed security/policy.json on main (decisions#305, ADR 0034). The legacy location is removed in the next minor version." >&2
+    JUVANT_POLICY_STATE="unmigrated"
+    JUVANT_POLICY_ERR="sensitive-space rules are only in .juvant/config.json .security.space_access, which is no longer read (removed in v1.16.1) — move them into security/policy.json via a reviewed PR to main"
   fi
   return 0
 }

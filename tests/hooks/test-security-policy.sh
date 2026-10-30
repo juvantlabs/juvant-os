@@ -111,7 +111,7 @@ push_policy "" "delete policy"
 t_assert "deleted policy (history exists) → mcp__ denied" "deny" "$(decide clo $GET "$OTHER")"
 t_assert "deleted policy → high row" "yes" "$([[ $(high_rows 'security policy deleted') -ge 1 ]] && echo yes || echo no)"
 
-echo "== absent / legacy =="
+echo "== absent / unmigrated =="
 FRESH="$TMPROOT/fresh"; g init -q "$FRESH"; g -C "$FRESH" commit -q --allow-empty -m init
 cp -R "$ROOT_DIR/hooks" "$FRESH/hooks"; mkdir -p "$FRESH/.juvant"
 cp "$INST/.juvant/config.json" "$FRESH/.juvant/config.json"
@@ -120,8 +120,20 @@ fdecide() { jq -n --arg a "$1" --arg t "$2" --argjson x "$3" '{tool_name:$t, too
 t_assert "no policy, no legacy block → no-op (allow)" "allow" "$(fdecide cfo $GET "$LEGAL")"
 jq --arg d "$DRIVE" '. + {security:{space_access:[{space:"legal-ip", tool_prefix:"mcp__m365-graph__", drive_ids:[$d], allowlist:["clo"]}]}}' \
   "$INST/.juvant/config.json" > "$FRESH/.juvant/config.json"
-t_assert "legacy config rules honoured (one minor version) → cfo deny" "deny" "$(fdecide cfo $GET "$LEGAL")"
-t_assert "legacy → deprecation warning on stderr" "yes" "$(grep -q 'DEPRECATED' "$TMPROOT/fresh.err" && echo yes || echo no)"
+# v1.16.1: config.json rules are never read — left there with no policy file,
+# they fail closed (every mcp__ call), they are not honoured.
+t_assert "rules only in config.json → cfo on the space denied" "deny" "$(fdecide cfo $GET "$LEGAL")"
+t_assert "  …clo (allowlisted there) denied too: not honoured, fail closed" "deny" "$(fdecide clo $GET "$LEGAL")"
+t_assert "  …unrelated mcp__ call denied" "deny" "$(fdecide cfo mcp__github__list_issues '{}')"
+t_assert "  …non-MCP tools unaffected (Read)" "allow" "$(fdecide cfo Read '{"file_path":"README.md"}')"
+_FR_RSN=$(jq -n '{tool_name:"mcp__github__list_issues", tool_input:{}, session_id:"s-pol", agent_type:"cfo"}' \
+  | (cd "$FRESH" && bash "$FRESH/hooks/pre-tool-use.sh" 2>/dev/null) | jq -r '.hookSpecificOutput.permissionDecisionReason')
+t_assert "  …reason names FAIL-CLOSED and the fix" "yes" \
+  "$([[ "$_FR_RSN" == *"FAIL-CLOSED"*"no longer read"*"security/policy.json"* ]] && echo yes || echo no)"
+t_assert "  …no DEPRECATED fallback on stderr" "no" "$(grep -q 'DEPRECATED' "$TMPROOT/fresh.err" && echo yes || echo no)"
+t_assert "  …high policy-fail-closed row" "yes" "$([[ $(high_rows 'security policy unmigrated') -ge 1 ]] && echo yes || echo no)"
+_FR_SS=$(echo '{"session_id":"s-ss"}' | (cd "$FRESH" && JUVANT_FRAMEWORK_DEV=0 JUVANT_LAUNCHAGENTS_DIR="$TMPROOT/nola" bash "$FRESH/hooks/session-start.sh" 2>/dev/null))
+t_assert "  …SessionStart warns fail-closed" "yes" "$([[ "$_FR_SS" == *"SECURITY WARNING"*"no longer read"* ]] && echo yes || echo no)"
 
 echo "== required alert channel without a secret =="
 push_policy "$(policy_json '["clo","cso"]' '. + {alert_routing:{required:["teams"]}}')" "require teams"

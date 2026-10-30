@@ -64,6 +64,10 @@ A perimeter whose rules the perimetered party can rewrite is not a perimeter.
    honoured for ONE minor version, with a deprecation warning, when no
    `security/policy.json` has ever existed on `origin/main`. The adopter
    commits `security/policy.json` to `main` **before** syncing this mechanism.
+   *Amended in v1.16.1:* the fallback is removed. `.security.space_access` is
+   never read. If rules are left there and no policy file exists, the state is
+   `unmigrated` and fails closed like `invalid` (deny every `mcp__` call, high
+   row, alert), so a perimeter that was never migrated is not dropped silently.
 9. **Validation.** `scripts/validate-security-policy.sh` (same rules as the
    hook) and `docs/schemas/security-policy.schema.json`; adopters run the
    validator in their CI on every PR touching the file.
@@ -79,7 +83,8 @@ A perimeter whose rules the perimetered party can rewrite is not a perimeter.
 - Editing the policy requires a merge to `main` from outside the agent session
   (the CEO's editor, terminal or the GitHub UI).
 - A fresh clone needs `origin/main` fetched for the policy to apply; until then
-  the legacy fallback (one minor version) or no-op applies.
+  the no-op applies (or, with rules left in config.json, the `unmigrated`
+  fail-closed state).
 
 **Residual**
 - Someone with direct shell access outside Claude Code can still rewrite

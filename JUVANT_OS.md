@@ -681,8 +681,11 @@ fallback chain.
   space. Absent ⇒ all company agents (the default for a normally-promoted
   space). `resolve_space` honours it cooperatively; the **hard** perimeter is
   the pre-tool-use hook deny-list (`hooks/pre-tool-use.sh` Track 2e) keyed on
-  `(AGENT_ROLE, driveId)`, with the concrete rules in `.juvant/config.json`
-  `.security.space_access[]` (instance-local — never in a synced file).
+  `(AGENT_ROLE, driveId)`, with the concrete rules in `space_access[]` of the
+  instance's committed `security/policy.json`, read from `origin/main`
+  (instance-local, never synced; ADR 0034). `.juvant/config.json`
+  `.security.space_access` is not read. Rules left only there fail closed:
+  every MCP call is denied until the policy is merged.
   **Prefer not promoting** a sensitive space
   that has no external party — keep it soft so the broad `Sites` scope never
   reaches it (ADR 0025).

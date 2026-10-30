@@ -11,6 +11,25 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Removed
+
+- **Sensitive-space rules are no longer read from `.juvant/config.json`**
+  (decisions#305, ADR 0034 amended). The `.security.space_access` fallback,
+  announced in v1.14.0 for one minor version, is gone. Track 2e takes
+  `space_access` only from `security/policy.json` on `origin/main`. Rules left
+  in config.json with no policy file mean the perimeter was never migrated.
+  That is a new policy state, `unmigrated`, which fails closed like
+  `invalid`:
+  - every `mcp__` call is denied, with a high `policy-fail-closed` row and a
+    CEO alert;
+  - SessionStart prints a SECURITY WARNING.
+
+  The perimeter is never dropped silently. When a policy file exists, the
+  config copy is dead and can be deleted. **Adopter action, before the
+  sync:** if `.juvant/config.json` still has `.security.space_access` and
+  `security/policy.json` is not on main, commit the policy first (validate
+  with `scripts/validate-security-policy.sh`).
+
 ## [1.16.0] — 2026-10-30 — Shared-mailbox rules from the reviewed policy only
 
 Adopter actions:
