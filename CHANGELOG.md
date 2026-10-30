@@ -11,6 +11,11 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.16.2] — 2026-10-30 — Hermetic, non-flaky hook tests
+
+No adopter action: only tests changed. After the sync, `tests/hooks/run-tests.sh`
+passes on migrated instances too.
+
 ### Fixed
 
 - **Flaky audit-row assertions in the hook tests** (tests only). The fake
