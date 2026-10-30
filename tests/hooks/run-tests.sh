@@ -1645,9 +1645,14 @@ t_assert "  …calls outside the tool_prefix are untouched" "allow" "$(
     | jq -r '.hookSpecificOutput.permissionDecision')"
 t_assert "invalid shared_mailboxes in the policy → fail closed on mcp__ (not a K2 allow)" "deny:other" \
   "$(_t2gp "$_T2G_POL_BAD" "$_T2G_CFG_NOKEY" cfo search_messages finance@example.test)"
+# Run from a throwaway repo with no origin/main: the host checkout's own
+# security/policy.json (an adopter's, with shared_mailboxes) must not leak in (H25).
+_T2G_FRESH="$_T2G_DIR/fresh"
+git init -q "$_T2G_FRESH" && git -C "$_T2G_FRESH" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+cp -R "$HOOKS_DIR" "$_T2G_FRESH/hooks"
 t_assert "no policy file at all + config.json block → denied, no DEPRECATED fallback" "deny:k2 no" "$(
   _ev=$(jq -cn '{tool_name:"mcp__m365-mail__m365-mail_search_messages", session_id:"s-k2", agent_type:"cfo", tool_input:{shared_user:"finance@example.test"}}')
-  _out=$(echo "$_ev" | JUVANT_CONFIG="$_T2G_CFG_DEFAULT" bash "$HOOKS_DIR/pre-tool-use.sh" 2>"$_T2G_DIR/err")
+  _out=$(echo "$_ev" | JUVANT_CONFIG="$_T2G_CFG_DEFAULT" bash "$_T2G_FRESH/hooks/pre-tool-use.sh" 2>"$_T2G_DIR/err")
   [[ "$(echo "$_out" | jq -r '.hookSpecificOutput.permissionDecisionReason')" == *"MAILBOX-ACCESS POLICY (BUG-083)"* ]] && printf 'deny:k2' || printf 'other'
   grep -q 'DEPRECATED: shared-mailbox' "$_T2G_DIR/err" && echo ' yes' || echo ' no')"
 # Own mailbox (no shared_user) — gated only from the policy file (BUG-083 T2).
