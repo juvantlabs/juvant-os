@@ -11,6 +11,16 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.16.0] — 2026-10-30 — Shared-mailbox rules from the reviewed policy only
+
+Adopter actions:
+- **Before the sync:** if `.juvant/config.json` still has a
+  `shared_mailboxes` block, move it into `security/policy.json` via a
+  reviewed PR to main. Otherwise every m365-mail call is denied after the
+  sync.
+- After the sync, the CEO re-runs `bash helpers/install-schedules.sh` from
+  their own terminal (hooks/ changed).
+
 ### Removed
 
 - **Shared-mailbox rules are no longer read from `.juvant/config.json`**
