@@ -11,6 +11,16 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.15.3] — 2026-10-30 — Alert and guardrail-job residuals
+
+Adopter actions after the sync:
+- Make sure every notification destination is in the gated secrets file
+  (`bash scripts/migrate-secrets.sh`): once that file exists, a webhook or
+  chat id left only in `.juvant/config.json` is ignored.
+- The CEO re-runs `bash helpers/install-schedules.sh` from their own terminal
+  (helpers/ and hooks/ changed). From then on SessionStart raises a high row
+  and an alert if a guardrail job is not loaded or its plist differs.
+
 ### Fixed
 
 - **Alert / secret plumbing residuals after BUG-087/088** (#172, low;
