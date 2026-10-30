@@ -11,6 +11,17 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`migrate-secrets.sh` flagged `hooks/lib/alert.sh` as a direct
+  config.json reader** (H24). The direct-reader scan matched the path string
+  only, so alert.sh's reads of `.notifications.telegram_*` /
+  `.teams_webhooks.approvals` through `_juvant_alert_gated` (secrets file
+  only) were reported as "will get NOTHING after the move". Lines that go
+  through a framework gated accessor (`juvant_secret_get`,
+  `_juvant_alert_gated`) are no longer flagged; a test asserts the framework
+  tree itself produces no warning.
+
 ## [1.15.1] — 2026-10-29 — Atomic default rebuild on turso
 
 No adopter action unless a `--rebuild-defaults` run is still pending: it is

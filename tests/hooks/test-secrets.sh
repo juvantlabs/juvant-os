@@ -141,6 +141,18 @@ OUT=$(JUVANT_CONFIG="$CFG3" bash "$TMPROOT/inst3/scripts/migrate-secrets.sh" --d
 t_assert "migrate-secrets flags a direct config.json reader of a moved path" "yes" \
   "$([[ "$OUT" == *"run-m365-graph-mcp.sh"* && "$OUT" == *"juvant_secret_get"* ]] && echo yes || echo no)"
 t_assert "...and never prints the value" "no" "$([[ "$OUT" == *M365-SECRET-1* || "$OUT" == *VK-1* ]] && echo yes || echo no)"
+# H24: a read through a gated accessor (alert.sh's _juvant_alert_gated) is not flagged.
+printf '%s\n' "  chat=\$(_juvant_alert_gated '.m365_oauth.client_secret' \"\$cfg\")" > "$TMPROOT/inst3/hooks/lib/alert.sh"
+OUT=$(JUVANT_CONFIG="$CFG3" bash "$TMPROOT/inst3/scripts/migrate-secrets.sh" --dry-run 2>&1)
+t_assert "a gated-accessor read is not flagged as a direct reader" "no" \
+  "$([[ "$OUT" == *"alert.sh"* ]] && echo yes || echo no)"
+# H24 acceptance: the framework's own tree has no direct reader of any moved path.
+CFG4="$TMPROOT/h24-config.json"
+jq -n '{db:{provider:"turso",url:"libsql://x",auth_token:"A",read_token:"R"},github_token:"G",
+        notifications:{telegram_bot_token:"B",telegram_chat_id:"C",teams_webhooks:{approvals:"W"}}}' > "$CFG4"
+OUT=$(JUVANT_CONFIG="$CFG4" bash "$ROOT_DIR/scripts/migrate-secrets.sh" --dry-run 2>&1)
+t_assert "ACCEPTANCE: no direct-reader warning on the framework tree" "no" \
+  "$([[ "$OUT" == *WARNING* ]] && echo yes || echo no)"
 JUVANT_CONFIG="$CFG3" bash "$TMPROOT/inst3/scripts/migrate-secrets.sh" >/dev/null 2>&1
 t_assert "m365 client_secret moved; client_id stays in config" "M365-SECRET-1|cid|" \
   "$(juvant_secret_get '.m365_oauth.client_secret' "$CFG3")|$(jq -r '.m365_oauth.client_id' "$CFG3")|$(jq -r '.m365_oauth.client_secret // empty' "$CFG3")"

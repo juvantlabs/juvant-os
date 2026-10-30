@@ -51,10 +51,14 @@ jq -r '.[] | map(tostring) | join(".") | "  - " + .' <<< "$paths_json"
 # gets nothing once it moves. Point at every such reader; the fix is
 # `. hooks/lib/secrets.sh; juvant_secret_get '<path>'` (reads the secrets file,
 # falls back to config.json), as in JUVANT_OS.md's M365 wrapper template.
+# A line that goes through one of the framework's gated accessors is not a
+# direct reader: juvant_secret_get (secrets file, config fallback) and
+# hooks/lib/alert.sh's _juvant_alert_gated (secrets file ONLY) — H24.
+GATED_ACCESSORS='juvant_secret_get|_juvant_alert_gated'
 readers=""
 while IFS= read -r dot; do
   hits=$(grep -rnF -- "$dot" "$ROOT/scripts" "$ROOT/helpers" "$ROOT/hooks" "$ROOT/.mcp.json" 2>/dev/null \
-           | grep -v 'juvant_secret_get' | grep -v '/hooks/lib/secrets.sh:' | grep -v '/scripts/migrate-secrets.sh:' \
+           | grep -vE "$GATED_ACCESSORS" | grep -v '/hooks/lib/secrets.sh:' | grep -v '/scripts/migrate-secrets.sh:' \
            | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' | cut -d: -f1-2 || true)
   [[ -n "$hits" ]] && readers+="  ${dot} ← read directly by:"$'\n'"      ${hits//$'\n'/$'\n'      }"$'\n'
 done < <(jq -r '.[] | select(all(.[]; type == "string")) | "." + join(".")' <<< "$paths_json")
