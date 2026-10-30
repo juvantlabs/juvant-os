@@ -11,6 +11,25 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Alert / secret plumbing residuals after BUG-087/088** (#172, low;
+  adopter finding security_audit_log #172).
+  - The Track 2e connector deny path wrote its high row without `alert=<id>`,
+    so its receipt could not be joined to the row. It now threads
+    `juvant_alert_id` like the space-access, mailbox and policy-fail-closed
+    paths.
+  - `juvant_secret_get` fell back to agent-writable `config.json` for any
+    path missing from the gated file, so a per-project webhook
+    (`.projects.<slug>.notifications.teams_webhooks.*`) could be redirected.
+    Once the gated secrets file exists, notification destinations
+    (`.notifications.*`, `.projects.<slug>.notifications.*`) are read from it
+    only, with an `IGNORED` notice on stderr for a config-only copy. The
+    fallback stays before migration and for other secrets.
+  - `hooks/notification.sh` put the Telegram bot token (in the URL) and the
+    Teams webhook URL on curl's argv, visible to `ps`. Both now go on stdin
+    (`--config -`), as in `hooks/lib/alert.sh`.
+
 ## [1.15.2] — 2026-10-30 — No false direct-reader warning in migrate-secrets
 
 No adopter action. After the sync, `migrate-secrets.sh` no longer warns
