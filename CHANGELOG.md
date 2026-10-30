@@ -11,6 +11,23 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Removed
+
+- **Shared-mailbox rules are no longer read from `.juvant/config.json`**
+  (BUG-083, juvant-os-pm#185). The fallback announced in v1.14.3 for one
+  minor version is gone: Track 2g takes `shared_mailboxes` only from
+  `security/policy.json` on `origin/main`, so own-mailbox gating
+  (`own_mailbox`) always applies. A block left in config.json while the
+  policy has none means the rules were never migrated. The gate does not fall
+  back to "off": it denies every call under the block's `tool_prefix`
+  (default `mcp__m365-mail__`), with a high audit row and a CEO alert, and
+  SessionStart prints a SECURITY WARNING. Once the policy has the key, the
+  config copy is dead and can be deleted. **Adopter action, before the
+  sync:** if `.juvant/config.json` still has `shared_mailboxes`, move it into
+  `security/policy.json` via a reviewed PR to main (validate with
+  `scripts/validate-security-policy.sh`). Declare `own_mailbox` explicitly if
+  a subagent must write as the mailbox owner (default `agents: "read"`).
+
 ## [1.15.3] — 2026-10-30 — Alert and guardrail-job residuals
 
 Adopter actions after the sync:

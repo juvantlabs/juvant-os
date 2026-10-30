@@ -1073,9 +1073,11 @@ PreToolUse hook (Track 2g) narrows that **per agent** from this block in the
 instance's committed **`security/policy.json`** (read from `origin/main`, like
 `space_access` — ADR 0034, BUG-083; never synced). It is not in
 `.juvant/config.json`: an agent with Write/Edit could empty that file and
-switch the gate off without a trace. A config.json `shared_mailboxes` block is
-still honoured, with a deprecation notice, only while the policy file has no
-`shared_mailboxes` key — for one minor version.
+switch the gate off without a trace. A `shared_mailboxes` block in config.json
+is never read (that location was removed in v1.16.0): if one is left there
+while the policy file has none, the rules were never migrated, so the gate
+denies every call under its `tool_prefix` and SessionStart warns until the
+block is moved into the policy.
 
 ```json
 {
@@ -1105,9 +1107,9 @@ still honoured, with a deprecation notice, only while the policy file has no
 - `own_mailbox` (optional) — calls without `shared_user`, i.e. on the
   caller's OWN delegated mailbox: `main_thread` (default `"readwrite"`) and
   `agents` (default `"read"` — a subagent can't send / move / delete as the
-  mailbox owner); each `"readwrite" | "read" | "deny"`. Applies only when the
-  rules come from `security/policy.json`.
-- No `shared_mailboxes` in either place ⇒ the gate is off.
+  mailbox owner); each `"readwrite" | "read" | "deny"`.
+- No `shared_mailboxes` in the policy (and none left in config.json) ⇒ the
+  gate is off.
 
 Every gated shared-mailbox call writes a `security_audit_log` row (`high` on
 deny, `info` on allow); own-mailbox denies and writes are logged too (allowed

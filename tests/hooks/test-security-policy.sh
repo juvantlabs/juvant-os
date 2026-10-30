@@ -157,6 +157,19 @@ push_policy "" "delete again"
 OUT4=$(ss)
 t_assert "deleted policy → SessionStart warns fail-closed" "yes" "$([[ "$OUT4" == *"is deleted"* ]] && echo yes || echo no)"
 
+echo "== BUG-083 v1.16.0: SessionStart on unmigrated shared_mailboxes =="
+push_policy "$(policy_json '["clo"]')" "policy without shared_mailboxes"
+cp "$INST/.juvant/config.json" "$TMPROOT/cfg-pre-083"
+jq '. + {shared_mailboxes:{by_agent:{cfo:[{upn:"finance@x.test",scope:"read"}]}}}' "$TMPROOT/cfg-pre-083" > "$INST/.juvant/config.json"
+OUT5=$(ss)
+t_assert "config.json block, none in the policy → SECURITY WARNING (fail closed)" "yes" \
+  "$([[ "$OUT5" == *"SECURITY WARNING (BUG-083)"*"no longer read"* ]] && echo yes || echo no)"
+push_policy "$(policy_json '["clo"]' '. + {shared_mailboxes:{by_agent:{cfo:[{upn:"finance@x.test",scope:"read"}]}}}')" "migrate shared_mailboxes"
+OUT6=$(ss)
+t_assert "block also in the policy → no BUG-083 warning (config copy is dead)" "no" \
+  "$([[ "$OUT6" == *"BUG-083"* ]] && echo yes || echo no)"
+cp "$TMPROOT/cfg-pre-083" "$INST/.juvant/config.json"
+
 echo "== #173: SessionStart alerts on a booted-out guardrail job =="
 if command -v plutil >/dev/null 2>&1; then
   mkdir -p "$INST/helpers"; cp "$ROOT_DIR/helpers/install-schedules.sh" "$INST/helpers/"
