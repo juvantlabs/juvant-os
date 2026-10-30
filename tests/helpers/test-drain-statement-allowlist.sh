@@ -180,8 +180,9 @@ echo '{"tool_name":"AskUserQuestion","session_id":"s-ask","tool_input":{"questio
   | AGENT_ROLE=cos bash "$REPO/hooks/pre-tool-use.sh" >/dev/null 2>&1
 echo '{"tool_name":"AskUserQuestion","session_id":"s-ask","tool_input":{"question":"ok?","answer":"yes"},"tool_response":{}}' \
   | AGENT_ROLE=cos bash "$REPO/hooks/post-tool-use.sh" >/dev/null 2>&1
+jq '{version: 1, shared_mailboxes}' "$CFG" > "$TMP/policy-k2.json"
 echo '{"tool_name":"mcp__m365-mail__m365-mail_search_messages","session_id":"s-k2","agent_type":"cfo","tool_input":{"query":"x","shared_user":"finance@example.test"}}' \
-  | bash "$REPO/hooks/pre-tool-use.sh" >/dev/null 2>&1
+  | JUVANT_POLICY_TEST=1 JUVANT_POLICY_FILE="$TMP/policy-k2.json" bash "$REPO/hooks/pre-tool-use.sh" >/dev/null 2>&1
 # hooks/session-start.sh HooksIntegrity row (needs a tampered guardrail tree to
 # fire for real) — its exact template, via the real async writer.
 # shellcheck disable=SC1091,SC2034  # SCRIPT_DIR is read by the sourced db.sh

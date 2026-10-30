@@ -1638,9 +1638,10 @@ fi
 # security/policy.json, read from origin/main by hooks/lib/security-policy.sh
 # (JUVANT_POLICY_JSON, loaded above) — so an agent that can Write/Edit
 # .juvant/config.json can no longer empty the rules and switch the gate off.
-# Legacy (ONE minor version): with no `shared_mailboxes` in the policy, the old
-# .juvant/config.json `.shared_mailboxes` block is honoured with a deprecation
-# warning. Once the policy has the key, config.json is ignored for it.
+# config.json is never read for these rules (the v1.14.3 fallback was removed
+# in v1.16.0). A leftover .juvant/config.json `.shared_mailboxes` block while
+# the policy has none means the rules were never migrated: every call under its
+# tool_prefix is denied (fail closed) until the block is moved to the policy.
 #   "shared_mailboxes": {
 #     "tool_prefix": "mcp__m365-mail__",            (optional, this default)
 #     "main_thread": "explicit",                     (optional, see below)
@@ -1648,8 +1649,8 @@ fi
 #       "cfo": [ { "upn": "finance@<domain>", "scope": "read" } ],
 #       "cco": [] },
 #     "own_mailbox": { "main_thread": "readwrite", "agents": "read" } }
-#                                                    (optional; policy file only)
-# No rules from either source ⇒ this Track is a no-op.
+#                                                    (optional)
+# No rules in the policy and no leftover config block ⇒ this Track is a no-op.
 #
 # Gated calls: tool name starts with tool_prefix AND tool_input.shared_user is
 # non-empty.
@@ -1659,13 +1660,12 @@ fi
 #     read or readwrite; B (create/update/mark/move/delete/send/reply/forward)
 #     needs readwrite; anything unclassified is denied (deny-by-default).
 # Calls on the caller's OWN delegated mailbox (no shared_user) — BUG-083 T2 —
-# are gated only when the rules come from the policy file, by `own_mailbox`:
+# are gated by `own_mailbox`:
 # main thread (default "readwrite") and subagents (default "read": class B
 # denied — a subagent can't send / move / delete as the mailbox owner). Each
 # is "readwrite" | "read" | "deny"; unclassified tools need "readwrite".
 # Own-mailbox reads that are allowed write no audit row (volume); denies and
-# allowed writes do. The legacy config.json source leaves own-mailbox calls
-# untouched, as before.
+# allowed writes do.
 # Main thread (no agent_type in the event — the CEO-present CoS session) is
 # governed by .shared_mailboxes.main_thread:
 #   "explicit"         (DEFAULT) — treated as role 'cos': needs by_agent.cos;
@@ -1683,8 +1683,10 @@ if [[ "$DECISION" == "allow" && "$TOOL_NAME" == mcp__* ]]; then
     _T2G_RULES=$(printf '%s' "$JUVANT_POLICY_JSON" | jq -c '.shared_mailboxes' 2>/dev/null || echo "")
     _T2G_SRC="policy"
   elif [[ -f "$_T2G_CFG" ]] && jq -e '(.shared_mailboxes.by_agent // null) | type == "object"' "$_T2G_CFG" >/dev/null 2>&1; then
-    _T2G_RULES=$(jq -c '.shared_mailboxes' "$_T2G_CFG" 2>/dev/null || echo "")
-    _T2G_SRC="config"
+    # Not migrated: only the tool_prefix is taken from config.json, to know
+    # which calls to deny.
+    _T2G_RULES=$(jq -c '{tool_prefix: (.shared_mailboxes.tool_prefix // "mcp__m365-mail__")}' "$_T2G_CFG" 2>/dev/null || echo "")
+    _T2G_SRC="stale-config"
   fi
 fi
 if [[ -n "$_T2G_RULES" ]]; then
@@ -1692,10 +1694,7 @@ if [[ -n "$_T2G_RULES" ]]; then
   _T2G_UPN=""; _T2G_OWN=false
   if [[ "$TOOL_NAME" == "$_T2G_PREFIX"* ]]; then
     _T2G_UPN=$(echo "$EVENT_JSON" | jq -r '.tool_input.shared_user // ""' 2>/dev/null || echo "")
-    [[ -z "$_T2G_UPN" && "$_T2G_SRC" == "policy" ]] && _T2G_OWN=true
-    if [[ "$_T2G_SRC" == "config" ]]; then
-      echo "[pre-tool-use] DEPRECATED: shared-mailbox rules read from .juvant/config.json .shared_mailboxes — move them to security/policy.json on main (BUG-083, ADR 0034); the config location is removed in the next minor version." >&2
-    fi
+    [[ -z "$_T2G_UPN" ]] && _T2G_OWN=true
   fi
   if [[ -n "$_T2G_UPN" || "$_T2G_OWN" == "true" ]]; then
     # shellcheck disable=SC1091
@@ -1721,7 +1720,13 @@ if [[ -n "$_T2G_RULES" ]]; then
     [[ "$_T2G_MAIN" == "true" ]] && _T2G_ROLE="cos"
 
     _T2G_DECISION="allow"; _T2G_WHY=""; _T2G_SCOPE=""
-    if [[ "$_T2G_OWN" == "true" ]]; then
+    if [[ "$_T2G_SRC" == "stale-config" ]]; then
+      # BUG-083 (v1.16.0): rules left in config.json are not read — fail closed.
+      [[ "$_T2G_OWN" == "true" ]] && _T2G_UPN="(own mailbox)"
+      _T2G_BASIS="config.json (not read)"
+      _T2G_DECISION="deny"
+      _T2G_WHY="the shared_mailboxes rules are only in .juvant/config.json, which is no longer read (removed in v1.16.0) and security/policy.json on origin/main has none"
+    elif [[ "$_T2G_OWN" == "true" ]]; then
       # BUG-083 T2: the caller's own delegated mailbox.
       if [[ "$_T2G_MAIN" == "true" ]]; then
         _T2G_SCOPE=$(printf '%s' "$_T2G_RULES" | jq -r '.own_mailbox.main_thread // "readwrite"' 2>/dev/null || echo "readwrite")
@@ -1777,7 +1782,10 @@ if [[ -n "$_T2G_RULES" ]]; then
     fi
     fi
 
-    if [[ "$_T2G_DECISION" == "deny" ]]; then
+    if [[ "$_T2G_DECISION" == "deny" && "$_T2G_SRC" == "stale-config" ]]; then
+      DECISION="deny"
+      DENY_REASON="MAILBOX-ACCESS POLICY (BUG-083): ${_T2G_WHY}. Every ${_T2G_PREFIX}* call is denied until the shared_mailboxes block is moved into security/policy.json via a reviewed PR to main (validate with scripts/validate-security-policy.sh). Surface this to the CEO and the CSO."
+    elif [[ "$_T2G_DECISION" == "deny" ]]; then
       DECISION="deny"
       DENY_REASON="MAILBOX-ACCESS POLICY (decisions#301 K2): ${_T2G_WHY}. Route the request via the agent that owns this mailbox, or record a matrix change (CTO proposes, CSO reviews, CEO approves) to extend shared_mailboxes in security/policy.json."
     fi
