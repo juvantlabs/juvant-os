@@ -107,6 +107,39 @@ t_assert "a receipt was written for the space-access alert" "yes" "$([[ -n "$RID
 t_assert "...and the audit row carries the same alert id" "1" \
   "$(sqlite3 "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'space-access%alert=${RID}%';")"
 
+echo "== #172: connector deny row ↔ receipt =="
+CP="mcp__claude_ai_Microsoft_365__"
+jq --arg p "$CP" '. + {connector_tool_allowlist:{tool_prefix:$p, allow:["get_me"], detect_patterns:["legal-ip"]}}' "$POL" > "$POL.t" && mv "$POL.t" "$POL"
+: > "$RECEIPTS"
+OUT=$(jq -n --arg t "${CP}sharepoint_search" '{tool_name:$t, tool_input:{query:"legal-ip patents"}, session_id:"s-al", agent_type:"cos"}' \
+  | STUB_HTTP=200 JUVANT_POLICY_TEST=1 JUVANT_POLICY_FILE="$POL" bash "$ROOT_DIR/hooks/pre-tool-use.sh" 2>/dev/null)
+t_assert "connector call naming legal-ip → deny" "deny" "$(jq -r '.hookSpecificOutput.permissionDecision' <<< "$OUT")"
+for _i in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$RECEIPTS" ]] && break; sleep 0.5; done
+CID=$(jq -r 'select(.source == "pre-tool-use") | .alert_id' "$RECEIPTS" 2>/dev/null | head -1)
+t_assert "a receipt was written for the connector alert" "yes" "$([[ -n "$CID" ]] && echo yes || echo no)"
+t_assert "...and the connector audit row carries the same alert id" "1" \
+  "$(sqlite3 "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'connector call naming a sensitive space%alert=${CID}%';")"
+
+echo "== #172: notification destinations fail closed once the gated file exists =="
+jq '.notifications.teams_webhooks.ops = "https://attacker.example/ops" | .projects.p1.notifications.teams_webhooks.approvals = "https://attacker.example/p1"' "$CFG" > "$CFG.t" && mv "$CFG.t" "$CFG"
+t_assert "company webhook only in config.json → not used" "" "$(juvant_secret_get '.notifications.teams_webhooks.ops' "$CFG" 2>/dev/null)"
+t_assert "...and the operator is told why" "yes" \
+  "$(juvant_secret_get '.notifications.teams_webhooks.ops' "$CFG" 2>&1 >/dev/null | grep -q 'IGNORED' && echo yes || echo no)"
+t_assert "project webhook only in config.json → not used" "" \
+  "$(juvant_secret_get '.projects["p1"].notifications.teams_webhooks["approvals"]' "$CFG" 2>/dev/null)"
+t_assert "gated value still wins" "https://hook.example/approvals" "$(juvant_secret_get '.notifications.teams_webhooks.approvals' "$CFG" 2>/dev/null)"
+PRE="$TMPROOT/pre/.juvant"; mkdir -p "$PRE"
+jq -n '{notifications:{teams_webhooks:{ops:"https://legacy.example/ops"}}}' > "$PRE/config.json"
+t_assert "pre-migration (no gated file) → legacy fallback kept" "https://legacy.example/ops" \
+  "$(JUVANT_SECRETS_QUIET=1 juvant_secret_get '.notifications.teams_webhooks.ops' "$PRE/config.json")"
+
+echo "== #172: notification.sh keeps the bot token and webhook off curl's argv =="
+rm -f "$CAP"/*
+jq -n '{message:"waiting"}' | JUVANT_CONFIG="$CFG" bash "$ROOT_DIR/hooks/notification.sh" >/dev/null 2>&1
+t_assert "notification.sh sent telegram + teams" "2" "$(find "$CAP" -name '*.argv' | wc -l | tr -d ' ')"
+t_assert "no bot token or webhook URL in any argv" "0" "$(cat "$CAP"/*.argv | grep -cE 'BOT-TOK-1|hook\.example' || true)"
+t_assert "...both travel on stdin (--config -)" "2" "$(cat "$CAP"/*.stdin 2>/dev/null | grep -cE 'botBOT-TOK-1/sendMessage|hook\.example/approvals' || true)"
+
 echo ""
 echo " RESULTS: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]

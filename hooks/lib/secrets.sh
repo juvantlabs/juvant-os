@@ -27,7 +27,9 @@
 #
 # Legacy (ONE minor version): a secret not found in secrets.json is read from
 # config.json with a deprecation warning on stderr. `bash scripts/migrate-secrets.sh`
-# moves them.
+# moves them. Exception (#172): once secrets.json exists, notification
+# destinations (`.notifications.*`, `.projects.<slug>.notifications.*`) never
+# fall back to config.json.
 #
 # API:
 #   juvant_secret_get <jq-expr> [config-file]   → prints the value or nothing
@@ -53,6 +55,18 @@ juvant_secret_get() {
   if [[ -f "$sec" ]]; then
     v=$(jq -r "(${expr}) // empty" "$sec" 2>/dev/null || true)
     if [[ -n "$v" && "$v" != "null" ]]; then printf '%s' "$v"; return 0; fi
+  fi
+  # #172: once the gated file exists, a notification destination (bot token,
+  # chat id, webhook — company or per project) is read from it ONLY: a copy in
+  # agent-writable config.json could otherwise redirect notifications whenever
+  # the gated file lacks that key. The fallback stays for pre-migration
+  # instances (no gated file yet) and for non-destination secrets.
+  if [[ -f "$sec" && "$expr" =~ \.notifications(\.|\[) ]]; then
+    if [[ -f "$cfg" && -n "$(jq -r "(${expr}) // empty" "$cfg" 2>/dev/null || true)" ]]; then
+      [[ "${JUVANT_SECRETS_QUIET:-0}" == 1 ]] || \
+        echo "[secrets] IGNORED: a notification destination (${expr}) is set only in $(basename "$cfg"), not in the gated secrets file — not used. Move it with 'bash scripts/migrate-secrets.sh' (#172)." >&2
+    fi
+    return 0
   fi
   if [[ -f "$cfg" ]]; then
     v=$(jq -r "(${expr}) // empty" "$cfg" 2>/dev/null || true)
