@@ -116,9 +116,12 @@ print(json.dumps({"results": [{"type": "ok", "response": {"type": "batch",
   exit 0
 fi
 
-# Default (MODE="" or MODE="200"): execute the SQL for real.
+# Default (MODE="" or MODE="200"): execute the SQL for real. A libsql server
+# queues concurrent writes; the sqlite3 CLI's default busy timeout is 0, so a
+# backgrounded writer (an alert receipt) could make this one fail with
+# "database is locked" and drop the row. Wait like the server would.
 sql=$(printf '%s' "$data" | jq -r '.requests[0].stmt.sql // ""' 2>/dev/null)
-if out=$(sqlite3 -json "$JUVANT_TEST_DB_FILE" "$sql" 2>&1); then
+if out=$(sqlite3 -cmd ".timeout 5000" -json "$JUVANT_TEST_DB_FILE" "$sql" 2>&1); then
   # -json prints nothing for an empty result set — normalise to [].
   [[ -n "$out" ]] || out="[]"
   printf '%s' "$out" | jq -c '

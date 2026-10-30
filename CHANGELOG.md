@@ -13,6 +13,12 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- **Flaky audit-row assertions in the hook tests** (tests only). The fake
+  libsql DB ran `sqlite3` with no busy timeout, so a backgrounded writer (an
+  alert receipt) could make a synchronous INSERT fail with "database is
+  locked" and drop the row. A libsql server queues those writes instead. The
+  fake now waits up to 5 s, like the server. Seen in CI as "deleted policy →
+  high row" failing once.
 - **A Track 2g test failed on migrated instances** (H25, tests only). The
   "no policy file at all" case ran the gate against the host checkout, so on
   an adopter whose `security/policy.json` has `shared_mailboxes` it read that
