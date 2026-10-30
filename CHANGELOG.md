@@ -11,6 +11,11 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.15.2] — 2026-10-30 — No false direct-reader warning in migrate-secrets
+
+No adopter action. After the sync, `migrate-secrets.sh` no longer warns
+about `hooks/lib/alert.sh`.
+
 ### Fixed
 
 - **`migrate-secrets.sh` flagged `hooks/lib/alert.sh` as a direct
