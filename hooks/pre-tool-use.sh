@@ -1466,12 +1466,13 @@ if [[ "$DECISION" == "allow" && -n "$_T2EC_PREFIX" && "$TOOL_NAME" == "$_T2EC_PR
     if [[ -n "$_T2EC_HIT" ]]; then
       # shellcheck disable=SC1091
       . "$SCRIPT_DIR/lib/db.sh"
-      _T2EC_FINDING=$(printf "connector call naming a sensitive space denied: tool=%s agent=%s match='%s'" "$TOOL_NAME" "$ROLE" "$_T2EC_HIT" | LC_ALL=C sed "s/'/''/g")
+      _T2EC_ALERT_ID=$(juvant_alert_id 2>/dev/null || echo "")
+      _T2EC_FINDING=$(printf "connector call naming a sensitive space denied: tool=%s agent=%s match='%s'; alert=%s" "$TOOL_NAME" "$ROLE" "$_T2EC_HIT" "$_T2EC_ALERT_ID" | LC_ALL=C sed "s/'/''/g")
       juvant_db_exec "INSERT INTO security_audit_log
         (auditor, scope, audit_type, layer, finding, severity, category, status)
         VALUES ('hook:pre-tool-use', 'company', 'incident', 'agents', '${_T2EC_FINDING}', 'high', 'unauthorized-read', 'open');" \
         >/dev/null 2>&1 || echo "[pre-tool-use] WARN: connector incident row not written inline (spooled if the transport failed)" >&2
-      _t2e_alert "[SECURITY ALERT] connector call naming a sensitive space denied: agent=${ROLE} tool=${_T2EC_TOOL} (decisions#306)"
+      _t2e_alert "[SECURITY ALERT] connector call naming a sensitive space denied: agent=${ROLE} tool=${_T2EC_TOOL} (decisions#306)" "$_T2EC_ALERT_ID"
     fi
   fi
 fi

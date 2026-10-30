@@ -76,8 +76,10 @@ fi
 if [[ "${JUVANT_TEAMS_ONLY:-0}" != "1" ]] && [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
   # BUG-048: --connect-timeout/--max-time bound the call; without them a
   # stalled connection hangs the hook (curl has no overall timeout by default).
-  curl -s --connect-timeout 5 --max-time 10 -X POST \
-    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+  # #172: the URL carries the bot token — pass it on stdin (`--config -`), never
+  # on curl's argv (visible to `ps`), as hooks/lib/alert.sh does.
+  printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TELEGRAM_BOT_TOKEN" | \
+  curl -s --connect-timeout 5 --max-time 10 -X POST --config - \
     -d "chat_id=${TELEGRAM_CHAT_ID}" \
     --data-urlencode "text=${FULL_MESSAGE}" \
     -o /dev/null 2>&1 || echo "[notification] WARN: Telegram push failed." >&2
@@ -97,8 +99,9 @@ if [[ -n "${TEAMS_WEBHOOK_URL:-}" ]]; then
       }
     ]
   }')
-  curl -s --connect-timeout 5 --max-time 10 -X POST \
-    "$TEAMS_WEBHOOK_URL" \
+  # The webhook URL is a credential too (its sig= grants posting): stdin as well.
+  printf 'url = "%s"\n' "$TEAMS_WEBHOOK_URL" | \
+  curl -s --connect-timeout 5 --max-time 10 -X POST --config - \
     -H "Content-Type: application/json" \
     -d "$TEAMS_PAYLOAD" \
     -o /dev/null 2>&1 || echo "[notification] WARN: Teams push failed." >&2
