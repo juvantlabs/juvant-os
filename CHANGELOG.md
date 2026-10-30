@@ -11,6 +11,14 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Track 2g test failed on migrated instances** (H25, tests only). The
+  "no policy file at all" case ran the gate against the host checkout, so on
+  an adopter whose `security/policy.json` has `shared_mailboxes` it read that
+  policy and failed (478/479). It now runs from a throwaway repo with no
+  `origin/main`. Hook behaviour is unchanged.
+
 ## [1.16.1] — 2026-10-30 — Sensitive-space rules from the reviewed policy only
 
 Adopter actions:
