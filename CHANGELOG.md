@@ -11,6 +11,15 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.16.1] — 2026-10-30 — Sensitive-space rules from the reviewed policy only
+
+Adopter actions:
+- **Before the sync:** if `.juvant/config.json` still has
+  `.security.space_access` and `security/policy.json` is not on main, commit
+  the policy first. Otherwise every MCP call is denied after the sync.
+- After the sync, the CEO re-runs `bash helpers/install-schedules.sh` from
+  their own terminal (hooks/ changed).
+
 ### Removed
 
 - **Sensitive-space rules are no longer read from `.juvant/config.json`**
