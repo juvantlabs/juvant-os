@@ -1357,13 +1357,13 @@ fi
 # (ADR 0025); AGENT_ROLE is spawn-set and non-spoofable — the framework's
 # real trust floor.
 #
-# Rules are INSTANCE-LOCAL — read from .juvant/config.json
-#   .security.space_access[]   (gitignored; NEVER in a synced file — ADR 0025)
-# Each entry:
+# Rules are INSTANCE-LOCAL — `space_access[]` in the instance's committed
+# security/policy.json (never in a synced framework file — ADR 0025; see the
+# decisions#305 note below). Each entry:
 #   { "space": "<name>", "tool_prefix": "mcp__<server>__",
 #     "drive_ids": ["b!…"], "path_patterns": ["legal-ip","/IP/"],
 #     "allowlist": ["lex","atlas","cso"] }
-# Absent / empty .security.space_access ⇒ this Track is a no-op (the default
+# Absent / empty space_access ⇒ this Track is a no-op (the default
 # framework state — most instances have no promoted sensitive space).
 #
 # Coverage gates (harvested from the instance reference proven by the canary
@@ -1381,8 +1381,9 @@ fi
 # security/policy.json read from origin/main (hooks/lib/security-policy.sh) —
 # not from .juvant/config.json, which any agent can edit (emptying
 # `.security.space_access` silently disabled this Track, security_audit_log
-# #159). Legacy config rules are honoured for one minor version. A policy that
-# is invalid, or was deleted from origin/main, FAILS CLOSED: every mcp__ call is
+# #159). config.json rules are never read (that location was removed in
+# v1.16.1). A policy that is invalid, or was deleted from origin/main, or rules
+# left only in config.json (unmigrated), FAIL CLOSED: every mcp__ call is
 # denied, a high row is written and the CEO is alerted. Notification SECRETS
 # still come from .juvant/config.json (never in the committed policy).
 _T2E_CFG="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
@@ -1415,11 +1416,15 @@ _t2e_alert() {
   juvant_alert_send "$1" "${2:-$(juvant_alert_id)}" "pre-tool-use" "$_T2E_CFG"
   return 0
 }
-if [[ ( "$JUVANT_POLICY_STATE" == "invalid" || "$JUVANT_POLICY_STATE" == "deleted" ) && "$TOOL_NAME" == mcp__* && "$DECISION" == "allow" ]]; then
+if [[ ( "$JUVANT_POLICY_STATE" == "invalid" || "$JUVANT_POLICY_STATE" == "deleted" || "$JUVANT_POLICY_STATE" == "unmigrated" ) && "$TOOL_NAME" == mcp__* && "$DECISION" == "allow" ]]; then
   # shellcheck disable=SC1091
   . "$SCRIPT_DIR/lib/db.sh"
   DECISION="deny"
-  DENY_REASON="SECURITY POLICY FAIL-CLOSED (decisions#305): security/policy.json on origin/main is ${JUVANT_POLICY_STATE} (${JUVANT_POLICY_ERR:-}) — every MCP tool call is denied until a valid policy is merged to main. Surface this to the CEO and the CSO."
+  if [[ "$JUVANT_POLICY_STATE" == "unmigrated" ]]; then
+    DENY_REASON="SECURITY POLICY FAIL-CLOSED (decisions#305): no security/policy.json on origin/main and ${JUVANT_POLICY_ERR:-} — every MCP tool call is denied until the policy is merged to main. Surface this to the CEO and the CSO."
+  else
+    DENY_REASON="SECURITY POLICY FAIL-CLOSED (decisions#305): security/policy.json on origin/main is ${JUVANT_POLICY_STATE} (${JUVANT_POLICY_ERR:-}) — every MCP tool call is denied until a valid policy is merged to main. Surface this to the CEO and the CSO."
+  fi
   _PF_ALERT_ID=$(juvant_alert_id 2>/dev/null || echo "")
   _pf_finding=$(printf 'security policy %s (%s); MCP call denied: tool=%s agent=%s; alert=%s' "$JUVANT_POLICY_STATE" "${JUVANT_POLICY_ERR:-}" "$TOOL_NAME" "$ROLE" "$_PF_ALERT_ID" | LC_ALL=C sed "s/'/''/g")
   juvant_db_exec "INSERT INTO security_audit_log

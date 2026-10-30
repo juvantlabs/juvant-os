@@ -82,7 +82,8 @@ fi
 # The policy is read from refs/remotes/origin/main. Any change to its blob
 # since the previous session → high row + CEO alert (a policy change must be a
 # reviewed, visible event). invalid / deleted → the PreToolUse gate fails
-# closed on every mcp__ call; say so here too. legacy → deprecation notice.
+# closed on every mcp__ call; say so here too. unmigrated (rules left only in
+# config.json, which is no longer read) fails closed the same way.
 if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
   # shellcheck disable=SC1091
   . "$SCRIPT_DIR/lib/security-policy.sh"
@@ -94,8 +95,10 @@ if [[ -f "$SCRIPT_DIR/lib/security-policy.sh" ]]; then
       echo "SECURITY WARNING (security policy, decisions#305): security/policy.json on origin/main is ${JUVANT_POLICY_STATE} (${JUVANT_POLICY_ERR:-}). Every MCP tool call is denied (fail closed) until a valid policy is merged to main. Surface this to the CEO and the CSO."
       _SP_ROW="security policy ${JUVANT_POLICY_STATE} at session start (${JUVANT_POLICY_ERR:-})"
       _SP_ALERT="Security policy ${JUVANT_POLICY_STATE} on origin/main — all MCP calls are denied (decisions#305)" ;;
-    legacy)
-      echo "NOTICE (decisions#305): sensitive-space rules are still read from .juvant/config.json .security.space_access (deprecated). Move them to a committed security/policy.json on main before the next minor version." ;;
+    unmigrated)
+      echo "SECURITY WARNING (security policy, decisions#305): no security/policy.json on origin/main, and ${JUVANT_POLICY_ERR:-sensitive-space rules are left in .juvant/config.json}. Every MCP tool call is denied (fail closed) until the policy is merged to main. Surface this to the CEO and the CSO."
+      _SP_ROW="security policy unmigrated at session start (${JUVANT_POLICY_ERR:-})"
+      _SP_ALERT="Sensitive-space rules only in config.json (no longer read) — all MCP calls are denied until security/policy.json is merged to main (decisions#305)" ;;
     ok)
       _SP_PREV=$(cat "$_SP_SEEN_FILE" 2>/dev/null || echo "")
       if [[ -n "$_SP_PREV" && "$_SP_PREV" != "$JUVANT_POLICY_BLOB" ]]; then
