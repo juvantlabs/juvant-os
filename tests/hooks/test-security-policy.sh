@@ -157,6 +157,25 @@ push_policy "" "delete again"
 OUT4=$(ss)
 t_assert "deleted policy → SessionStart warns fail-closed" "yes" "$([[ "$OUT4" == *"is deleted"* ]] && echo yes || echo no)"
 
+echo "== #173: SessionStart alerts on a booted-out guardrail job =="
+if command -v plutil >/dev/null 2>&1; then
+  mkdir -p "$INST/helpers"; cp "$ROOT_DIR/helpers/install-schedules.sh" "$INST/helpers/"
+  HOME="$TMPROOT/home-ss" JUVANT_LAUNCHCTL=false JUVANT_SCHED_SELFCHECK=0 JUVANT_SCHED_PINNED=0 \
+    bash "$INST/helpers/install-schedules.sh" install >/dev/null 2>&1 || true
+  # shellcheck disable=SC2016  # the stub's own $1 / $2
+  printf '#!/usr/bin/env bash\n[[ "$1" == print && "$2" == */io.juvant.guardrails.drain-audit-spool ]] && exit 113\nexit 0\n' > "$TMPROOT/lc-stub"
+  chmod +x "$TMPROOT/lc-stub"
+  sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+  OUT5=$(echo '{"session_id":"s-ss"}' | (cd "$INST" && HOME="$TMPROOT/home-ss" JUVANT_LAUNCHCTL="$TMPROOT/lc-stub" JUVANT_FRAMEWORK_DEV=0 \
+         JUVANT_LAUNCHAGENTS_DIR="$TMPROOT/home-ss/Library/LaunchAgents" bash "$INST/hooks/session-start.sh" 2>/dev/null))
+  t_assert "booted-out job → session warning names it" "yes" "$([[ "$OUT5" == *"job-not-loaded: io.juvant.guardrails.drain-audit-spool"* ]] && echo yes || echo no)"
+  t_assert "  …high guardrail-jobs row carrying an alert id" "1" \
+    "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND category='guardrail-jobs' AND finding LIKE '%job-not-loaded: io.juvant.guardrails.drain-audit-spool%alert=al-%';")"
+  rm -rf "$INST/helpers"
+else
+  echo "  skip (no plutil — not macOS)"
+fi
+
 echo "== validator --ref against another repo =="
 V="$ROOT_DIR/scripts/validate-security-policy.sh"
 push_policy "$(policy_json '["clo","cso"]')" "valid again for the validator"

@@ -1152,6 +1152,14 @@ for _c in \
   'launchctl unload ~/Library/LaunchAgents/io.juvant.guardrails.anomaly-check.plist' \
   'launchctl disable gui/501/io.juvant.guardrails.cso-weekly-audit' \
   'launchctl kickstart -k gui/501/io.juvant.guardrails.audit-reconcile' \
+  'launchctl bootout gui/501' \
+  'launchctl bootout gui/501/com.example.other' \
+  'L=io.juvant.x; launchctl remove "$L"' \
+  'launchctl remove "$(launchctl list | awk "/guard/{print \$3}")"' \
+  'T=gui/$UID/$J; /bin/launchctl kickstart -k "$T"' \
+  'env -i launchctl unload "$P"' \
+  'ls && xargs launchctl remove < labels.txt' \
+  'sh -c "launchctl disable gui/501/x"' \
   'crontab /tmp/evil.cron' \
   'crontab -r' \
   'crontab -l | grep -v JUVANT | crontab -' \
@@ -1167,7 +1175,10 @@ for _c in \
   'launchctl print gui/501/io.juvant.guardrails.drain-audit-spool' \
   'crontab -l' \
   'bash helpers/install-schedules.sh' \
-  'launchctl bootout gui/501/com.example.other' \
+  'launchctl print-disabled gui/501' \
+  'launchctl list | grep juvant' \
+  'launchctl blame gui/501/io.juvant.guardrails.anomaly-check' \
+  'grep -n launchctl helpers/install-schedules.sh' \
   'git -C .juvant/pinned-main log -1'; do
   t_assert "2f BUG-089: Bash allow — $_c" "no" "$(_t2fb "$_c")"
 done

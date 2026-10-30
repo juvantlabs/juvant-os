@@ -29,6 +29,27 @@ All written artifacts in English. No exceptions.
   - `hooks/notification.sh` put the Telegram bot token (in the URL) and the
     Teams webhook URL on curl's argv, visible to `ps`. Both now go on stdin
     (`--config -`), as in `hooks/lib/alert.sh`.
+- **Guardrail launchd jobs: guard gaps after BUG-089** (#173, low; adopter
+  finding security_audit_log #173).
+  - Track 2f denied `launchctl` only when the command named an `io.juvant.*`
+    label or a LaunchAgents path, so `launchctl bootout gui/<uid>` or a label
+    built from variables passed. Now every `launchctl` call in command
+    position is denied unless its subcommand is read-only (`list`, `print`,
+    `print-disabled`, `blame`, …), whatever the target.
+  - A booted-out job went unnoticed: its plist still matched. The SessionStart
+    integrity check now runs `launchctl print gui/<uid>/<label>` for every
+    guardrail job the installer generates (`job-not-loaded`) and reports a
+    generated plist that is missing (`plist-missing`).
+  - The plist comparison covered only ProgramArguments and the schedule. It
+    now compares every top-level key (an added WorkingDirectory, KeepAlive or
+    log path is a finding). EnvironmentVariables must be exactly HOME (this
+    user's) + PATH, with every PATH entry absolute and outside the instance
+    tree and temp dirs, so a BASH_ENV or PATH injection is caught.
+  - Any of these findings at SessionStart writes a high `guardrail-jobs`
+    security_audit_log row and sends a CEO alert, linked by `alert=<id>`.
+- JUVANT_OS.md sync step 8 documents that `.juvant/pinned-main/` is kept out
+  of `git status` via `.git/info/exclude`, and that the `.juvant` symlink is
+  the pinned tree's one untracked entry by design.
 
 ## [1.15.2] — 2026-10-30 — No false direct-reader warning in migrate-secrets
 

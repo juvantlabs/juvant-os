@@ -53,6 +53,28 @@ if [[ -f "$SCRIPT_DIR/lib/hooks-integrity.sh" ]]; then
                 '$_HI_SUM', '$(date -u +"%Y-%m-%d %H:%M:%S")');" \
         || echo "[session-start] WARN: failed to spool hooks-integrity row" >&2
     fi
+    # #173: a guardrail job that is not loaded (or a plist not as generated)
+    # means the scheduled guardrails may not be running — the session warning
+    # alone reaches only an agent. High row + CEO alert, linked by alert id.
+    if printf '%s' "$_HI_OUT" | grep -qE '^(job-not-loaded|plist-(missing|mismatch|unexpected)):'; then
+      if [[ -f "$SCRIPT_DIR/lib/alert.sh" ]]; then
+        # shellcheck disable=SC1091
+        . "$SCRIPT_DIR/lib/alert.sh"
+        # Unloaded / missing jobs first: they are what the 300-char row must keep.
+        _HI_JOBS=$( { printf '%s\n' "$_HI_OUT" | grep -E '^(job-not-loaded|plist-missing):'
+                      printf '%s\n' "$_HI_OUT" | grep -E '^plist-(mismatch|unexpected):'; } | paste -sd ';' - | cut -c1-300)
+        _HI_ALERT_ID=$(juvant_alert_id 2>/dev/null || echo "")
+        if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
+          _HI_ROW=$(printf 'guardrail launchd jobs: %s; alert=%s' "$_HI_JOBS" "$_HI_ALERT_ID" | LC_ALL=C sed "s/'/''/g")
+          JUVANT_DB_EXEC_NO_SPOOL=1 juvant_db_exec "INSERT INTO security_audit_log
+            (auditor, scope, audit_type, layer, finding, severity, category, status)
+            VALUES ('hook:session-start', 'company', 'incident', 'agents', '${_HI_ROW}', 'high', 'guardrail-jobs', 'open');" \
+            >/dev/null 2>&1 || echo "[session-start] WARN: guardrail-jobs row not written inline" >&2
+        fi
+        juvant_alert_send "[SECURITY ALERT] scheduled guardrail jobs not as installed: ${_HI_JOBS} — re-run 'bash helpers/install-schedules.sh' from your own terminal after review (#173)" \
+          "$_HI_ALERT_ID" "session-start" || true
+      fi
+    fi
   fi
 fi
 

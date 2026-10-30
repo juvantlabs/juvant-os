@@ -2117,18 +2117,32 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
         _gr_interp_re='(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua|eval)([[:space:]]|$)|(^|[^A-Za-z0-9_.-])(bash|sh|zsh|dash|ksh)[[:space:]]+-[A-Za-z]*c'
         # Heredoc `<<` (not a `<<<` here-string, which only feeds stdin).
         _gr_heredoc_re='(^|[^<])<<-?[^<]'
-        # BUG-089: the scheduled guardrail jobs. launchctl verbs that load,
-        # unload, (re)start or disable an io.juvant job (by label or plist),
-        # any crontab write (only `crontab -l` reads), and uninstalling the
+        # BUG-089: the scheduled guardrail jobs. Any launchctl subcommand that
+        # is not read-only (#173), any crontab write (only `crontab -l` reads), and uninstalling the
         # schedules are the CEO's, from their own terminal.
-        _gr_lc_re='(^|[;&|(`[:space:]])launchctl[[:space:]]+(load|unload|bootstrap|bootout|enable|disable|kickstart|kill|remove|submit|start|stop)([[:space:]]|$)'
+        # #173: launchctl is denied by subcommand, not by target — a
+        # domain-wide `bootout gui/<uid>` or a label assembled from variables
+        # names no io.juvant job. Only read-only subcommands are allowed.
+        # Command position: segment start (also right after a quote, as in
+        # `sh -c "…"`), after sudo / env / command / exec / nohup / time /
+        # nice / xargs (with flags) or VAR=value prefixes, bare name or path.
+        # `grep launchctl file` is not a launchctl call.
+        _gr_lc_q="\"'"
+        _gr_lc_re="(^|[;&|(\`${_gr_lc_q}"$'\n'"])[[:space:]]*(((sudo|env|command|exec|nohup|time|nice|xargs)([[:space:]]+-[^[:space:]]+)*|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+)*([^[:space:];&|()]*/)?launchctl([[:space:]]+|\$)"
+        _gr_lc_ro='^(list|print|print-cache|print-disabled|blame|dumpstate|dumpjpcategory|resolveport|examine|hostinfo|managerpid|manageruid|managername|error|variant|version|help|getenv|limit|plist|procinfo)$'
+        _gr_lc_bad=""; _gr_lc_rest="$_gr_cmd"
+        while [[ -z "$_gr_lc_bad" && "$_gr_lc_rest" =~ $_gr_lc_re ]]; do
+          _gr_lc_rest="${_gr_lc_rest#*"${BASH_REMATCH[0]}"}"
+          _gr_lc_sub="${_gr_lc_rest%%[[:space:];&|)]*}"
+          [[ -n "$_gr_lc_sub" && ! "$_gr_lc_sub" =~ $_gr_lc_ro ]] && _gr_lc_bad="$_gr_lc_sub"
+        done
         _gr_ct_re='(^|[;&|(`[:space:]])crontab([[:space:]]|$)'
         _gr_ct_ro_re='(^|[;&|(`[:space:]])crontab[[:space:]]+-l[[:space:]]*($|[;&|)])'   # each read-only use is removed first
         _gr_uninst_re='install-schedules\.sh[^;&|]*(--)?uninstall'
         # SC2016: '$(' and '`' are literal metacharacters to look for.
         # shellcheck disable=SC2016
-        if [[ "$_gr_cmd" =~ $_gr_lc_re ]] && [[ "$_gr_cmd" == *io.juvant* || "$_gr_cmd" == *LaunchAgents* ]]; then
-          _GR_DENY_WHY="launchctl ${BASH_REMATCH[2]} on a guardrail launchd job (io.juvant.*) — the scheduled guardrails are loaded only by helpers/install-schedules.sh, run by the CEO"
+        if [[ -n "$_gr_lc_bad" ]]; then
+          _GR_DENY_WHY="launchctl ${_gr_lc_bad} — only read-only launchctl subcommands (list, print, print-disabled, blame …) are allowed: a domain-wide or computed target can unload the guardrail jobs, which are loaded only by helpers/install-schedules.sh, run by the CEO"
         elif _gr_ct_rest="$_gr_cmd" \
              && while [[ "$_gr_ct_rest" =~ $_gr_ct_ro_re ]]; do _gr_ct_rest="${_gr_ct_rest/"${BASH_REMATCH[0]}"/ ; }"; done \
              && [[ "$_gr_ct_rest" =~ $_gr_ct_re ]]; then
