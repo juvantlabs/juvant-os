@@ -133,8 +133,41 @@ if command -v plutil >/dev/null 2>&1; then
   HOME="$TMPROOT/home8" JUVANT_LAUNCHCTL=false JUVANT_SCHED_SELFCHECK=0 JUVANT_SCHED_PINNED=0 \
     bash "$INST8/helpers/install-schedules.sh" install >/dev/null 2>&1 || true
   cp "$TMPROOT/home8/Library/LaunchAgents/"io.juvant.guardrails.*.plist "$LA/"
+  # launchctl stub for the loaded-job check: `print` fails for labels in $UNLOADED.
+  cat > "$TMPROOT/launchctl" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == print ]] || exit 0
+for l in ${UNLOADED:-}; do [[ "$2" == */"$l" ]] && exit 113; done
+exit 0
+STUB
+  chmod +x "$TMPROOT/launchctl"
+  export JUVANT_LAUNCHCTL="$TMPROOT/launchctl"
+  _HOME0="$HOME"; export HOME="$TMPROOT/home8"   # the installer's HOME, baked into the plists
   OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?
   t_assert "installed plists == generator → rc 0" "0" "$RC"
+  [[ "$RC" == 0 ]] || echo "$OUT"
+  # #173: a booted-out job, a missing plist, and every plist field.
+  OUT=$(UNLOADED="io.juvant.guardrails.drain-outbox" JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?
+  t_assert "#173: job booted out (plist intact) → job-not-loaded" "1|yes" \
+    "$RC|$([[ "$OUT" == *"job-not-loaded: io.juvant.guardrails.drain-outbox"* ]] && echo yes || echo no)"
+  P1="$LA/io.juvant.guardrails.anomaly-check.plist"; cp "$P1" "$TMPROOT/p1.bak"
+  run_plist() { OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?; cp "$TMPROOT/p1.bak" "$P1"; }
+  plutil -insert EnvironmentVariables.BASH_ENV -string /tmp/evil.sh "$P1"; run_plist
+  t_assert "#173: BASH_ENV injected into EnvironmentVariables → mismatch" "1|yes" \
+    "$RC|$([[ "$OUT" == *"anomaly-check.plist (EnvironmentVariables)"* ]] && echo yes || echo no)"
+  plutil -replace EnvironmentVariables.PATH -string "/tmp/evil-bin:/usr/bin:/bin" "$P1"; run_plist
+  t_assert "#173: PATH with a temp-dir entry → mismatch" "yes" "$([[ "$OUT" == *"(EnvironmentVariables)"* ]] && echo yes || echo no)"
+  plutil -replace EnvironmentVariables.PATH -string "$INST8/bin:/usr/bin" "$P1"; run_plist
+  t_assert "#173: PATH with an instance-tree entry → mismatch" "yes" "$([[ "$OUT" == *"(EnvironmentVariables)"* ]] && echo yes || echo no)"
+  plutil -replace EnvironmentVariables.HOME -string "/Users/someone-else" "$P1"; run_plist
+  t_assert "#173: HOME not this user's → mismatch" "yes" "$([[ "$OUT" == *"(EnvironmentVariables)"* ]] && echo yes || echo no)"
+  plutil -insert WorkingDirectory -string /tmp "$P1"; run_plist
+  t_assert "#173: WorkingDirectory added → mismatch (keys)" "yes" "$([[ "$OUT" == *"anomaly-check.plist (keys)"* ]] && echo yes || echo no)"
+  plutil -replace StandardOutPath -string /tmp/x.log "$P1"; run_plist
+  t_assert "#173: log path changed → mismatch" "yes" "$([[ "$OUT" == *"anomaly-check.plist (StandardOutPath)"* ]] && echo yes || echo no)"
+  rm "$P1"; run_plist
+  t_assert "#173: plist removed → plist-missing" "1|yes" \
+    "$RC|$([[ "$OUT" == *"plist-missing: io.juvant.guardrails.anomaly-check.plist"* ]] && echo yes || echo no)"
   plutil -replace ProgramArguments -json '["/bin/bash","/tmp/evil.sh"]' "$LA/io.juvant.guardrails.drain-audit-spool.plist"
   OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?
   t_assert "plist ProgramArguments redirected → rc 1, plist-mismatch" "1|yes" \
@@ -143,6 +176,7 @@ if command -v plutil >/dev/null 2>&1; then
   OUT=$(JUVANT_FRAMEWORK_DEV=auto JUVANT_LAUNCHAGENTS_DIR="$LA" juvant_hooks_integrity_check "$INST8"); RC=$?
   t_assert "plist with no generator counterpart → plist-unexpected" "yes" \
     "$([[ "$OUT" == *"plist-unexpected: io.juvant.guardrails.rogue.plist"* ]] && echo yes || echo no)"
+  export HOME="$_HOME0"; unset JUVANT_LAUNCHCTL
 else
   echo "  skip plist checks (no plutil — not macOS)"
 fi

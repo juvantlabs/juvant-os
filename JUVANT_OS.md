@@ -4902,10 +4902,16 @@ trail. **Company-scope agents only** — no project agents involved.
      they pick the change up only once it is merged. **After the CEO merges
      the sync PR** (step 12), the CEO re-runs
      `bash helpers/install-schedules.sh` from their own terminal — it moves
-     the pin to the merged `origin/main` and reloads the jobs. (`launchctl`
-     load/unload of `io.juvant.*` jobs, `crontab` writes and editing the
-     plists or the pinned tree are denied to agents by Track 2f; SessionStart
-     says when the pin is behind `origin/main`.)
+     the pin to the merged `origin/main` and reloads the jobs. (Every
+     `launchctl` subcommand except the read-only ones — `list`, `print`,
+     `print-disabled`, `blame` … — `crontab` writes and editing the plists or
+     the pinned tree are denied to agents by Track 2f; SessionStart says when
+     the pin is behind `origin/main`, and raises a high `guardrail-jobs` row +
+     CEO alert when a guardrail job is not loaded or its plist differs from
+     the generator's. The installer keeps `.juvant/pinned-main/` out of
+     `git status` via `.git/info/exclude`, not `.gitignore`; inside the pinned
+     tree, `git status` shows one untracked entry by design — the `.juvant`
+     symlink to the instance state.)
    - **Any agent template** (`agents/company/*.md`, `agents/projects/*.md`,
      `agents/components/*.md`) **or `scripts/compile-templates.sh` itself** changed →
      re-run the compiler for the affected scope(s), so the live compiled output /
