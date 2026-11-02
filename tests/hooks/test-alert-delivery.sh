@@ -63,12 +63,12 @@ t_assert "500: one receipt per channel (teams + telegram)" "2" "$(jq -s --arg i 
 t_assert "500: both receipts are 'failed' with http 500" "failed:500 failed:500" \
   "$(jq -r --arg i "$ID1" 'select(.alert_id == $i) | "\(.status):\(.http)"' "$RECEIPTS" | tr '\n' ' ' | sed 's/ $//')"
 t_assert "500: a high alert-delivery-failed row per channel, naming the alert id" "2" \
-  "$(sqlite3 "$DB" "SELECT count(*) FROM security_audit_log WHERE category='alert-delivery-failed' AND severity='high' AND finding LIKE '%alert=${ID1}%';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$DB" "SELECT count(*) FROM security_audit_log WHERE category='alert-delivery-failed' AND severity='high' AND finding LIKE '%alert=${ID1}%';")"
 ID2=$(juvant_alert_id)
 STUB_HTTP=200 juvant_alert_send "[SECURITY ALERT] secret text 2" "$ID2" "unit"
 t_assert "200: both receipts 'delivered'" "delivered delivered" \
   "$(jq -r --arg i "$ID2" 'select(.alert_id == $i) | .status' "$RECEIPTS" | tr '\n' ' ' | sed 's/ $//')"
-t_assert "200: no failure row" "0" "$(sqlite3 "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE '%alert=${ID2}%';")"
+t_assert "200: no failure row" "0" "$(sqlite3 -cmd ".timeout 5000" "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE '%alert=${ID2}%';")"
 ID3=$(juvant_alert_id)
 STUB_HTTP=DOWN juvant_alert_send "x" "$ID3" "unit"
 t_assert "network down (curl rc 7): failed receipt with curl_rc" "failed:7" \
@@ -105,7 +105,7 @@ for _i in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$RECEIPTS" ]] && break; sleep 0.5; don
 RID=$(jq -r 'select(.source == "pre-tool-use") | .alert_id' "$RECEIPTS" 2>/dev/null | head -1)
 t_assert "a receipt was written for the space-access alert" "yes" "$([[ -n "$RID" ]] && echo yes || echo no)"
 t_assert "...and the audit row carries the same alert id" "1" \
-  "$(sqlite3 "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'space-access%alert=${RID}%';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'space-access%alert=${RID}%';")"
 
 echo "== #172: connector deny row ↔ receipt =="
 CP="mcp__claude_ai_Microsoft_365__"
@@ -118,7 +118,7 @@ for _i in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$RECEIPTS" ]] && break; sleep 0.5; don
 CID=$(jq -r 'select(.source == "pre-tool-use") | .alert_id' "$RECEIPTS" 2>/dev/null | head -1)
 t_assert "a receipt was written for the connector alert" "yes" "$([[ -n "$CID" ]] && echo yes || echo no)"
 t_assert "...and the connector audit row carries the same alert id" "1" \
-  "$(sqlite3 "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'connector call naming a sensitive space%alert=${CID}%';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE 'connector call naming a sensitive space%alert=${CID}%';")"
 
 echo "== #172: notification destinations fail closed once the gated file exists =="
 jq '.notifications.teams_webhooks.ops = "https://attacker.example/ops" | .projects.p1.notifications.teams_webhooks.approvals = "https://attacker.example/p1"' "$CFG" > "$CFG.t" && mv "$CFG.t" "$CFG"

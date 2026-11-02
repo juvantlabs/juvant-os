@@ -25,7 +25,7 @@ TMPROOT=$(mktemp -d /tmp/juvant-space-access-canary-XXXXXX)
 trap 'rm -rf "$TMPROOT"' EXIT
 
 TEST_DB="$TMPROOT/test.db"
-sqlite3 "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"
 
 FAKE_BIN="$TMPROOT/bin"; mkdir -p "$FAKE_BIN"
 cp "$SCRIPT_DIR/fake-turso.sh" "$FAKE_BIN/turso"; chmod +x "$FAKE_BIN/turso"
@@ -75,8 +75,8 @@ export JUVANT_SPOOL="$TMPROOT/audit-spool.sql"
 # exact trigger text in the same sqlite3 call (disposable test DB only).
 _reset_audit() {
   local _ddl
-  _ddl=$(sqlite3 "$TEST_DB" "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='security_audit_log_no_delete';")
-  sqlite3 "$TEST_DB" "DROP TRIGGER IF EXISTS security_audit_log_no_delete; DELETE FROM security_audit_log; ${_ddl:+$_ddl;}"
+  _ddl=$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='security_audit_log_no_delete';")
+  sqlite3 -cmd ".timeout 5000" "$TEST_DB" "DROP TRIGGER IF EXISTS security_audit_log_no_delete; DELETE FROM security_audit_log; ${_ddl:+$_ddl;}"
   rm -f "$JUVANT_SPOOL"
 }
 # Flush spooled audit rows into security_audit_log before asserting on them.
@@ -156,28 +156,28 @@ decide lex mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY" >/dev/null   # a
 decide cfo mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY" >/dev/null   # non-allowlisted → expected=false
 _drain_audit
 t_assert "allowlisted op → audit row expected=true" "1" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%expected=true%';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%expected=true%';")"
 t_assert "non-allowlisted op → audit row expected=false" "1" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%expected=false%';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%expected=false%';")"
 t_assert "two legal-ip ops → 2 high-severity audit rows" "2" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
 
 echo "=== decisions#303 R4 — the Track 2e row is written synchronously (spool only on transport failure) ==="
 _spool_sal() { { grep -o 'INSERT INTO security_audit_log' "$JUVANT_SPOOL" 2>/dev/null || true; } | wc -l | tr -d ' '; }
 _reset_audit
 _r4_dec=$(decide cfo mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY")
 t_assert "R4 DB up: row present when the hook returns (no drain)" "1" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%legal-ip%';")"
 t_assert "R4 DB up: no security_audit_log statement left in the spool" "0" "$(_spool_sal)"
 _reset_audit
 _r4_down=$(FAKE_CURL_MODE=network decide cfo mcp__m365-graph__get_file_content "$ARGS_DRIVE_ONLY")
 t_assert "R4 DB down: decision unchanged" "$_r4_dec" "$_r4_down"
 t_assert "R4 DB down: row not in the DB yet" "0" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log;")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log;")"
 t_assert "R4 DB down: row spooled for the drain" "1" "$(_spool_sal)"
 _drain_audit
 t_assert "R4 DB down → drain later lands the row" "1" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE '%legal-ip%';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE finding LIKE '%legal-ip%';")"
 
 echo "=== gate-c: blind enumeration (empty args) denied — no driveId leak (bug_010) ==="
 t_assert "non-allowlisted cfo + list_drives {} → deny" "deny" \
@@ -199,7 +199,7 @@ decide cfo mcp__m365-graph__search_files '{"query":"merger"}' >/dev/null   # gat
 decide cfo mcp__m365-graph__frobnicate '{}' >/dev/null                     # gate-d deny, no space evidence
 _drain_audit
 t_assert "gate-b + gate-d denies (no evidence) → 0 high-severity audit rows" "0" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high';")"
 
 echo "=== bug_004: audit category derived from (op-class, decision) ==="
 _reset_audit
@@ -208,11 +208,11 @@ decide cfo mcp__m365-graph__create_sharing_link "$ARGS_DRIVE_ONLY" >/dev/null  #
 decide lex mcp__m365-graph__get_file_content   "$ARGS_DRIVE_ONLY" >/dev/null  # A:allow → access-event
 _drain_audit
 t_assert "Class-A deny → category=unauthorized-read" "1" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='unauthorized-read';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='unauthorized-read';")"
 t_assert "Class-C deny → category=unauthorized-escalation" "1" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='unauthorized-escalation';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='unauthorized-escalation';")"
 t_assert "allowlisted allow → category=access-event" "1" \
-  "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='access-event';")"
+  "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE category='access-event';")"
 
 # G6 (decisions#303): both transports are faked, so a full drain must leave
 # the spool empty — leftovers mean a write took a path the fakes don't cover.
