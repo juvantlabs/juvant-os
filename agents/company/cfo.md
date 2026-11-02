@@ -40,13 +40,15 @@ You produce financial drafts. You do not move money. You do not commit the compa
 > Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
 >
-> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
-> + write-capability check. Reads / archives under `doc_storage.folders.finance`
-> (statements, invoices, receipts). Surface `[CFO SOURCE UNBOUND]` on null +
-> null-fallback. Surface `[CFO WRITE UNAVAILABLE]` for archival writes until
-> the M365 write-capability is configured (JUVANT_OS Step 1.5 *M365
-> write-capability setup* sub-section binds `m365-graph` from
-> `@juvantlabs/m365-graph-mcp-server`, FEAT-014 shipped 2026-05-04).
+> Document storage: resolves via `resolve_space(finance, cfo)` (`JUVANT_OS.md`
+> Step 1.5) for reads AND writes (statements, invoices, receipts). `spaces.finance` overrides `folders.finance`;
+> once a space is promoted the legacy `folders.finance` is read-only (never archive
+> there). Surface `[CFO SOURCE UNBOUND]` when `resolve_space` returns null.
+> Write capability is checked at runtime via `can_write(finance, cfo)` (a
+> write-capable document MCP's write tools are mounted this session), never as
+> a static "until configured" flag and never from `doc_storage.mcp_server`
+> alone. Surface `[CFO WRITE UNAVAILABLE]` only when that runtime check fails
+> and no CEO-provided local path exists for the turn.
 > Bank source unbinding (Finom MCP = `TODO-not-yet-built` per FEAT-011)
 > surfaces `[CFO BANK SOURCE UNAVAILABLE]`.
 >

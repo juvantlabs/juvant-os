@@ -11,6 +11,36 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+Adopter actions:
+- **Template refresh needed.** Instance agent templates are never synced, so
+  the new document-storage clause reaches an instance only when it refreshes
+  `cfo`, `clo`, `cco`, `cmo`, `cro` and `design-lead` from upstream. Until then,
+  a role breaks as soon as its space is promoted.
+- After the sync, run `bash helpers/doc-storage-check.sh`. Fix each finding:
+  set `doc_storage.mcp_server` to `m365-graph` if you configured write
+  capability, and null `folders.<role>` for every promoted role.
+
+### Fixed
+
+- **Writes to a promoted document space went to the legacy folder** (BUG-094,
+  juvant-os-pm#197). `can_write()` resolved through `resolve_folder`, and the
+  agent templates named `doc_storage.folders.<role>` directly, so a
+  `spaces.<role>` override was never seen. Agents kept reading and archiving
+  into the old personal-drive folder. They also reported `WRITE UNAVAILABLE`
+  despite full write capability, because the template wording was a static
+  "until configured" flag. `can_write(role, caller)` now resolves through
+  `resolve_space`. `spaces.<role>` overrides `folders.<role>`, and the legacy
+  folder becomes read-only once a space is promoted. Write capability is now
+  checked at runtime (write tools mounted), not read from `mcp_server`.
+
+### Added
+
+- **`helpers/doc-storage-check.sh`**, run at boot (new step 2c). It flags
+  `[DOC STORAGE MCP RECORD DRIFT]`: `mcp_server` still says `ms-graph` while
+  `m365-graph` is registered, because write-capability Step 6 was skipped. It
+  also flags `[DOC STORAGE SPLIT-BRAIN RISK] <role>`: a promoted space whose
+  legacy folder is still bound. It is read-only and never blocks boot.
+
 ## [1.16.2] — 2026-10-30 — Hermetic, non-flaky hook tests
 
 No adopter action: only tests changed. After the sync, `tests/hooks/run-tests.sh`

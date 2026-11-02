@@ -163,9 +163,21 @@ Promotion is complete when the space's `spaces.<role>` override exists in
 }
 ```
 
-From then on agents resolve the space with `resolve_space(role)`
+From then on agents resolve the space with `resolve_space(role, caller)`
 (`JUVANT_OS.md` § Step 1.5), which returns `provider` + `resource_ids` +
-`path` for the **org** container instead of the personal default. **The
+`path` for the **org** container instead of the personal default. Reads
+**and writes** (`can_write`) go through it: `spaces.<role>` overrides
+`folders.<role>`.
+
+**Retire the legacy folder in the same change.** If you copied (not moved)
+the files into the new space, set `folders.<role>` to `null`. If you want to
+keep it reachable as a historical archive, leave it bound, but it is
+**read-only** from now on: agents never write there. Run
+`bash helpers/doc-storage-check.sh` after editing the config. A promoted
+role whose legacy folder is still bound shows up as
+`[DOC STORAGE SPLIT-BRAIN RISK] <role>`, here and at every boot, until you
+null it. The warning is deliberately persistent: a bound legacy folder is the
+exact state that sent new records to the wrong place (BUG-094). **The
 agent's identity does not change** — it still authenticates as the
 connected principal, which you added as a site/drive member in step 2. The
 only new participant is the external guest. That is what makes pointing

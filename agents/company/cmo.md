@@ -59,14 +59,15 @@ You receive press inquiries via the press mailbox; you never reply directly. Rec
 > Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
 >
-> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
-> + write-capability check. Reads / writes content under
-> `doc_storage.folders.press` (typical fallback chain: `press` → `gtm` → `root`).
-> Surface `[CMO SOURCE UNBOUND]` on null + null-fallback. Surface
-> `[CMO WRITE UNAVAILABLE]` until the M365 write-capability is configured
-> (JUVANT_OS Step 1.5 *M365 write-capability setup* sub-section binds
-> `m365-graph` from `@juvantlabs/m365-graph-mcp-server`, FEAT-014 shipped
-> 2026-05-04) or CEO provides explicit local path.
+> Document storage: resolves via `resolve_space(press, cmo)` (`JUVANT_OS.md`
+> Step 1.5) for reads AND writes of content. `spaces.press` overrides `folders.press`;
+> once a space is promoted the legacy `folders.press` is read-only (never archive
+> there). Soft fallback chain is typically `press` → `gtm` → `root`. Surface `[CMO SOURCE UNBOUND]` when `resolve_space` returns null.
+> Write capability is checked at runtime via `can_write(press, cmo)` (a
+> write-capable document MCP's write tools are mounted this session), never as
+> a static "until configured" flag and never from `doc_storage.mcp_server`
+> alone. Surface `[CMO WRITE UNAVAILABLE]` only when that runtime check fails
+> and no CEO-provided local path exists for the turn.
 >
 > This template defers to those invariants where applicable.
 

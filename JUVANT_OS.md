@@ -675,6 +675,14 @@ fallback chain.
   `granted_at`, `decision_ref` → the `decisions` row that authorized the
   grant). A role absent from `spaces` resolves to the soft default
   (`folders` + the top-level `provider`/`resource_ids`).
+- **`spaces.<role>` overrides `folders.<role>`** (BUG-094). Once a role is
+  promoted, its `folders.<role>` binding (if still set — e.g. the files were
+  copied, not moved, at promotion) is **legacy and read-only**: agents may
+  read it for historical lookups but never write, archive, or file new
+  records there. All writes go to the promoted space. Prefer setting
+  `folders.<role>` to `null` at promotion; `helpers/doc-storage-check.sh`
+  flags a promoted role whose legacy folder is still bound
+  (`[DOC STORAGE SPLIT-BRAIN RISK]`).
 - `spaces.<role>.agent_allowlist` — **optional, ADR 0025.** A list of internal
   agent roles permitted to resolve/operate on a **sensitive** (Universal-
   CONFIDENTIAL) promoted space, e.g. `["lex","cto","cso"]` for a `legal-ip`
@@ -746,8 +754,10 @@ their own `AGENT_ROLE` as `caller`; the returned `provider` + `resource_ids`
 tell the bound MCP which container to address (personal drive vs SharePoint
 site vs Shared Drive), `access` documents which external guests can see the
 space, and `agent_allowlist` (when set) records which internal agents may.
-`resolve_folder` remains the inner soft-path resolver — unchanged, still used
-for the common single-drive case.
+`resolve_folder` remains the inner soft-path resolver, called **only** from
+`resolve_space` (and from Step 1.5 wizard flows). Agents never call it, or read
+`folders.<role>` directly, to choose a read or write location: doing so skips a
+promoted `spaces.<role>` override (BUG-094).
 
 A `None` from `agent_allowlist` denial surfaces `[<ROLE> ACCESS DENIED]` (a
 sensitive space the caller is not permitted to resolve). This is the
@@ -794,11 +804,28 @@ or deferring write capability) keep two fallback write paths:
 Agents that need write access check capability BEFORE attempting:
 
 ```python
-def can_write(role: str) -> bool:
-    if resolve_folder(role) is None: return False
-    if has_write_capable_mcp("m365-graph"): return True
+def can_write(role: str, caller: str) -> bool:
+    target = resolve_space(role, caller)    # spaces.<role> overrides folders.<role>
+    if target is None: return False         # UNBOUND / ACCESS DENIED surfaced by resolve_space
+    if write_tools_mounted_this_session():  # runtime check, see below
+        return True                         # write to `target`, never to a legacy folder
     return ceo_provided_local_path_this_turn()
 ```
+
+The write target is **always** the `resolve_space` result — the promoted
+space when `spaces.<role>` exists, the soft `folders.<role>` path
+otherwise. Never write to `folders.<role>` directly for a promoted role
+(BUG-094).
+
+`write_tools_mounted_this_session()` is a **runtime** check: a write tool
+of a write-capable document MCP (e.g. `m365-graph` upload / create /
+update) is actually available in the current session. It is never a
+static "until configured" assumption, and it does **not** trust
+`doc_storage.mcp_server` alone — that field is an inventory record and
+can lag reality (Step 6 skipped). If the record says `ms-graph` but
+`m365-graph` write tools are mounted, the agent writes and surfaces the
+record drift (`helpers/doc-storage-check.sh`, boot step 2c) instead of
+declaring `[<ROLE> WRITE UNAVAILABLE]`.
 
 Failed capability triggers `[<ROLE> WRITE UNAVAILABLE]` with a
 remediation hint pointing at the *M365 write-capability setup*
@@ -1007,7 +1034,11 @@ Agent templates treat empty `folders` as "all roles unbound; surface at
 first relevant call". `mcp_server: "ms-graph"` here is the read-only
 fallback (claude.ai connector when available); the CEO upgrades to
 `m365-graph` later by re-running Step 1.5 with the *M365 write-
-capability setup* sub-section. The CEO completes the folder mapping
+capability setup* sub-section. If the CEO later configures
+`m365-graph` but Step 6 is skipped, the stale `ms-graph` record is
+detected at boot by `helpers/doc-storage-check.sh`
+(`[DOC STORAGE MCP RECORD DRIFT]`, boot step 2c); agents rely on the
+runtime write-tool check, not the record. The CEO completes the folder mapping
 later via *"Configure document storage folders"* (re-runs Step 1.5
 standalone).
 
@@ -3363,6 +3394,14 @@ Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
      - If [3]: run the sub-wizard (Step 2.5a–d from the company init wizard)
        before continuing boot.
    - If the row exists: read the value and proceed silently.
+2c. **Check document-storage config drift** (BUG-094):
+   `bash helpers/doc-storage-check.sh`. Exit 0 → silent. Exit 1 → list each
+   finding in the boot summary under **"Document storage drift"**:
+   `[DOC STORAGE MCP RECORD DRIFT]` (offer to set `doc_storage.mcp_server`
+   to `m365-graph` per Step 1.5 *M365 write-capability setup* Step 6) and
+   `[DOC STORAGE SPLIT-BRAIN RISK] <role>` (offer to null `folders.<role>`;
+   until then the legacy folder stays read-only). Exit 2 → note it and
+   continue. Never block boot.
 3. **Resolve session continuity** (3-level redundancy — see "Context resume"):
    - Try Agent SDK session resume via `agents.session_id`.
    - Else load latest `session_snapshots` row per agent.
@@ -5018,7 +5057,7 @@ helpers/fiscal-deadlines.sh   helpers/anomaly-baseline-report.sh
 helpers/kb-coverage.sh        helpers/agent-killswitch.sh
 helpers/kb-sync.sh            helpers/drain-audit-spool.sh
 helpers/cso-weekly-audit.sh   helpers/with-timeout.sh
-helpers/drain-outbox.sh
+helpers/drain-outbox.sh       helpers/doc-storage-check.sh
 hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
@@ -5062,6 +5101,7 @@ tests/helpers/test-cso-weekly-audit-cadence.sh
 tests/helpers/test-db-exec-durability.sh
 tests/helpers/test-db-query-csv.sh
 tests/helpers/test-db-query.sh
+tests/helpers/test-doc-storage-check.sh
 tests/helpers/test-drain-reclaim-stale.sh
 tests/helpers/test-drain-statement-allowlist.sh
 tests/helpers/test-helpers-db-routing.sh

@@ -76,15 +76,15 @@ operates in (inherit, extend, or independent of company brand — see Brand-Spec
 > Unified Disclosure Fallback Cascade (§3), Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
 >
-> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
-> + write-capability check. Reads / writes under
-> `doc_storage.folders.branding` (company brand book — read-only; CMO owns)
-> and `projects.<slug>.doc_folder + /Design` (project-specific assets). Surface
-> `[DESIGN LEAD SOURCE UNBOUND]` on null + null-fallback. Surface `[DESIGN LEAD
-> WRITE UNAVAILABLE]` for design-asset exports until the M365 write-capability
-> is configured (JUVANT_OS Step 1.5 *M365 write-capability setup*
-> sub-section binds `m365-graph` from `@juvantlabs/m365-graph-mcp-server`,
-> FEAT-014 shipped 2026-05-04).
+> Document storage: reads the company brand book via
+> `resolve_space(branding, design-lead)` (`JUVANT_OS.md` Step 1.5; read-only,
+> CMO owns; `spaces.branding` overrides `folders.branding`). Project-specific
+> assets live under `projects.<slug>.doc_folder + /Design`. Surface
+> `[DESIGN LEAD SOURCE UNBOUND]` when a location does not resolve. Write
+> capability for design-asset exports is checked at runtime (a write-capable
+> document MCP's write tools are mounted this session), never as a static
+> "until configured" flag; surface `[DESIGN LEAD WRITE UNAVAILABLE]` only when
+> that check fails and no CEO-provided local path exists for the turn.
 >
 > This template defers to those invariants where applicable. Design Lead authors `pr-spec` for
 > design-asset deployment per the Spec Authorization Matrix (§6); Eng Lead executes
