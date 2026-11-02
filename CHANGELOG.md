@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-11-02 — Document spaces: promoted spaces honoured, multi-library spaces
+
 Adopter actions:
 - **Template refresh needed.** Instance agent templates are never synced, so
   the new document-storage clause reaches an instance only when it refreshes
