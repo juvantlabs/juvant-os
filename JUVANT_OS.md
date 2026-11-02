@@ -5057,7 +5057,7 @@ helpers/fiscal-deadlines.sh   helpers/anomaly-baseline-report.sh
 helpers/kb-coverage.sh        helpers/agent-killswitch.sh
 helpers/kb-sync.sh            helpers/drain-audit-spool.sh
 helpers/cso-weekly-audit.sh   helpers/with-timeout.sh
-helpers/drain-outbox.sh
+helpers/drain-outbox.sh       helpers/doc-storage-check.sh
 hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
 scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
@@ -5101,6 +5101,7 @@ tests/helpers/test-cso-weekly-audit-cadence.sh
 tests/helpers/test-db-exec-durability.sh
 tests/helpers/test-db-query-csv.sh
 tests/helpers/test-db-query.sh
+tests/helpers/test-doc-storage-check.sh
 tests/helpers/test-drain-reclaim-stale.sh
 tests/helpers/test-drain-statement-allowlist.sh
 tests/helpers/test-helpers-db-routing.sh
