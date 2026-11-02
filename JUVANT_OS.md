@@ -683,6 +683,33 @@ fallback chain.
   `folders.<role>` to `null` at promotion; `helpers/doc-storage-check.sh`
   flags a promoted role whose legacy folder is still bound
   (`[DOC STORAGE SPLIT-BRAIN RISK]`).
+- `spaces.<role>.libraries` + `default_library` — **optional, ADR 0035.** For
+  a space with several document libraries, each with a purpose. Each
+  `libraries.<name>` has `resource_ids` (required: `drive_id` / Shared Drive
+  root `file_id`), `purpose` (required, one line), and optionally `path` and a
+  library-scoped `access[]`. `default_library` is required when `libraries` is
+  present. The space-level `resource_ids` then keeps only the shared IDs
+  (`site_id`); its `drive_id` is ignored and should be omitted:
+
+  ```json
+  "finance": {
+    "container": "org", "provider": "sharepoint",
+    "resource_ids": { "site_id": "<host>,<siteCollectionId>,<webId>" },
+    "path": "/",
+    "default_library": "general",
+    "libraries": {
+      "general":  { "resource_ids": { "drive_id": "b!<id-1>" },
+                    "purpose": "working documents, reports, statements" },
+      "invoices": { "resource_ids": { "drive_id": "b!<id-2>" },
+                    "purpose": "issued and received invoices (fiscal archive)" },
+      "exchange": { "resource_ids": { "drive_id": "b!<id-3>" },
+                    "purpose": "documents exchanged with the external accountant",
+                    "access": [ { "principal": "commercialista@studio.example",
+                                  "role": "write", "granted_at": "<date>",
+                                  "decision_ref": "<decisions.id>" } ] }
+    }
+  }
+  ```
 - `spaces.<role>.agent_allowlist` — **optional, ADR 0025.** A list of internal
   agent roles permitted to resolve/operate on a **sensitive** (Universal-
   CONFIDENTIAL) promoted space, e.g. `["lex","cto","cso"]` for a `legal-ip`
@@ -718,7 +745,7 @@ container/provider*, so a promoted org-space is reached correctly while
 soft roles fall through to the default:
 
 ```python
-def resolve_space(role: str, caller: str) -> dict | None:
+def resolve_space(role: str, caller: str, library: str | None = None) -> dict | None:
     sp = doc_storage.get("spaces", {}).get(role)
     if sp is not None:                      # promoted org-owned space
         # Access-aware (ADR 0025): a sensitive space may restrict which agent
@@ -729,7 +756,7 @@ def resolve_space(role: str, caller: str) -> dict | None:
         allow = sp.get("agent_allowlist")
         if allow is not None and caller not in allow:
             return None                     # surface [<ROLE> ACCESS DENIED]
-        return {
+        resolved = {
             "container":    sp.get("container", "org"),
             "provider":     sp.get("provider", doc_storage["provider"]),
             "resource_ids": sp.get("resource_ids"),
@@ -737,6 +764,20 @@ def resolve_space(role: str, caller: str) -> dict | None:
             "access":       sp.get("access", []),          # external guests
             "agent_allowlist": sp.get("agent_allowlist"),  # internal agents (None ⇒ all)
         }
+        libs = sp.get("libraries")
+        if libs:                            # multi-library space (ADR 0035)
+            name = library or sp["default_library"]  # agent passes the purpose-matched name
+            lib = libs.get(name)
+            if lib is None:
+                raise LibraryUnknown(name)  # surface [<ROLE> LIBRARY UNKNOWN]; never fall back
+            resolved["library"] = name
+            resolved["purpose"] = lib["purpose"]
+            resolved["resource_ids"] = {**(sp.get("resource_ids") or {}),
+                                        **lib["resource_ids"]}  # library drive id wins
+            resolved["path"] = lib.get("path", sp.get("path"))
+            resolved["access"] = sp.get("access", []) + lib.get("access", [])
+            resolved["libraries"] = {k: v["purpose"] for k, v in libs.items()}
+        return resolved
     path = resolve_folder(role)             # soft default (+ fallback chain)
     if path is None:
         return None
@@ -754,6 +795,21 @@ their own `AGENT_ROLE` as `caller`; the returned `provider` + `resource_ids`
 tell the bound MCP which container to address (personal drive vs SharePoint
 site vs Shared Drive), `access` documents which external guests can see the
 space, and `agent_allowlist` (when set) records which internal agents may.
+**Library selection (ADR 0035).** For a space with `libraries`, the caller
+chooses `library` before resolving:
+
+- **Write**: pass the library whose `purpose` matches the document class, and
+  state the choice and the matched purpose in the response (*"filing in
+  finance/invoices — purpose: issued and received invoices"*). If no purpose
+  clearly matches, or more than one does, pass nothing: `default_library` is
+  used, and the agent says so. Never guess between two matching purposes.
+- **Read**: the agent may resolve each name in the returned `libraries` map and
+  search all of them, citing the library it read from.
+- An unknown `library` name surfaces `[<ROLE> LIBRARY UNKNOWN]`. There is no
+  silent fallback.
+
+Spaces without `libraries` ignore the argument (ADR 0023 behaviour).
+
 `resolve_folder` remains the inner soft-path resolver, called **only** from
 `resolve_space` (and from Step 1.5 wizard flows). Agents never call it, or read
 `folders.<role>` directly, to choose a read or write location: doing so skips a
@@ -804,8 +860,8 @@ or deferring write capability) keep two fallback write paths:
 Agents that need write access check capability BEFORE attempting:
 
 ```python
-def can_write(role: str, caller: str) -> bool:
-    target = resolve_space(role, caller)    # spaces.<role> overrides folders.<role>
+def can_write(role: str, caller: str, library: str | None = None) -> bool:
+    target = resolve_space(role, caller, library)  # spaces.<role> overrides folders.<role>
     if target is None: return False         # UNBOUND / ACCESS DENIED surfaced by resolve_space
     if write_tools_mounted_this_session():  # runtime check, see below
         return True                         # write to `target`, never to a legacy folder
@@ -3400,8 +3456,13 @@ Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
    `[DOC STORAGE MCP RECORD DRIFT]` (offer to set `doc_storage.mcp_server`
    to `m365-graph` per Step 1.5 *M365 write-capability setup* Step 6) and
    `[DOC STORAGE SPLIT-BRAIN RISK] <role>` (offer to null `folders.<role>`;
-   until then the legacy folder stays read-only). Exit 2 → note it and
-   continue. Never block boot.
+   until then the legacy folder stays read-only),
+   `[DOC STORAGE LIBRARY CONFIG] <role>[/<library>]` (ADR 0035; fix the
+   `libraries` / `default_library` block), and
+   `[DOC STORAGE PERIMETER GAP] <role>[/<library>]` (ADR 0035 §4). A perimeter
+   gap is a **security finding**: list it first, route it to CSO, and add the
+   drive id to the `space_access` rule via a reviewed PR to
+   `security/policy.json`. Exit 2 → note it and continue. Never block boot.
 3. **Resolve session continuity** (3-level redundancy — see "Context resume"):
    - Try Agent SDK session resume via `agents.session_id`.
    - Else load latest `session_snapshots` row per agent.
