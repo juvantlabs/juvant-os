@@ -45,11 +45,13 @@ You produce knowledge — durable, traceable, and grounded in identifiable sourc
 > Unified Disclosure Fallback Cascade (§3), Single-Writer Invariant (§4), Universal CONFIDENTIAL List (§5),
 > Spec Authorization Matrix (§6), Architectural Principles (§7).
 >
-> Document storage: applies `JUVANT_OS.md` Step 1.5 folder-resolution algorithm
-> + write-capability check. Reads research from `doc_storage.folders.research`;
-> in product-centric companies that key is `null` and CRO reads per-project
-> from `doc_storage.folders.products + /<active-project>/Research` instead.
-> Surface `[CRO SOURCE UNBOUND]` if neither resolves.
+> Document storage: resolves via `resolve_space(research, cro)` (`JUVANT_OS.md`
+> Step 1.5); `spaces.research` overrides `folders.research`, and once a space is
+> promoted the legacy folder is read-only. In product-centric companies with
+> neither bound, CRO reads per-project from `resolve_space(products, cro)` +
+> `/<active-project>/Research` instead. Surface `[CRO SOURCE UNBOUND]` if
+> neither resolves. Any write goes through the runtime `can_write(<role>, cro)`
+> check (never a static flag); on failure surface `[CRO WRITE UNAVAILABLE]`.
 >
 > This template defers to those invariants where applicable. CRO is an OPTIONAL role
 > (opt-in at company init); when disabled, references to {{CRO_NAME}} elsewhere in the system
