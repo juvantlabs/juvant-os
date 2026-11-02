@@ -54,7 +54,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0032](0032-memory-tool-vs-turso.md) | Agent memory stays on Turso (reaffirm 0003); the client-side API memory tool is deferred to the Agent-SDK path (we don't own the API loop in-harness) | Accepted | 2026-10-28 |
 | [0033](0033-claude-mods-not-adopted.md) | Do not adopt Claude Mods; governance stays in the auditable bash-hook layer (unsandboxed mods expand the threat model), with a narrow revisit condition | Accepted | 2026-10-28 |
 | [0034](0034-security-policy-committed-file.md) | Instance security policy is a committed `security/policy.json` read from `origin/main` (never the working tree), fails closed; supersedes ADR 0025 clause 5 only | Proposed | 2026-10-29 |
-| [0035](0035-multi-library-document-spaces.md) | Multi-library document spaces: `spaces.<role>.libraries{}` (resource_ids + purpose) with `default_library` and purpose-based selection; the sensitive-space perimeter must cover every library; extends 0023/0025 | Proposed | 2026-11-02 |
+| [0035](0035-multi-library-document-spaces.md) | Multi-library document spaces: `spaces.<role>.libraries{}` (resource_ids + purpose) with `default_library` and purpose-based selection; the sensitive-space perimeter must cover every library; extends 0023/0025 | Accepted | 2026-11-02 |
 
 ## Modification governance
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed** — 2026-11-02. Origin: BUG-094 R4 (`juvantlabs/juvant-os-pm#197`),
+**Accepted** — 2026-11-02 (CEO-approved; proposed the same day). Origin: BUG-094 R4 (`juvantlabs/juvant-os-pm#197`),
 from an adopter handoff. **Extends ADR 0023** (document spaces) and **ADR 0025**
 (sensitive-space access control). It does not supersede any clause of either.
 
