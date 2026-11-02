@@ -12,11 +12,21 @@
 #       was skipped; agents reading the record conclude "no writes".
 #   [DOC STORAGE SPLIT-BRAIN RISK] <role>  spaces.<role> is promoted but
 #       folders.<role> is still bound. The legacy folder is read-only once
-#       a space is promoted; null it (or keep it as a read-only archive and
-#       record a binding-confirmation decision).
+#       a space is promoted; null it.
+#   [DOC STORAGE LIBRARY CONFIG] <role>[/<library>] — ADR 0035: `libraries`
+#       without a valid `default_library`, a library without a drive id or
+#       `purpose`, or two libraries sharing a drive id.
+#   [DOC STORAGE PERIMETER GAP] <role>[/<library>] — ADR 0035 §4 / ADR 0025:
+#       a sensitive space (`agent_allowlist` set) has a library whose drive id
+#       is in no `space_access[].drive_ids` of the committed security policy.
+#       That library is outside the hard perimeter. Security finding.
+#
+# The policy is read like the hook reads it: `security/policy.json` from
+# origin/main (ADR 0034). --policy PATH overrides (tests). No policy at all ⇒
+# every drive id of a sensitive space is a gap.
 #
 # Usage:
-#   bash helpers/doc-storage-check.sh [--config PATH] [--mcp PATH]
+#   bash helpers/doc-storage-check.sh [--config PATH] [--mcp PATH] [--policy PATH]
 #
 # Exit codes: 0 = no drift, 1 = drift found, 2 = error (unreadable config).
 # A missing .mcp.json is not an error (no project-scope MCP registered).
@@ -26,12 +36,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/../.juvant/config.json"
 MCP="$SCRIPT_DIR/../.mcp.json"
+POLICY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) CONFIG="${2:?--config needs a path}"; shift 2 ;;
     --mcp)    MCP="${2:?--mcp needs a path}"; shift 2 ;;
-    *) echo "Usage: $0 [--config PATH] [--mcp PATH]" >&2; exit 2 ;;
+    --policy) POLICY="${2:?--policy needs a path}"; shift 2 ;;
+    *) echo "Usage: $0 [--config PATH] [--mcp PATH] [--policy PATH]" >&2; exit 2 ;;
   esac
 done
 
@@ -61,6 +73,55 @@ done < <(jq -r '
   (.doc_storage // {}) as $d
   | ($d.spaces // {}) | keys[]
   | select((($d.folders // {})[.] // null) != null)
+' "$CONFIG")
+
+# ADR 0035 — library config validation.
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  echo "[DOC STORAGE LIBRARY CONFIG] $line"
+  findings=$((findings + 1))
+done < <(jq -r '
+  def did: (.resource_ids.drive_id // .resource_ids.file_id // null);
+  (.doc_storage.spaces // {}) | to_entries[]
+  | .key as $r | .value as $sp
+  | select(($sp.libraries // null) != null)
+  | ($sp.libraries | if type == "object" then . else {} end) as $libs
+  | ( if ($libs | length) == 0 then "\($r) — libraries is empty or not an object"
+      elif ($sp.default_library // null) == null then "\($r) — default_library is required when libraries is set"
+      elif ($libs | has($sp.default_library)) | not then "\($r) — default_library \"\($sp.default_library)\" names no library"
+      else empty end ),
+    ( $libs | to_entries[]
+      | select((.value | did) == null) | "\($r)/\(.key) — library has no resource_ids.drive_id (or file_id)" ),
+    ( $libs | to_entries[]
+      | select(((.value.purpose // "") | tostring | length) == 0) | "\($r)/\(.key) — library has no purpose" ),
+    ( [ $libs | to_entries[] | {k: .key, d: (.value | did)} | select(.d != null) ]
+      | group_by(.d)[] | select(length > 1)
+      | "\($r) — libraries \(map(.k) | join(", ")) share drive id \(.[0].d)" )
+' "$CONFIG")
+
+# ADR 0035 §4 — every drive id of a sensitive space must be in the perimeter.
+policy_json='{}'
+if [[ -n "$POLICY" ]]; then
+  [[ -r "$POLICY" ]] && policy_json=$(cat "$POLICY")
+elif git -C "$SCRIPT_DIR/.." rev-parse --verify -q origin/main >/dev/null 2>&1; then
+  policy_json=$(git -C "$SCRIPT_DIR/.." show origin/main:security/policy.json 2>/dev/null || echo '{}')
+fi
+jq -e . >/dev/null 2>&1 <<<"$policy_json" || policy_json='{}'
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  echo "[DOC STORAGE PERIMETER GAP] $line"
+  findings=$((findings + 1))
+done < <(jq -r --argjson pol "$policy_json" '
+  def did: (.resource_ids.drive_id // .resource_ids.file_id // null);
+  ([ ($pol.space_access // [])[] | (.drive_ids // [])[] ]) as $covered
+  | (.doc_storage.spaces // {}) | to_entries[]
+  | .key as $r | .value as $sp
+  | select(($sp.agent_allowlist // null) != null)
+  | if (($sp.libraries // {}) | type == "object" and length > 0)
+    then ($sp.libraries | to_entries[] | {n: "\($r)/\(.key)", d: (.value | did)})
+    else {n: $r, d: ($sp | did)} end
+  | select(.d != null and (.d as $d | $covered | index($d) | not))
+  | "\(.n) — drive id \(.d) is in no security/policy.json space_access rule; the library is outside the hard perimeter"
 ' "$CONFIG")
 
 if [[ "$findings" -gt 0 ]]; then

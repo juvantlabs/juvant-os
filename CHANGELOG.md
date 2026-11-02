@@ -18,7 +18,9 @@ Adopter actions:
   a role breaks as soon as its space is promoted.
 - After the sync, run `bash helpers/doc-storage-check.sh`. Fix each finding:
   set `doc_storage.mcp_server` to `m365-graph` if you configured write
-  capability, and null `folders.<role>` for every promoted role.
+  capability, and null `folders.<role>` for every promoted role. Treat any
+  `[DOC STORAGE PERIMETER GAP]` as a security finding: add the drive id to the
+  `space_access` rule in `security/policy.json` through a reviewed PR.
 
 ### Fixed
 
@@ -35,6 +37,21 @@ Adopter actions:
 
 ### Added
 
+- **Multi-library document spaces** (ADR 0035, BUG-094 R4). A promoted space
+  may carry `libraries{}` (name → `resource_ids` + `purpose`, optional `path`
+  and library-scoped `access[]`) and a required `default_library`.
+  `resolve_space(role, caller, library=None)` and `can_write` take the
+  library. Writes go to the library whose purpose matches; the agent states
+  the choice, and falls back to `default_library` when nothing matches or two
+  libraries do. An unknown name surfaces `[<ROLE> LIBRARY UNKNOWN]`. Spaces
+  without `libraries` behave as before.
+- **`doc-storage-check.sh` validates libraries and the perimeter.**
+  `[DOC STORAGE LIBRARY CONFIG]` flags a missing or invalid `default_library`,
+  a library with no drive id or `purpose`, and duplicate drive ids.
+  `[DOC STORAGE PERIMETER GAP]` flags a sensitive space (`agent_allowlist`)
+  with a drive id that no `space_access` rule in `security/policy.json` on
+  `origin/main` covers. Before this, such a library sat outside the hard
+  perimeter and nothing noticed.
 - **`helpers/doc-storage-check.sh`**, run at boot (new step 2c). It flags
   `[DOC STORAGE MCP RECORD DRIFT]`: `mcp_server` still says `ms-graph` while
   `m365-graph` is registered, because write-capability Step 6 was skipped. It
