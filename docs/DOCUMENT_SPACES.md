@@ -184,6 +184,45 @@ only new participant is the external guest. That is what makes pointing
 agents at org storage cheap: a config block plus the existing OAuth
 principal, not a service-account provisioning project.
 
+### Spaces with several libraries (ADR 0035)
+
+An org space often holds more than one document library, each with a purpose
+(for example `general`, `invoices`, and an `exchange` library shared with the
+external accountant). Model them under `libraries`, and name a
+`default_library`:
+
+```json
+"finance": {
+  "container": "org", "provider": "sharepoint",
+  "resource_ids": { "site_id": "…" },
+  "default_library": "general",
+  "libraries": {
+    "general":  { "resource_ids": { "drive_id": "b!…" }, "purpose": "working documents" },
+    "invoices": { "resource_ids": { "drive_id": "b!…" }, "purpose": "issued and received invoices" },
+    "exchange": { "resource_ids": { "drive_id": "b!…" }, "purpose": "documents exchanged with the accountant",
+                  "access": [ { "principal": "commercialista@studio.example", "role": "write",
+                                "granted_at": "<date>", "decision_ref": "<decisions.id>" } ] }
+  }
+}
+```
+
+- Each `purpose` is one line saying what belongs there. When an agent files a
+  document it picks the library whose purpose matches, and names the library
+  and the purpose in its response. If nothing matches clearly, or two
+  libraries match, it uses `default_library`. Write purposes that don't
+  overlap.
+- Put a guest's grant on the library they actually get (`libraries.<name>.access`),
+  not on the whole space, when the grant is library-scoped.
+- A library you don't list is invisible to agents. That is on purpose: adding
+  a library in SharePoint is not enough, you also add it here.
+- **Sensitive spaces:** every library's drive id must be in the
+  `drive_ids` of the space's `space_access` rule in `security/policy.json`.
+  `path_patterns` alone do not count. A library that is missing shows up as
+  `[DOC STORAGE PERIMETER GAP] <role>/<library>`: it sits outside the hard
+  perimeter until the policy PR is merged.
+
+Run `bash helpers/doc-storage-check.sh` after any change to this block.
+
 ### Governance of the grant
 
 - Every external grant is authorized by a `decisions` row (the
