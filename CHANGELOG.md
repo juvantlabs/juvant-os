@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.19.0] — 2026-11-03 — Opt-in OS-level protection of the guardrail files (Bash sandbox, ADR 0036)
+
 Adopter action: none to stay as you are. The sandbox is opt-in. To turn it
 on, follow `JUVANT_OS.md` → "Bash sandbox (ADR 0036)": set
 `feature_toggles.bash_sandbox`, run `! bash scripts/sync-sandbox.sh` and, on
