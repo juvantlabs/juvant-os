@@ -17,6 +17,8 @@
 #   • alert delivery receipts    .juvant/alert-receipts.jsonl (BUG-087)
 #   • scheduled guardrail jobs   ~/Library/LaunchAgents/io.juvant.* and the
 #                                pinned checkout .juvant/pinned-main/** (BUG-089)
+#   • settings templates         scripts/templates/{hooks-registration,sandbox}.json
+#                                (ADR 0036)
 # Directories and globs over those trees count too (`rm -rf helpers`,
 # `cp x hooks/*`). Anything under a tests/ directory is NOT protected — the
 # suites are instance-editable (decisions#300 item 9).
@@ -43,6 +45,11 @@ JUVANT_GUARDRAIL_FILE_RES=(
   # read-only checkout of main the jobs execute.
   '(^|/)Library/LaunchAgents/(io\.juvant[^/]*|\*[^/]*)$'
   '(^|/)\.juvant/pinned-main(/.*)?$'
+  # ADR 0036: the templates that settings.json is reconciled from — the hook
+  # registration (scripts/sync-hooks.sh) and the Bash sandbox block
+  # (scripts/sync-sandbox.sh). Editing either, then running its sync script,
+  # would unregister the gate or open the sandbox.
+  '(^|/)scripts/templates/(hooks-registration|sandbox)\.json$'
 )
 # Directory / glob targets (whole-tree operations).
 JUVANT_GUARDRAIL_DIR_RES=(
@@ -125,7 +132,8 @@ juvant_guardrail_raw_dir_ref() {
 juvant_guardrail_synced_files() {
   local root="$1" f
   for f in "$root"/hooks/*.sh "$root"/hooks/lib/*.sh "$root"/hooks/bash-policy.json \
-           "$root"/helpers/*.sh "$root"/scripts/*.sh; do
+           "$root"/helpers/*.sh "$root"/scripts/*.sh \
+           "$root"/scripts/templates/hooks-registration.json "$root"/scripts/templates/sandbox.json; do
     [[ -e "$f" ]] && printf '%s\n' "${f#"$root"/}"
   done
 }
@@ -133,5 +141,5 @@ juvant_guardrail_synced_files() {
 # juvant_guardrail_synced_re → ERE matching a synced protected file path
 # (used to find tracked-but-missing files).
 juvant_guardrail_synced_re() {
-  printf '%s' '^(hooks/([^/]+\.sh|lib/[^/]+\.sh|bash-policy\.json)|helpers/[^/]+\.sh|scripts/[^/]+\.sh)$'
+  printf '%s' '^(hooks/([^/]+\.sh|lib/[^/]+\.sh|bash-policy\.json)|helpers/[^/]+\.sh|scripts/[^/]+\.sh|scripts/templates/(hooks-registration|sandbox)\.json)$'
 }

@@ -1,0 +1,79 @@
+{
+  "_comment": "ADR 0036 \u2014 canonical Claude Code Bash sandbox block. scripts/sync-sandbox.sh writes `sandbox` into .claude/settings.json when .juvant/config.json feature_toggles.bash_sandbox is true, filling network.allowedDomains from `binary_domains` (only the binaries some role is allowed in hooks/bash-policy.json) plus config sandbox.extra_domains. denyWrite mirrors the protected set in hooks/lib/guardrail-paths.sh (a test keeps them in step). Project working trees stay writable through permissions.additionalDirectories (scripts/sync-project-globs.sh). The two excludedCommands entries are the upstream-sync apply helper and helpers/fetch-origin.sh (refs/remotes/origin/ is write-denied, so a sandboxed git fetch of origin fails): Claude Code keeps a call sandboxed unless EVERY command in it matches, and a cd / redirect / $( ) keeps it sandboxed too.",
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyWrite": [
+        "./hooks/",
+        "./helpers/",
+        "./scripts/",
+        "./security/",
+        "./.juvant/audit-spool*",
+        "./.juvant/backups/",
+        "./.juvant/pinned-main/",
+        "./.juvant/alert-receipts.jsonl",
+        "./.juvant/policy-blob-seen",
+        "./.juvant/secrets.json",
+        "./.git/config",
+        "./.git/refs/remotes/origin/",
+        "./.git/refs/replace/",
+        "./.git/packed-refs",
+        "~/Library/LaunchAgents/io.juvant*"
+      ]
+    },
+    "network": {
+      "allowedDomains": []
+    },
+    "excludedCommands": [
+      "bash helpers/upstream-apply.sh *",
+      "bash helpers/fetch-origin.sh"
+    ]
+  },
+  "binary_domains": {
+    "git": [
+      "github.com"
+    ],
+    "gh": [
+      "github.com",
+      "api.github.com",
+      "uploads.github.com",
+      "codeload.github.com",
+      "objects.githubusercontent.com"
+    ],
+    "turso": [
+      "api.turso.tech",
+      "*.turso.io"
+    ],
+    "az": [
+      "management.azure.com",
+      "login.microsoftonline.com",
+      "graph.microsoft.com"
+    ],
+    "aws": [
+      "*.amazonaws.com"
+    ],
+    "gcloud": [
+      "*.googleapis.com",
+      "accounts.google.com"
+    ],
+    "terraform": [
+      "registry.terraform.io",
+      "releases.hashicorp.com"
+    ],
+    "npm": [
+      "registry.npmjs.org"
+    ],
+    "npx": [
+      "registry.npmjs.org"
+    ],
+    "pip": [
+      "pypi.org",
+      "files.pythonhosted.org"
+    ],
+    "pip3": [
+      "pypi.org",
+      "files.pythonhosted.org"
+    ]
+  }
+}

@@ -2289,6 +2289,68 @@ When the hook denies a call, the agent sees the rejection and
 typically escalates to CoS — CoS surfaces to CEO, who runs the
 command in their own terminal (out-of-band, not via the agent).
 
+Every command of a line is checked, not only the first (BUG-098). The
+Track 2f tamper floor reads the command text to deny writes to the
+guardrail files. The Bash sandbox below is what enforces it at the OS level.
+
+#### Bash sandbox (ADR 0036, opt-in)
+
+With `.juvant/config.json` `feature_toggles.bash_sandbox: true`, agent Bash
+runs inside the Claude Code sandbox: Seatbelt on macOS, bubblewrap on Linux
+and WSL2. The sandbox write-denies the guardrail files for the command **and
+every process it starts**, so protection no longer depends on reading the
+command text. Hooks, MCP servers and the scheduled helpers are not sandboxed,
+so they keep working.
+
+**Turning it on** — the CEO, from their own prompt:
+
+```bash
+! jq '.feature_toggles.bash_sandbox = true' .juvant/config.json > /tmp/c && cat /tmp/c > .juvant/config.json
+! bash scripts/sync-sandbox.sh
+```
+
+Linux and WSL2 also need `bubblewrap` (`apt install bubblewrap`).
+`scripts/sync-sandbox.sh` writes the canonical `sandbox` block
+(`scripts/templates/sandbox.json`) into `.claude/settings.json`:
+- **`allowUnsandboxedCommands: false`** — no retry outside the sandbox;
+- **`denyWrite`** — the protected set of `hooks/lib/guardrail-paths.sh`, plus
+  `.git/config`, `.git/refs/remotes/origin/`, `.git/refs/replace/` and
+  `.git/packed-refs`;
+- **`network.allowedDomains`** — compiled from the binaries the roles are
+  allowed, plus `sandbox.extra_domains` from the config;
+- **`excludedCommands`** — exactly two entries: `helpers/upstream-apply.sh`
+  and `helpers/fetch-origin.sh`.
+
+**What changes for agents:**
+- **Upstream sync** applies files through `bash helpers/upstream-apply.sh`
+  (step 7).
+- **Fetching `origin`** goes through `bash helpers/fetch-origin.sh`. A plain
+  `git fetch origin` or `git pull` fails, because `refs/remotes/origin/` is
+  write-denied.
+- **A branch's upstream tracking is not recorded**, because `.git/config` is
+  write-denied. `git push -u` pushes and exits 0, but records nothing, so
+  name the remote and branch explicitly (`git push origin <branch>`).
+- **Unlisted domains are refused.** Add the domain to `sandbox.extra_domains`,
+  then the CEO runs `! bash scripts/sync-sandbox.sh`.
+- **`scripts/sync-project-globs.sh`** is run by the CEO (`! bash …`), not by
+  an agent.
+
+**Protection of the block itself:**
+- Claude Code protects `.claude/settings*.json` from sandboxed Bash.
+- Track 2f denies Write and Edit to them while the toggle is on, or while a
+  sandbox block is enabled, so flipping the toggle first does not unlock them.
+- The block's template (`scripts/templates/sandbox.json`) is a protected,
+  content-checked file.
+- At SessionStart, `[SANDBOX OFF]` is raised (high `security_audit_log` row
+  and CEO alert) when the block is not canonical, or when
+  `settings.local.json` overrides it.
+- One gap is outside the framework's reach: `claude --settings` on the command
+  line overrides project settings. Launch agents without it, or pin the same
+  block in managed settings.
+
+**Turning it off:** set the toggle to false, then run
+`! bash scripts/sync-sandbox.sh --remove`.
+
 ### Track 3 — Audit log + off-host backup
 
 #### Reading the audit log
@@ -2740,6 +2802,13 @@ from `additionalDirectories`):
 bash scripts/migrate.sh --project=<slug>
 bash scripts/sync-project-globs.sh
 ```
+
+With the Bash sandbox on (`feature_toggles.bash_sandbox`, ADR 0036),
+agent Bash cannot write `.claude/settings.json`. Ask the CEO to run
+`! bash scripts/sync-project-globs.sh` from their own prompt instead. The
+script is deliberately **not** excluded from the sandbox, because the paths it
+adds to `additionalDirectories` widen the sandbox's writable area and come from
+the agent-writable config.
 
 The script reads `.projects.<slug>.db.{provider,url,auth_token}`
 from config and applies the schema. For local SQLite, this creates
@@ -5015,6 +5084,29 @@ trail. **Company-scope agents only** — no project agents involved.
    `io.juvant.guardrails.*` launchd plist matches what
    `helpers/install-schedules.sh` generates.
 
+   **With the Bash sandbox on** (`feature_toggles.bash_sandbox`, ADR 0036)
+   the form above fails: sandboxed Bash cannot write `hooks/`, `helpers/`,
+   `scripts/` or `.claude/settings.json`. Apply with the helper instead, in a
+   call of its own (nothing chained before or after it):
+
+   ```bash
+   bash helpers/upstream-apply.sh <file> [<file>…]
+   ```
+
+   The helper is one of the two commands excluded from the sandbox. It works
+   with the sandbox off too, and it accepts only these cases:
+   - **Remote:** `upstream` must be the canonical remote.
+   - **Branch:** the current branch must be `sync/…`.
+   - **Content:** it resolves and fetches upstream `main` itself, so it never
+     trusts `refs/remotes/upstream/*`.
+   - **Files:** each file must be on the Framework whitelist of that upstream
+     commit.
+
+   It then reconciles `.claude/settings.json` (`scripts/sync-hooks.sh` and
+   `scripts/sync-sandbox.sh`). Fetch `origin` with `bash helpers/fetch-origin.sh`,
+   because a sandboxed `git fetch origin` cannot update
+   `refs/remotes/origin/*`.
+
 8. **Post-apply steps** (auto-executed, no additional CEO input):
    - Any `helpers/*.sh`, `hooks/*.sh` or `scripts/*.sh` changed → the
      scheduled guardrail jobs run a **pinned, read-only checkout of
@@ -5141,6 +5233,8 @@ scripts/schema.sql            scripts/audit-bootstrap-baseline.sh
 scripts/sync-project-globs.sh scripts/governance-backfill.sh
 scripts/seed-matrix.sh        scripts/templates/v0-agent-tool-matrix.json
 scripts/sync-hooks.sh         scripts/templates/hooks-registration.json
+scripts/sync-sandbox.sh       scripts/templates/sandbox.json
+helpers/upstream-apply.sh     helpers/fetch-origin.sh
 scripts/deadlines.json        scripts/validate-security-policy.sh
 scripts/migrate-secrets.sh    scripts/set-secret.sh
 scripts/upgrade-v0.5.sql
@@ -5176,6 +5270,8 @@ tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh
 tests/helpers/test-cso-weekly-audit-cadence.sh
 tests/helpers/test-monthly-dispatch.sh
+tests/helpers/test-sync-sandbox.sh
+tests/helpers/test-upstream-apply.sh
 tests/helpers/test-db-exec-durability.sh
 tests/helpers/test-db-query-csv.sh
 tests/helpers/test-db-query.sh
