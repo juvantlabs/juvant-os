@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.17.2] — 2026-11-03 — Tamper floor covers inline shell and interpreter code
+
 Adopter action: none beyond the normal upstream sync of `hooks/pre-tool-use.sh`
 and `hooks/lib/guardrail-paths.sh`.
 
