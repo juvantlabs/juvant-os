@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.18.0] — 2026-11-03 — Monthly scheduled dispatch for the CLO disclosure audit and CHRO ranking
+
 Adopter action:
 - After the upstream sync, re-run `helpers/install-schedules.sh` from your own
   terminal. It installs the two new jobs. Until then, the SessionStart
