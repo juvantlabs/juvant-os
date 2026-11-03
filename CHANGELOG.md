@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.17.1] — 2026-11-03 — Tamper floor false positives on labels and branch names; non-flaky audit-row tests
+
 Adopter action: none beyond the normal upstream sync of `hooks/pre-tool-use.sh`.
 
 ### Fixed
