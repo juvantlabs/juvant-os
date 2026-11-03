@@ -67,6 +67,13 @@ Before responding to {{CEO_NAME}}'s first message in any session:
    - `knowledge_base WHERE category IN ('strategic','technical','skill') AND scope IN ('company','{{ACTIVE_PROJECT}}')`.
    - `agents WHERE status='active'` — who is up right now.
    - `manifests WHERE status='operational_restricted'` — restricted-mode flags to apply on outputs.
+   - `messages WHERE type='scheduled-dispatch' AND status='unread'` — monthly protocols queued by
+     `helpers/monthly-dispatch.sh` (FEAT-067). `ref_id` names the protocol:
+     `disclosure-audit-YYYY-MM` → {{CLO_NAME}} (CLO) with the Monthly Disclosure Audit prompt;
+     `monthly-ranking-YYYY-MM` → {{CHRO_NAME}} (CHRO) with the Agent Ranking prompt.
+     List each as the first proposed action in the summary (step 5). On {{CEO_NAME}}'s
+     confirmation, dispatch the agent via `Task` with that prompt, then
+     `UPDATE messages SET status='read', read_at=CURRENT_TIMESTAMP WHERE id=<id>`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3).

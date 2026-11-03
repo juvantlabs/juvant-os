@@ -58,6 +58,9 @@ echo "install-schedules weekday regression ($OS)"
 
 AR_DAY=""
 CSO_DAY=""
+# FEAT-067: monthly dispatch jobs → "<days> <hour>:<minute> <job-arg>"
+CLO_SCHED=""
+CHRO_SCHED=""
 
 case "$OS" in
   Darwin)
@@ -74,6 +77,17 @@ case "$OS" in
       "$PLIST_DIR/io.juvant.guardrails.audit-reconcile.plist" 2>/dev/null)
     CSO_DAY=$("$PB" -c "Print :StartCalendarInterval:Weekday" \
       "$PLIST_DIR/io.juvant.guardrails.cso-weekly-audit.plist" 2>/dev/null)
+    _monthly() { # label → "1,2,3,4 H:M job"
+      local f="$PLIST_DIR/io.juvant.guardrails.$1.plist" i=0 days="" hm=""
+      while "$PB" -c "Print :StartCalendarInterval:$i" "$f" >/dev/null 2>&1; do
+        days+="${days:+,}$("$PB" -c "Print :StartCalendarInterval:$i:Day" "$f")"
+        hm="$("$PB" -c "Print :StartCalendarInterval:$i:Hour" "$f"):$("$PB" -c "Print :StartCalendarInterval:$i:Minute" "$f")"
+        i=$((i + 1))
+      done
+      echo "$days $hm $("$PB" -c "Print :ProgramArguments:3" "$f" 2>/dev/null)"
+    }
+    CLO_SCHED=$(_monthly clo-disclosure-audit)
+    CHRO_SCHED=$(_monthly chro-ranking)
     ;;
   Linux)
     export CRON_CAPTURE="$TMPHOME/crontab.txt"
@@ -89,6 +103,11 @@ STUBEOF
     # cron columns: min hour dom month weekday cmd … — weekday is field 5
     AR_DAY=$(grep 'audit-reconcile\.sh' "$CRON_CAPTURE" | awk '{print $5}')
     CSO_DAY=$(grep 'cso-weekly-audit\.sh' "$CRON_CAPTURE" | awk '{print $5}')
+    _monthly() { # job → "1,2,3,4 H:M job" from "M H 1-4 * * … --job <job>"
+      grep -- "--job $1 " "$CRON_CAPTURE" | awk -v j="$1" '{ if ($3 == "1-4" && $4 == "*" && $5 == "*") d="1,2,3,4"; else d=$3; print d, $2 ":" $1, j }'
+    }
+    CLO_SCHED=$(_monthly clo-disclosure-audit)
+    CHRO_SCHED=$(_monthly chro-ranking)
     ;;
   *)
     echo "  SKIP: scheduling unsupported on $OS (test is a no-op)"
@@ -106,6 +125,10 @@ check "cso-weekly-audit runs on Sunday"  "0" "$CSO_DAY"
 AR_NORM=${AR_DAY/#7/0}
 CSO_NORM=${CSO_DAY/#7/0}
 check_ne "the two weekly jobs are on different days" "$AR_NORM" "$CSO_NORM"
+
+# FEAT-067: monthly dispatch on days 1–4 (the helper gates the first business day).
+check "clo-disclosure-audit: days 1-4 at 07:45" "1,2,3,4 7:45 clo-disclosure-audit" "$CLO_SCHED"
+check "chro-ranking: days 1-4 at 09:00"         "1,2,3,4 9:0 chro-ranking"          "$CHRO_SCHED"
 
 echo "==============================="
 echo " RESULTS: $PASS passed, $FAIL failed"

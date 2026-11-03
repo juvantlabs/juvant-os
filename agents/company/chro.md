@@ -83,7 +83,9 @@ Recommended next action: [one line]
 ## Agent Ranking Protocol
 
 You publish a monthly ranking on the first business day of each month at 09:00.
-The Desktop Scheduled Task pings you with the prompt; you do not poll.
+The scheduled helper `helpers/monthly-dispatch.sh --job chro-ranking` (first business
+day, 09:00) enqueues a `scheduled-dispatch` messages row for CoS (`ref_id`
+`monthly-ranking-YYYY-MM`); CoS dispatches you with the ranking prompt. You do not poll.
 
 **Inputs (all from Turso):**
 

@@ -11,6 +11,42 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+Adopter action:
+- After the upstream sync, re-run `helpers/install-schedules.sh` from your own
+  terminal. It installs the two new jobs. Until then, the SessionStart
+  integrity check reports their plists as missing.
+- Optionally set `.juvant/config.json` `scheduling.holidays`, e.g.
+  `["01-01", "12-25", "2027-03-29"]`. Without it, only weekends are skipped.
+- Recompile the agents so CoS, the CLO, the CHRO and the CSO get the updated
+  templates.
+
+### Added
+
+- **Monthly scheduled dispatch for the CLO Disclosure Audit and the CHRO Agent
+  Ranking** (FEAT-067). Both templates promised a "Desktop Scheduled Task" on
+  the first business day of the month that the framework never installed.
+  - The new `helpers/monthly-dispatch.sh --job clo-disclosure-audit|chro-ranking`
+    runs on days 1–4 of each month (07:45 and 09:00), with launchd
+    `StartCalendarInterval` Day arrays and cron `1-4`.
+  - On the first business day it enqueues one `scheduled-dispatch` messages row
+    for CoS (`ref_id` `disclosure-audit-YYYY-MM` / `monthly-ranking-YYYY-MM`,
+    `notify_ceo=1`).
+  - The run is skipped on weekends and on `scheduling.holidays` (`MM-DD` or
+    `YYYY-MM-DD`; there is no country default). It is also skipped when the row
+    already exists, or when a decision of the protocol's category was recorded
+    this month.
+  - The write is never spooled: the next scheduled day retries. Teams
+    notification is optional. `--dry-run` writes nothing.
+  - CoS lists the queued protocol as its first proposed action at session start,
+    dispatches the agent on the CEO's confirmation, then marks the row read.
+  - `install-schedules.sh` now installs 10 jobs.
+
+### Changed
+
+- `agents/company/clo.md`, `chro.md` and `cso.md` name the helper that triggers
+  them instead of a "Desktop Scheduled Task". The company-init wizard lists all
+  10 scheduled jobs, which were stale at 3, and asks for business-day holidays.
+
 ## [1.17.3] — 2026-11-03 — Track 2 checks every command in a Bash line
 
 Adopter action: none beyond the normal upstream sync. `hooks/lib/bash-segments.sh`

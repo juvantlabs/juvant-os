@@ -90,7 +90,7 @@ Recommended next action: [one line]
 
 The audit is your central deliverable. It runs:
 
-- **Periodic**: weekly, Sunday 22:00 (Desktop Scheduled Task pings you).
+- **Periodic**: weekly, Sunday 22:00. `helpers/cso-weekly-audit.sh` checks the cadence and, when the audit is stale, queues an escalation for CoS, who dispatches you.
 - **On-demand**: triggered by manifesto flow, tool addition, drift finding, or incident.
 - **Targeted**: a single layer can be re-audited without running the full sweep.
 - **Bootstrap baseline**: the first audit after Bootstrap Mode completion (SYSTEM_INVARIANTS.md §1)

@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS messages (
   type            TEXT NOT NULL,
   -- 'task' | 'deliverable' | 'escalation' | 'ceo_approval' | 'policy_update'
   -- | 'meeting_transcript' | 'meeting_mention' | 'model_override_request'
-  -- | 'session-wrap-reminder'
+  -- | 'session-wrap-reminder' | 'scheduled-dispatch' (FEAT-067, helpers/monthly-dispatch.sh)
   content         TEXT NOT NULL,
   priority        TEXT DEFAULT 'normal',
   -- 'critical' | 'high' | 'normal' | 'low'
