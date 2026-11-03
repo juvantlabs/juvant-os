@@ -1222,6 +1222,50 @@ for _c in \
   t_assert "2f adopter: allow (read) — $_c" "no" "$(_t2fb "$_c")"
 done
 
+# BUG-096 (juvant-os-pm#199): a bare word equal to a protected directory name
+# is not a path when it is the value of a non-path option (label, title,
+# branch name, message) or an argument of a gh subcommand that only talks to
+# the GitHub API. Real writes onto the same names stay denied.
+for _c in \
+  'gh issue create --label security --title x --body y' \
+  'gh issue edit 1 --add-label security' \
+  'gh issue edit 1 --add-label security,hooks' \
+  'gh pr create --title hooks' \
+  'gh pr create --body-file hooks/pre-tool-use.sh' \
+  'gh -R o/r issue list --label security' \
+  'gh api repos/o/r/labels -f name=security' \
+  'git checkout -b fix/scripts' \
+  'git switch -c security' \
+  'git commit -m security' \
+  'git branch helpers' \
+  'git tag -a hooks -m security' \
+  'gh run download 1 --dir=/tmp/x' \
+  ; do
+  t_assert "2f BUG-096: allow — $_c" "no" "$(_t2fb "$_c")"
+done
+for _c in \
+  'rm -rf security' \
+  'cp x security/policy.json' \
+  'sed -i s/a/b/ hooks/pre-tool-use.sh' \
+  'mv helpers/x.sh /tmp/' \
+  'tee .juvant/audit-spool.sql' \
+  'git checkout hooks' \
+  'git switch hooks' \
+  'git checkout -b x -- hooks/stop.sh' \
+  'git -C hooks branch x; rm -rf hooks' \
+  'git commit -m x && rm -rf helpers' \
+  'gh run download -D hooks' \
+  'gh run download 1 --dir=hooks' \
+  'gh release download v1 -O hooks/pre-tool-use.sh' \
+  'gh release download v1 -Ohooks/stop.sh' \
+  'gh repo clone o/r hooks' \
+  'gh issue list > hooks/stop.sh' \
+  'gh pr checkout 1 && cp x hooks/stop.sh' \
+  'gh myalias hooks' \
+  ; do
+  t_assert "2f BUG-096: deny — $_c" "yes" "$(_t2fb "$_c")"
+done
+
 # decisions#303 R1 + B2: the shared protected-path set (hooks/lib/
 # guardrail-paths.sh) adds the audit spool family, .juvant/backups/,
 # helpers/*.sh and scripts/*.sh.

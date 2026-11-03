@@ -2005,7 +2005,70 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
               done ;;
           esac
         fi
-        for x in ${args[@]+"${args[@]}"}; do
+        # BUG-096 R3: `gh` subcommands that only talk to the GitHub API never
+        # write the local filesystem; a bare word such as `--label security`
+        # or `--title hooks` is not a path for them. Redirects were checked
+        # above. Allowlist (deny-by-default): an unknown group/action, a gh
+        # alias or extension, and the subcommands that write locally
+        # (pr checkout, issue develop, repo clone|fork|sync|rename|create|
+        # set-default, gist clone, release|run download, -O/--output, -D/--dir)
+        # fall through to the path scan below.
+        if [[ "$verb" == "gh" ]]; then
+          local ggrp="" gact="" gx2 gskip=0
+          for gx2 in ${args[@]+"${args[@]}"}; do
+            if [[ "$gskip" == 1 ]]; then gskip=0; continue; fi
+            case "$gx2" in
+              -R|--repo) gskip=1; continue ;;
+              --output=*|--dir=*|-O?*)
+                gx2="${gx2#--*=}"; gx2="${gx2#-O}"
+                if _gr_is_path "$gx2"; then _GR_DENY_WHY="gh download onto '$gx2'"; return 0; fi
+                ggrp="<writes-local>"; break ;;
+              -O|--output|-D|--dir) ggrp="<writes-local>"; break ;;
+              -*) continue ;;
+            esac
+            if [[ -z "$ggrp" ]]; then ggrp="$gx2"; elif [[ -z "$gact" ]]; then gact="$gx2"; fi
+          done
+          case "$ggrp" in
+            issue) [[ "$gact" == "develop" ]] || return 1 ;;
+            pr) [[ "$gact" == "checkout" ]] || return 1 ;;
+            repo)
+              case "$gact" in
+                view|list|edit|archive|unarchive|delete|deploy-key|autolink|gitignore|license) return 1 ;;
+              esac ;;
+            release|run) [[ "$gact" == "download" ]] || return 1 ;;
+            gist) [[ "$gact" == "clone" ]] || return 1 ;;
+            label|search|browse|status|project|workflow|cache|secret|variable|ruleset|api|org)
+              return 1 ;;
+          esac
+        fi
+        # BUG-096 R2: the value of an option that is never a path (a branch
+        # name, a commit / tag message) is not a path candidate. File operands
+        # stay checked.
+        local -a pargs=()
+        if [[ "$verb" == "git" ]]; then
+          local gx3 gskipv=0 gsub3="" gprev3=""
+          for gx3 in ${args[@]+"${args[@]}"}; do
+            if [[ "$gskipv" == 1 ]]; then gskipv=0; continue; fi
+            if [[ -z "$gsub3" ]]; then
+              # Global options before the subcommand; -C / --git-dir /
+              # --work-tree values are paths and stay candidates.
+              pargs+=("$gx3")
+              if [[ "$gprev3" == "-C" || "$gprev3" == "-c" || "$gprev3" == "--git-dir" || "$gprev3" == "--work-tree" ]]; then gprev3="$gx3"; continue; fi
+              [[ "$gx3" != -* ]] && gsub3="$gx3"
+              gprev3="$gx3"; continue
+            fi
+            case "$gsub3:$gx3" in
+              checkout:-b|checkout:-B|switch:-c|switch:-C|commit:-m|commit:--message|tag:-m|tag:--message)
+                gskipv=1; continue ;;
+              commit:--message=*|tag:--message=*) continue ;;
+              branch:[!-]*|tag:[!-]*) continue ;;   # ref names: branch / tag never touch the work tree
+            esac
+            pargs+=("$gx3")
+          done
+        else
+          pargs=(${args[@]+"${args[@]}"})
+        fi
+        for x in ${pargs[@]+"${pargs[@]}"}; do
           if _gr_is_path "$x"; then has=1; break; fi
         done
         [[ "$has" == 1 ]] || return 1

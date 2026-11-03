@@ -11,9 +11,26 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
-No adopter action: only tests changed.
+Adopter action: none beyond the normal upstream sync of `hooks/pre-tool-use.sh`.
 
 ### Fixed
+
+- **Tamper floor no longer denies labels, titles and branch names that equal a
+  protected directory name** (BUG-096). In a deployed instance, Track 2f denied
+  `gh issue create --label security`, `gh pr create --title hooks` and
+  `git checkout -b fix/scripts`: every argument was checked as a path, and a
+  bare `security`, `hooks`, `helpers` or `scripts` matches a protected
+  directory. Two narrow changes, both keeping deny-by-default:
+  - `gh` subcommands that only talk to the GitHub API (`issue`, `pr`, `label`,
+    `search`, `api`, `repo view|list|edit…`, …) are no longer path-scanned;
+    redirects still are. Subcommands that write locally (`pr checkout`,
+    `issue develop`, `repo clone|fork|sync|rename|create|set-default`,
+    `gist clone`, `release|run download`, `-O/--output`, `-D/--dir`), aliases
+    and extensions keep the full scan.
+  - For `git`, branch names (`checkout -b/-B`, `switch -c/-C`, `branch`), tag
+    names and commit/tag messages are not path candidates.
+  Real writes onto the same names (`rm -rf security`, `git checkout hooks`,
+  `gh run download -D hooks`, `gh issue list > hooks/stop.sh`) stay denied.
 
 - **Flaky audit-row assertions in the hook tests** (BUG-095, tests only). The
   hook wrote the `policy-fail-closed` row correctly. The test's own `sqlite3`
