@@ -1,7 +1,7 @@
 {
   "_comment": "Bash scope policy per handbook ADR 0004 Track 2. Loaded by hooks/pre-tool-use.sh on every Bash tool call. deny_patterns are universal (no agent can bypass). universal_allow lists POSIX shell builtins + harmless flow-control that pass FIRST_TOKEN check for any role. tiers are named shared binary sets; agent_allow entries starting with '@' are resolved to the matching tier at lookup time by pre-tool-use.sh. agent_allow is per-role positive scope; agents not in agent_allow have no Bash by default. Add to agent_allow or tiers only via tool-matrix-change decision (cto proposes at company scope / pca proposes at project scope, cso reviews, CEO approves, eng-platform installs at company scope / project's eng-lead installs at project scope) per SYSTEM_INVARIANTS.md §6 + ADR 0014 §4 single-writer-per-scope.",
 
-  "_compound_command_caveat": "FIRST_TOKEN check on per-role allow-list inspects only the first binary in compound commands ('cmd1 && cmd2 || cmd3' → only cmd1 is matched). If cmd1 is in universal_allow (e.g. cd) or in role allow-list, downstream binaries pass UNCHECKED by allow-list. Universal deny-list still applies regex-wide (rm -rf /, force-push, drop table caught regardless of position). v0.8.x candidate: extract every binary from compound commands and validate each.",
+  "_compound_command_note": "BUG-098 (v1.17.3): every simple command of a Bash line is checked against the per-role allow-list, not only the first: segments after ; && || | newline, inside $( ) ` ` <( ) and double quotes, behind env/xargs/nice/timeout/nohup, and inside bash -c / eval / find -exec (hooks/lib/bash-segments.sh). Heredoc bodies, comments and quoted arguments are data. A line that cannot be parsed reliably is denied (deny:parse:). The universal deny-list still applies regex-wide.",
 
   "_v08_rename_note": "Per ADR 0014 §1, agent_allow keys renamed at v0.8.0: ca→cto (company scope), project cto→pca (project scope), coo→eng-lead, cdo→design-lead, cpo→product-lead. Project-vpe removed (absorbed by eng-lead per §2); vpe key now refers to the optional company-scope VPE gated by feature_toggles.vpe_enabled. eng-platform allow-list extended with npm/npx/node for npm:publish capability per ADR 0014 §3.",
 
@@ -13,7 +13,10 @@
     "test", "[", "[[",
     "command", "type",
     "set", "unset", "export",
-    "bash", "sh"
+    "bash", "sh",
+    "read", "local", "declare", "readonly", "typeset", "let", "getopts",
+    "shift", "wait", "break", "continue",
+    "sleep", "date", "basename", "dirname"
   ],
 
   "deny_patterns": [

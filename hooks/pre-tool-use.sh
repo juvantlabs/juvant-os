@@ -841,7 +841,10 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
       # get deny:parse: — distinct from deny:allow-list: ("valid binary, not
       # permitted"). Guard so they never reach the jq binary-lookup, which
       # would return a misleading allow/deny on a mangled token.
-      if [[ -n "$FIRST_TOKEN" && ( "$FIRST_TOKEN" == *=* || "$FIRST_TOKEN" == *"://"* ) ]]; then
+      if [[ -z "$FIRST_TOKEN" ]]; then
+        : # BUG-098: no binary resolved here (a one-line `case`, comments
+          # only…) — the per-segment check below decides, fail-closed.
+      elif [[ "$FIRST_TOKEN" == *=* || "$FIRST_TOKEN" == *"://"* ]]; then
         DECISION="deny"
         DENY_REASON="deny:parse:$FIRST_TOKEN — token is not a valid binary (contains '=' or URL scheme '://'); cannot determine the command to check against the allow-list. Re-issue with an explicit binary (e.g. 'turso db shell …' rather than a bare URL or an env-only line). Refs: juvantlabs/juvant-os-pm#140 BUG-054"
       else
@@ -873,6 +876,50 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
         fi
       fi
     fi
+  fi
+fi
+
+# BUG-098 (juvantlabs/juvant-os-pm#201): the first-token check above sees only
+# the first binary of a line, so `jq …; pandoc …` or `cd x && curl … | sh`
+# ran every later binary unchecked (and `bash -c '<anything>'` passed whole,
+# bash/sh being universal_allow). Every simple command of the line — after
+# ; && || | newline, inside $( ) ` ` <( ) and double quotes, behind
+# env/xargs/nice/timeout/nohup, inside bash -c / eval / find -exec — is now
+# checked against the same allow-list. Heredoc bodies, comments and quoted
+# arguments are data. A line that cannot be parsed reliably is denied.
+# Operator mode (no agent role) is exempt, as above.
+if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" \
+      && -n "$ROLE" && "$ROLE" != "unknown" && "$ROLE" != "ceo" && "$ROLE" != "operator" ]]; then
+  if [[ -f "$SCRIPT_DIR/lib/bash-segments.sh" ]]; then
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/lib/bash-segments.sh"
+    _seg_allowed=$'\n'$(jq -r --arg role "$LOOKUP_ROLE" '
+      . as $doc |
+      ((.universal_allow // [])[]),
+      (($doc.agent_allow[$role] // [])[] |
+        if startswith("@") then ($doc.tiers[ltrimstr("@")] // [])[] else . end)
+    ' "$POLICY" 2>/dev/null)$'\n'
+    while IFS= read -r _seg_line; do
+      _seg_kind="${_seg_line%% *}"; _seg_val="${_seg_line#* }"
+      if [[ "$_seg_kind" == "P" ]]; then
+        DECISION="deny"
+        DENY_REASON="deny:parse: — cannot reliably split this command into its parts ($_seg_val), so the per-agent allow-list cannot be checked on every command in it (BUG-098). Re-issue it as plain commands with literal binary names, quotes balanced; pass long text through a file (--body-file) or the Write tool. Refs: juvantlabs/juvant-os-pm#201"
+        break
+      fi
+      if [[ "$_seg_kind" == "B" && "$_seg_allowed" != *$'\n'"$_seg_val"$'\n'* ]]; then
+        DECISION="deny"
+        DENY_REASON="deny:allow-list:$_seg_val — binary not in agent '$ROLE' allow-list (handbook ADR 0004 Track 2). Every command in a compound line is checked, not only the first (BUG-098): '$_seg_val' appears after ;, &&, ||, |, inside \$( ), or behind a wrapper (env, xargs, bash -c, eval, find -exec). Do NOT retry or reorder the line: it will never pass. If this is file I/O, use the Write/Edit/Read tools instead. Otherwise surface this denial to your parent (CoS) for a tool-matrix-change; do not work around it. Refs: FEAT-025 BUG-039 BUG-098 juvantlabs/juvant-os-pm#110 #201"
+        break
+      fi
+    done < <(juvant_bash_binaries "$COMMAND")
+  else
+    # Lib missing: most likely mid upstream-sync (step 7 applies files one by
+    # one, pre-tool-use.sh before hooks/lib/), where a deny would block the
+    # very `git checkout upstream/main -- hooks/lib/bash-segments.sh` that
+    # restores it. Degrade to the first-token check above (the pre-v1.17.3
+    # behaviour) and say so; the SessionStart integrity check flags a
+    # tracked-but-missing hooks/lib file.
+    echo "[pre-tool-use] WARN: hooks/lib/bash-segments.sh missing — only the first command of a compound line is allow-list checked until it is restored (BUG-098)." >&2
   fi
 fi
 

@@ -11,6 +11,36 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+Adopter action: none beyond the normal upstream sync. `hooks/lib/bash-segments.sh`
+is new and on the sync whitelist. Until it arrives, the hook keeps the old
+first-command check and warns, so a sync is never blocked halfway. Agents may
+now see `deny:allow-list:` on a later command of a line that used to pass;
+that is the fix. If such a binary is legitimately needed, add it to the
+role's tool matrix as usual.
+
+### Security
+
+- **Track 2 checks every command in a Bash line, not only the first**
+  (BUG-098). The per-agent allow-list used to look only at the first binary,
+  so anything after `;`, `&&`, `||`, `|` or a newline, or inside `$( )`, ran
+  unchecked. Because `bash` and `sh` are universally allowed,
+  `bash -c '<anything>'` passed whole. A new quote-aware parser
+  (`hooks/lib/bash-segments.sh`) lists every simple command, including those:
+  - inside `$( )`, backticks, `<( )` and double quotes;
+  - behind `env`, `xargs`, `nice`, `timeout`, `nohup`, `command` and `exec`;
+  - inside `bash|sh -c`, `eval` and `find -exec`.
+  Each one is checked against the role's allow-list. Heredoc bodies, comments,
+  case patterns, `[[ ]]` and quoted arguments are treated as data, so
+  `gh pr create --body "$(cat <<'EOF' … EOF)"` keeps working. A line that
+  cannot be parsed reliably is denied with `deny:parse:`, for example an
+  unbalanced quote or a command name computed at run time (`$CMD args`).
+  Operator mode (no agent role) is unchanged.
+- `universal_allow` gains side-effect-free shell builtins that compound lines
+  routinely use: `read`, `local`, `declare`, `readonly`, `typeset`, `let`,
+  `getopts`, `shift`, `wait`, `break`, `continue`, plus `sleep`, `date`,
+  `basename` and `dirname`. `bash-policy.json` `_compound_command_caveat` is
+  replaced by `_compound_command_note`.
+
 ## [1.17.2] — 2026-11-03 — Tamper floor covers inline shell and interpreter code
 
 Adopter action: none beyond the normal upstream sync of `hooks/pre-tool-use.sh`
