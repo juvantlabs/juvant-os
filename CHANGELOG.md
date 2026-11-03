@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.17.3] — 2026-11-03 — Track 2 checks every command in a Bash line
+
 Adopter action: none beyond the normal upstream sync. `hooks/lib/bash-segments.sh`
 is new and on the sync whitelist. Until it arrives, the hook keeps the old
 first-command check and warns, so a sync is never blocked halfway. Agents may
