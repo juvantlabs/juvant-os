@@ -11,6 +11,9 @@
 #   helpers/cso-weekly-audit.sh     — weekly Sunday 22:00
 #   helpers/drain-audit-spool.sh    — every 5 min (FEAT-051)
 #   helpers/drain-outbox.sh         — every 15 min (ADR 0024)
+#   helpers/monthly-dispatch.sh     — days 1–4 of each month (FEAT-067):
+#       --job clo-disclosure-audit  07:45   --job chro-ranking  09:00
+#     the helper itself enqueues only on the first business day.
 #
 # Idempotent: re-running replaces existing plists / cron entries
 # under the well-known JUVANT prefix. Does NOT touch unrelated
@@ -122,7 +125,7 @@ case "$OS" in
     PREFIX="io.juvant.guardrails"
     LAUNCHCTL="${JUVANT_LAUNCHCTL:-launchctl}"
     DOMAIN="gui/$(id -u)"
-    ALL_LABELS="turso-backup audit-reconcile governance-backfill anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox"
+    ALL_LABELS="turso-backup audit-reconcile governance-backfill clo-disclosure-audit chro-ranking anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox"
     # "every N minutes" jobs — the ones the post-install self-check verifies.
     INTERVAL_LABELS="anomaly-check drain-audit-spool drain-outbox"
 
@@ -135,6 +138,20 @@ case "$OS" in
       while [ "$m" -lt 60 ]; do
         echo "    <dict><key>Minute</key><integer>${m}</integer></dict>"
         m=$((m + step))
+      done
+      echo "  </array>"
+    }
+
+    # FEAT-067: a StartCalendarInterval array firing on days 1–4 of the month
+    # at $1:$2. The first business day is always among them unless the month
+    # opens with a long holiday run; a slot missed while asleep is coalesced on
+    # wake, and helpers/monthly-dispatch.sh is a no-op on every other day.
+    _first_days_xml() {
+      local hour="$1" minute="$2" d
+      echo "  <key>StartCalendarInterval</key>"
+      echo "  <array>"
+      for d in 1 2 3 4; do
+        echo "    <dict><key>Day</key><integer>${d}</integer><key>Hour</key><integer>${hour}</integer><key>Minute</key><integer>${minute}</integer></dict>"
       done
       echo "  </array>"
     }
@@ -298,6 +315,59 @@ PLIST
 </plist>
 PLIST
 
+        # FEAT-067: monthly dispatch — CLO disclosure audit (07:45) and CHRO
+        # ranking (09:00), days 1–4; the helper enqueues on the first business
+        # day only (a scheduled-dispatch messages row that CoS acts on).
+        cat > "$LAUNCHD_DIR/${PREFIX}.clo-disclosure-audit.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.clo-disclosure-audit</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${CODE_ROOT}/helpers/monthly-dispatch.sh</string>
+    <string>--job</string>
+    <string>clo-disclosure-audit</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
+$(_first_days_xml 7 45)
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/clo-disclosure-audit.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/clo-disclosure-audit.err</string>
+</dict>
+</plist>
+PLIST
+
+        cat > "$LAUNCHD_DIR/${PREFIX}.chro-ranking.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.chro-ranking</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${CODE_ROOT}/helpers/monthly-dispatch.sh</string>
+    <string>--job</string>
+    <string>chro-ranking</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
+$(_first_days_xml 9 0)
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/chro-ranking.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/chro-ranking.err</string>
+</dict>
+</plist>
+PLIST
+
         # anomaly-check — every 15 minutes
         cat > "$LAUNCHD_DIR/${PREFIX}.anomaly-check.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -451,7 +521,7 @@ PLIST
           "$LAUNCHCTL" bootstrap "$DOMAIN" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed (8 jobs)."
+        echo "[install-schedules] OK — Mac launchd schedules installed (10 jobs)."
 
         _selfcheck="${JUVANT_SCHED_SELFCHECK:-}"
         if [ -z "$_selfcheck" ]; then
@@ -497,6 +567,8 @@ PLIST
 0 3 * * *    /bin/bash ${CODE_ROOT}/helpers/turso-backup.sh         >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1          $CRON_TAG
 0 3 * * 6    /bin/bash ${CODE_ROOT}/helpers/audit-reconcile.sh    >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1       $CRON_TAG
 0 4 1 * *    /bin/bash ${CODE_ROOT}/scripts/governance-backfill.sh --dry-run --all >> ${REPO_ROOT}/.juvant/logs/governance-backfill.log 2>&1 $CRON_TAG
+45 7 1-4 * * /bin/bash ${CODE_ROOT}/helpers/monthly-dispatch.sh --job clo-disclosure-audit >> ${REPO_ROOT}/.juvant/logs/clo-disclosure-audit.log 2>&1 $CRON_TAG
+0 9 1-4 * *  /bin/bash ${CODE_ROOT}/helpers/monthly-dispatch.sh --job chro-ranking >> ${REPO_ROOT}/.juvant/logs/chro-ranking.log 2>&1 $CRON_TAG
 */15 * * * * /bin/bash ${CODE_ROOT}/helpers/anomaly-check.sh      >> ${REPO_ROOT}/.juvant/logs/anomaly-check.log 2>&1         $CRON_TAG
 0 8 * * *    /bin/bash ${CODE_ROOT}/helpers/morning-brief.sh      >> ${REPO_ROOT}/.juvant/logs/morning-brief.log 2>&1         $CRON_TAG
 0 22 * * 0   /bin/bash ${CODE_ROOT}/helpers/cso-weekly-audit.sh   >> ${REPO_ROOT}/.juvant/logs/cso-weekly-audit.log 2>&1      $CRON_TAG
@@ -506,7 +578,7 @@ CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
         rm -f "$TMP"
-        echo "[install-schedules] OK — Linux cron entries installed (8 jobs tagged $CRON_TAG)."
+        echo "[install-schedules] OK — Linux cron entries installed (10 jobs tagged $CRON_TAG)."
         ;;
 
       uninstall|--uninstall)
@@ -544,8 +616,10 @@ If you must stay on Git Bash (no WSL), you can manually create
 Windows Task Scheduler entries pointing at:
   - C:\\path\\to\\Git\\bin\\bash.exe
   - $REPO_ROOT/helpers/<helper>.sh
-For each of the 8 scheduled jobs (turso-backup daily 03:00,
+For each of the 10 scheduled jobs (turso-backup daily 03:00,
 audit-reconcile weekly Sat 03:00, governance-backfill monthly day-1 04:00,
+clo-disclosure-audit days 1-4 07:45 and chro-ranking days 1-4 09:00
+(helpers/monthly-dispatch.sh --job <name>),
 anomaly-check every 15 min, morning-brief daily 08:00,
 cso-weekly-audit weekly Sun 22:00, drain-audit-spool every 5 min,
 drain-outbox every 15 min) — the same set the launchd/cron paths install.

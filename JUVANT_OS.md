@@ -1492,8 +1492,8 @@ Collect:
 
   Project-scoped `alerts` channels are NOT collected here — each project configures
   its own alerts webhook at project-init Step 1.notif.
-- **Morning Brief time** (default `08:00 Europe/Rome`). Used to configure the
-  Desktop Scheduled Task in Phase 7 (separate setup).
+- **Morning Brief time** (default `08:00` local). The `morning-brief` job
+  installed by `helpers/install-schedules.sh` runs at 08:00 local time.
 
 Resulting `.juvant/config.json` notifications block. **These keys live UNDER a
 top-level `notifications` object** — the shipped code reads them as
@@ -1549,14 +1549,29 @@ Collect:
   `.juvant/config.json` `backup.gpg_recipient`.
 
 - **Schedule install confirmation** — `Y/n` prompt to install
-  launchd plists (Mac) or cron entries (Linux) for the three
-  helpers:
+  launchd plists (Mac) or cron entries (Linux) for the scheduled
+  helpers (`helpers/install-schedules.sh`, 10 jobs):
   - `helpers/turso-backup.sh` — daily 03:00
   - `helpers/audit-reconcile.sh` — weekly Saturday 03:00
+  - `scripts/governance-backfill.sh --dry-run --all` — monthly, 1st 04:00
+  - `helpers/monthly-dispatch.sh --job clo-disclosure-audit` — days 1–4, 07:45
+  - `helpers/monthly-dispatch.sh --job chro-ranking` — days 1–4, 09:00
   - `helpers/anomaly-check.sh` — every 15 min
+  - `helpers/morning-brief.sh` — daily 08:00
+  - `helpers/cso-weekly-audit.sh` — weekly Sunday 22:00
+  - `helpers/drain-audit-spool.sh` — every 5 min
+  - `helpers/drain-outbox.sh` — every 15 min
   
   Defaults to `Y`. Skipping is fine for testing but means anomaly
   detection + reconciliation + backup don't run automatically.
+
+- **Business-day holidays** (FEAT-067) — optional list stored as
+  `.juvant/config.json` `scheduling.holidays`: `"MM-DD"` for a fixed
+  date every year, `"YYYY-MM-DD"` for a single date (moveable feasts).
+  `helpers/monthly-dispatch.sh` skips them when it looks for the first
+  business day of the month. There is no country default: propose the
+  company's national fixed holidays, and let the CEO edit the list. Empty means
+  weekends only.
 
 Resulting `.juvant/config.json` block:
 
@@ -5118,6 +5133,7 @@ helpers/fiscal-deadlines.sh   helpers/anomaly-baseline-report.sh
 helpers/kb-coverage.sh        helpers/agent-killswitch.sh
 helpers/kb-sync.sh            helpers/drain-audit-spool.sh
 helpers/cso-weekly-audit.sh   helpers/with-timeout.sh
+helpers/monthly-dispatch.sh
 helpers/drain-outbox.sh       helpers/doc-storage-check.sh
 hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
@@ -5159,6 +5175,7 @@ tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh
 tests/helpers/test-cso-weekly-audit-cadence.sh
+tests/helpers/test-monthly-dispatch.sh
 tests/helpers/test-db-exec-durability.sh
 tests/helpers/test-db-query-csv.sh
 tests/helpers/test-db-query.sh
