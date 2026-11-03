@@ -58,6 +58,12 @@ JUVANT_GUARDRAIL_DIR_RES=(
 # Raw substrings that reference a protected path inside code we do not parse
 # (interpreters, heredocs, $(…)). The captured prefix is checked for tests/.
 JUVANT_GUARDRAIL_RAW_RE='([^[:space:]"'"'"'(),=:;`]*)(hooks/([A-Za-z0-9_.*-]+\.sh|lib/[A-Za-z0-9_.*-]+\.sh|bash-policy\.json|lib/?|\*)|helpers/[A-Za-z0-9_.*-]+\.sh|scripts/[A-Za-z0-9_.*-]+\.sh|\.juvant/audit-spool|\.juvant/backups|audit-spool\.(sql|quarantine)|security/policy\.json|\.git/|policy-blob-seen|alert-receipts\.jsonl|LaunchAgents/io\.juvant|pinned-main)'
+# BUG-097: a bare protected directory name inside interpreter code
+# (`shutil.rmtree('hooks')`, `fs.rmSync("security", …)`). The name must be a
+# whole path component at the end of the token (`hooks`, `hooks/`,
+# `/abs/hooks`), so `scripts/foo.py` or `my-hooks` do not match. Group 1 is
+# the prefix, checked for a component boundary and for tests/.
+JUVANT_GUARDRAIL_RAW_DIR_RE='([^[:space:]"'"'"'(),=:;`]*)(hooks|helpers|scripts|security|\.juvant|\.git)/?([^A-Za-z0-9_.*/-]|$)'
 # Directories a `cd` may enter, after which bare names are resolved inside.
 JUVANT_GUARDRAIL_CD_RE='(^|/)(hooks(/lib)?|helpers|scripts|\.juvant(/backups)?|security|\.git(/[^/]+)*)$'
 
@@ -98,6 +104,18 @@ juvant_guardrail_raw_ref() {
   while [[ "$s" =~ $JUVANT_GUARDRAIL_RAW_RE ]]; do
     if [[ "${BASH_REMATCH[1]}" != *tests/ ]]; then return 0; fi
     s="${s#*"${BASH_REMATCH[0]}"}"
+  done
+  return 1
+}
+
+# juvant_guardrail_raw_dir_ref <text> → 0 if a protected directory occurs as
+# a bare path component (see JUVANT_GUARDRAIL_RAW_DIR_RE), not under tests/.
+juvant_guardrail_raw_dir_ref() {
+  local s="$1" pre
+  while [[ "$s" =~ $JUVANT_GUARDRAIL_RAW_DIR_RE ]]; do
+    pre="${BASH_REMATCH[1]}"
+    if [[ ( -z "$pre" || "$pre" == */ ) && "$pre" != *tests/ ]]; then return 0; fi
+    s="${s#*"${BASH_REMATCH[2]}"}"
   done
   return 1
 }

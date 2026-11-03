@@ -1872,6 +1872,7 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       }
       juvant_guardrail_cd_dir() { [[ "${1%/}" =~ (^|/)hooks(/lib)?$ ]] && printf 'hooks'; }
       juvant_guardrail_raw_ref() { [[ "$1" =~ hooks/ && ! "$1" =~ tests/hooks/ ]]; }
+      juvant_guardrail_raw_dir_ref() { [[ "$1" =~ (^|[^A-Za-z0-9_.-])hooks/?([^A-Za-z0-9_.*/-]|$) ]]; }
     fi
     _gr_cwd=""   # protected dir entered by a preceding `cd` in the same command
     _gr_is_path() { juvant_guardrail_is_path "$1" "$_gr_cwd"; }
@@ -1954,6 +1955,44 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
             fi
             return 1 ;;
         esac
+        # BUG-097: inline code. `bash|sh|… -c <code>` and `eval <words>` run
+        # shell code the segment split cannot see (the code is one quoted
+        # word): scan it recursively, with the same rules as a top-level
+        # command. Other interpreters' code is not parsed: a protected
+        # directory named as a bare path component in their arguments (or
+        # anywhere in a command that feeds them a heredoc) is denied.
+        case "$verb" in
+          bash|sh|zsh|dash|ksh)
+            local sx sc=0 scode="" sskip=0
+            for sx in ${args[@]+"${args[@]}"}; do
+              if [[ "$sskip" == 1 ]]; then sskip=0; continue; fi
+              if [[ "$sc" == 1 ]]; then scode="$sx"; break; fi
+              case "$sx" in
+                -o|+o|-O|+O) sskip=1 ;;
+                --*) ;;
+                -*c*) sc=1 ;;
+                -*|+*) ;;
+                *) break ;;
+              esac
+            done
+            if [[ "$sc" == 1 ]] && _gr_scan_bash "$scode"; then
+              _GR_DENY_WHY="inline shell code ($verb -c): $_GR_DENY_WHY"; return 0
+            fi ;;
+          eval)
+            if _gr_scan_bash "${args[*]-}"; then
+              _GR_DENY_WHY="eval: $_GR_DENY_WHY"; return 0
+            fi
+            return 1 ;;
+          python*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua)
+            for x in ${args[@]+"${args[@]}"}; do
+              if juvant_guardrail_raw_dir_ref "$x"; then
+                _GR_DENY_WHY="$verb code or argument names a protected directory ('$x')"; return 0
+              fi
+            done
+            if [[ "$_gr_has_heredoc" == 1 ]] && juvant_guardrail_raw_dir_ref "$_gr_cmd"; then
+              _GR_DENY_WHY="$verb fed a heredoc in a command that names a protected directory"; return 0
+            fi ;;
+        esac
         # decisions#305 (B1a): the hook reads security/policy.json from
         # refs/remotes/origin/main, so whatever can move that ref or redefine
         # where `origin` points is a policy write. Denied regardless of paths:
@@ -2013,6 +2052,26 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
         # (pr checkout, issue develop, repo clone|fork|sync|rename|create|
         # set-default, gist clone, release|run download, -O/--output, -D/--dir)
         # fall through to the path scan below.
+        if [[ "$verb" == "gh" && "${args[0]-}" == "alias" ]]; then
+          # BUG-097: an alias expansion runs later as `gh <expansion>`, or as
+          # shell code when it starts with `!` or is set with --shell.
+          # `gh alias import` reads definitions from a file we do not parse.
+          local ax ashell=0 aexp="" apos=0
+          [[ "${args[1]-}" == "import" ]] && { _GR_DENY_WHY="gh alias import (alias definitions from a file cannot be checked)"; return 0; }
+          if [[ "${args[1]-}" == "set" ]]; then
+            for ax in "${args[@]:2}"; do
+              case "$ax" in
+                -s|--shell) ashell=1 ;;
+                --clobber) ;;
+                *) apos=$((apos + 1)); [[ "$apos" == 2 ]] && aexp="$ax" ;;
+              esac
+            done
+            if [[ "$aexp" == '!'* ]]; then ashell=1; aexp="${aexp#!}"; fi
+            [[ "$ashell" == 1 ]] || aexp="gh $aexp"
+            if _gr_scan_bash "$aexp"; then _GR_DENY_WHY="gh alias expansion: $_GR_DENY_WHY"; return 0; fi
+          fi
+          return 1
+        fi
         if [[ "$verb" == "gh" ]]; then
           local ggrp="" gact="" gx2 gskip=0
           for gx2 in ${args[@]+"${args[@]}"}; do
@@ -2189,10 +2248,13 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       if [[ "$_gr_cmd" == *hooks* || "$_gr_cmd" == *bash-policy* || "$_gr_cmd" == *helpers* \
             || "$_gr_cmd" == *scripts* || "$_gr_cmd" == *.juvant* || "$_gr_cmd" == *audit-spool* \
             || "$_gr_cmd" == *git* || "$_gr_cmd" == *security* || "$_gr_cmd" == *LaunchAgents* \
-            || "$_gr_cmd" == *launchctl* || "$_gr_cmd" == *crontab* || "$_gr_cmd" == *pinned-main* ]]; then
+            || "$_gr_cmd" == *launchctl* || "$_gr_cmd" == *crontab* || "$_gr_cmd" == *pinned-main* \
+            || "$_gr_cmd" == *alias* ]]; then
         _gr_interp_re='(^|[^A-Za-z0-9_.-])(python[0-9.]*|node|nodejs|deno|bun|perl|ruby|php|osascript|awk|gawk|mawk|lua|eval)([[:space:]]|$)|(^|[^A-Za-z0-9_.-])(bash|sh|zsh|dash|ksh)[[:space:]]+-[A-Za-z]*c'
         # Heredoc `<<` (not a `<<<` here-string, which only feeds stdin).
         _gr_heredoc_re='(^|[^<])<<-?[^<]'
+        _gr_has_heredoc=0
+        [[ "$_gr_cmd" =~ $_gr_heredoc_re ]] && _gr_has_heredoc=1
         # BUG-089: the scheduled guardrail jobs. Any launchctl subcommand that
         # is not read-only (#173), any crontab write (only `crontab -l` reads), and uninstalling the
         # schedules are the CEO's, from their own terminal.

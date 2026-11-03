@@ -1266,6 +1266,43 @@ for _c in \
   t_assert "2f BUG-096: deny — $_c" "yes" "$(_t2fb "$_c")"
 done
 
+# BUG-097 (juvant-os-pm#200): inline shell code (`bash -c`, `eval`, gh shell
+# aliases) is scanned recursively; other interpreters are denied when their
+# code names a protected directory as a bare path component.
+for _c in \
+  "bash -c 'rm -rf hooks'" \
+  "sh -c 'rm -rf security'" \
+  "bash -lc 'cd helpers && rm x.sh'" \
+  "zsh -ec 'mv scripts /tmp'" \
+  "bash -c \"sh -c 'rm -rf hooks'\"" \
+  "env bash -c 'rm -rf .juvant'" \
+  'eval rm -rf hooks' \
+  "gh alias set x '!rm -rf hooks'" \
+  "gh alias set --shell x 'rm -rf security'" \
+  "gh alias set x 'repo clone o/r hooks'" \
+  'gh alias import aliases.yml' \
+  "python3 -c \"import shutil; shutil.rmtree('hooks')\"" \
+  "node -e 'require(\"fs\").rmSync(\"security\",{recursive:true})'" \
+  "perl -e 'system(\"rm -rf helpers/\")'" \
+  "$(printf "python3 - <<'PY'\nimport shutil; shutil.rmtree('scripts')\nPY")" \
+  ; do
+  t_assert "2f BUG-097: deny — ${_c//$'\n'/ ⏎ }" "yes" "$(_t2fb "$_c")"
+done
+for _c in \
+  "bash -c 'echo ok'" \
+  'python3 scripts/foo.py' \
+  "python3 -c 'print(1)'" \
+  "ls hooks | awk '{print \$1}'" \
+  "grep -r foo scripts | awk -F: '{print \$1}'" \
+  "python3 -c \"open('tests/hooks/x')\"" \
+  "gh alias set co 'pr checkout'" \
+  'gh alias list' \
+  'eval echo hi' \
+  "$(printf "gh pr create --title x --body \"\$(cat <<'EOF'\nTouches hooks and security.\nEOF\n)\"")" \
+  ; do
+  t_assert "2f BUG-097: allow — ${_c//$'\n'/ ⏎ }" "no" "$(_t2fb "$_c")"
+done
+
 # decisions#303 R1 + B2: the shared protected-path set (hooks/lib/
 # guardrail-paths.sh) adds the audit spool family, .juvant/backups/,
 # helpers/*.sh and scripts/*.sh.

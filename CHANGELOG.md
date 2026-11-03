@@ -11,6 +11,27 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+Adopter action: none beyond the normal upstream sync of `hooks/pre-tool-use.sh`
+and `hooks/lib/guardrail-paths.sh`.
+
+### Security
+
+- **Tamper floor covers inline code that names a protected directory**
+  (BUG-097). Track 2f denied a whole-tree write onto a protected directory
+  (`hooks`, `helpers`, `scripts`, `security`, `.juvant`, `.git`) typed as a
+  plain command, but not the same command wrapped in inline code, because the
+  code was one opaque argument. Now:
+  - `bash|sh|zsh|dash|ksh -c <code>`, `eval` and `gh` alias expansions
+    (`gh alias set`, shell aliases included) are scanned recursively, with the
+    same rules as a top-level command. `gh alias import` is denied: the
+    definitions come from a file that is not checked.
+  - Other interpreters (`python*`, `node`, `perl`, `ruby`, `awk`, …) are
+    denied when an argument, or a heredoc they are fed, names a protected
+    directory as a bare path component. `python3 scripts/foo.py` and
+    `ls hooks | awk …` are unaffected.
+  The SessionStart integrity check already detected the result; this restores
+  prevention.
+
 ## [1.17.1] — 2026-11-03 — Tamper floor false positives on labels and branch names; non-flaky audit-row tests
 
 Adopter action: none beyond the normal upstream sync of `hooks/pre-tool-use.sh`.
