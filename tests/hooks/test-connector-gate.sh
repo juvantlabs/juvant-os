@@ -27,7 +27,7 @@ t_assert() {
 }
 
 TEST_DB="$TMPROOT/test.db"
-sqlite3 "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"
 FAKE_BIN="$TMPROOT/bin"; mkdir -p "$FAKE_BIN"
 cp "$SCRIPT_DIR/fake-turso.sh" "$FAKE_BIN/turso"; chmod +x "$FAKE_BIN/turso"
 cp "$SCRIPT_DIR/fake-libsql-curl.sh" "$FAKE_BIN/curl"; chmod +x "$FAKE_BIN/curl"
@@ -51,7 +51,7 @@ decide() {
     | JUVANT_POLICY_TEST=1 JUVANT_POLICY_FILE="$1" bash "$ROOT_DIR/hooks/pre-tool-use.sh" 2>/dev/null \
     | jq -r '.hookSpecificOutput.permissionDecision'
 }
-high_rows() { sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE 'connector call naming a sensitive space%';"; }
+high_rows() { sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE 'connector call naming a sensitive space%';"; }
 
 echo "== Part 1: synthetic policy =="
 for role in "" cos clo cso cfo; do
@@ -75,8 +75,8 @@ t_assert "other MCP servers untouched" "allow" \
       | JUVANT_POLICY_TEST=1 JUVANT_POLICY_FILE="$POLICY" bash "$ROOT_DIR/hooks/pre-tool-use.sh" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision')"
 
 echo "== detection on legal-ip-named calls =="
-sqlite3 "$TEST_DB" "DROP TRIGGER IF EXISTS security_audit_log_no_delete;" 2>/dev/null
-sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" "DROP TRIGGER IF EXISTS security_audit_log_no_delete;" 2>/dev/null
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" "DELETE FROM security_audit_log;"
 decide "$POLICY" cfo sharepoint_search '{"query":"legal-ip patent filings"}' >/dev/null
 t_assert "search naming legal-ip → high row (written synchronously)" "1" "$(high_rows)"
 decide "$POLICY" cos read_resource '{"uri":"file:///b!LEGALIP_synthetic/x.pdf"}' >/dev/null

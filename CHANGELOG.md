@@ -11,6 +11,21 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+No adopter action: only tests changed.
+
+### Fixed
+
+- **Flaky audit-row assertions in the hook tests** (BUG-095, tests only). The
+  hook wrote the `policy-fail-closed` row correctly. The test's own `sqlite3`
+  read had no busy timeout, so when the background alert job was writing its
+  `alert-delivery-failed` row at the same moment, the `SELECT` failed with
+  "database is locked". The error was hidden and the count came back empty.
+  Every test-side `sqlite3` in the hook tests that share the DB with a
+  background alert writer (`test-security-policy`, `test-space-access-policy`,
+  `test-connector-gate`, `test-alert-delivery`) now waits up to 5 s, like the
+  fake libsql server (v1.16.2). Under a 24-way parallel stress run, failures
+  went from about 9 in 96 to 0 in 192. Hook behaviour is unchanged.
+
 ## [1.17.0] — 2026-11-02 — Document spaces: promoted spaces honoured, multi-library spaces
 
 Adopter actions:

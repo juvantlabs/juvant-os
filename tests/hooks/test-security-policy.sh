@@ -26,14 +26,14 @@ g() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
 
 # ── fake DB ──
 TEST_DB="$TMPROOT/test.db"
-sqlite3 "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" < "$ROOT_DIR/scripts/schema.sql"
 FAKE_BIN="$TMPROOT/bin"; mkdir -p "$FAKE_BIN"
 cp "$SCRIPT_DIR/fake-turso.sh" "$FAKE_BIN/turso"; chmod +x "$FAKE_BIN/turso"
 cp "$SCRIPT_DIR/fake-libsql-curl.sh" "$FAKE_BIN/curl"; chmod +x "$FAKE_BIN/curl"
 export PATH="$FAKE_BIN:$PATH" JUVANT_TEST_DB_FILE="$TEST_DB" TURSO_URL="libsql://test.fake" TURSO_TOKEN="test-token"
 export JUVANT_SPOOL="$TMPROOT/audit-spool.sql"
 unset JUVANT_CONFIG JUVANT_POLICY_TEST JUVANT_POLICY_FILE
-high_rows() { sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%$1%';" 2>/dev/null; }
+high_rows() { sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND finding LIKE '%$1%';" 2>/dev/null; }
 
 DRIVE="b!LEGALIP_synthetic_0123"
 policy_json() { # $1 = allowlist JSON array, $2 = extra jq merge (optional)
@@ -99,8 +99,8 @@ push_policy "$(policy_json '["clo","cso","cfo"]')" "widen via main"
 t_assert "after merge + fetch, cfo → allow" "allow" "$(decide cfo $GET "$LEGAL")"
 
 echo "== fail closed =="
-sqlite3 "$TEST_DB" "DROP TRIGGER IF EXISTS security_audit_log_no_delete;" 2>/dev/null
-sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" "DROP TRIGGER IF EXISTS security_audit_log_no_delete;" 2>/dev/null
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" "DELETE FROM security_audit_log;"
 push_policy '{"version":1,"space_access":[{"allowlist":["clo"]}]}' "broken policy"
 t_assert "invalid policy → unrelated mcp__ call denied" "deny" "$(decide cfo mcp__github__list_issues '{}')"
 t_assert "invalid policy → reason names FAIL-CLOSED" "yes" \
@@ -161,7 +161,7 @@ t_assert "  …blob marker written" "yes" "$([[ -s "$INST/.juvant/policy-blob-se
 OUT2=$(ss)
 t_assert "unchanged policy → no notice" "no" "$([[ "$OUT2" == *"changed since the last session"* ]] && echo yes || echo no)"
 push_policy "$(policy_json '["clo"]' '. + {alert_routing:{required:["teams"]}}')" "narrow allowlist"
-sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+sqlite3 -cmd ".timeout 5000" "$TEST_DB" "DELETE FROM security_audit_log;"
 OUT3=$(ss)
 t_assert "policy changed on origin/main → SECURITY NOTICE" "yes" "$([[ "$OUT3" == *"changed since the last session"* ]] && echo yes || echo no)"
 t_assert "  …high policy-change row" "yes" "$([[ $(high_rows 'security policy changed') -ge 1 ]] && echo yes || echo no)"
@@ -190,12 +190,12 @@ if command -v plutil >/dev/null 2>&1; then
   # shellcheck disable=SC2016  # the stub's own $1 / $2
   printf '#!/usr/bin/env bash\n[[ "$1" == print && "$2" == */io.juvant.guardrails.drain-audit-spool ]] && exit 113\nexit 0\n' > "$TMPROOT/lc-stub"
   chmod +x "$TMPROOT/lc-stub"
-  sqlite3 "$TEST_DB" "DELETE FROM security_audit_log;"
+  sqlite3 -cmd ".timeout 5000" "$TEST_DB" "DELETE FROM security_audit_log;"
   OUT5=$(echo '{"session_id":"s-ss"}' | (cd "$INST" && HOME="$TMPROOT/home-ss" JUVANT_LAUNCHCTL="$TMPROOT/lc-stub" JUVANT_FRAMEWORK_DEV=0 \
          JUVANT_LAUNCHAGENTS_DIR="$TMPROOT/home-ss/Library/LaunchAgents" bash "$INST/hooks/session-start.sh" 2>/dev/null))
   t_assert "booted-out job → session warning names it" "yes" "$([[ "$OUT5" == *"job-not-loaded: io.juvant.guardrails.drain-audit-spool"* ]] && echo yes || echo no)"
   t_assert "  …high guardrail-jobs row carrying an alert id" "1" \
-    "$(sqlite3 "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND category='guardrail-jobs' AND finding LIKE '%job-not-loaded: io.juvant.guardrails.drain-audit-spool%alert=al-%';")"
+    "$(sqlite3 -cmd ".timeout 5000" "$TEST_DB" "SELECT count(*) FROM security_audit_log WHERE severity='high' AND category='guardrail-jobs' AND finding LIKE '%job-not-loaded: io.juvant.guardrails.drain-audit-spool%alert=al-%';")"
   rm -rf "$INST/helpers"
 else
   echo "  skip (no plutil — not macOS)"
