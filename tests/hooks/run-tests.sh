@@ -1094,6 +1094,14 @@ _t2f() {
   if [[ "$dec" == "deny" && "$rsn" == *"Track 2f"* ]]; then echo "yes"; else echo "no"; fi
 }
 
+_t2fb() {
+  local ev out rsn
+  ev=$(jq -cn --arg c "$1" '{tool_name:"Bash",session_id:"s",tool_input:{command:$c}}')
+  out=$(echo "$ev" | JUVANT_FRAMEWORK_DEV=0 AGENT_ROLE="" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null || true)
+  rsn=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
+  if [[ "$rsn" == *"Track 2f"* ]]; then echo "yes"; else echo "no"; fi
+}
+
 # Adopter (enforce): guardrail Write/Edit and Bash writes are denied by Track 2f.
 t_assert "2f adopter: Write bash-policy.json → deny" "yes" \
   "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"hooks/bash-policy.json","content":"{}"}}')"
@@ -1103,8 +1111,9 @@ t_assert "2f adopter: Write hooks/lib/db.sh → deny" "yes" \
   "$(_t2f 0 '{"tool_name":"Write","session_id":"s","tool_input":{"file_path":"hooks/lib/db.sh","content":"x"}}')"
 t_assert "2f adopter: echo > bash-policy.json → deny" "yes" \
   "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"echo x > hooks/bash-policy.json"}}')"
-t_assert "2f adopter: tee hook → deny" "yes" \
-  "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"echo x | tee hooks/pre-tool-use.sh"}}')"
+# Operator mode (no role): with AGENT_ROLE=cso, Track 2 already denies `tee`
+# on the second segment (BUG-098), before Track 2f is reached.
+t_assert "2f adopter: tee hook → deny" "yes" "$(_t2fb 'echo x | tee hooks/pre-tool-use.sh')"
 t_assert "2f adopter: sed -i hook → deny" "yes" \
   "$(_t2f 0 '{"tool_name":"Bash","session_id":"s","tool_input":{"command":"sed -i s/a/b/ hooks/bash-policy.json"}}')"
 
@@ -1128,13 +1137,6 @@ t_assert "2f adopter: sed -i tests/hooks/x.sh → allow (not 2f)" "no" \
 # decisions#300 item 4 (security_audit_log#148b): git / file-op verbs, compound
 # commands and interpreter writes. Operator role (empty) so the per-agent
 # allow-list can't pre-empt the Track 2f verdict.
-_t2fb() {
-  local ev out rsn
-  ev=$(jq -cn --arg c "$1" '{tool_name:"Bash",session_id:"s",tool_input:{command:$c}}')
-  out=$(echo "$ev" | JUVANT_FRAMEWORK_DEV=0 AGENT_ROLE="" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null || true)
-  rsn=$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null)
-  if [[ "$rsn" == *"Track 2f"* ]]; then echo "yes"; else echo "no"; fi
-}
 # BUG-089 (juvant-os-pm#192): the scheduled guardrail jobs — plists, launchctl,
 # crontab, uninstall, and the pinned checkout of main they run.
 t_assert "2f BUG-089: Write a guardrail plist (abs path) → deny" "yes" \
@@ -1485,6 +1487,59 @@ t_assert "allow-list: 'curlzz; ls' names the binary 'curlzz', not 'curlzz;'" "ye
   "$(_r=$(_gp_reason cso 'curlzz; ls'); [[ "$_r" == "deny:allow-list:curlzz "* ]] && echo yes || echo "no: ${_r:0:40}")"
 t_assert "allow-list: 'curlzz&& ls' / 'curlzz|ls' → binary 'curlzz'" "yes yes" \
   "$(for _c in 'curlzz&& ls' 'curlzz|ls'; do _r=$(_gp_reason cso "$_c"); [[ "$_r" == "deny:allow-list:curlzz "* ]] && printf 'yes ' || printf 'no '; done | sed 's/ $//')"
+
+# BUG-098 (juvant-os-pm#201): every simple command is checked, not only the
+# first. cso allows git gh gpg shellcheck sqlite3 turso python3 + read_utils.
+# "<command>|<binary named in the deny>"
+while IFS='|' read -r _c _b; do
+  [[ -z "$_c" ]] && continue
+  _c="${_c//\\n/$'\n'}"
+  _c="${_c//¦/|}"   # ¦ stands for a pipe (| is the field separator)
+  _r=$(_gp_reason cso "$_c")
+  t_assert "BUG-098 deny ${_b}: ${_c//$'\n'/ ⏎ }" "deny:allow-list:$_b" "${_r%% *}"
+done <<'CASES'
+jq . x.json; which pandoc|which
+jq . x.json && pandoc --version|pandoc
+git status ¦¦ curl x|curl
+git log ¦ nc h 1|nc
+ls\nwget x|wget
+echo "$(curl x)"|curl
+echo `curl x`|curl
+ls <(curl x)|curl
+git status; (cd /tmp; curl x)|curl
+{ ls; curl x; }|curl
+bash -c 'curl x'|curl
+sh -c "ls && curl x"|curl
+eval "curl x"|eval
+ls ¦ xargs curl|xargs
+env FOO=1 git status|env
+find . -name x -exec curl {} \;|curl
+X=$(curl x) git status|curl
+cd /tmp && FOO=1 curl x|curl
+git status; echo "$(echo `curl x`)"|curl
+CASES
+for _c in '$CMD x' 'git status; "$(which git)" log' 'git status; echo "unbalanced' 'ls; env -S "curl x"'; do
+  _r=$(_gp_reason cso "$_c")
+  t_assert "BUG-098 fail closed: $_c" "deny:" "${_r:0:5}"
+done
+for _c in \
+  'cd /tmp && git status | head -5 2>/dev/null || true' \
+  'for f in a b; do grep x "$f"; done' \
+  'while read -r l; do echo "$l"; done < f.txt' \
+  'git commit -m "fix; curl | wget && nc"' \
+  'if [[ -f a && -n "$b" ]]; then cat a; fi' \
+  'case "$x" in a|b) ls ;; *) grep y z ;; esac' \
+  "python3 -c 'print(1)'" \
+  "bash -c 'git status && ls'" \
+  'ls # curl x' \
+  'X=$(git rev-parse HEAD); echo "$X" | cut -c1-7' \
+  'sleep 1; date +%F; basename "$PWD"' \
+  "$(printf 'gh pr create --title t --body "$(cat <<'"'"'EOF'"'"'\nFix (part 1); curl x | wget y && nc z\ndon'"'"'t\nEOF\n)"')" \
+  ; do
+  _r=$(_gp_reason cso "$_c")
+  [[ "$_r" == deny:allow-list:* || "$_r" == deny:parse:* ]] || _r=""
+  t_assert "BUG-098 allow (every segment allowed): ${_c//$'\n'/ ⏎ }" "" "${_r:0:60}"
+done
 
 # ─────────────────────────────────────────────
 # SQL content gate (decisions#303 E / E-bis / R5a)
