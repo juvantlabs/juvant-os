@@ -126,6 +126,30 @@ juvant_hooks_integrity_check() {
     done < <(jq -r '(.env // {}) | keys[] | select(test("^JUVANT_(FRAMEWORK_DEV|POLICY_TEST|POLICY_FILE|CONFIG)$"))' "$sf" 2>/dev/null)
   done
 
+  # ADR 0036: with feature_toggles.bash_sandbox on, the Claude Code sandbox
+  # block in .claude/settings.json must be the canonical one (enabled, no
+  # unsandboxed retry, the full denyWrite set, no extra excluded commands, no
+  # override in settings.local.json). Nothing at run time tells a hook whether
+  # the sandbox is active, so the settings are what is checked.
+  local sb_cfg="${JUVANT_CONFIG:-$root/.juvant/config.json}" sb_line
+  if [[ "$(jq -r '.feature_toggles.bash_sandbox // false' "$sb_cfg" 2>/dev/null)" == "true" ]]; then
+    if [[ -f "$root/scripts/sync-sandbox.sh" ]]; then
+      local sb_out sb_rc=0
+      sb_out=$(JUVANT_CONFIG="$sb_cfg" JUVANT_SETTINGS="$root/.claude/settings.json" \
+                 bash "$root/scripts/sync-sandbox.sh" --check 2>/dev/null) || sb_rc=$?
+      while IFS= read -r sb_line; do
+        [[ "$sb_line" == sandbox-off:* ]] && { echo "$sb_line"; found=1; }
+      done <<<"$sb_out"
+      # A check that fails without a finding (template missing, bad JSON) is
+      # not a pass.
+      if [[ "$sb_rc" -ne 0 && "$sb_out" != *"sandbox-off:"* ]]; then
+        echo "sandbox-off: sync-sandbox.sh --check failed (rc=$sb_rc) — cannot verify the sandbox block"; found=1
+      fi
+    else
+      echo "sandbox-off: scripts/sync-sandbox.sh missing"; found=1
+    fi
+  fi
+
   [[ "$mode" == head ]] && echo "baseline: HEAD (no canonical upstream/main ref — uncommitted drift only)"
   [[ "$found" == 1 ]] && return 1
   return 0

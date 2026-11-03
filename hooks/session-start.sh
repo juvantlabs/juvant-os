@@ -75,6 +75,27 @@ if [[ -f "$SCRIPT_DIR/lib/hooks-integrity.sh" ]]; then
           "$_HI_ALERT_ID" "session-start" || true
       fi
     fi
+    # ADR 0036: the Bash sandbox is expected (feature_toggles.bash_sandbox) but
+    # its settings block is off, weakened or overridden — prevention of
+    # guardrail writes then rests on the text scanner alone.
+    if printf '%s' "$_HI_OUT" | grep -q '^sandbox-off:'; then
+      _HI_SBX=$(printf '%s\n' "$_HI_OUT" | grep '^sandbox-off:' | paste -sd ';' - | cut -c1-300)
+      echo "[SANDBOX OFF] the Claude Code Bash sandbox is expected (feature_toggles.bash_sandbox) but not as configured: ${_HI_SBX}. Surface this to the CEO and the CSO; restore with '! bash scripts/sync-sandbox.sh' from the CEO's own prompt after review (ADR 0036)."
+      if [[ -f "$SCRIPT_DIR/lib/alert.sh" ]]; then
+        # shellcheck disable=SC1091
+        . "$SCRIPT_DIR/lib/alert.sh"
+        _HI_SBX_ID=$(juvant_alert_id 2>/dev/null || echo "")
+        if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
+          _HI_SBX_ROW=$(printf 'bash sandbox: %s; alert=%s' "$_HI_SBX" "$_HI_SBX_ID" | LC_ALL=C sed "s/'/''/g")
+          JUVANT_DB_EXEC_NO_SPOOL=1 juvant_db_exec "INSERT INTO security_audit_log
+            (auditor, scope, audit_type, layer, finding, severity, category, status)
+            VALUES ('hook:session-start', 'company', 'incident', 'agents', '${_HI_SBX_ROW}', 'high', 'sandbox-off', 'open');" \
+            >/dev/null 2>&1 || echo "[session-start] WARN: sandbox-off row not written inline" >&2
+        fi
+        juvant_alert_send "[SECURITY ALERT] Bash sandbox not as configured: ${_HI_SBX} — run '! bash scripts/sync-sandbox.sh' after review (ADR 0036)" \
+          "$_HI_SBX_ID" "session-start" || true
+      fi
+    fi
   fi
 fi
 

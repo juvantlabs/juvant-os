@@ -1268,6 +1268,27 @@ for _c in \
   t_assert "2f BUG-096: deny — $_c" "yes" "$(_t2fb "$_c")"
 done
 
+# ADR 0036: settings files and the settings templates.
+_sbx_t=$(mktemp -d); mkdir -p "$_sbx_t/.claude" "$_sbx_t/.juvant"; cp -R "$HOOKS_DIR" "$_sbx_t/hooks"
+_t2fs() { # <config-json> <settings-json> <tool> <file_path> → yes when Track 2f denies
+  echo "$1" > "$_sbx_t/.juvant/config.json"; echo "$2" > "$_sbx_t/.claude/settings.json"
+  local out  # captured first: a deny exits 2, which pipefail would turn into "no"
+  out=$(jq -cn --arg t "$3" --arg p "$4" '{tool_name:$t,session_id:"s",tool_input:{file_path:$p,content:"{}",old_string:"a",new_string:"b"}}' \
+    | JUVANT_FRAMEWORK_DEV=0 AGENT_ROLE="" JUVANT_CONFIG="$_sbx_t/.juvant/config.json" bash "$_sbx_t/hooks/pre-tool-use.sh" 2>/dev/null || true)
+  [[ "$(jq -r '.hookSpecificOutput.permissionDecisionReason // ""' <<<"$out" 2>/dev/null)" == *"Track 2f"* ]] && echo yes || echo no
+}
+_ON='{"feature_toggles":{"bash_sandbox":true}}'
+t_assert "ADR 0036: Write settings.json, toggle on → deny" "yes" "$(_t2fs "$_ON" '{}' Write .claude/settings.json)"
+t_assert "ADR 0036: Edit settings.local.json, toggle on → deny" "yes" "$(_t2fs "$_ON" '{}' Edit "$_sbx_t/.claude/settings.local.json")"
+t_assert "ADR 0036: toggle flipped off but sandbox block live → still deny" "yes" \
+  "$(_t2fs '{"feature_toggles":{"bash_sandbox":false}}' '{"sandbox":{"enabled":true}}' Write .claude/settings.json)"
+t_assert "ADR 0036: no toggle, no sandbox block → settings.local.json writable (init MCP step)" "no" \
+  "$(_t2fs '{}' '{}' Write .claude/settings.local.json)"
+t_assert "ADR 0036: Write scripts/templates/sandbox.json → deny (always)" "yes" "$(_t2fs '{}' '{}' Write scripts/templates/sandbox.json)"
+t_assert "ADR 0036: Edit scripts/templates/hooks-registration.json → deny (always)" "yes" "$(_t2fs '{}' '{}' Edit scripts/templates/hooks-registration.json)"
+t_assert "ADR 0036: Write another template → allow" "no" "$(_t2fs '{}' '{}' Write scripts/templates/README.md.template)"
+rm -rf "$_sbx_t"
+
 # BUG-097 (juvant-os-pm#200): inline shell code (`bash -c`, `eval`, gh shell
 # aliases) is scanned recursively; other interpreters are denied when their
 # code names a protected directory as a bare path component.

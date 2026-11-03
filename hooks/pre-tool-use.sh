@@ -1930,6 +1930,15 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       if _gr_is_path "$_gr_tgt_rel"; then
         DECISION="deny"
         DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064, decisions#303): $TOOL_NAME to '$_gr_tgt' is denied in a deployed instance — gate scripts, bash-policy.json, helpers/, scripts/, the audit spool and its backups, the guardrail launchd plists and the pinned checkout of main change via upstream sync, helpers/install-schedules.sh or their own helper process, not live agent edits. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+      elif [[ "$_gr_tgt_rel" =~ (^|/)\.claude/settings(\.local)?\.json$ ]] \
+           && { [[ "$(jq -r '.feature_toggles.bash_sandbox // false' "${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}" 2>/dev/null)" == "true" ]] \
+                || [[ "$(jq -r '.sandbox.enabled // false' "$SCRIPT_DIR/../.claude/settings.json" 2>/dev/null)" == "true" ]]; }; then
+        # ADR 0036: Claude Code protects these files from sandboxed Bash, but
+        # Write/Edit run outside the sandbox — one edit could switch it off.
+        # Keyed on the toggle OR a live sandbox block, so flipping the toggle in
+        # the (agent-writable) config first does not unlock the settings.
+        DECISION="deny"
+        DENY_REASON="guardrail tamper floor (Track 2f / ADR 0036): $TOOL_NAME to '$_gr_tgt' is denied while the Bash sandbox is on (feature_toggles.bash_sandbox) — the sandbox block lives in these files. Settings change through scripts/sync-sandbox.sh, scripts/sync-hooks.sh and scripts/sync-project-globs.sh, run by the CEO ('! bash …') or by helpers/upstream-apply.sh."
       fi
     else
       # Bash (decisions#300 item 4, security_audit_log#148b). The original

@@ -181,6 +181,27 @@ else
   echo "  skip plist checks (no plutil — not macOS)"
 fi
 
+# ADR 0036: with feature_toggles.bash_sandbox on, the sandbox block is checked.
+INST9="$TMPROOT/instance9"; mk_instance "$INST9"
+mkdir -p "$INST9/.claude" "$INST9/.juvant" "$INST9/scripts/templates"
+cp "$ROOT_DIR/scripts/templates/sandbox.json" "$INST9/scripts/templates/"
+cp "$ROOT_DIR/scripts/sync-sandbox.sh" "$INST9/scripts/"
+echo '{}' > "$INST9/.claude/settings.json"
+echo '{"feature_toggles":{"bash_sandbox":true}}' > "$INST9/.juvant/config.json"
+sb_check() { OUT=$(JUVANT_CONFIG="$INST9/.juvant/config.json" JUVANT_FRAMEWORK_DEV=auto juvant_hooks_integrity_check "$INST9"); RC=$?; }
+sb_check
+t_assert "sandbox on, no block in settings → sandbox-off finding" "yes" \
+  "$([[ "$OUT" == *"sandbox-off: sandbox.enabled is not true"* ]] && echo yes || echo no)"
+JUVANT_CONFIG="$INST9/.juvant/config.json" JUVANT_SETTINGS="$INST9/.claude/settings.json" bash "$INST9/scripts/sync-sandbox.sh" >/dev/null
+sb_check
+t_assert "canonical block → no sandbox-off finding" "no" "$([[ "$OUT" == *"sandbox-off"* ]] && echo yes || echo no)"
+rm -f "$INST9/scripts/templates/sandbox.json"
+sb_check
+t_assert "template missing → check failure is a finding, not a pass" "yes" \
+  "$([[ "$OUT" == *"sandbox-off: sync-sandbox.sh --check failed"* ]] && echo yes || echo no)"
+echo '{}' > "$INST9/.juvant/config.json"; sb_check
+t_assert "toggle off → sandbox not checked" "no" "$([[ "$OUT" == *"sandbox-off"* ]] && echo yes || echo no)"
+
 # Framework dev skips (origin canonical, or forced).
 INST5="$TMPROOT/instance5"; mk_instance "$INST5"
 g -C "$INST5" remote set-url origin git@github.com:juvantlabs/juvant-os.git

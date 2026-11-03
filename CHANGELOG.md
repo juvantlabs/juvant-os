@@ -11,6 +11,43 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+Adopter action: none to stay as you are. The sandbox is opt-in. To turn it
+on, follow `JUVANT_OS.md` → "Bash sandbox (ADR 0036)": set
+`feature_toggles.bash_sandbox`, run `! bash scripts/sync-sandbox.sh` and, on
+Linux or WSL2, install bubblewrap. Once it is on, the upstream sync applies
+files with `bash helpers/upstream-apply.sh`.
+
+### Security
+
+- **Opt-in OS-level protection of the guardrail files: the Claude Code Bash
+  sandbox** (ADR 0036). With `feature_toggles.bash_sandbox`, agent Bash runs
+  in the Claude Code sandbox (Seatbelt on macOS, bubblewrap on Linux). Writes
+  to the protected set (gate scripts, `helpers/`, `scripts/`, `security/`, the
+  audit spool and backups, the secrets file, the git refs and config the
+  policy is read from, the guardrail launchd jobs) are denied by the OS for
+  the command and every process it starts, so protection no longer depends on
+  parsing the command text. `allowUnsandboxedCommands` is false, so a denied
+  write cannot be retried outside the sandbox. Network egress from agent Bash
+  is limited to an allowlist compiled from the binaries the roles may use.
+  Verified live on macOS: every attack class was denied, and ordinary work
+  (commit, push, helpers, tests) kept running.
+  - `scripts/sync-sandbox.sh` reconciles the block from
+    `scripts/templates/sandbox.json`, with `--check`, `--print` and `--remove`.
+  - `helpers/upstream-apply.sh` is the sync apply step, and one of the two
+    commands excluded from the sandbox. It accepts only a canonical upstream
+    and a sync branch. It fetches upstream main itself and applies only files
+    on that commit's whitelist.
+  - `helpers/fetch-origin.sh` is the other excluded command. A sandboxed
+    `git fetch origin` cannot update `refs/remotes/origin/*`.
+  - With the sandbox on, Track 2f denies Write and Edit to
+    `.claude/settings*.json`, and SessionStart raises `[SANDBOX OFF]` (a high
+    row and a CEO alert) when the block is not canonical or is overridden.
+- **The settings templates are protected**:
+  `scripts/templates/hooks-registration.json` and `sandbox.json` are added to
+  the Track 2f protected set and to the integrity check's upstream content
+  comparison. Before this change an agent could edit the hook-registration
+  template, then let `sync-hooks.sh` unregister the gate.
+
 ## [1.18.0] — 2026-11-03 — Monthly scheduled dispatch for the CLO disclosure audit and CHRO ranking
 
 Adopter action:
