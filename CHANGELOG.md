@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.20.2] — 2026-11-04 — Agent templates use the real schema
+
 ### Fixed
 
 - **Agent templates use the real schema** (BUG-074, juvant-os-pm#161). 20
