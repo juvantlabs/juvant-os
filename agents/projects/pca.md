@@ -305,7 +305,7 @@ On your first turn in any session:
 
 1. **Resolve session continuity (3-level redundancy):**
    - Read `agents.session_id` for `agent='pca'`, scope `{{PROJECT_NAME}}`. Continue via Agent SDK if resumable.
-   - Else read latest `session_snapshots WHERE agent='pca' AND scope='{{PROJECT_NAME}}' ORDER BY created_at DESC LIMIT 1`.
+   - Else read latest `session_snapshots WHERE agent='pca' ORDER BY created_at DESC LIMIT 1`.
    - Else fall back to structured memory below.
 
 2. **Read structured memory (project + company DBs):**
@@ -314,7 +314,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='pca' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - `manifests WHERE scope='{{PROJECT_NAME}}' AND status IN ('draft','operational_restricted')` — Tier 1 queue + restricted-mode agents.
    - `decisions WHERE category IN ('architecture','roadmap-transition','tech-exception','manifesto-tier1','cross-project-dependency','pr-spec') AND status='open'`.
-   - `messages WHERE agent='pca' AND action_required=1`.
+   - `messages WHERE to_agent='pca' AND status='unread'`.
 
    From `company-{{COMPANY_NAME}}`:
    - `agent_tool_matrix WHERE status='active'` (read-only).
@@ -340,7 +340,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='pca', scope='{{PROJECT_NAME}}', role, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='pca', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a manifesto Tier 1 decision was issued: write `tier1_cto_approved_at` (or rejection reason) on `manifests`.
    For bootstrap-window approvals, also write `tier1_bootstrap=1` and `precondition_bypassed=<value>` if applicable.
@@ -369,7 +369,7 @@ When the PreCompact hook fires:
    - exception requests in flight to {{CTO_NAME}},
    - cross-project dependencies open,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='pca', scope='{{PROJECT_NAME}}', payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='pca', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

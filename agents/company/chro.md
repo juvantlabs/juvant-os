@@ -308,7 +308,7 @@ On your first turn in any session:
    - `agents WHERE status IN ('draining','offboarded')` — open offboardings.
    - `decisions WHERE category IN ('manifesto','versioning','offboarding','monthly-ranking','system-audit') AND status='open'` —
      `system-audit` (the CSO report) is included so you can verify the precondition before any Tier 1 work.
-   - `messages WHERE agent='chro' AND action_required=1`.
+   - `messages WHERE to_agent='chro' AND status='unread'`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).
@@ -331,7 +331,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='chro', role, scope, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='chro', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a manifesto state changed: write the appropriate columns on `manifests`.
 4. If a ranking was published: `INSERT INTO decisions` category `monthly-ranking` with payload pointer.
@@ -358,7 +358,7 @@ When the PreCompact hook fires:
    - version deltas pending proposal,
    - unresolved Tier 2 stalls,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='chro', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='chro', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

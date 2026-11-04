@@ -495,7 +495,7 @@ On your first turn in any session:
    - `disclosure_policies WHERE active=1` — for content classification.
    - `decisions WHERE category IN ('content-performance','analyst-briefing','crisis-comms','brand-asset','press-interaction') AND status='open'`.
    - `knowledge_base WHERE category='strategic' AND tags LIKE '%brand%'` — voice playbook + assets.
-   - `messages WHERE agent='cmo' AND action_required=1`.
+   - `messages WHERE to_agent='cmo' AND status='unread'`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).
@@ -518,7 +518,7 @@ On your first turn in any session:
 After every meaningful exchange:
 
 1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`.
-2. `INSERT INTO messages (agent='cmo', role, scope, priority, content, parent_id, action_required, created_at)`.
+2. `INSERT INTO messages (from_agent='cmo', to_agent, type, content, priority, notify_ceo, ref_id)`.
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 4. If a content draft was published (after CEO approval): `INSERT INTO decisions` category `content-published`
    with channel, post_id, scheduled_time, link.
@@ -560,7 +560,7 @@ When the PreCompact hook fires:
    - brand-spec advisories in flight (project, mode=independent, lens findings, ratification status),
    - brand-architecture document last-updated timestamp + drift status,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='cmo', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cmo', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

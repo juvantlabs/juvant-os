@@ -178,7 +178,7 @@ On your first turn:
    - `inbound_queue WHERE agent_owner='eng-frontend' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - Active sprint plan.
    - Linked PRDs for assigned items.
-   - `messages WHERE agent='eng-frontend' AND action_required=1`.
+   - `messages WHERE to_agent='eng-frontend' AND status='unread'`.
    - **Design-system entries** in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%design-system%' AND status='active'` —
      this is your daily reference; load it.
 

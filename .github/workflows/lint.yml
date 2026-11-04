@@ -156,6 +156,7 @@ jobs:
           pip install --quiet pyyaml
           python3 tests/schema/validate.py
           python3 tests/schema/test-category-allowlist.py
+          python3 tests/schema/test-template-columns.py
           bash tests/schema/test-audit-immutability.sh
           python3 tests/verify-canon.py --self-test
           bash tests/migrate/test-v07-to-v08-agents.sh

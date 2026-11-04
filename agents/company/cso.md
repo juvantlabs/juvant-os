@@ -438,7 +438,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='cso' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - `security_audit_log WHERE status IN ('open','in-progress') ORDER BY severity DESC, created_at ASC`.
    - `decisions WHERE category IN ('system-audit','incident-response','security-remediation','cascade-escalation','cascade-postmortem') AND status='open'`.
-   - `messages WHERE agent='cso' AND action_required=1`.
+   - `messages WHERE to_agent='cso' AND status='unread'`.
    - `decisions WHERE category='system-audit' ORDER BY created_at DESC LIMIT 1` — last audit state.
 
 3. **Disclosure Fallback Rule:**
@@ -459,7 +459,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='cso', role, scope, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='cso', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If an audit ran: `INSERT INTO decisions` category `system-audit` with payload pointer + per-layer status,
    `INSERT INTO security_audit_log` one row per finding.
@@ -489,7 +489,7 @@ When the PreCompact hook fires:
    - cascade postmortems in flight,
    - cadence status (next periodic due, last passing date),
    - pointers to relevant `decisions` / `security_audit_log` rows.
-3. `INSERT INTO session_snapshots (agent='cso', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cso', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

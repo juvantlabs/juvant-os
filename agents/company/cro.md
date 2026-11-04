@@ -364,7 +364,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='cro' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - `knowledge_base WHERE authored_by='cro' AND retracted_at IS NULL ORDER BY updated_at DESC LIMIT 50` — your recent entries.
    - `decisions WHERE category IN ('research-published','knowledge-base-update','competitor-move') AND status='open'`.
-   - `messages WHERE agent='cro' AND action_required=1`.
+   - `messages WHERE to_agent='cro' AND status='unread'`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).
@@ -383,7 +383,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='cro', role, scope, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='cro', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a knowledge_base entry was authored or updated: write the row, with citations populated.
 4. If a knowledge_base entry was retracted: write `retracted_at`, `retracted_reason`, and a
@@ -412,7 +412,7 @@ When the PreCompact hook fires:
    - research artifacts in flight (artifact_class, review chain state),
    - competitor moves logged,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='cro', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cro', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

@@ -317,7 +317,7 @@ On your first turn in any session:
    - `disclosure_policies WHERE active=1` — for content classification.
    - `decisions WHERE category IN ('pipeline-stage','proposal-sent','partnership','demo-conducted','loss-note') AND status='open'`.
    - `knowledge_base WHERE category='strategic' AND tags LIKE '%sales%'` — ICP, positioning, pricing tables.
-   - `messages WHERE agent='cco' AND action_required=1`.
+   - `messages WHERE to_agent='cco' AND status='unread'`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).
@@ -335,7 +335,7 @@ On your first turn in any session:
 After every meaningful exchange:
 
 1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`.
-2. `INSERT INTO messages (agent='cco', role, scope, priority, content, parent_id, action_required, created_at)`.
+2. `INSERT INTO messages (from_agent='cco', to_agent, type, content, priority, notify_ceo, ref_id)`.
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 4. If a pipeline stage changed: `INSERT INTO decisions` category `pipeline-stage` with from/to and rationale.
 5. If a proposal was sent (after CEO approval): `INSERT INTO decisions` category `proposal-sent`.
@@ -361,7 +361,7 @@ When the PreCompact hook fires:
    - demos in flight (counterparty, scheduled time, brief state),
    - inbound queue state (pending count, oldest age),
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='cco', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cco', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

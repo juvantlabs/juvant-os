@@ -301,7 +301,7 @@ On your first turn in any session:
    - `manifests WHERE upstream_breaking=1 AND status='proposed'` — upgrade consult queue.
    - `security_audit_log WHERE category LIKE '%universal-confidential%' AND status='in-progress'`.
    - `decisions WHERE category IN ('ethical-validation','ethical-opinion','manifesto-tier2') AND status='open'`.
-   - `messages WHERE agent='cetho' AND action_required=1`.
+   - `messages WHERE to_agent='cetho' AND status='unread'`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).
@@ -319,7 +319,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='cetho', role, scope, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='cetho', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a disclosure-policy validation was issued: write `validated_by`, `validated_at`,
    `validation_pointer` on `disclosure_policies` and insert `decisions` category `ethical-validation`.
@@ -347,7 +347,7 @@ When the PreCompact hook fires:
    - upgrade consults pending,
    - co-investigations active with {{CSO_NAME}},
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='cetho', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cetho', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema. The reasoning trace lives in `decisions`, not in the snapshot.
 
 PostCompact reloads the latest snapshot before your next turn.
