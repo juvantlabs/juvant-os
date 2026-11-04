@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.19.1] — 2026-11-04 — Agents run cloud CLIs read-only, decided on the parsed command
+
 ### Security
 
 - **Agents run cloud CLIs read-only, decided on the parsed command** (BUG-076,
