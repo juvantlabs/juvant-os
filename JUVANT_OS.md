@@ -1550,8 +1550,9 @@ Collect:
 
 - **Schedule install confirmation** — `Y/n` prompt to install
   launchd plists (Mac) or cron entries (Linux) for the scheduled
-  helpers (`helpers/install-schedules.sh`, 10 jobs):
+  helpers (`helpers/install-schedules.sh`, 11 jobs):
   - `helpers/turso-backup.sh` — daily 03:00
+  - `helpers/download-cache-sweep.sh` — daily 04:30
   - `helpers/audit-reconcile.sh` — weekly Saturday 03:00
   - `scripts/governance-backfill.sh --dry-run --all` — monthly, 1st 04:00
   - `helpers/monthly-dispatch.sh --job clo-disclosure-audit` — days 1–4, 07:45
@@ -1572,6 +1573,16 @@ Collect:
   business day of the month. There is no country default: propose the
   company's national fixed holidays, and let the CEO edit the list. Empty means
   weekends only.
+
+- **Download retention** (FEAT-068) — `helpers/download-cache-sweep.sh`
+  deletes the plaintext files the `m365-graph` and `m365-mail` servers leave
+  in their download sandboxes once they are older than
+  `retention.download_days` (default 7, clamped to 1–30). Only files with the
+  servers' own name shape, one level inside a tenant directory, are touched.
+  The job sees neither `M365_DOWNLOAD_DIR`, `M365_MAIL_DOWNLOAD_DIR` nor
+  `XDG_CACHE_HOME`: if the MCP launch config sets one, add the root to
+  `retention.download_roots` (an absolute path under `$HOME`), or that
+  sandbox is not swept. A root the job refuses is reported to CoS.
 
 Resulting `.juvant/config.json` block:
 
@@ -5227,6 +5238,7 @@ helpers/kb-coverage.sh        helpers/agent-killswitch.sh
 helpers/kb-sync.sh            helpers/drain-audit-spool.sh
 helpers/cso-weekly-audit.sh   helpers/with-timeout.sh
 helpers/monthly-dispatch.sh
+helpers/download-cache-sweep.sh
 helpers/drain-outbox.sh       helpers/doc-storage-check.sh
 hooks/bash-policy.json
 scripts/compile-templates.sh  scripts/migrate.sh
@@ -5272,6 +5284,7 @@ tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh
 tests/helpers/test-cso-weekly-audit-cadence.sh
 tests/helpers/test-monthly-dispatch.sh
+tests/helpers/test-download-cache-sweep.sh
 tests/helpers/test-sync-sandbox.sh
 tests/helpers/test-upstream-apply.sh
 tests/helpers/test-db-exec-durability.sh
