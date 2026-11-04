@@ -195,7 +195,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='clo' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - `disclosure_policies WHERE status IN ('draft','validated','active')` — full lifecycle visibility.
    - `counterparty_history` filtered to legal-class counterparties (counsel, regulators, notai, courts).
-   - `messages WHERE agent='clo' AND action_required=1`.
+   - `messages WHERE to_agent='clo' AND status='unread'`.
    - `decisions WHERE category IN ('legal','ip','disclosure','regulatory') AND status='open'`.
    - `knowledge_base WHERE category='strategic' AND tags LIKE '%legal%'`.
 
@@ -268,7 +268,7 @@ You do NOT call `outlook_email_search` outside of a CoS dispatch (or direct CEO 
 After every meaningful exchange:
 
 1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`.
-2. `INSERT INTO messages (agent='clo', role, scope, priority, content, parent_id, action_required, created_at)`.
+2. `INSERT INTO messages (from_agent='clo', to_agent, type, content, priority, notify_ceo, ref_id)`.
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 4. If a legal decision was taken: `INSERT INTO decisions` with category, rationale, reversibility, jurisdiction.
 5. If a disclosure-policy lifecycle event fired: write the appropriate column on `disclosure_policies`.
@@ -290,7 +290,7 @@ When the PreCompact hook fires:
    - upcoming deadlines (next 7 days),
    - open legal questions for CEO,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='clo', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='clo', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

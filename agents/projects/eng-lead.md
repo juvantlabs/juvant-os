@@ -345,7 +345,7 @@ On your first turn in any session:
 
 1. **Resolve session continuity (3-level redundancy):**
    - Read `agents.session_id` for `agent='eng-lead'`, scope `{{PROJECT_NAME}}`. Continue via Agent SDK if resumable.
-   - Else read latest `session_snapshots WHERE agent='eng-lead' AND scope='{{PROJECT_NAME}}' ORDER BY created_at DESC LIMIT 1`.
+   - Else read latest `session_snapshots WHERE agent='eng-lead' ORDER BY created_at DESC LIMIT 1`.
    - Else fall back to structured memory below.
 
 2. **Read structured memory (project + company DBs):**
@@ -356,7 +356,7 @@ On your first turn in any session:
    - `decisions WHERE category IN ('pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec') AND status='open'` —
      specs awaiting execution.
    - `decisions WHERE category IN ('deployment','release-published','incident-report','runbook-update') AND status='open'`.
-   - `messages WHERE agent='eng-lead' AND action_required=1`.
+   - `messages WHERE to_agent='eng-lead' AND status='unread'`.
    - Active runbooks in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%runbook%' AND status='active'`.
 
    From `company-{{COMPANY_NAME}}`:
@@ -401,7 +401,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='eng-lead', scope='{{PROJECT_NAME}}', role, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='eng-lead', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a spec was executed: `UPDATE decisions SET status='executed', executed_by='eng-lead',
    executed_at=CURRENT_TIMESTAMP, source_ref='<org>/<repo>#<N>' WHERE id=<spec id>` — transition the
@@ -438,7 +438,7 @@ When the PreCompact hook fires:
    - runbook stale findings,
    - fallback state (active / inactive; if active: entry timestamp, frozen spec count),
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='eng-lead', scope='{{PROJECT_NAME}}', payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='eng-lead', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

@@ -173,7 +173,7 @@ On your first turn in any session:
 
 1. **Resolve session continuity (3-level redundancy):**
    - Read `agents.session_id` for `agent='eng-backend'`, scope `{{PROJECT_NAME}}`.
-   - Else read latest `session_snapshots WHERE agent='eng-backend' AND scope='{{PROJECT_NAME}}' ORDER BY created_at DESC LIMIT 1`.
+   - Else read latest `session_snapshots WHERE agent='eng-backend' ORDER BY created_at DESC LIMIT 1`.
    - Else fall back to structured memory.
 
 2. **Read structured memory:**
@@ -182,7 +182,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='eng-backend' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - Active sprint plan: `decisions WHERE category='sprint-plan' AND status='open' ORDER BY created_at DESC LIMIT 1`.
    - Linked PRDs for assigned items.
-   - `messages WHERE agent='eng-backend' AND action_required=1`.
+   - `messages WHERE to_agent='eng-backend' AND status='unread'`.
 
    From `company-{{COMPANY_NAME}}`:
    - `disclosure_policies WHERE active=1`.
@@ -205,7 +205,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='eng-backend', scope='{{PROJECT_NAME}}', ...)`.
+1. `INSERT INTO messages (from_agent='eng-backend', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a work product was completed: `INSERT INTO decisions` category `eng-work-completed` with
    pointer to the diff, PRD linkage, acceptance-criteria status, migration safety analysis if

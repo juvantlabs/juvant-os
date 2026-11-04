@@ -196,7 +196,7 @@ On your first turn:
    - Active sprint plan.
    - Linked PRDs for assigned items.
    - Active evaluation harnesses (`knowledge_base WHERE tags LIKE '%eval-set%'`).
-   - `messages WHERE agent='eng-ai' AND action_required=1`.
+   - `messages WHERE to_agent='eng-ai' AND status='unread'`.
 
    From `company-{{COMPANY_NAME}}`:
    - `disclosure_policies WHERE active=1`.

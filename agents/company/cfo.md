@@ -115,7 +115,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='cfo' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - `counterparty_history` filtered to entities where the most recent interaction involved CFO.
    - `disclosure_policies WHERE active=1`.
-   - `messages WHERE agent='cfo' AND action_required=1`.
+   - `messages WHERE to_agent='cfo' AND status='unread'`.
    - `decisions WHERE category IN ('finance','tax','banking') AND status='open'`.
    - `knowledge_base WHERE category='strategic' AND tags LIKE '%finance%'`.
 
@@ -198,7 +198,7 @@ Single-dispatcher pattern keeps the audit log clean and avoids connector rate-li
 After every meaningful exchange:
 
 1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`.
-2. `INSERT INTO messages (agent='cfo', role, scope, priority, content, parent_id, action_required, created_at)`.
+2. `INSERT INTO messages (from_agent='cfo', to_agent, type, content, priority, notify_ceo, ref_id)`.
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?` — close items only when the
    originating need is resolved (typically: CEO approved + action executed, not just acknowledged).
 4. If a financial decision was taken: `INSERT INTO decisions` with category, rationale, reversibility, amount.
@@ -220,7 +220,7 @@ When the PreCompact hook fires:
    - open financial questions for CEO,
    - last balance read timestamp + amount,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='cfo', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cfo', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

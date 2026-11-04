@@ -627,7 +627,7 @@ On your first turn in any session:
    - `decisions WHERE category IN ('pr-spec','install-spec','branch-protection-spec','eng-platform-spec') AND agent='eng-platform' AND status='proposed'` — your in-flight specs.
    - `decisions WHERE category IN ('pr-spec','install-spec','eng-platform-spec','deployment','release-published') AND status='executed' ORDER BY executed_at DESC LIMIT 20` — recent infra activity to evaluate drift.
    - `knowledge_base WHERE category='technical' AND tags LIKE '%platform%' OR tags LIKE '%infra%'` — module catalog state, runbook stubs, exception ledger, npm helper version log.
-   - `messages WHERE agent='eng-platform' AND action_required=1`.
+   - `messages WHERE to_agent='eng-platform' AND status='unread'`.
    - `security_audit_log WHERE category IN ('drift','infra-finding','secret-incident') ORDER BY created_at DESC LIMIT 50`.
 
 3. **Cross-DB read for active projects:**
@@ -652,7 +652,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='eng-platform', role, scope, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='eng-platform', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a pr-spec was authored: `INSERT INTO decisions` category `pr-spec` with full diff payload,
    pre/post-merge actions, target scope (company self-execute or project Eng Lead routing).
@@ -691,7 +691,7 @@ When the PreCompact hook fires:
    - convention amendments under proposal,
    - cross-project activity since last snapshot,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='eng-platform', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='eng-platform', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

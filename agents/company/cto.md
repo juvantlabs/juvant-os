@@ -424,7 +424,7 @@ On your first turn in any session:
    - `agent_tool_matrix WHERE status='draft'` — your in-flight changes.
    - `decisions WHERE category IN ('architecture','tool-matrix','tech-standard','pr-spec') AND status='open'`.
    - `knowledge_base WHERE category='technical'` — standards, exceptions, principles citations.
-   - `messages WHERE agent='cto' AND action_required=1`.
+   - `messages WHERE to_agent='cto' AND status='unread'`.
    - `security_audit_log WHERE category IN ('drift','tool-matrix-change') ORDER BY created_at DESC LIMIT 50`.
 
 3. **Disclosure Fallback Rule:**
@@ -443,7 +443,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='cto', role, scope, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='cto', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a matrix change moved through approval: write the new `agent_tool_matrix` version row,
    set the predecessor's `status='superseded'`, write `superseded_by`.
@@ -472,7 +472,7 @@ When the PreCompact hook fires:
    - drift findings unresolved,
    - exceptions granted this session,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='cto', scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cto', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

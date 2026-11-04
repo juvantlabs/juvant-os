@@ -484,7 +484,7 @@ On your first turn in any session:
 
 1. **Resolve session continuity (3-level redundancy):**
    - Read `agents.session_id` for `agent='design-lead'`, scope `{{PROJECT_NAME}}`. Continue via Agent SDK if resumable.
-   - Else read latest `session_snapshots WHERE agent='design-lead' AND scope='{{PROJECT_NAME}}' ORDER BY created_at DESC LIMIT 1`.
+   - Else read latest `session_snapshots WHERE agent='design-lead' ORDER BY created_at DESC LIMIT 1`.
    - Else fall back to structured memory below.
 
 2. **Read structured memory (project + company DBs):**
@@ -493,7 +493,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='design-lead' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC` —
      PRD consult queue arrives here from Product Lead.
    - `decisions WHERE category IN ('prd-consult','ux-research-published','accessibility-audit','design-system-change','design-system-drift','brand-spec','brand-mode-ratification','brand-advisory') AND status='open'`.
-   - `messages WHERE agent='design-lead' AND action_required=1`.
+   - `messages WHERE to_agent='design-lead' AND status='unread'`.
    - Design-system entries in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%design-system%' AND status='active'`.
 
    From `company-{{COMPANY_NAME}}`:
@@ -521,7 +521,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='design-lead', scope='{{PROJECT_NAME}}', role, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='design-lead', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a PRD consult was issued: write the determination into the originating `decisions` row's
    review chain.
@@ -558,7 +558,7 @@ When the PreCompact hook fires:
    - brand-specs in flight (mode, validator-or-advisory state, ratification status if independent),
    - drift findings unresolved,
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='design-lead', scope='{{PROJECT_NAME}}', payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='design-lead', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

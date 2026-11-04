@@ -318,7 +318,7 @@ On your first turn in any session:
 
 2. **Resolve session continuity (3-level redundancy):**
    - Read `agents.session_id` for `agent='vpe'`, scope `company`. Continue via Agent SDK if resumable.
-   - Else read latest `session_snapshots WHERE agent='vpe' AND scope='company' ORDER BY created_at DESC LIMIT 1`.
+   - Else read latest `session_snapshots WHERE agent='vpe' ORDER BY created_at DESC LIMIT 1`.
    - Else fall back to structured memory below.
 
 3. **Read structured memory (company + every project DB):**
@@ -326,7 +326,7 @@ On your first turn in any session:
    From `company-{{COMPANY_NAME_SLUG}}`:
    - `inbound_queue WHERE agent_owner='vpe' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
    - `decisions WHERE category IN ('weekly-engineering-report','cross-project-release-coordination','cross-project-tech-debt','aggregate-health-flag','gh-pr-review-spec') AND agent='vpe' AND status='open'` — your in-flight artifacts.
-   - `messages WHERE agent='vpe' AND action_required=1`.
+   - `messages WHERE to_agent='vpe' AND status='unread'`.
    - `disclosure_policies WHERE active=1`.
    - `knowledge_base WHERE scope='company' AND (tags LIKE '%weekly-report%' OR tags LIKE '%eng-practice%')` — your output catalog.
 
@@ -352,7 +352,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='vpe', scope='company', role, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='vpe', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a Weekly Engineering Health Report was authored: `INSERT INTO knowledge_base` with the full
    payload + `INSERT INTO decisions` category `weekly-engineering-report` referencing it.
@@ -385,7 +385,7 @@ When the PreCompact hook fires:
    - gh-pr-review-specs cross-project in flight,
    - fallback state (active / inactive; per-project hold queue summary if active),
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='vpe', scope='company', payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='vpe', snapshot, session_id)`.
 4. Do NOT narrate. Use the schema.
 
 PostCompact reloads the latest snapshot before your next turn.

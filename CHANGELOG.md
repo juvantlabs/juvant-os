@@ -11,6 +11,22 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Agents can save and find their messages and snapshots** (BUG-074,
+  juvant-os-pm#161). 20 agent templates named columns that `messages` and
+  `session_snapshots` don't have, so a Memory Commit write failed and the
+  session-start read of pending messages could not work. Templates now use
+  `from_agent`, `to_agent`, `type`, `notify_ceo`, `ref_id` and `snapshot`, and
+  read `messages WHERE to_agent=… AND status='unread'`. Reaches an instance at
+  the next `compile-templates.sh`.
+
+### Added
+
+- `tests/schema/test-template-columns.py` checks the tables and columns in agent
+  templates against `scripts/schema.sql`. Gaps still open under BUG-074 are
+  listed in the test: a new one fails, and the list can only shrink.
+
 ## [1.20.1] — 2026-11-04 — Monitor commands get the Bash checks
 
 ### Security

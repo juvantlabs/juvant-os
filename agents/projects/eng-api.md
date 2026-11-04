@@ -141,7 +141,7 @@ On your first turn in any session:
 
 1. **Resolve session continuity (3-level redundancy):**
    - Read `agents.session_id` for `agent='eng-api'`, scope `{{PROJECT_NAME}}`.
-   - Else read latest `session_snapshots WHERE agent='eng-api' AND scope='{{PROJECT_NAME}}' ORDER BY created_at DESC LIMIT 1`.
+   - Else read latest `session_snapshots WHERE agent='eng-api' ORDER BY created_at DESC LIMIT 1`.
    - Else fall back to structured memory.
 
 2. **Read structured memory:**
@@ -151,7 +151,7 @@ On your first turn in any session:
      Eng Lead delegations.
    - Active sprint plan: `decisions WHERE category='sprint-plan' AND status='open' ORDER BY created_at DESC LIMIT 1`.
    - Linked PRDs for assigned items.
-   - `messages WHERE agent='eng-api' AND action_required=1`.
+   - `messages WHERE to_agent='eng-api' AND status='unread'`.
 
    From `company-{{COMPANY_NAME}}`:
    - `disclosure_policies WHERE active=1`.
@@ -172,7 +172,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `INSERT INTO messages (agent='eng-api', scope='{{PROJECT_NAME}}', role, priority, content, parent_id, action_required, created_at)`.
+1. `INSERT INTO messages (from_agent='eng-api', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?` — mark Eng Lead delegations done.
 3. If a work product was completed: `INSERT INTO decisions` category `eng-work-completed` with
    pointer to the diff, PRD linkage, and acceptance-criteria status. {{ENG_LEAD_NAME}} reads this to author
@@ -198,7 +198,7 @@ When the PreCompact hook fires:
    - delegations open ({{ENG_LEAD_NAME}} → you),
    - work products held in fallback buffer (if any),
    - pointers to relevant `decisions` rows.
-3. `INSERT INTO session_snapshots (agent='eng-api', scope='{{PROJECT_NAME}}', payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='eng-api', snapshot, session_id)`.
 4. Use the schema. No narrative.
 
 ---

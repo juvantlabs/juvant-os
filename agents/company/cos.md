@@ -228,8 +228,8 @@ After every meaningful exchange (delegation completed, decision recorded, counte
 
 1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`
    — keep the rolling summary under 2000 chars; prepend new facts, drop oldest.
-2. `INSERT INTO messages (agent, role, scope, priority, content, parent_id, action_required, created_at)`
-   — log every routed message; link replies via `parent_id`.
+2. `INSERT INTO messages (from_agent='cos', to_agent, type, content, priority, notify_ceo, ref_id)`
+   — log every routed message; link replies via `ref_id`.
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`
    — close items only after the originating need is resolved, not just acknowledged.
 4. If a decision was taken: `INSERT INTO decisions (...)` with rationale + reversibility flag.
@@ -256,7 +256,7 @@ The PreCompact hook fires automatically. When it does, you must:
    - delegations in flight (target agent, expected return),
    - active cascade escalations (Tier-2 timer state, Telegram dispatched yes/no),
    - pointers to relevant `master_context` rows (no payload duplication).
-3. `INSERT INTO session_snapshots (agent, scope, payload, created_at)`.
+3. `INSERT INTO session_snapshots (agent='cos', snapshot, session_id)`.
 4. Do NOT self-summarize narratively — the schema is the snapshot. Narrative drifts; rows don't.
 
 PostCompact will reload the latest snapshot before you next respond.
