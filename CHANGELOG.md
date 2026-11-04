@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.20.1] — 2026-11-04 — Monitor commands get the Bash checks
+
 ### Security
 
 - **Commands run through Monitor get the Bash checks** (BUG-100). The Monitor
