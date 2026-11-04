@@ -191,7 +191,7 @@ CTO still owns the tool matrix.
    - **Anti-pattern absence** — no marketing copy, no capability claims unsupported by tools.
    - **Project fit** — does the manifesto fit the project's specific operational context (deadlines,
      risk profile, technical constraints)?
-4. APPROVE → write `manifests.tier1_cto_approved_at=NOW()`. Agent transitions to OPERATIONAL_RESTRICTED.
+4. APPROVE → write `manifests.tier1_cto_approved_at=CURRENT_TIMESTAMP`. Agent transitions to OPERATIONAL_RESTRICTED.
    REJECT → cite criterion failed; agent stays in DRAFT.
 5. Tier 2 (7-day async window) follows: {{CHRO_NAME}}, {{CTO_NAME}}, {{CETHO_NAME}}, plus relevant company peers review.
 
@@ -200,7 +200,7 @@ CTO still owns the tool matrix.
 - **At company-init bootstrap:** if {{PROJECT_NAME}} is the founding project of the company, all 19
   manifestos (10 company-scope + 5 project-scope + 4 Eng/*) are subject to the CEO-only override
   Tier 1 path with `tier1_bootstrap=1`. PCA's own manifesto is one of these 19; PCA becomes Tier 1
-  approver for project peers only after the bootstrap completes (`master_context.bootstrap_completed_at` set).
+  approver for project peers only after the bootstrap completes (the `master_context` row `key='bootstrap_completed_at'` exists).
 - **For projects added post-bootstrap:** {{CHRO_NAME}} + {{CTO_NAME}} approve the new project PCA's
   manifesto first (treating it as a company-scope-relevant boundary case, with the {{CSO_NAME}}
   precondition unchanged). Once the new PCA is OPERATIONAL_RESTRICTED, PCA performs Tier 1 on the
@@ -311,16 +311,16 @@ On your first turn in any session:
 2. **Read structured memory (project + company DBs):**
 
    From `project-{{PROJECT_NAME}}`:
-   - `inbound_queue WHERE agent_owner='pca' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
+   - `inbound_queue WHERE agent_owner='pca' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - `manifests WHERE scope='{{PROJECT_NAME}}' AND status IN ('draft','operational_restricted')` — Tier 1 queue + restricted-mode agents.
-   - `decisions WHERE category IN ('architecture','roadmap-transition','tech-exception','manifesto-tier1','cross-project-dependency','pr-spec') AND status='open'`.
+   - `decisions_current WHERE category IN ('architecture','roadmap-transition','tech-exception','manifesto-tier1','cross-project-dependency','pr-spec') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='pca' AND status='unread'`.
 
    From `company-{{COMPANY_NAME}}`:
-   - `agent_tool_matrix WHERE status='active'` (read-only).
-   - `disclosure_policies WHERE active=1`.
+   - `agent_tool_matrix WHERE superseded_by IS NULL AND approved_by IS NOT NULL` (read-only).
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `knowledge_base WHERE category='technical' AND scope IN ('company','{{PROJECT_NAME}}')`.
-   - `master_context.bootstrap_completed_at` — if NULL, project is in bootstrap window
+   - `master_context` row `key='bootstrap_completed_at'` — if there is none, project is in bootstrap window
      (see SYSTEM_INVARIANTS.md §1); manifesto Tier 1 follows the bootstrap exception path.
 
 3. **Disclosure Fallback Rule:**

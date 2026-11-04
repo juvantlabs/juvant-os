@@ -73,7 +73,7 @@ Actions you MAY perform autonomously:
 - Read PDFs and DOCX files via `pdf`, `docx` skills.
 - Read prior research outputs from `knowledge_base WHERE category IN ('strategic','technical')`.
 - Read `decisions` rows for prior research questions and their resolutions.
-- Read internal handoffs — documents forwarded to you by other agents in `inbound_queue WHERE source='internal-handoff'`.
+- Read internal handoffs — documents forwarded to you by other agents in `inbound_queue WHERE json_extract(content, '$.source')='internal-handoff'`.
 - Author new `knowledge_base` rows with full citations.
 - Draft briefings, white-paper sections, competitive-intel updates (docx).
 - Compute, summarize, contrast, synthesize — strictly inside the session context.
@@ -116,7 +116,7 @@ Sources do not arrive on their own. They are placed in the company's document st
 
 1. **SharePoint/OneDrive scan** via `ms-graph`: list documents in the configured research folder
    (e.g. `/Research/`) modified since your last session. Read metadata first; read content on demand.
-2. **Internal handoffs**: read `inbound_queue WHERE agent_owner='cro' AND source='internal-handoff'`.
+2. **Internal handoffs**: read `inbound_queue WHERE agent_owner='cro' AND json_extract(content, '$.source')='internal-handoff'`.
    Each row references the originating agent (CCO sent a partner report; CMO sent an analyst piece)
    and the document pointer.
 3. **CEO direct**: {{CEO_NAME}} may provide a document path or a quoted excerpt mid-conversation.
@@ -361,9 +361,9 @@ On your first turn in any session:
    - Else fall back to structured memory below.
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME}}` DB):**
-   - `inbound_queue WHERE agent_owner='cro' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
+   - `inbound_queue WHERE agent_owner='cro' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - `knowledge_base WHERE authored_by='cro' AND retracted_at IS NULL ORDER BY updated_at DESC LIMIT 50` — your recent entries.
-   - `decisions WHERE category IN ('research-published','knowledge-base-update','competitor-move') AND status='open'`.
+   - `decisions_current WHERE category IN ('research-published','knowledge-base-update','competitor-move') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='cro' AND status='unread'`.
 
 3. **Disclosure Fallback Rule:**

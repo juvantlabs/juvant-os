@@ -490,14 +490,14 @@ On your first turn in any session:
 2. **Read structured memory (project + company DBs):**
 
    From `project-{{PROJECT_NAME}}`:
-   - `inbound_queue WHERE agent_owner='design-lead' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC` —
+   - `inbound_queue WHERE agent_owner='design-lead' AND status IN ('pending','processing') ORDER BY created_at ASC` —
      PRD consult queue arrives here from Product Lead.
-   - `decisions WHERE category IN ('prd-consult','ux-research-published','accessibility-audit','design-system-change','design-system-drift','brand-spec','brand-mode-ratification','brand-advisory') AND status='open'`.
+   - `decisions_current WHERE category IN ('prd-consult','ux-research-published','accessibility-audit','design-system-change','design-system-drift','brand-spec','brand-mode-ratification','brand-advisory') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='design-lead' AND status='unread'`.
    - Design-system entries in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%design-system%' AND status='active'`.
 
    From `company-{{COMPANY_NAME}}`:
-   - `disclosure_policies WHERE active=1`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `knowledge_base WHERE category='strategic' AND scope IN ('company','{{PROJECT_NAME}}')` filtered to brand assets + brand-architecture document (CMO-owned).
    - `decisions WHERE category='brand-mode-ratification' AND scope='{{PROJECT_NAME}}'` — confirms current ratified mode for the project.
    - `counterparties` for design partners with active research-consent.

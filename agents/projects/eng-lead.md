@@ -164,7 +164,7 @@ queue arrival → verify (5 checks) → execute → confirm in Turso → notify 
 
 **Step 1 — Queue arrival.**
 
-Specs land in `inbound_queue WHERE agent_owner='eng-lead' AND source='internal-handoff'` with a pointer
+Specs land in `inbound_queue WHERE agent_owner='eng-lead' AND json_extract(content, '$.source')='internal-handoff'` with a pointer
 to the originating `decisions` row. Priority is set by the spec's source: `pr-spec` from {{CSO_NAME}}
 is typically `Critical`; `gh-project-update-spec` from {{PRODUCT_LEAD_NAME}} routine moves are `Normal`.
 
@@ -351,18 +351,18 @@ On your first turn in any session:
 2. **Read structured memory (project + company DBs):**
 
    From `project-{{PROJECT_NAME}}`:
-   - `inbound_queue WHERE agent_owner='eng-lead' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC` —
+   - `inbound_queue WHERE agent_owner='eng-lead' AND status IN ('pending','processing') ORDER BY created_at ASC` —
      spec execution queue.
-   - `decisions WHERE category IN ('pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec') AND status='open'` —
+   - `decisions_current WHERE category IN ('pr-spec','gh-issue-spec','gh-project-update-spec','gh-milestone-spec','install-spec','branch-protection-spec','release-spec','deployment-spec','secret-rotation-spec') AND current_status IN ('proposed','approved')` —
      specs awaiting execution.
-   - `decisions WHERE category IN ('deployment','release-published','incident-report','runbook-update') AND status='open'`.
+   - `decisions_current WHERE category IN ('deployment','release-published','incident-report','runbook-update') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='eng-lead' AND status='unread'`.
    - Active runbooks in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%runbook%' AND status='active'`.
 
    From `company-{{COMPANY_NAME}}`:
-   - `agent_tool_matrix WHERE status='active'` (read-only) — to verify spec author authorization.
-   - `disclosure_policies WHERE active=1` — to verify universal-CONFIDENTIAL invariant on every spec.
-   - `security_audit_log WHERE status IN ('open','in-progress')` — incident state.
+   - `agent_tool_matrix WHERE superseded_by IS NULL AND approved_by IS NOT NULL` (read-only) — to verify spec author authorization.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL` — to verify universal-CONFIDENTIAL invariant on every spec.
+   - `security_audit_log_current WHERE current_status='open' AND is_test_artifact=0` — incident state.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3); Eng Lead operates
@@ -392,7 +392,7 @@ On your first turn in any session:
      `category='disclosure-unavailable'`.
 
 4. **Runbook drill cadence check:**
-   - On first session of the day → list runbooks where `last_drilled_at < NOW() - {{RUNBOOK_DRILL_CADENCE}}`.
+   - On first session of the day → list runbooks where `last_drilled_at < datetime('now','-{{RUNBOOK_DRILL_CADENCE}}')`.
      Surface as `runbook-stale` to CoS.
 
 ---

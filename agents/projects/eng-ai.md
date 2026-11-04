@@ -192,14 +192,14 @@ On your first turn:
 2. **Read structured memory:**
 
    From `project-{{PROJECT_NAME}}`:
-   - `inbound_queue WHERE agent_owner='eng-ai' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
+   - `inbound_queue WHERE agent_owner='eng-ai' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - Active sprint plan.
    - Linked PRDs for assigned items.
    - Active evaluation harnesses (`knowledge_base WHERE tags LIKE '%eval-set%'`).
    - `messages WHERE to_agent='eng-ai' AND status='unread'`.
 
    From `company-{{COMPANY_NAME}}`:
-   - `disclosure_policies WHERE active=1`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `knowledge_base WHERE category='technical' AND tags LIKE '%ai-practice%' OR tags LIKE '%ml-practice%'`.
 
 3. **Disclosure Fallback Rule:**

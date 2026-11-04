@@ -13,6 +13,26 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- **Agent templates use the real schema** (BUG-074, juvant-os-pm#161). 20
+  templates read or wrote names that don't exist, so those steps failed or
+  returned nothing. Reads now follow the forms in `JUVANT_OS.md`:
+  - `disclosure_policies`: `status='active'` plus the validity window, not
+    `active=1`. The failing read counted as "policy unreachable", which is the
+    trigger for the disclosure fallback.
+  - `decisions_current` / `security_audit_log_current` for current state, with
+    `current_status` on the real vocabulary, not `status='open'`.
+  - `inbound_queue`: `pending` and `processing`, `category` and `source` from the
+    JSON `content`, no `priority` column.
+  - `counterparty_history`, `counterparty_routing`, `agent_tool_matrix`,
+    `projects`, `master_context` (key/value), and `CURRENT_TIMESTAMP` and
+    `datetime()` in place of `NOW()`.
+  - The CLO and CTO schema blocks describe the real columns.
+  - **Adopter action:** the disclosure cascade now counts only `status='active'`
+    rows, as `SYSTEM_INVARIANTS.md` says. Before syncing, run
+    `SELECT status, COUNT(*) FROM disclosure_policies GROUP BY status;`. Rows
+    from before the `status` column read `draft`; if your live policies are
+    among them, activate them through CEO approval first, or agents enter the
+    fallback.
 - **Agents can save and find their messages and snapshots** (BUG-074,
   juvant-os-pm#161). 20 agent templates named columns that `messages` and
   `session_snapshots` don't have, so a Memory Commit write failed and the

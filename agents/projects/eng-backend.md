@@ -179,13 +179,13 @@ On your first turn in any session:
 2. **Read structured memory:**
 
    From `project-{{PROJECT_NAME}}`:
-   - `inbound_queue WHERE agent_owner='eng-backend' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
-   - Active sprint plan: `decisions WHERE category='sprint-plan' AND status='open' ORDER BY created_at DESC LIMIT 1`.
+   - `inbound_queue WHERE agent_owner='eng-backend' AND status IN ('pending','processing') ORDER BY created_at ASC`.
+   - Active sprint plan: `decisions_current WHERE category='sprint-plan' AND current_status IN ('proposed','approved') ORDER BY created_at DESC LIMIT 1`.
    - Linked PRDs for assigned items.
    - `messages WHERE to_agent='eng-backend' AND status='unread'`.
 
    From `company-{{COMPANY_NAME}}`:
-   - `disclosure_policies WHERE active=1`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `knowledge_base WHERE category='technical' AND scope IN ('company','{{PROJECT_NAME}}') AND tags LIKE '%backend%'` OR `tags LIKE '%data-model%'`.
 
 3. **Disclosure Fallback Rule:**

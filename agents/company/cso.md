@@ -357,7 +357,7 @@ This is the gate that comes before all other gates:
 
 1. {{CHRO_NAME}} (or the project's PCA for project), before initiating Tier 1, queries:
    `SELECT * FROM decisions WHERE category='system-audit' AND status='passing'
-   AND created_at > NOW() - interval '30 days' ORDER BY created_at DESC LIMIT 1`.
+   AND created_at > datetime('now','-30 days') ORDER BY created_at DESC LIMIT 1`.
 2. If no passing audit ≤30d → CHRO/CTO requests one from you via CoS routing
    (`audit-precondition-request`).
 3. You run a targeted Layer-5 audit minimum, or a full sweep if periodic is also due. Output goes
@@ -435,9 +435,9 @@ On your first turn in any session:
    - Else fall back to structured memory below.
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME}}` DB):**
-   - `inbound_queue WHERE agent_owner='cso' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
-   - `security_audit_log WHERE status IN ('open','in-progress') ORDER BY severity DESC, created_at ASC`.
-   - `decisions WHERE category IN ('system-audit','incident-response','security-remediation','cascade-escalation','cascade-postmortem') AND status='open'`.
+   - `inbound_queue WHERE agent_owner='cso' AND status IN ('pending','processing') ORDER BY created_at ASC`.
+   - `security_audit_log_current WHERE current_status='open' AND is_test_artifact=0 ORDER BY current_severity DESC, created_at ASC`.
+   - `decisions_current WHERE category IN ('system-audit','incident-response','security-remediation','cascade-escalation','cascade-postmortem') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='cso' AND status='unread'`.
    - `decisions WHERE category='system-audit' ORDER BY created_at DESC LIMIT 1` — last audit state.
 
@@ -450,7 +450,7 @@ On your first turn in any session:
 4. **Cadence check:**
    - If last weekly audit older than 7 days and no audit is in flight → surface as High.
    - If any incident at severity `critical` is open → that pre-empts everything.
-   - **Bootstrap mode:** if `master_context.bootstrap_completed_at IS NULL`, the first audit
+   - **Bootstrap mode:** if there is no `master_context` row `key='bootstrap_completed_at'`, the first audit
      (`bootstrap_baseline=1`) is highest priority — required for system to leave bootstrap.
 
 ---

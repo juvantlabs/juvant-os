@@ -7,7 +7,9 @@ exist the write fails or the read returns nothing, and the agent's memory step
 silently stops working. The checks read the forms templates use:
   INSERT INTO t (a, b='x'), t(a, b), t.col, FROM t WHERE col = ...,
   INSERT INTO / UPDATE / FROM / JOIN <name>
-against scripts/schema.sql, loaded into a real database.
+against scripts/schema.sql, loaded into a real database. Also rejects NOW(), which
+SQLite doesn't have, and status='open' on decisions, which is outside its vocabulary
+(`operational-violation` rows are the documented exception).
 
 KNOWN_GAPS is a ratchet: gaps already tracked in BUG-074 and not fixed yet. A new
 gap fails; so does an entry that no longer occurs, so the list can only shrink.
@@ -31,25 +33,19 @@ PROSE = {
     "counterparties.notai", "counterparties.partners", "counterparties.podcasters",
     "counterparties.prospects", "counterparties.regulators",
     "counterparty_history.prospects", "decisions.deployment", "decisions.incident",
+    "decisions.since",
     "manifests.installed_", "manifests.restricted", "projects.monthly",
 }
 
 KNOWN_GAPS: set[str] = {
-    "agent_tool_matrix.agent", "agent_tool_matrix.status",
     "agents.cfo", "agents.last_bank_sync", "agents.last_deadline_sweep",
     "counterparties.consent_pointer",
-    "counterparty_history.entity_id", "counterparty_history.rolling_summary",
-    "counterparty_routing.entity_id",
-    "decisions.reviewed_by", "decisions.since",
-    "disclosure_policies.active",
-    "inbound_queue.category", "inbound_queue.payload", "inbound_queue.source",
+    "decisions.reviewed_by",
     "knowledge_base.authored_by", "knowledge_base.retracted_at",
     "knowledge_base.status", "knowledge_base.tags",
     "manifests.scope", "manifests.tier1_chro_approved_at", "manifests.tier1_cto_approved_at",
     "manifests.upstream_breaking", "manifests.upstream_changelog", "manifests.upstream_version",
-    "master_context.bootstrap_completed_at", "master_context.handoff_payload",
     "messages.tools_used",
-    "projects.active",
 }
 
 SQLWORDS = {"select", "from", "where", "and", "or", "not", "null", "is", "in", "values",
@@ -63,6 +59,10 @@ def scan(text: str, objs: set[str], cols: dict[str, set[str]]) -> set[str]:
     alt = "|".join(sorted(map(re.escape, objs), key=len, reverse=True))
     found: set[str] = set()
     for line in text.splitlines():
+        if "NOW()" in line:
+            found.add("sql:NOW()")
+        if re.search(r"\bdecisions WHERE .*\bstatus\s*=\s*'open'", line) and "operational-violation" not in line:
+            found.add("decisions.status='open'")
         for m in re.finditer(r"\b(?:INSERT INTO|UPDATE|FROM|JOIN)\s+([a-z][a-z0-9_]*)\b", line):
             t = m.group(1)
             if t not in objs and "_" in t and not t.startswith(("project_", "sqlite_")):

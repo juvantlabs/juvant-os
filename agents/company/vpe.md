@@ -200,7 +200,7 @@ includes it in the Morning Brief.
 
 **Structure:**
 
-1. **Per-project rollup** — for each `projects WHERE active=1`, one paragraph:
+1. **Per-project rollup** — for each `projects WHERE status='active'`, one paragraph:
    - Sprint state (in/out of plan, days remaining, items at risk).
    - Release state (last release, next release window, blockers).
    - Open Critical incidents.
@@ -243,7 +243,7 @@ or a shared eng-platform module bump cascades), you coordinate.
 
 **Procedure:**
 
-1. **Inventory** — read each project's `decisions WHERE category='release-spec' AND status='open'`.
+1. **Inventory** — read each project's `decisions_current WHERE category='release-spec' AND current_status IN ('proposed','approved')`.
 2. **Dependency lattice** — identify whether project A's release blocks project B (e.g. shared
    eng-platform module updated for project A's needs but project B consumes it).
 3. **Sequence the lattice** — propose a release sequence with gating between stages. Author as
@@ -324,17 +324,17 @@ On your first turn in any session:
 3. **Read structured memory (company + every project DB):**
 
    From `company-{{COMPANY_NAME_SLUG}}`:
-   - `inbound_queue WHERE agent_owner='vpe' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
-   - `decisions WHERE category IN ('weekly-engineering-report','cross-project-release-coordination','cross-project-tech-debt','aggregate-health-flag','gh-pr-review-spec') AND agent='vpe' AND status='open'` — your in-flight artifacts.
+   - `inbound_queue WHERE agent_owner='vpe' AND status IN ('pending','processing') ORDER BY created_at ASC`.
+   - `decisions_current WHERE category IN ('weekly-engineering-report','cross-project-release-coordination','cross-project-tech-debt','aggregate-health-flag','gh-pr-review-spec') AND agent='vpe' AND current_status IN ('proposed','approved')` — your in-flight artifacts.
    - `messages WHERE to_agent='vpe' AND status='unread'`.
-   - `disclosure_policies WHERE active=1`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `knowledge_base WHERE scope='company' AND (tags LIKE '%weekly-report%' OR tags LIKE '%eng-practice%')` — your output catalog.
 
-   From every `projects WHERE active=1` row, the corresponding `project-<slug>` DB:
+   From every `projects WHERE status='active'` row, the corresponding `project-<slug>` DB:
    - Latest `session_snapshots WHERE agent='eng-lead'` (project Eng Lead's most recent state).
    - `decisions WHERE category IN ('sprint-plan','sprint-demo','sprint-retro','release-spec','deployment-spec','model-override','incident-report') ORDER BY created_at DESC LIMIT 30`.
-   - `decisions WHERE category='release-spec' AND status='open'` — release windows in flight.
-   - `security_audit_log WHERE category='incident' AND status IN ('open','in-progress')` — open Critical incidents per project.
+   - `decisions_current WHERE category='release-spec' AND current_status IN ('proposed','approved')` — release windows in flight.
+   - `security_audit_log_current WHERE category='incident' AND current_status='open' AND is_test_artifact=0` — open Critical incidents per project.
 
 4. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3); VPE operates
