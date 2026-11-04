@@ -11,6 +11,31 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added
+
+- **Retention for the MCP download sandboxes** (FEAT-068, juvant-os-pm#205).
+  `m365-graph` and `m365-mail` write plaintext files to a local sandbox, and
+  nothing removed them. `helpers/download-cache-sweep.sh` runs daily at 04:30
+  and deletes files older than `retention.download_days` (default 7, clamped
+  to 1–30).
+  - **What it touches:** regular files with the servers' own name shape,
+    `<16 hex>-<name>`, exactly one level inside a tenant directory. A root
+    pointed at the wrong folder finds nothing to delete. Symlinks are not
+    followed.
+  - **Roots:** the two default `~/.cache` sandboxes, plus
+    `retention.download_roots`. Scheduled jobs see only `HOME` and `PATH`, so
+    an instance that sets `M365_DOWNLOAD_DIR`, `M365_MAIL_DOWNLOAD_DIR` or
+    `XDG_CACHE_HOME` must declare the resulting root there, or that sandbox is
+    not swept. A declared root must be an absolute path under `$HOME`, not
+    `$HOME` itself and not a symlink.
+  - **Logs and failures:** the log holds counts only, never a file name. A
+    refused root or a failed delete exits 1 and leaves one `messages` row a day
+    for CoS, with `notify_ceo=1`.
+  - **Adopter action:** re-run `helpers/install-schedules.sh` from your own
+    terminal (11 jobs). The install self-check runs one sweep straight away,
+    so files already past retention are deleted at that moment. To keep them
+    longer, set `retention.download_days` first.
+
 ## [1.19.1] — 2026-11-04 — Agents run cloud CLIs read-only, decided on the parsed command
 
 ### Security

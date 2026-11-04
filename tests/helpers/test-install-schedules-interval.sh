@@ -145,13 +145,13 @@ for spec in drain-audit-spool:5 anomaly-check:15 drain-outbox:15; do
     "$(plutil -extract StartCalendarInterval.0.Minute xml1 -o - "$p" 2>/dev/null | grep -o '<integer>' | head -1 | tr -d '<>')"
 done
 check "advancing counter → install exit 0" "0" "$LAST_RC"
-check "advancing counter → self-check OK lines" "3" \
+check "advancing counter → self-check OK lines" "4" \
   "$(grep -c 'self-check OK' "$WORK/out")"
 
 # 3. stuck counter -----------------------------------------------------
 run_install LC_ADVANCE=0
 check "stuck counter → install exits non-zero" "1" "$LAST_RC"
-check "stuck counter → stderr names each interval job" "3" \
+check "stuck counter → stderr names each self-checked job" "4" \
   "$(grep -c 'SELF-CHECK FAIL: .*did not advance' "$WORK/err")"
 check "stuck counter → FATAL on stderr" "1" \
   "$(grep -c 'FATAL: post-install self-check failed' "$WORK/err")"
@@ -169,7 +169,7 @@ run_install LC_ADVANCE=1 LC_PENDED=io.juvant.guardrails.anomaly-check
 check "pended nondemand spawn → install exits non-zero" "1" "$LAST_RC"
 check "pended nondemand spawn → stderr names the job + Low Power Mode" "1" \
   "$(grep -c 'anomaly-check has a pended non-demand spawn.*Low Power Mode' "$WORK/err")"
-check "pended job's kickstart still advanced (why the counter alone misses it)" "3" \
+check "pended job's kickstart still advanced (why the counter alone misses it)" "4" \
   "$(grep -c 'self-check OK' "$WORK/out")"
 check "only the pended job is flagged" "1" \
   "$(grep -c 'pended non-demand spawn' "$WORK/err")"

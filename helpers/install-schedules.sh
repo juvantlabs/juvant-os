@@ -14,6 +14,7 @@
 #   helpers/monthly-dispatch.sh     — days 1–4 of each month (FEAT-067):
 #       --job clo-disclosure-audit  07:45   --job chro-ranking  09:00
 #     the helper itself enqueues only on the first business day.
+#   helpers/download-cache-sweep.sh — daily 04:30 (FEAT-068)
 #
 # Idempotent: re-running replaces existing plists / cron entries
 # under the well-known JUVANT prefix. Does NOT touch unrelated
@@ -125,9 +126,12 @@ case "$OS" in
     PREFIX="io.juvant.guardrails"
     LAUNCHCTL="${JUVANT_LAUNCHCTL:-launchctl}"
     DOMAIN="gui/$(id -u)"
-    ALL_LABELS="turso-backup audit-reconcile governance-backfill clo-disclosure-audit chro-ranking anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox"
+    ALL_LABELS="turso-backup audit-reconcile governance-backfill clo-disclosure-audit chro-ranking anomaly-check morning-brief cso-weekly-audit drain-audit-spool drain-outbox download-cache-sweep"
     # "every N minutes" jobs — the ones the post-install self-check verifies.
     INTERVAL_LABELS="anomaly-check drain-audit-spool drain-outbox"
+    # Also self-checked (FEAT-068): it deletes files, so a job that never runs
+    # is silent retention failure. The kickstart runs one sweep at install.
+    SELFCHECK_LABELS="$INTERVAL_LABELS download-cache-sweep"
 
     # Emit a StartCalendarInterval array firing every $1 minutes
     # (Minute 0, $1, 2*$1, … < 60). $1 must divide 60.
@@ -169,7 +173,7 @@ case "$OS" in
       local poll="${JUVANT_SCHED_SELFCHECK_POLL:-1}"
       local label target before now start failed=0 disabled
       disabled=$("$LAUNCHCTL" print-disabled "$DOMAIN" 2>/dev/null || true)
-      for label in $INTERVAL_LABELS; do
+      for label in $SELFCHECK_LABELS; do
         target="$DOMAIN/${PREFIX}.${label}"
         if printf '%s\n' "$disabled" | grep -Eq "\"${PREFIX}\.${label}\" => (disabled|true)"; then
           echo "[install-schedules] SELF-CHECK FAIL: ${target} is DISABLED in launchd (launchctl print-disabled ${DOMAIN}). Run: launchctl enable ${target}" >&2
@@ -224,6 +228,34 @@ case "$OS" in
         # after changing your PATH if tools move.
         _PLIST_PATH="${PATH:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
         _PLIST_HOME="${HOME}"
+
+        # download-cache-sweep — daily 04:30 (FEAT-068)
+        cat > "$LAUNCHD_DIR/${PREFIX}.download-cache-sweep.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${PREFIX}.download-cache-sweep</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>${CODE_ROOT}/helpers/download-cache-sweep.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>${_PLIST_HOME}</string>
+    <key>PATH</key><string>${_PLIST_PATH}</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>4</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key><string>${REPO_ROOT}/.juvant/logs/download-cache-sweep.log</string>
+  <key>StandardErrorPath</key><string>${REPO_ROOT}/.juvant/logs/download-cache-sweep.err</string>
+</dict>
+</plist>
+PLIST
 
         # turso-backup — daily 03:00
         cat > "$LAUNCHD_DIR/${PREFIX}.turso-backup.plist" <<PLIST
@@ -521,7 +553,7 @@ PLIST
           "$LAUNCHCTL" bootstrap "$DOMAIN" "$LAUNCHD_DIR/${PREFIX}.${label}.plist"
           echo "[install-schedules] loaded ${PREFIX}.${label}"
         done
-        echo "[install-schedules] OK — Mac launchd schedules installed (10 jobs)."
+        echo "[install-schedules] OK — Mac launchd schedules installed (11 jobs)."
 
         _selfcheck="${JUVANT_SCHED_SELFCHECK:-}"
         if [ -z "$_selfcheck" ]; then
@@ -565,6 +597,7 @@ PLIST
         crontab -l 2>/dev/null | grep -v "$CRON_TAG" > "$TMP" || true
         cat >> "$TMP" <<CRON
 0 3 * * *    /bin/bash ${CODE_ROOT}/helpers/turso-backup.sh         >> ${REPO_ROOT}/.juvant/logs/turso-backup.log 2>&1          $CRON_TAG
+30 4 * * *   /bin/bash ${CODE_ROOT}/helpers/download-cache-sweep.sh         >> ${REPO_ROOT}/.juvant/logs/download-cache-sweep.log 2>&1          $CRON_TAG
 0 3 * * 6    /bin/bash ${CODE_ROOT}/helpers/audit-reconcile.sh    >> ${REPO_ROOT}/.juvant/logs/audit-reconcile.log 2>&1       $CRON_TAG
 0 4 1 * *    /bin/bash ${CODE_ROOT}/scripts/governance-backfill.sh --dry-run --all >> ${REPO_ROOT}/.juvant/logs/governance-backfill.log 2>&1 $CRON_TAG
 45 7 1-4 * * /bin/bash ${CODE_ROOT}/helpers/monthly-dispatch.sh --job clo-disclosure-audit >> ${REPO_ROOT}/.juvant/logs/clo-disclosure-audit.log 2>&1 $CRON_TAG
@@ -578,7 +611,7 @@ CRON
         mkdir -p "${REPO_ROOT}/.juvant/logs"
         crontab "$TMP"
         rm -f "$TMP"
-        echo "[install-schedules] OK — Linux cron entries installed (10 jobs tagged $CRON_TAG)."
+        echo "[install-schedules] OK — Linux cron entries installed (11 jobs tagged $CRON_TAG)."
         ;;
 
       uninstall|--uninstall)
@@ -616,7 +649,8 @@ If you must stay on Git Bash (no WSL), you can manually create
 Windows Task Scheduler entries pointing at:
   - C:\\path\\to\\Git\\bin\\bash.exe
   - $REPO_ROOT/helpers/<helper>.sh
-For each of the 10 scheduled jobs (turso-backup daily 03:00,
+For each of the 11 scheduled jobs (turso-backup daily 03:00,
+download-cache-sweep daily 04:30,
 audit-reconcile weekly Sat 03:00, governance-backfill monthly day-1 04:00,
 clo-disclosure-audit days 1-4 07:45 and chro-ranking days 1-4 09:00
 (helpers/monthly-dispatch.sh --job <name>),

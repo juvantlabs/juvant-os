@@ -58,7 +58,7 @@ eq  "install exits 0" "0" "$rc"
 has "reports the pinned checkout" "$out" "pinned checkout:"
 eq  "pinned checkout is at origin/main" "$MAIN0" "$(git -C "$PIN" rev-parse HEAD 2>/dev/null)"
 eq  "every job runs code from the pinned checkout" "0" "$(programs | grep -v "^$PIN/" | grep -c . || true)"
-eq  "10 jobs installed" "10" "$(programs | grep -c "^$PIN/" || true)"
+eq  "11 jobs installed" "11" "$(programs | grep -c "^$PIN/" || true)"
 if [[ -w "$PIN/helpers/drain-audit-spool.sh" ]]; then no "pinned code is read-only"; else ok "pinned code is read-only"; fi
 eq  "pinned .juvant is the instance's state dir" "$INST/.juvant" "$(readlink "$PIN/.juvant")"
 eq  "nested worktree hidden from the instance's git status" "0" "$(git -C "$INST" status --porcelain | grep -c pinned-main || true)"

@@ -88,6 +88,8 @@ case "$OS" in
     }
     CLO_SCHED=$(_monthly clo-disclosure-audit)
     CHRO_SCHED=$(_monthly chro-ranking)
+    _ds="$PLIST_DIR/io.juvant.guardrails.download-cache-sweep.plist"
+    SWEEP_SCHED="$("$PB" -c "Print :StartCalendarInterval:Hour" "$_ds" 2>/dev/null):$("$PB" -c "Print :StartCalendarInterval:Minute" "$_ds" 2>/dev/null)"
     ;;
   Linux)
     export CRON_CAPTURE="$TMPHOME/crontab.txt"
@@ -108,6 +110,7 @@ STUBEOF
     }
     CLO_SCHED=$(_monthly clo-disclosure-audit)
     CHRO_SCHED=$(_monthly chro-ranking)
+    SWEEP_SCHED=$(grep 'download-cache-sweep\.sh' "$CRON_CAPTURE" | awk '{print $2 ":" $1}')
     ;;
   *)
     echo "  SKIP: scheduling unsupported on $OS (test is a no-op)"
@@ -129,6 +132,8 @@ check_ne "the two weekly jobs are on different days" "$AR_NORM" "$CSO_NORM"
 # FEAT-067: monthly dispatch on days 1–4 (the helper gates the first business day).
 check "clo-disclosure-audit: days 1-4 at 07:45" "1,2,3,4 7:45 clo-disclosure-audit" "$CLO_SCHED"
 check "chro-ranking: days 1-4 at 09:00"         "1,2,3,4 9:0 chro-ranking"          "$CHRO_SCHED"
+
+check "download-cache-sweep: daily at 04:30" "4:30" "$SWEEP_SCHED"
 
 echo "==============================="
 echo " RESULTS: $PASS passed, $FAIL failed"
