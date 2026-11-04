@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.20.0] — 2026-11-04 — Retention sweep for the MCP download sandboxes
+
 ### Added
 
 - **Retention for the MCP download sandboxes** (FEAT-068, juvant-os-pm#205).
