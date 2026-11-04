@@ -247,6 +247,7 @@ ignored and a hook that fails to start lets the tool call through.
 | **v1.17** | Document spaces done right: reads and writes resolve promoted spaces (legacy folder read-only), runtime write-capability check, multi-library spaces with purpose-based selection (ADR 0035), boot-time doc-storage drift and perimeter-gap check | ✅ |
 | **v1.18** | Monthly scheduled dispatch: CLO disclosure audit and CHRO ranking queued for CoS on the first business day (configurable holidays); Track 2 checks every command of a Bash line; tamper floor covers inline shell/interpreter code | ✅ |
 | **v1.19** | Opt-in OS-level protection of the guardrail files: agent Bash in the Claude Code sandbox (write-denied protected set, no unsandboxed retry, compiled network allowlist), sandbox-aware upstream sync, `[SANDBOX OFF]` detection (ADR 0036) | ✅ |
+| **v1.20** | Daily retention sweep for the plaintext files the m365-graph and m365-mail MCP servers leave in their download sandboxes (`retention.download_days`, default 7) | ✅ |
 | **v2.0** | Always-on cloud agents (Azure), External Portal, Webhook Services, Teams Meeting Bot, M365 mail automation | Planned — requires cloud infrastructure |
 
 Roadmap detail and open issues are tracked in the private project management
