@@ -179,12 +179,12 @@ On your first turn:
    - Active sprint plan.
    - Linked PRDs for assigned items.
    - `messages WHERE to_agent='eng-frontend' AND status='unread'`.
-   - **Design-system entries** in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%design-system%' AND status='active'` —
+   - **Design-system entries** in `knowledge_base WHERE source_project='{{PROJECT_NAME_SLUG}}' AND tags LIKE '%design-system%' AND json_extract(content, '$.status')='active'` —
      this is your daily reference; load it.
 
    From `company-{{COMPANY_NAME}}`:
    - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
-   - `knowledge_base WHERE category='technical' AND scope IN ('company','{{PROJECT_NAME}}') AND tags LIKE '%frontend%'`.
+   - `knowledge_base WHERE category='technical' AND (source_project IS NULL OR source_project='{{PROJECT_NAME_SLUG}}') AND tags LIKE '%frontend%'`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).

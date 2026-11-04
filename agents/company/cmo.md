@@ -320,7 +320,7 @@ brand_architecture (
   scope='company',
   category='strategic',
   tags='brand-architecture',
-  body_inline = JSON list of {
+  content = JSON list of {
     project_slug,
     mode,         -- inherit | extend | independent
     ratified_by,  -- 'cmo' for inherit/extend; 'ceo+brand-mode-ratification.id' for independent

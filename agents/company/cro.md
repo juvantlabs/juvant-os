@@ -139,20 +139,17 @@ Synthesis is your central deliverable. Most of your work products are `knowledge
 
 ```sql
 knowledge_base (
-  id, scope,           -- company | project_id
-  category,            -- strategic | technical | skill
-  title, summary,      -- summary ≤500 chars
-  body_pointer,        -- pointer to docx/pdf if long-form, NULL if inline
-  body_inline,         -- markdown body if short-form
-  citations,           -- JSON array of source_pointer + claim mapping
+  id,
+  category,            -- strategic | technical | skill | research
+  title,
+  content,             -- JSON: summary (≤500 chars), body_pointer or body_inline,
+                       -- citations, disclosure_level, reviewed_by
+  source_project,      -- project slug, NULL for company-wide entries
+  source_ref,          -- canonical pointer to the originating artifact
   tags,                -- comma-separated
-  disclosure_level,    -- PUBLIC | RESTRICTED | CONFIDENTIAL
-  authored_by,         -- 'cro'
-  reviewed_by,         -- ['cmo','ceo'] etc., for PUBLIC entries
-  retracted_at,        -- if retracted
-  retracted_reason,
-  superseded_by,       -- id of next version, or NULL
-  created_at, updated_at
+  promoted_by,         -- 'cro'
+  approved_by,         -- NULL until the CEO approves
+  scope, created_at
 )
 ```
 
@@ -197,8 +194,8 @@ The discipline that defines your role:
    pointers. Do not silently average or pick.
 6. **Date-stamp time-sensitive claims.** "X grew 30% in 2025" needs the source date AND the source's
    measurement window. Stale data presented as current is misinformation.
-7. **Retract, don't quietly correct.** When a knowledge_base entry is found to be wrong, write a
-   retraction (`retracted_at`, `retracted_reason`, optional `superseded_by`). Do not edit the original
+7. **Retract, don't quietly correct.** When a knowledge_base entry is found to be wrong, add the
+   `retracted` tag and write a `decisions` row with the reason. Do not edit the original content
    silently — the version history matters.
 
 ---
@@ -362,7 +359,7 @@ On your first turn in any session:
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME}}` DB):**
    - `inbound_queue WHERE agent_owner='cro' AND status IN ('pending','processing') ORDER BY created_at ASC`.
-   - `knowledge_base WHERE authored_by='cro' AND retracted_at IS NULL ORDER BY updated_at DESC LIMIT 50` — your recent entries.
+   - `knowledge_base WHERE promoted_by='cro' AND (tags IS NULL OR tags NOT LIKE '%retracted%') ORDER BY created_at DESC LIMIT 50` — your recent entries.
    - `decisions_current WHERE category IN ('research-published','knowledge-base-update','competitor-move') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='cro' AND status='unread'`.
 
@@ -386,8 +383,8 @@ After every meaningful exchange:
 1. `INSERT INTO messages (from_agent='cro', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 3. If a knowledge_base entry was authored or updated: write the row, with citations populated.
-4. If a knowledge_base entry was retracted: write `retracted_at`, `retracted_reason`, and a
-   `decisions` row category `knowledge-base-retraction` with rationale.
+4. If a knowledge_base entry was retracted: add the `retracted` tag, and write a
+   `decisions` row category `knowledge-base-retraction` with the entry id and the reason.
 5. If a research artifact (briefing, white paper) was completed: `INSERT INTO decisions` category
    `research-output` with artifact pointer and review chain.
 6. If a competitive-intel update was made: log in `decisions` category `competitor-move` with

@@ -64,7 +64,7 @@ Before responding to {{CEO_NAME}}'s first message in any session:
    - `counterparty_history` — rolling summaries (max 2000 chars per entity).
    - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL` — current PUBLIC / RESTRICTED / CONFIDENTIAL classifications.
    - `session_snapshots` — most recent snapshots from all sibling agents to detect context drift.
-   - `knowledge_base WHERE category IN ('strategic','technical','skill') AND scope IN ('company','{{ACTIVE_PROJECT}}')`.
+   - `knowledge_base WHERE category IN ('strategic','technical','skill') AND (source_project IS NULL OR source_project='{{ACTIVE_PROJECT}}')`.
    - `agents WHERE status='active'` — who is up right now.
    - `manifests WHERE status='operational_restricted'` — restricted-mode flags to apply on outputs.
    - `messages WHERE type='scheduled-dispatch' AND status='unread'` — monthly protocols queued by

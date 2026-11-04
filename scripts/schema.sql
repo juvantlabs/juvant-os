@@ -606,6 +606,9 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
   content         TEXT NOT NULL,
   source_project  TEXT,
   -- abstract project slug — 'hardys', etc.
+  tags            TEXT,
+  -- comma-separated; how agents find entries by kind ('runbook', 'backlog', …).
+  -- NULL on rows from before the column (BUG-074).
   source_ref      TEXT,
   -- canonical pointer to the originating artifact:
   --   issue:  '<org>/<repo>#<num>'  e.g. 'juvantio/hardys-pm#76'
