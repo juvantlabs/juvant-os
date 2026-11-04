@@ -203,6 +203,7 @@ jobs:
           bash tests/hooks/test-secrets.sh
           bash tests/hooks/test-alert-delivery.sh
           bash tests/hooks/test-cloud-cli.sh
+          bash tests/hooks/test-shell-tools.sh
           # decisions#302: Track 2b/2c scope-boundary suite (was stale and
           # off-CI — juvant-os-pm#180).
           bash tests/hooks/track2b/run-tests.sh

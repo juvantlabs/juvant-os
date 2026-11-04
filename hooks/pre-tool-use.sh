@@ -119,6 +119,26 @@ esac
 DECISION="allow"
 DENY_REASON=""
 
+# BUG-100: Bash is not the only tool that runs a shell command. Monitor runs
+# `tool_input.command` in the same environment, so every Bash track below applies
+# to it: the rest of this hook sees Bash, the audit row keeps the real tool. A
+# Monitor with `ws` runs no shell and stays on the plain path (like WebFetch, it
+# is logged, not gated). Any other non-MCP tool carrying a command is denied until
+# it is classified here, so the next shell-running tool can't skip the tracks.
+AUDIT_TOOL_NAME="$TOOL_NAME"
+case "$TOOL_NAME" in
+  Bash|mcp__*) ;;
+  Monitor)
+    if [[ "$(echo "$EVENT_JSON" | jq -r '.tool_input.command != null' 2>/dev/null || echo true)" == "true" ]]; then
+      TOOL_NAME="Bash"
+    fi ;;
+  *)
+    if [[ "$(echo "$EVENT_JSON" | jq -r '.tool_input.command != null' 2>/dev/null || echo true)" == "true" ]]; then
+      DECISION="deny"
+      DENY_REASON="deny:unclassified-shell-tool:$TOOL_NAME — this tool carries a command and hooks/pre-tool-use.sh does not know how to gate it, so it is denied by default (handbook ADR 0004 Track 2). Use Bash, or surface this to your parent (CoS) for a framework change. Refs: BUG-100"
+    fi ;;
+esac
+
 # ─────────────────────────────────────────────
 # Track 2 — Bash policy enforcement
 # ─────────────────────────────────────────────
@@ -2512,7 +2532,7 @@ fi
 
 SESSION_ESC=$(sql_escape "$SESSION_ID")
 ROLE_ESC=$(sql_escape "$ROLE")
-TOOL_ESC=$(sql_escape "$TOOL_NAME")
+TOOL_ESC=$(sql_escape "$AUDIT_TOOL_NAME")
 INPUT_SUMMARY_ESC=$(sql_escape "$INPUT_SUMMARY")
 
 # ARCH-017 / ADR 0029: if the agent ran a Bash landing command prefixed
