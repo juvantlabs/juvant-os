@@ -11,6 +11,29 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Security
+
+- **Agents run cloud CLIs read-only, decided on the parsed command** (BUG-076,
+  juvant-os-pm#163). The R3 check compared regexes with the raw command text,
+  so it depended on how a command was written, in both directions. `az`, `aws`,
+  `gcloud` and `terraform` are now checked by `hooks/lib/cloud-cli.sh` on the
+  parsed argv of every command (BUG-098's parser, including wrappers, `bash -c`,
+  `eval` and `find -exec`) against a read-only allow-list,
+  `cloud_cli_read_only` in `hooks/bash-policy.json`. Anything not listed is
+  denied: unlisted subcommands, unlisted leading flags, computed words in the
+  command path, a CLI with no subcommand on the line.
+  - **Fixed false positives:** quoted text is no longer a command, so a commit
+    message or an `echo` that mentions a cloud command passes.
+  - **`agent_role_deny_patterns` stays as the fallback**, widened, for lines the
+    parser can't see into (inline interpreter code, text piped to a shell) and
+    for a missing library during an upstream sync.
+  - **Behaviour change:** a read-only subcommand that isn't on the list is now
+    denied, and the reason names the list. Add it to `cloud_cli_read_only`.
+    `terraform refresh`, `test` and `console` are denied.
+  - **Agents:** `az --subscription "$SUB" group list` is denied because a
+    computed value before the subcommand can't be checked. Put the flag after
+    the subcommand.
+
 ## [1.19.0] — 2026-11-03 — Opt-in OS-level protection of the guardrail files (Bash sandbox, ADR 0036)
 
 Adopter action: none to stay as you are. The sandbox is opt-in. To turn it
