@@ -692,16 +692,36 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
   # remain allowed. Cloud mutations must flow via the CEO-triggered
   # terraform-apply GitHub workflow (gated by Track 4 deployment-spec /
   # eng-platform-spec), never local CLI from an agent.
+  # BUG-076: the decision is taken on the parsed argv against the read-only
+  # allow-list (hooks/lib/cloud-cli.sh). The raw patterns remain for the lines
+  # argv can't see into (code readers, unparsable lines) and for a missing lib
+  # (mid upstream-sync).
   if [[ "$DECISION" == "allow" ]]; then
     if [[ -n "$ROLE" && "$ROLE" != "unknown" && "$ROLE" != "ceo" && "$ROLE" != "operator" ]]; then
-      while IFS= read -r pattern; do
-        [[ -z "$pattern" || "$pattern" == "null" ]] && continue
-        if [[ "$COMMAND" =~ $pattern ]]; then
-          DECISION="deny"
-          DENY_REASON="agent-role deny-list match (R3 cloud-write defense-in-depth): $pattern. Cloud mutations must flow via the terraform-apply GitHub workflow (deployment-spec / eng-platform-spec), never local CLI. Read-only operations (az … show|list|account, terraform fmt|validate|plan) are allowed. Refs: agent_role_deny_patterns in bash-policy.json"
-          break
-        fi
-      done < <(jq -r '.agent_role_deny_patterns[]?' "$POLICY" 2>/dev/null)
+      _r3_rc=3
+      if [[ -f "$SCRIPT_DIR/lib/bash-segments.sh" && -f "$SCRIPT_DIR/lib/cloud-cli.sh" ]]; then
+        # shellcheck disable=SC1091
+        . "$SCRIPT_DIR/lib/bash-segments.sh"
+        # shellcheck disable=SC1091
+        . "$SCRIPT_DIR/lib/cloud-cli.sh"
+        # `|| …` keeps a non-zero return from tripping set -e: a hook that dies
+        # exits 1, which Claude Code treats as non-blocking.
+        _r3_rc=0
+        _r3_reason=$(juvant_cloud_cli_check "$POLICY" "$COMMAND") || _r3_rc=$?
+      fi
+      if [[ "$_r3_rc" == 1 ]]; then
+        DECISION="deny"
+        DENY_REASON="$_r3_reason"
+      elif [[ "$_r3_rc" != 0 ]]; then
+        while IFS= read -r pattern; do
+          [[ -z "$pattern" || "$pattern" == "null" ]] && continue
+          if [[ "$COMMAND" =~ $pattern ]]; then
+            DECISION="deny"
+            DENY_REASON="agent-role deny-list match (R3 cloud-write defense-in-depth): $pattern. Cloud mutations must flow via the terraform-apply GitHub workflow (deployment-spec / eng-platform-spec), never local CLI. Read-only operations (az … show|list|account, terraform fmt|validate|plan) are allowed. Refs: agent_role_deny_patterns in bash-policy.json"
+            break
+          fi
+        done < <(jq -r '.agent_role_deny_patterns[]?' "$POLICY" 2>/dev/null)
+      fi
     fi
   fi
 

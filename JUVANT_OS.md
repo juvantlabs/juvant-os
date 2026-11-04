@@ -5218,6 +5218,7 @@ hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
 hooks/lib/hooks-integrity.sh  hooks/lib/guardrail-paths.sh
 hooks/lib/security-policy.sh  hooks/lib/secrets.sh
 hooks/lib/alert.sh            hooks/lib/bash-segments.sh
+hooks/lib/cloud-cli.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh
@@ -5265,6 +5266,7 @@ tests/hooks/test-security-policy.sh
 tests/hooks/test-connector-gate.sh
 tests/hooks/test-secrets.sh
 tests/hooks/test-alert-delivery.sh
+tests/hooks/test-cloud-cli.sh
 tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh

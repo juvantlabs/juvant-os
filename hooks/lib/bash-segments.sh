@@ -20,6 +20,11 @@
 #   backtick, a command name computed at run time ($cmd, "$(…)"), env -S,
 #   nesting deeper than _JBS_MAX_DEPTH.
 #
+# juvant_bash_argv <command>  (BUG-076)
+#   Same walk, plus one line per listed command with its unwrapped arguments:
+#     A<US><name><US><arg1><US>…   (US = 0x1F; newlines in a word become spaces)
+#   A word holding a `$` marker is computed at run time.
+#
 # Pure bash 3.2 (macOS /bin/bash): no associative arrays. Every helper works
 # on the caller's locals through bash's dynamic scoping.
 #
@@ -29,6 +34,16 @@
 _JBS_MAX_DEPTH=8
 
 juvant_bash_binaries() {
+  _JBS_ARGV=0
+  _jbs_run "$1"
+}
+
+juvant_bash_argv() {
+  _JBS_ARGV=1
+  _jbs_run "$1"
+}
+
+_jbs_run() {
   local LC_ALL=C
   _JBS_FAIL=""
   _JBS_POS=0
@@ -313,6 +328,13 @@ _jbs_skip_array() {
   _JBS_FAIL="unterminated array assignment"
 }
 
+# _jbs_argv_line <name> <args…>
+_jbs_argv_line() {
+  local IFS=$'\037' out
+  out="$*"
+  printf 'A\037%s\n' "${out//$'\n'/ }"
+}
+
 # _jbs_emit <words…> — list the binary of one simple command.
 _jbs_emit() {
   local -a w=("$@")
@@ -381,6 +403,7 @@ _jbs_emit() {
   # a function defined earlier on the same line: its body is checked already
   [[ "$_JBS_FUNCS" == *" $b "* ]] && return
   printf 'B %s\n' "$b"
+  if (( _JBS_ARGV )); then _jbs_argv_line "$b" "${w[@]:k+1}"; fi
   case "$b" in
     bash|sh|zsh|dash|ksh)
       sc=0; code=""; j=$((k + 1))

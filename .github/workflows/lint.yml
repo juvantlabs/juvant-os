@@ -202,6 +202,7 @@ jobs:
           # decisions#305 B1b: gated secrets file, token off argv, read-only token.
           bash tests/hooks/test-secrets.sh
           bash tests/hooks/test-alert-delivery.sh
+          bash tests/hooks/test-cloud-cli.sh
           # decisions#302: Track 2b/2c scope-boundary suite (was stale and
           # off-CI — juvant-os-pm#180).
           bash tests/hooks/track2b/run-tests.sh
