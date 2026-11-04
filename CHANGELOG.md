@@ -11,6 +11,16 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Security
+
+- **Commands run through Monitor get the Bash checks** (BUG-100). The Monitor
+  tool runs a shell command, and every Bash track of `hooks/pre-tool-use.sh`
+  skipped it. It now goes through all of them, with the same verdict and
+  reason as Bash; the audit row keeps the name Monitor. A Monitor with a `ws`
+  source runs no shell and is logged, not gated. Any other non-MCP tool
+  carrying a command is denied until the hook classifies it. Waiting through
+  Monitor keeps working with allow-listed binaries.
+
 ## [1.20.0] — 2026-11-04 — Retention sweep for the MCP download sandboxes
 
 ### Added

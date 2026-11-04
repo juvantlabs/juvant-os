@@ -5279,6 +5279,7 @@ tests/hooks/test-connector-gate.sh
 tests/hooks/test-secrets.sh
 tests/hooks/test-alert-delivery.sh
 tests/hooks/test-cloud-cli.sh
+tests/hooks/test-shell-tools.sh
 tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh
 tests/helpers/test-audit-reconcile-autoclose.sh
