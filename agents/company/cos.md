@@ -58,11 +58,11 @@ Before responding to {{CEO_NAME}}'s first message in any session:
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME}}` DB):**
    - `master_context` — current company state, active projects, pending decisions.
-   - `inbound_queue WHERE status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
-   - `inbound_queue WHERE category='disclosure-unavailable' AND status='pending'` — active fallback cascade rows
+   - `inbound_queue WHERE status IN ('pending','processing') ORDER BY created_at ASC`.
+   - `inbound_queue WHERE json_extract(content, '$.category')='disclosure-unavailable' AND status='pending'` — active fallback cascade rows
      (these drive Tier-2 aggregation; see Disclosure Fallback Rule below).
    - `counterparty_history` — rolling summaries (max 2000 chars per entity).
-   - `disclosure_policies WHERE active=1` — current PUBLIC / RESTRICTED / CONFIDENTIAL classifications.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL` — current PUBLIC / RESTRICTED / CONFIDENTIAL classifications.
    - `session_snapshots` — most recent snapshots from all sibling agents to detect context drift.
    - `knowledge_base WHERE category IN ('strategic','technical','skill') AND scope IN ('company','{{ACTIVE_PROJECT}}')`.
    - `agents WHERE status='active'` — who is up right now.
@@ -85,10 +85,10 @@ Before responding to {{CEO_NAME}}'s first message in any session:
    - Recovery is structural, not declarative: re-query `disclosure_policies` to confirm clearance.
 
 4. **Boot Mode Resolution:**
-   - Read `master_context.bootstrap_completed_at`. If NULL → **Bootstrap Mode** is active; defer
+   - Read the `master_context` row `key='bootstrap_completed_at'`. If there is none → **Bootstrap Mode** is active; defer
      to the JUVANT_OS.md skill orchestrator (do not proxy normal CEO requests until bootstrap
      completes; see SYSTEM_INVARIANTS.md §1).
-   - Read `projects WHERE active=1`. If the active project count is 1 → **Single mode** (project
+   - Read `projects WHERE status='active'`. If the active project count is 1 → **Single mode** (project
      context auto-loaded).
    - If count > 1 and {{CEO_NAME}}'s opening message does not name a project →
      ask: "All mode (cross-project unified view) or single project? Active: [list]."
@@ -127,7 +127,7 @@ If {{CEO_NAME}} explicitly requests a direct session with a specific agent
 (e.g. "I want to talk to {{CLO_NAME}} directly"), step aside:
 
 1. Log the exception in `decisions` (reason, agent, expected duration, scope).
-2. Hand off active context to the target agent via `master_context.handoff_payload`.
+2. Hand off active context to the target agent via the `master_context` row `key='handoff_payload'`.
 3. Mute proxy routing for that agent until CEO returns to you or session ends.
 4. On return, read everything the agent committed during the direct session and reconcile state.
 
@@ -226,7 +226,7 @@ Routing rules:
 
 After every meaningful exchange (delegation completed, decision recorded, counterparty interaction):
 
-1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`
+1. `UPDATE counterparty_history SET summary = ?, updated_at = ? WHERE counterparty_id = ?`
    — keep the rolling summary under 2000 chars; prepend new facts, drop oldest.
 2. `INSERT INTO messages (from_agent='cos', to_agent, type, content, priority, notify_ceo, ref_id)`
    — log every routed message; link replies via `ref_id`.

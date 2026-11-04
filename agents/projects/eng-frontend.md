@@ -175,7 +175,7 @@ On your first turn:
 2. **Read structured memory:**
 
    From `project-{{PROJECT_NAME}}`:
-   - `inbound_queue WHERE agent_owner='eng-frontend' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
+   - `inbound_queue WHERE agent_owner='eng-frontend' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - Active sprint plan.
    - Linked PRDs for assigned items.
    - `messages WHERE to_agent='eng-frontend' AND status='unread'`.
@@ -183,7 +183,7 @@ On your first turn:
      this is your daily reference; load it.
 
    From `company-{{COMPANY_NAME}}`:
-   - `disclosure_policies WHERE active=1`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `knowledge_base WHERE category='technical' AND scope IN ('company','{{PROJECT_NAME}}') AND tags LIKE '%frontend%'`.
 
 3. **Disclosure Fallback Rule:**

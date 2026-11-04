@@ -130,21 +130,21 @@ No agent uses tools, skills, or channels not declared in its current matrix row.
 
 ```sql
 agent_tool_matrix (
-  id, agent, version,
+  id, role, version,
   mcp_servers,        -- comma-separated; each entry may carry scope qualifier (e.g. "github:read")
   skills,             -- comma-separated
   channels,           -- comma-separated, with mode (send|receive|both)
-  rationale,          -- why this combination
-  status,             -- draft | active | superseded
-  approved_by,        -- 'ceo'
-  approved_at,
+  approved_by,        -- 'ceo'; NULL until approved
   superseded_by,      -- id of next version, or NULL
-  created_at, updated_at
+  created_at
 )
 ```
 
+A row is a draft while `approved_by` is NULL and active once approved; `superseded_by` retires it.
+The rationale for a change lives in its `decisions` row.
+
 Versioning is immutable. A change creates a new row with `version = previous + 1` and supersedes
-the old row (`status='superseded'`, `superseded_by=new_id`). Rollback is a forward operation:
+the old row (`superseded_by=new_id`). Rollback is a forward operation:
 create a new version that reproduces the old state, never delete or rewrite history.
 
 **MCP scope qualifiers:**
@@ -393,7 +393,7 @@ The audit detects gaps between declared matrix rows and actual agent behaviour.
 
 **Procedure:**
 
-1. `SELECT agent, mcp_servers, skills, channels FROM agent_tool_matrix WHERE status='active'`.
+1. `SELECT role, mcp_servers, skills, channels FROM agent_tool_matrix WHERE superseded_by IS NULL AND approved_by IS NOT NULL`.
 2. For each agent, query the last 7 days of `messages.tools_used` (or equivalent OpenTelemetry trace).
 3. Compute:
    - **Unauthorized usage**: agent invoked a tool not in its matrix → security incident, immediate {{CSO_NAME}} notify.
@@ -419,10 +419,10 @@ On your first turn in any session:
    - Else fall back to structured memory below.
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME}}` DB):**
-   - `inbound_queue WHERE agent_owner='cto' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
-   - `agent_tool_matrix WHERE status='active'` — current contract for every agent.
-   - `agent_tool_matrix WHERE status='draft'` — your in-flight changes.
-   - `decisions WHERE category IN ('architecture','tool-matrix','tech-standard','pr-spec') AND status='open'`.
+   - `inbound_queue WHERE agent_owner='cto' AND status IN ('pending','processing') ORDER BY created_at ASC`.
+   - `agent_tool_matrix WHERE superseded_by IS NULL AND approved_by IS NOT NULL` — current contract for every agent.
+   - `agent_tool_matrix WHERE superseded_by IS NULL AND approved_by IS NULL` — your in-flight changes.
+   - `decisions_current WHERE category IN ('architecture','tool-matrix','tech-standard','pr-spec') AND current_status IN ('proposed','approved')`.
    - `knowledge_base WHERE category='technical'` — standards, exceptions, principles citations.
    - `messages WHERE to_agent='cto' AND status='unread'`.
    - `security_audit_log WHERE category IN ('drift','tool-matrix-change') ORDER BY created_at DESC LIMIT 50`.

@@ -623,7 +623,7 @@ On your first turn in any session:
    - Else fall back to structured memory below.
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME_SLUG}}` DB):**
-   - `inbound_queue WHERE agent_owner='eng-platform' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
+   - `inbound_queue WHERE agent_owner='eng-platform' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - `decisions WHERE category IN ('pr-spec','install-spec','branch-protection-spec','eng-platform-spec') AND agent='eng-platform' AND status='proposed'` — your in-flight specs.
    - `decisions WHERE category IN ('pr-spec','install-spec','eng-platform-spec','deployment','release-published') AND status='executed' ORDER BY executed_at DESC LIMIT 20` — recent infra activity to evaluate drift.
    - `knowledge_base WHERE category='technical' AND tags LIKE '%platform%' OR tags LIKE '%infra%'` — module catalog state, runbook stubs, exception ledger, npm helper version log.
@@ -631,7 +631,7 @@ On your first turn in any session:
    - `security_audit_log WHERE category IN ('drift','infra-finding','secret-incident') ORDER BY created_at DESC LIMIT 50`.
 
 3. **Cross-DB read for active projects:**
-   - For each `projects WHERE active=1` row, read `decisions` from `project-<name>` DB
+   - For each `projects WHERE status='active'` row, read `decisions` from `project-<name>` DB
      filtered to infra-class categories within the last 7 days, to spot
      project-scope infra activity that needs company-scope review.
 

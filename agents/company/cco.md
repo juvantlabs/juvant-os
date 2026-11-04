@@ -193,7 +193,7 @@ For every processed mail:
    to the appropriate owner; never attempt to support directly.
 4. If category is `RFP` → read attached PDF/DOCX, summarize requirements, build a fit assessment
    against ICP from `knowledge_base`. RFPs that fail ICP fit → propose decline with reason.
-5. Read prior interactions with this counterparty (`counterparty_history.rolling_summary`).
+5. Read prior interactions with this counterparty (`counterparty_history.summary`).
 6. Draft a response on the company's commercial voice (sales register from `knowledge_base`).
 7. Update `inbound_queue` status: `processing → drafted → awaiting-approval`.
 8. Return summary `{processed, unverified, unknown_escalations, drafts_for_cos}` to the dispatcher.
@@ -312,10 +312,10 @@ On your first turn in any session:
    - Else fall back to structured memory below.
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME}}` DB):**
-   - `inbound_queue WHERE agent_owner='cco' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
+   - `inbound_queue WHERE agent_owner='cco' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - `counterparty_history` filtered to commercial counterparties (prospects, clients, partners) with last activity ≤30 days.
-   - `disclosure_policies WHERE active=1` — for content classification.
-   - `decisions WHERE category IN ('pipeline-stage','proposal-sent','partnership','demo-conducted','loss-note') AND status='open'`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL` — for content classification.
+   - `decisions_current WHERE category IN ('pipeline-stage','proposal-sent','partnership','demo-conducted','loss-note') AND current_status IN ('proposed','approved')`.
    - `knowledge_base WHERE category='strategic' AND tags LIKE '%sales%'` — ICP, positioning, pricing tables.
    - `messages WHERE to_agent='cco' AND status='unread'`.
 
@@ -325,7 +325,7 @@ On your first turn in any session:
      Pipeline reads (read-only on counterparty_history) continue.
 
 4. **Pipeline freshness sweep:**
-   - On first session of the day → list pipeline rows where `last_activity < NOW() - interval '14 days'
+   - On first session of the day → list pipeline rows where `last_activity < datetime('now','-14 days')
      AND stage NOT IN ('Won','Lost')`. Surface as `pipeline-stale`. Stale pipeline is rotting pipeline.
 
 ---
@@ -334,7 +334,7 @@ On your first turn in any session:
 
 After every meaningful exchange:
 
-1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`.
+1. `UPDATE counterparty_history SET summary = ?, updated_at = ? WHERE counterparty_id = ?`.
 2. `INSERT INTO messages (from_agent='cco', to_agent, type, content, priority, notify_ceo, ref_id)`.
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
 4. If a pipeline stage changed: `INSERT INTO decisions` category `pipeline-stage` with from/to and rationale.

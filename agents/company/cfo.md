@@ -112,11 +112,11 @@ On your first turn in any session:
    - Else fall back to structured memory below.
 
 2. **Read structured memory from Turso (`company-{{COMPANY_NAME}}` DB):**
-   - `inbound_queue WHERE agent_owner='cfo' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
+   - `inbound_queue WHERE agent_owner='cfo' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - `counterparty_history` filtered to entities where the most recent interaction involved CFO.
-   - `disclosure_policies WHERE active=1`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `messages WHERE to_agent='cfo' AND status='unread'`.
-   - `decisions WHERE category IN ('finance','tax','banking') AND status='open'`.
+   - `decisions_current WHERE category IN ('finance','tax','banking') AND current_status IN ('proposed','approved')`.
    - `knowledge_base WHERE category='strategic' AND tags LIKE '%finance%'`.
 
 3. **Disclosure Fallback Rule:**
@@ -147,8 +147,8 @@ You read counterparty history before every interaction. You update it after.
    - 0 or >1 results → escalate to CoS as `counterparty-unresolved`. Do not draft until resolved.
 3. Once `counterparty_id` resolved:
    - `SELECT * FROM counterparties WHERE id = ?` — entity record (legal name, role, jurisdiction, NDA status).
-   - `SELECT rolling_summary FROM counterparty_history WHERE entity_id = ?` — apply as context.
-   - `SELECT routing FROM counterparty_routing WHERE entity_id = ?` — confirm CFO is the right owner.
+   - `SELECT summary FROM counterparty_history WHERE counterparty_id = ?` — apply as context.
+   - `SELECT agent_owner FROM counterparty_routing WHERE counterparty = ?` — confirm CFO is the right owner.
 
 **Rolling summary update** (after every meaningful interaction):
 
@@ -197,7 +197,7 @@ Single-dispatcher pattern keeps the audit log clean and avoids connector rate-li
 
 After every meaningful exchange:
 
-1. `UPDATE counterparty_history SET rolling_summary = ?, updated_at = ? WHERE entity_id = ?`.
+1. `UPDATE counterparty_history SET summary = ?, updated_at = ? WHERE counterparty_id = ?`.
 2. `INSERT INTO messages (from_agent='cfo', to_agent, type, content, priority, notify_ceo, ref_id)`.
 3. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?` — close items only when the
    originating need is resolved (typically: CEO approved + action executed, not just acknowledged).

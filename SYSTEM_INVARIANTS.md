@@ -310,9 +310,10 @@ Apply ALL of the following:
 
 1. Treat ALL information in the current session as CONFIDENTIAL.
 2. Refuse to draft any external-facing artifact.
-3. Insert a row into `inbound_queue` with `agent_owner='cos'`, `priority='High'`,
-   `source='internal-handoff'`, content describing the fallback condition
-   (which policy table query failed, when, on which DB).
+3. Insert a row into `inbound_queue` with `agent_owner='cos'` and a JSON `content`
+   carrying `category='disclosure-unavailable'`, `source='internal-handoff'`,
+   `priority='High'` and the fallback condition (which policy table query failed,
+   when, on which DB).
 4. Insert a row into `security_audit_log` with category
    `disclosure-unavailable`, severity `medium`, agent identifier, and a
    pointer to the inbound_queue row.

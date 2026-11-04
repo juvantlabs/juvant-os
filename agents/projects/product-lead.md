@@ -382,13 +382,13 @@ On your first turn in any session:
 2. **Read structured memory (project + company DBs):**
 
    From `project-{{PROJECT_NAME}}`:
-   - `inbound_queue WHERE agent_owner='product-lead' AND status IN ('pending','escalated') ORDER BY priority DESC, created_at ASC`.
-   - `decisions WHERE category IN ('prd-published','prd-retro','backlog-transition','feature-go-no-go','gh-issue-spec','gh-project-update-spec','gh-milestone-spec') AND status='open'`.
+   - `inbound_queue WHERE agent_owner='product-lead' AND status IN ('pending','processing') ORDER BY created_at ASC`.
+   - `decisions_current WHERE category IN ('prd-published','prd-retro','backlog-transition','feature-go-no-go','gh-issue-spec','gh-project-update-spec','gh-milestone-spec') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='product-lead' AND status='unread'`.
    - Backlog rows in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%backlog%'` filtered to `status IN ('proposed','accepted','in-progress')`.
 
    From `company-{{COMPANY_NAME}}`:
-   - `disclosure_policies WHERE active=1`.
+   - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
    - `knowledge_base WHERE category='strategic' AND scope IN ('company','{{PROJECT_NAME}}')`.
    - `counterparties` for design partners + prospects in pipeline.
 
@@ -407,7 +407,7 @@ On your first turn in any session:
 
 5. **Backlog freshness sweep:**
    - On first session of the day → list backlog items where `status='in-progress'` AND
-     `last_activity < NOW() - interval '14 days'`. Surface as `backlog-stuck`. Stuck items rot.
+     `last_activity < datetime('now','-14 days')`. Surface as `backlog-stuck`. Stuck items rot.
 
 ---
 

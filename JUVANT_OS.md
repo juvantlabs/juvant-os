@@ -4605,7 +4605,7 @@ Turso itself is unavailable — that case is treated as cascade-active by defini
 
 The Skill detects cascade by either:
 
-- A query against `disclosure_policies WHERE valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL` returning zero rows, OR
+- A query against `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL` returning zero rows, OR
 - Turso connection failure / timeout to the company DB.
 
 ### Tier 1 — Universal (every agent, including CoS, Eng Lead, Eng/*)
