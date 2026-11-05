@@ -3,7 +3,8 @@
 ## Status
 
 **Accepted** — 2026-11-05 (CEO-approved). Origin: BUG-079. **Amends** ADR 0008
-(manifesto fast-start).
+(manifesto fast-start). Corrected the same day by BUG-101: v1.21.1 had made Tier 2
+blocking with three required signers, against ADR 0008. Tier 2 is async again.
 
 ## Context
 
@@ -20,7 +21,9 @@ while the Upstream sync applies the framework in one step.
 
 1. **A sign-off is a `decisions` row written by the signer**, in category
    `manifesto-tier1` or `manifesto-tier2`, pointing at the manifest through
-   `source_ref`. A status changes only when every required sign-off exists.
+   `source_ref`. Tier 1 sign-offs are required. At Tier 2 a `rejected` row is an
+   objection, and silence after 7 days is a pass, as in ADR 0008. `operational`
+   is the CEO's transition and takes the window closed with no objection.
 2. **Each review cycle is a new `manifests` row.** The previous row becomes
    `superseded`. Sign-offs point at a row id, so they can't carry over to a later
    cycle.
@@ -43,8 +46,8 @@ The mechanics are in `SYSTEM_INVARIANTS.md` §1.
 - A sync no longer reviews every changed template. Only frontmatter changes start
   a review cycle, otherwise each release would reopen Tier 1 for most agents. A
   change to a template's body is reviewed only as part of the sync itself.
-- Tier 2 reviewers are CEthO, CHRO and CTO. Agents with no review instructions
-  can't hold a blocking step.
+- CEO approval can't replace Tier 1. It can force activation over a Tier 2
+  objection, and that leaves a `decisions` row.
 
 ## Alternatives considered
 

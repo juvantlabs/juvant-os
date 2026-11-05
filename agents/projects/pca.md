@@ -193,8 +193,10 @@ CTO still owns the tool matrix.
      risk profile, technical constraints)?
 4. APPROVE → write a `manifesto-tier1` sign-off (SYSTEM_INVARIANTS.md §1). Agent transitions to OPERATIONAL_RESTRICTED.
    REJECT → cite criterion failed; agent stays `pending`.
-5. Tier 2 (7-day async window) follows: {{CHRO_NAME}}, {{CTO_NAME}} and {{CETHO_NAME}} sign off in the company DB with
-   `source_ref='project:{{PROJECT_NAME_SLUG}}:manifests:<id>'`. When all three exist, move the row to `operational`.
+   Set `deadline=datetime('now','+7 days')` on the transition.
+5. Tier 2 (7-day async window) follows: {{CETHO_NAME}} reviews and company peers may flag concerns, in the company DB
+   with `source_ref='project:{{PROJECT_NAME_SLUG}}:manifests:<id>'`. Project peers do so in the project DB. Silence is a
+   pass. When the window closes, route the agent via CoS for CEO approval, or raise any objection.
 
 **Project bootstrap exception (cross-ref to SYSTEM_INVARIANTS.md §1):**
 

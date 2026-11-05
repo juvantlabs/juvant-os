@@ -11,6 +11,24 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tier 2 is async again** (BUG-101, juvant-os-pm#207). v1.21.1 made it blocking
+  with three required signers, against ADR 0008. That was a mistake, and so was its
+  note that those agents had review instructions: only CEthO did. Silence after 7
+  days is a pass, and an objection holds the manifesto until the CEO decides.
+- **CEO approval goes through the checks.** It needs the row in
+  `operational_restricted`, the window closed and no objection. The CEO can force
+  activation over an objection, which leaves a `decisions` row, but can't replace
+  Tier 1. Editing a manifesto starts a new review cycle.
+- `SYSTEM_INVARIANTS.md` §1 now matches bootstrap: promotion follows the CSO audit,
+  and Tier 2 of the founding manifestos is a follow-up.
+- The CHRO template said a restricted agent operates fully. It runs routine tasks
+  but can't make domain decisions, as `JUVANT_OS.md` says.
+
+**Adopter action:** set `deadline` on `operational_restricted` rows that have none
+and aren't bootstrap rows, or their window never closes.
+
 ## [1.21.1] — 2026-11-05 — Manifesto lifecycle on the real schema
 
 ### Fixed

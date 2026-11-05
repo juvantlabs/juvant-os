@@ -59,6 +59,25 @@ sign cto 1 1 approved
 eq "both signers" "2" "$(signers 1 1)"
 eq "Tier 2 is counted apart" "0" "$(signers 2 1)"
 
+echo "== CEO approval gate =="
+ready() { # <manifest id>
+  sqlite3 "$DB" "SELECT COUNT(*) FROM manifests m
+    WHERE m.id = $1 AND m.status = 'operational_restricted'
+      AND m.deadline <= CURRENT_TIMESTAMP
+      AND NOT EXISTS (SELECT 1 FROM decisions_current d
+                      WHERE d.category = 'manifesto-tier2'
+                        AND d.source_ref = 'manifests:' || m.id
+                        AND d.current_status = 'rejected'
+                        AND d.is_test_artifact = 0);"
+}
+eq "pending isn't approvable" "0" "$(ready 1)"
+sqlite3 "$DB" "UPDATE manifests SET status='operational_restricted', deadline=datetime('now','+7 days') WHERE id=1;"
+eq "open window isn't approvable" "0" "$(ready 1)"
+sqlite3 "$DB" "UPDATE manifests SET deadline=datetime('now','-1 minute') WHERE id=1;"
+eq "silence after the window passes" "1" "$(ready 1)"
+sign cetho 2 1 rejected
+eq "an objection holds it" "0" "$(ready 1)"
+
 echo "== sign-off integrity =="
 if sqlite3 "$DB" "UPDATE decisions SET rationale='x' WHERE source_ref='manifests:1';" 2>/dev/null; then
   no "rationale is immutable"; else ok "rationale is immutable"; fi

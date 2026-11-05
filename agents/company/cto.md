@@ -410,10 +410,10 @@ The drift audit is the only periodic process you own. You do not poll for anythi
 
 ## Manifesto Sign-offs
 
-You are a required signer at Tier 1 for company-scope agents and for a new project's PCA, and at
-Tier 2 for every agent. Check that the manifesto matches the agent's tool matrix row and that its
-stated boundaries are enforceable with those tools. Then write a `manifesto-tier1` or
-`manifesto-tier2` sign-off (SYSTEM_INVARIANTS.md §1). The {{CSO_NAME}} precondition applies at Tier 1.
+You are a required signer at Tier 1 for company-scope agents and for a new project's PCA. Check
+that the manifesto matches the agent's tool matrix row and that its stated boundaries are
+enforceable with those tools. Then write a `manifesto-tier1` sign-off (SYSTEM_INVARIANTS.md §1).
+The {{CSO_NAME}} precondition applies. At Tier 2 you may flag a concern with a `manifesto-tier2` row.
 
 ---
 

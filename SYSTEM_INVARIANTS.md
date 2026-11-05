@@ -80,10 +80,9 @@ A fork enters Bootstrap Mode when ALL of the following hold:
    - a `decisions` row category `bootstrap-action` with the CEO sign-off.
 5. The agent transitions to `OPERATIONAL_RESTRICTED` with the standard
    `[MANIFESTO PENDING]` flag visible on outputs.
-6. Tier 2 async review (7-day window) follows the standard flow. CEthO,
-   CHRO, CTO review during Tier 2 even though they themselves are also in
-   bootstrap. A Tier 2 sign-off on a bootstrap manifesto traces to
-   `tier1_bootstrap = 1` through its `manifests` row.
+6. Tier 2 of the founding manifestos is a follow-up and doesn't hold bootstrap:
+   reviewers have 7 days from step 8. A review traces to `tier1_bootstrap = 1`
+   through its `manifests` row, and an objection goes to the CEO.
 7. CSO performs the first system audit immediately after all N agents
    reach `OPERATIONAL_RESTRICTED`. The audit output goes to `decisions`
    category `system-audit` with `bootstrap_baseline = 1`.
@@ -100,23 +99,25 @@ A fork enters Bootstrap Mode when ALL of the following hold:
    a Skill that fabricates a CSO audit verdict is structurally
    indistinguishable from a malicious agent forging audit history. CSO
    Layer 5 detects orphan rows (see `agents/company/cso.md` § Layer 5).
-8. When all N agents complete Tier 2 AND the first CSO audit returns
-   PASS or WARN-WITH-CONDITIONS, the skill writes:
+8. When the first CSO audit returns PASS or WARN-WITH-CONDITIONS, the skill
+   writes:
    - `master_context.bootstrap_completed_at = NOW()`,
-   - all `manifests.status = 'operational'` (where Tier 2 cleared).
+   - all `manifests.status = 'operational'`, mirrored on `agents.manifesto_status`.
 
 ### Manifesto lifecycle and sign-offs
 
 ```
-pending → operational_restricted (Tier 1) → operational (Tier 2)
+pending → operational_restricted (Tier 1) → operational (CEO, after Tier 2)
         → rejected                          → superseded | retired
 ```
 
 The `[MANIFESTO PENDING]` flag applies while the agent's latest `manifests` row
-is not `operational`. There is no separate flag.
+is not `operational`. There is no separate flag. While `operational_restricted`
+the agent runs routine tasks but can't make domain decisions; the per-role limits
+are in `JUVANT_OS.md` § "Restricted mode".
 
-**A sign-off is a `decisions` row written by the agent signing**, never a field
-on `manifests`. Its key fields are immutable, so a sign-off can't be overwritten:
+**A review is a `decisions` row written by the reviewing agent**, never a field
+on `manifests`. Its key fields are immutable, so it can't be overwritten:
 
 ```sql
 INSERT INTO decisions (agent, title, category, rationale, source_ref, status,
@@ -128,16 +129,16 @@ VALUES ('<signer>', 'Tier 1 sign-off: <agent> manifesto', 'manifesto-tier1',
 
 - `category`: `manifesto-tier1` or `manifesto-tier2`.
 - Outcome: APPROVE is `status='approved'`. REJECT or CONDITIONAL is
-  `status='rejected'` with no `approved_by`, and the rationale says which.
+  `status='rejected'` with no `approved_by`, and the rationale says which. At
+  Tier 2 this is an objection.
 - `source_ref`: `manifests:<id>`. A company-scope reviewer signing a project
   manifesto writes to the company DB, because it can't write to the project DB
   after bootstrap (§4b), and uses `project:<slug>:manifests:<id>`.
 
-**Required sign-offs.** Tier 1: `chro` and `cto` for company-scope agents and for
-a new project's PCA, `pca` for other project-scope agents. Tier 2: `cetho`, `chro`
-and `cto`. An agent doesn't sign its own manifesto; the other signers are enough.
-
-**A status changes only when every required sign-off exists:**
+**Tier 1 is blocking.** Required sign-offs: `chro` and `cto` for company-scope
+agents and for a new project's PCA, `pca` for other project-scope agents. An agent
+doesn't sign its own manifesto; the other signers are enough. The row moves to
+`operational_restricted` only when all of them exist:
 
 ```sql
 SELECT COUNT(DISTINCT agent) FROM decisions_current
@@ -145,14 +146,38 @@ WHERE category='manifesto-tier1' AND source_ref='manifests:<id>'
   AND current_status='approved' AND is_test_artifact=0;
 ```
 
-CHRO makes the transition for company-scope agents and during a project
-bootstrap window, PCA for its project afterwards. In the same transaction,
-mirror the status onto `agents.manifesto_status`.
+CHRO makes this transition for company-scope agents and during a project
+bootstrap window, PCA for its project afterwards. It sets
+`deadline = datetime('now', '+7 days')`, and mirrors the status onto
+`agents.manifesto_status` in the same transaction.
+
+**Tier 2 is async (ADR 0008).** CEthO reviews every manifesto, and any other
+agent may review or flag a concern. Silence after the 7-day window is a pass.
+An objection holds the manifesto until the CEO decides.
+
+**`operational` is the CEO's transition.** It takes the window closed and no
+objection:
+
+```sql
+SELECT COUNT(*) FROM manifests m
+WHERE m.id = <id> AND m.status = 'operational_restricted'
+  AND m.deadline <= CURRENT_TIMESTAMP
+  AND NOT EXISTS (SELECT 1 FROM decisions_current d
+                  WHERE d.category = 'manifesto-tier2'
+                    AND d.source_ref = 'manifests:' || m.id
+                    AND d.current_status = 'rejected'
+                    AND d.is_test_artifact = 0);
+```
+
+Over an objection the CEO may extend the window, roll back, or force activation.
+A forced activation is a `decisions` row category `manifesto` citing the
+objection. Tier 1 can't be forced.
 
 **Each review cycle is a new `manifests` row.** A changed manifesto or a
 re-validation inserts a new row and sets the previous one to `superseded`.
-Sign-offs point at a row id, so those from an earlier cycle don't count. The new
-row starts at `pending`, or at `operational_restricted` for a Tier 2 only pass.
+Reviews point at a row id, so those from an earlier cycle don't count. The new
+row starts at `pending`, or at `operational_restricted` with a `deadline` for a
+Tier 2 only pass.
 
 ### Bootstrap mode is one-shot
 

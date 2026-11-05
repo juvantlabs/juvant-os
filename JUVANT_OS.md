@@ -4173,8 +4173,10 @@ Triggered by *"Review manifestos"* or by the boot/status flow surfacing a
 
 - **Tier 1** (blocking): company-scope = CHRO + CTO joint approval; project-scope =
   PCA sole approval.
-- **Tier 2** (async, 7-day window): all other agents review and may flag concerns;
-  silence after 7 days = pass.
+- **Tier 2** (async, 7-day window): CEthO reviews, all other agents may flag concerns;
+  silence after 7 days = pass. An objection holds the manifesto until the CEO decides.
+
+The mechanics are in `SYSTEM_INVARIANTS.md` §1.
 
 ### CSO precondition (post-bootstrap only)
 
@@ -4206,20 +4208,27 @@ Specifically:
 - PCA restricted → cannot approve project-scope Tier 1 manifestos (project boots stall).
 - Design Lead restricted → can mark internal design-system updates, cannot approve external
   brand assets.
-- (See per-agent files for the full per-role restriction list.)
 
 ### Approval flow
 
 1. Open the manifesto via `manifests.id`. Show the body, the agent's role, the tier,
    and the deadline.
-2. Capture CEO decision (Approve / Edit / Reject).
-3. On Approve:
+   Also show the Tier 1 sign-offs and any Tier 2 objection. For a project manifesto
+   use the project DB for the row, and read company-scope reviews from the company DB
+   with `source_ref='project:<slug>:manifests:<id>'`.
+2. Run the checks in `SYSTEM_INVARIANTS.md` §1. A `pending` row can't be approved:
+   Tier 1 comes first, and the CEO doesn't replace it. If the window is open, say when
+   it closes. If there is an objection, the CEO may extend, roll back or force.
+3. Capture CEO decision (Approve / Edit / Reject).
+4. On Approve:
    ```sql
-   UPDATE manifests SET status='operational', approved_by=?, approved_at=CURRENT_TIMESTAMP WHERE id=?;
+   UPDATE manifests SET status='operational', approved_by=?, approved_at=CURRENT_TIMESTAMP
+   WHERE id=? AND status='operational_restricted';
    UPDATE agents SET manifesto_status='operational' WHERE role=?;
    ```
-4. On Reject: status→`rejected`, log rationale in `decisions`.
-5. On Edit: surface diff to the CEO, capture acceptance, then Approve as in #3.
+   On a forced activation, first write the `manifesto` decision citing the objection.
+5. On Reject: status→`rejected`, log rationale in `decisions`.
+6. On Edit: the content changes, so start a new review cycle (`SYSTEM_INVARIANTS.md` §1).
 
 ---
 
