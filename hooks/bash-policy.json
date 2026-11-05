@@ -133,6 +133,8 @@
     "infra_cli":  ["az", "aws", "gcloud"]
   },
 
+  "_local_db_cli_comment": "BUG-103: with db.provider=local (company or any project) the DB CLI is sqlite3, not turso. A role with turso gets sqlite3 there, same rights: both go through the same SQL gates, which also deny dot-commands such as .shell.",
+  "local_db_cli": {"binary": "sqlite3", "granted_with": "turso"},
   "agent_allow": {
     "cos":          ["git", "gh", "turso", "@read_utils", "@infra_cli"],
     "cfo":          ["git", "gh", "turso", "@read_utils"],

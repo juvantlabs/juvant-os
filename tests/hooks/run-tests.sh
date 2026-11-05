@@ -1604,6 +1604,28 @@ t_assert "E-bis: .dump → allow" "allow" "$(_gp cso 'turso db shell company-x .
 t_assert "E-bis: direct libsql HTTP (/v2/pipeline) → deny" "deny" "$(_gp cso "curl -s -X POST https://x.turso.io/v2/pipeline -d '{}'")"
 t_assert "E-bis: sqlite3 DELETE on decisions → deny" "deny" "$(_gp cso 'sqlite3 .juvant/state.db "DELETE FROM decisions"')"
 t_assert "E-bis: sqlite3 SELECT → allow" "allow" "$(_gp cso 'sqlite3 .juvant/state.db "SELECT count(*) FROM decisions"')"
+
+# BUG-103: sqlite3 follows turso on a local provider, with the same SQL gates.
+_LDB_LOCAL="$TMPROOT/ldb-local.json"; _LDB_CLOUD="$TMPROOT/ldb-cloud.json"; _LDB_PROJ="$TMPROOT/ldb-proj.json"
+echo '{"db":{"provider":"local","url":"file:.juvant/state.db"}}' > "$_LDB_LOCAL"
+echo '{"db":{"provider":"turso","url":"libsql://x.turso.io"}}' > "$_LDB_CLOUD"
+echo '{"db":{"provider":"turso","url":"libsql://x.turso.io"},"projects":{"a":{"db":{"provider":"local","url":"file:.juvant/project-a.db"}}}}' > "$_LDB_PROJ"
+_ldb() { # <cfg> <role> <command>
+  jq -cn --arg c "$3" '{tool_name:"Bash",session_id:"s-ldb",tool_input:{command:$c}}' \
+    | JUVANT_CONFIG="$1" AGENT_ROLE="$2" bash "$HOOKS_DIR/pre-tool-use.sh" 2>/dev/null \
+    | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null || true
+}
+_LDB_READ='sqlite3 .juvant/state.db "SELECT count(*) FROM agents;"'
+t_assert "BUG-103 local: chro reads" "allow" "$(_ldb "$_LDB_LOCAL" chro "$_LDB_READ")"
+t_assert "BUG-103 local: main thread (cos) reads" "allow" "$(_ldb "$_LDB_LOCAL" cos "$_LDB_READ")"
+t_assert "BUG-103 local: prefixed project role" "allow" "$(_ldb "$_LDB_LOCAL" apollo-pca "$_LDB_READ")"
+t_assert "BUG-103 local: second command of a line" "allow" "$(_ldb "$_LDB_LOCAL" chro "cd /tmp && $_LDB_READ")"
+t_assert "BUG-103 cloud: chro denied" "deny" "$(_ldb "$_LDB_CLOUD" chro "$_LDB_READ")"
+t_assert "BUG-103 cloud + local project: granted" "allow" "$(_ldb "$_LDB_PROJ" chro "$_LDB_READ")"
+t_assert "BUG-103 local: role without turso denied" "deny" "$(_ldb "$_LDB_LOCAL" Explore "$_LDB_READ")"
+t_assert "BUG-103 local: DELETE still gated" "deny" "$(_ldb "$_LDB_LOCAL" chro 'sqlite3 .juvant/state.db "DELETE FROM decisions;"')"
+t_assert "BUG-103 local: .shell still gated" "deny" "$(_ldb "$_LDB_LOCAL" chro 'sqlite3 .juvant/state.db ".shell id"')"
+t_assert "BUG-103 local: grant is sqlite3 only" "deny" "$(_ldb "$_LDB_LOCAL" chro 'curl https://example.com')"
 # R5a — audit immutability at the Bash level.
 t_assert "R5a: DELETE FROM security_audit_log → deny" "deny" "$(_gp cso 'turso db shell company-x "DELETE FROM security_audit_log WHERE id=91"')"
 t_assert "R5a: lowercase delete from agent_actions_log → deny" "deny" "$(_gp cso 'turso db shell company-x "delete from agent_actions_log"')"

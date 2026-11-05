@@ -11,6 +11,25 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Changed
+
+- **Project manifestos stay `operational_restricted` while a traceability finding is open.** A WARN verdict used to promote them anyway. Findings in `manifesto-bootstrap-incomplete`, `agent-manifest-drift` or `decision-trail-incomplete`, and an `audit-coverage-gap` on the `access` layer, now hold promotion until the CSO closes them and the CEO re-triggers the step. Company bootstrap is unchanged.
+- `master_context.bootstrap_audit_verdict` is now written by the bootstrap transaction, as the bare verdict token.
+- The batch driver defaults to `claude-opus-5-5`, with a $15 cap set by `--max-budget=<usd>`.
+
+### Added
+
+- `scripts/run-testco-lifecycle.sh` runs Tier 1, the Tier 2 window, an objection and CEO approval with real agents on a batch instance. Company scope only.
+- `tests/helpers/test-audit-project-scope.sh`.
+
+### Fixed
+
+- With `db.provider=local`, only the CSO could run `sqlite3`, so the wizard and every other agent had no way to write to the DB. Roles with `turso` now get `sqlite3` on a local provider, under the same SQL gates.
+- Batch fixtures now define `inputs.topology`, and the validator requires it.
+- `audit-bootstrap-baseline.sh --scope=<slug>` checked bootstrap traceability against the company DB. Layer 1 now reads the project DB, and reports `audit-coverage-gap` if it can't.
+- The batch project verdict follows `cso.md` and reads the project DB. It used to query `state.db` and map P2 to PASS.
+- Batch driver: the verdict assertion rejected valid verdicts followed by text; `audit_findings` and `project_agents_count` ignored project DBs and `low..critical` severities; a live instance's launchd jobs on the same Mac stopped the run.
+
 ## [1.21.2] — 2026-11-05 — Tier 2 async, CEO approval through the checks
 
 ### Fixed

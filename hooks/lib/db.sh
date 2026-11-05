@@ -364,9 +364,15 @@ juvant_db_exec_stdin() {
 # set; 1 + a message on stderr for a transport failure, a non-JSON response or
 # a DB-level error.
 juvant_db_query() {
-  local sql="$1"
-
   juvant_db_resolve
+  juvant_db_query_resolved "$1"
+}
+
+# The read itself, against the globals already set. A caller that reads another
+# DB binds them in a subshell: juvant_db_resolve stays company-only, with no env
+# override that could redirect hook audit writes.
+juvant_db_query_resolved() {
+  local sql="$1"
 
   case "$JUVANT_DB_PROVIDER" in
     local)

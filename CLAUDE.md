@@ -37,8 +37,8 @@ integration).
    rm -rf /tmp/testco-batch-<scenario> /tmp/testco-batch-<scenario>-origin.git
    ```
 3. Spawn the driver. Use `Bash` with `dangerouslyDisableSandbox: true`
-   and `timeout: 600000` (10 min hard cap; single-project typically
-   finishes in 3-13 min depending on cache state):
+   and `run_in_background: true` (single-project took 13.5 min on
+   2026-11-05, past the 10 min foreground limit):
    ```bash
    bash scripts/run-testco-batch.sh tests/fixtures/testco/<scenario>.yaml --no-render --keep-tmp 2>&1 | tail -120
    ```
@@ -95,6 +95,17 @@ integration).
   API key). On CI runners, set `ANTHROPIC_API_KEY` repo secret OR
   configure Microsoft Foundry / AWS Bedrock / GCP Vertex per the
   `.github/workflows/testco-batch.yml` env block.
+
+### "testa il flusso manifesti" / "run lifecycle"
+
+Runs the post-bootstrap manifesto flow with real agents: Tier 1, Tier 2
+window, objection, CEO approval. It needs an instance kept by a batch run
+and refuses anything outside `/tmp`. Company scope only. Use
+`dangerouslyDisableSandbox: true` and `run_in_background: true`:
+
+```bash
+bash scripts/run-testco-lifecycle.sh /tmp/testco-batch-single-project 2>&1 | tail -40
+```
 
 ### "facciamo un manual testco" / "lancia testco manuale"
 

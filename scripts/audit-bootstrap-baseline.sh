@@ -61,8 +61,9 @@ done
 
 # F-31 (v0.7.3+): project-scope audits supported. SCOPE is either
 # 'company' (default) or a project slug present in
-# .juvant/config.json `.projects.<slug>`. Layers 1-4 are broadly
-# applicable across both scopes; Layer 5 (agents) branches by scope
+# .juvant/config.json `.projects.<slug>`. Layers 2-4 apply to both
+# scopes. Layer 1 reads the project DB for bootstrap traceability
+# (the rest of it stays company-wide); Layer 5 (agents) branches by scope
 # to inspect agents/company/*.md vs agents/projects/*.md per ARCH-009
 # #42 (juvantlabs/juvant-os-pm) script scope-flag uniformity pattern.
 #
@@ -123,6 +124,39 @@ emit() {
 # Layer 1 — Access
 # ─────────────────────────────────────────────
 
+# Layer 1 traceability reads. In project scope the db.sh globals are bound in a
+# subshell for these reads alone (see juvant_db_query_resolved).
+_project_db_bind() {
+  local stripped
+  JUVANT_DB_PROVIDER=$(jq -r --arg s "$SCOPE" '.projects[$s].db.provider // .projects[$s].provider // ""' "$CONFIG")
+  JUVANT_DB_URL=$(jq -r --arg s "$SCOPE" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG")
+  JUVANT_DB_TOKEN=$(juvant_secret_get ".projects[\"$SCOPE\"].db.auth_token // .projects[\"$SCOPE\"].auth_token" "$CONFIG")
+  JUVANT_DB_READ_TOKEN=$(juvant_secret_get ".projects[\"$SCOPE\"].db.read_token" "$CONFIG")
+  JUVANT_DB_PATH=""
+  if [[ "$JUVANT_DB_PROVIDER" == "local" && -n "$JUVANT_DB_URL" ]]; then
+    stripped="${JUVANT_DB_URL#file:}"
+    if [[ "$stripped" == /* ]]; then JUVANT_DB_PATH="$stripped"; else JUVANT_DB_PATH="$ROOT/$stripped"; fi
+  fi
+}
+
+layer1_query() {
+  if [[ "$SCOPE" == "company" ]]; then
+    juvant_db_query "$1"
+  else
+    ( _project_db_bind; juvant_db_query_resolved "$1" )
+  fi
+}
+
+# sqlite3 would create a missing file, and an empty DB reads as "0 rows".
+layer1_db_readable() {
+  [[ "$SCOPE" == "company" ]] && return 0
+  (
+    _project_db_bind
+    [[ "$JUVANT_DB_PROVIDER" != "local" || -f "$JUVANT_DB_PATH" ]] || exit 1
+    juvant_db_query_resolved "SELECT COUNT(*) FROM manifests;" >/dev/null 2>&1
+  )
+}
+
 audit_layer_1_access() {
   local manifests_count operational_count bootstrap_decisions expected_n
 
@@ -140,45 +174,56 @@ audit_layer_1_access() {
     expected_n=$((expected_n + 1))
   fi
 
-  # Cloud Turso db shell pads numeric output with column-alignment whitespace
-  # (e.g. "12          "). Strip at assignment so downstream string comparisons
-  # against $expected_n / "0" work correctly. Applies to all 4 count queries
-  # in this layer (manifests, operational, bootstrap_decisions, action_log).
-  manifests_count=$(juvant_db_query \
-    "SELECT COUNT(*) FROM manifests WHERE tier1_bootstrap=1 AND precondition_bypassed='bootstrap';" \
-    | tail -1 | tr -d '[:space:]')
-  operational_count=$(juvant_db_query \
-    "SELECT COUNT(*) FROM agents WHERE manifesto_status IN ('operational','operational_restricted') AND tier1_bootstrap=1;" \
-    | tail -1 | tr -d '[:space:]')
-  bootstrap_decisions=$(juvant_db_query \
-    "SELECT COUNT(*) FROM decisions WHERE category='bootstrap-action' AND status='executed';" \
-    | tail -1 | tr -d '[:space:]')
+  local bypass="bootstrap" label="founding"
+  if [[ "$SCOPE" != "company" ]]; then
+    expected_n=8 bypass="project-bootstrap" label="project ($SCOPE)"
+  fi
 
-  if [[ "${manifests_count:-0}" == "$expected_n" ]]; then
-    emit "access" "info" \
-      "${expected_n} founding manifestos in OPERATIONAL_RESTRICTED with tier1_bootstrap=1 and precondition_bypassed='bootstrap' (matches feature_toggles-derived expected count)."
+  if layer1_db_readable; then
+    # Cloud Turso db shell pads numeric output with column-alignment whitespace
+    # (e.g. "12          "). Strip at assignment so downstream string comparisons
+    # against $expected_n / "0" work correctly. Applies to all 4 count queries
+    # in this layer (manifests, operational, bootstrap_decisions, action_log).
+    manifests_count=$(layer1_query \
+      "SELECT COUNT(*) FROM manifests WHERE tier1_bootstrap=1 AND precondition_bypassed='$bypass';" \
+      | tail -1 | tr -d '[:space:]')
+    operational_count=$(layer1_query \
+      "SELECT COUNT(*) FROM agents WHERE manifesto_status IN ('operational','operational_restricted') AND tier1_bootstrap=1;" \
+      | tail -1 | tr -d '[:space:]')
+    bootstrap_decisions=$(layer1_query \
+      "SELECT COUNT(*) FROM decisions WHERE category='bootstrap-action' AND status='executed';" \
+      | tail -1 | tr -d '[:space:]')
+
+    if [[ "${manifests_count:-0}" == "$expected_n" ]]; then
+      emit "access" "info" \
+        "${expected_n} ${label} manifestos in OPERATIONAL_RESTRICTED with tier1_bootstrap=1 and precondition_bypassed='$bypass' (matches feature_toggles-derived expected count)."
+    else
+      emit "access" "high" \
+        "Expected ${expected_n} ${label} manifestos with tier1_bootstrap=1 (per feature_toggles); found ${manifests_count:-0}." \
+        "manifesto-bootstrap-incomplete"
+    fi
+
+    if [[ "${operational_count:-0}" == "$expected_n" ]]; then
+      emit "access" "info" \
+        "${expected_n} agent rows mirror manifesto state (operational/operational_restricted, tier1_bootstrap=1)."
+    else
+      emit "access" "medium" \
+        "Expected ${expected_n} agent rows mirroring manifesto state; found ${operational_count:-0}." \
+        "agent-manifest-drift"
+    fi
+
+    if [[ "${bootstrap_decisions:-0}" -ge "$expected_n" ]]; then
+      emit "access" "info" \
+        "${bootstrap_decisions} bootstrap-action decisions executed (≥${expected_n} expected — one per ${label} manifesto)."
+    else
+      emit "access" "medium" \
+        "Expected ≥${expected_n} bootstrap-action decisions; found ${bootstrap_decisions:-0}." \
+        "decision-trail-incomplete"
+    fi
   else
     emit "access" "high" \
-      "Expected ${expected_n} founding manifestos with tier1_bootstrap=1 (per feature_toggles); found ${manifests_count:-0}." \
-      "manifesto-bootstrap-incomplete"
-  fi
-
-  if [[ "${operational_count:-0}" == "$expected_n" ]]; then
-    emit "access" "info" \
-      "${expected_n} agent rows mirror manifesto state (operational/operational_restricted, tier1_bootstrap=1)."
-  else
-    emit "access" "medium" \
-      "Expected ${expected_n} agent rows mirroring manifesto state; found ${operational_count:-0}." \
-      "agent-manifest-drift"
-  fi
-
-  if [[ "${bootstrap_decisions:-0}" -ge "$expected_n" ]]; then
-    emit "access" "info" \
-      "${bootstrap_decisions} bootstrap-action decisions executed (≥${expected_n} expected — one per founding manifesto)."
-  else
-    emit "access" "medium" \
-      "Expected ≥${expected_n} bootstrap-action decisions; found ${bootstrap_decisions:-0}." \
-      "decision-trail-incomplete"
+      "Project DB for '$SCOPE' can't be read: bootstrap traceability is unverified." \
+      "audit-coverage-gap"
   fi
 
   # BUG-070 continuity predicate (decisions#277, derived from decisions#269).

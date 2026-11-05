@@ -274,6 +274,9 @@ required, the Skill **MUST** emit a
 `[BATCH] {"event":"run_complete","verdict":"FAIL","reason":"missing_fixture_key","key":"<dotted.path>"}`
 line and exit. **Fail loud — do not improvise defaults.**
 
+Append events on their own Bash line. The Track 2f floor denies `$(...)` or a
+heredoc on a line that also names `scripts/`, `hooks/` or `helpers/`.
+
 #### Event emission protocol
 
 The Skill emits structured progress events as plain text lines in
@@ -2157,12 +2160,17 @@ path [3] each is shown then approved, etc.
      -- 3. Seal bootstrap
      INSERT OR REPLACE INTO master_context (key, value)
      VALUES ('bootstrap_completed_at', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+
+     -- 4. Record the verdict: the bare token, the reasoning is in the audit rows
+     INSERT OR REPLACE INTO master_context (key, value)
+     VALUES ('bootstrap_audit_verdict', '<PASS|WARN-WITH-CONDITIONS>');
      ```
 
      Then surface any WARN conditions for Tier 2 follow-up.
 
-   - **FAIL** → leave bootstrap state intact, surface findings, and do
-     NOT promote. Bootstrap remains in progress; CEO can re-trigger
+   - **FAIL** → record `bootstrap_audit_verdict = 'FAIL'`, leave bootstrap
+     state otherwise intact, surface findings, and do NOT promote.
+     Bootstrap remains in progress; CEO can re-trigger
      after CSO findings are addressed.
 
 9. Bootstrap is one-shot. `master_context.bootstrap_completed_at` is
@@ -2288,6 +2296,9 @@ every Bash tool call:
 - **Per-agent allow-list**: positive scope. CFO/CLO/CCO/CMO/CHRO/
   CRO/CEthO have NO Bash by default. CoS/Eng Lead/CSO/CTO/eng-* have
   scoped allow-lists.
+- **Local provider**: with `db.provider=local`, on the company or any
+  project, a role that has `turso` also gets `sqlite3`, under the same
+  SQL gates (`local_db_cli` in `hooks/bash-policy.json`).
 
 Adding a binary to an agent's allow-list goes through the standard
 `tool-matrix-change` decision per `SYSTEM_INVARIANTS.md` §6 — CTO
@@ -3032,10 +3043,36 @@ Sequencing:
    project-scope checks `agents/projects/*.md` (8 project-scope per
    project — was 9 in v0.7 with project-VPE; project-VPE removed per
    ADR 0014 §2; allowlist contains only ACTIVE_PROJECT — PROJECT_NAME is
-   now bound). Layers 1-4 are scope-independent. Wizard prose
+   now bound). Layer 1 reads the project DB for traceability (8 rows with
+   `precondition_bypassed='project-bootstrap'`); Layers 2-4 are
+   scope-independent. Wizard prose
    deliberately reuses the same script per ARCH-009 # 42
    (juvantlabs/juvant-os-pm) script scope-flag uniformity pattern.
-4. On PASS / WARN-WITH-CONDITIONS, promote project agents to `operational`.
+4. On PASS / WARN-WITH-CONDITIONS, check the project DB for open traceability
+   findings:
+
+   ```sql
+   SELECT COUNT(*) FROM security_audit_log_current
+   WHERE scope = '<project-slug>' AND current_status = 'open' AND is_test_artifact = 0
+     AND (category IN ('manifesto-bootstrap-incomplete', 'agent-manifest-drift',
+                       'decision-trail-incomplete')
+          OR (category = 'audit-coverage-gap' AND layer = 'access'));
+   ```
+
+   - **0** → promote, in a single transaction:
+
+     ```sql
+     UPDATE manifests SET status = 'operational'
+     WHERE tier1_bootstrap = 1 AND status = 'operational_restricted';
+     UPDATE agents SET manifesto_status = 'operational', updated_at = CURRENT_TIMESTAMP
+     WHERE tier1_bootstrap = 1 AND manifesto_status = 'operational_restricted';
+     ```
+
+   - **More than 0** → do NOT promote. The rows stay `operational_restricted`
+     with no `deadline`, so the CEO approval query can't match them. Surface the
+     findings to the CEO. After the fix the CEO re-triggers this step: the CSO
+     re-runs the audit, closes the findings it no longer reproduces
+     (`agents/company/cso.md`), and the check runs again.
 
 The company-level `master_context.bootstrap_completed_at` remains set; project-bootstrap
 does NOT re-open it.
@@ -3158,18 +3195,20 @@ by a dedicated `phase_done` event:
 
 #### Final verdict
 
-Before emitting `run_complete`, the Skill MUST query state.db for
-the project-bootstrap audit verdict:
+Before emitting `run_complete`, the Skill MUST read the CSO's project
+verdict row from `.juvant/project-<slug>.db`:
 
 ```sql
-SELECT severity FROM security_audit_log
+SELECT finding FROM security_audit_log
 WHERE auditor = 'cso'
   AND audit_type = 'bootstrap_baseline'
-  AND scope = '<project-slug>';
+  AND category = 'audit-verdict'
+  AND scope = '<project-slug>'
+ORDER BY id DESC LIMIT 1;
 ```
 
-The verdict is the most-severe finding (P0 → FAIL, P1 → WARN-WITH-CONDITIONS,
-P2 or info → PASS). Emit as the `run_complete.project_verdict` field
+The verdict is the row's leading token (mapping in `agents/company/cso.md`).
+Emit as the `run_complete.project_verdict` field
 alongside `run_complete.company_verdict` (already present from company
 phase). The overall `run_complete.verdict` is the worst of the two.
 

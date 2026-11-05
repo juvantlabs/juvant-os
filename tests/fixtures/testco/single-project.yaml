@@ -71,6 +71,13 @@ inputs:
     url: file:.juvant/state.db
     auth_token: null
 
+  # Step 2.5 — Topology (ADR 0017).
+  topology:
+    company_type: single
+    master_slug: null
+    master_db_url: null
+    master_db_token: null
+
   # Step 3 — Bank.
   bank:
     provider: other

@@ -327,6 +327,11 @@ Blocking flags: [enumerated list, if FAIL]
 - Only `low/medium` findings → `WARN-WITH-CONDITIONS`.
 - No findings → `PASS`.
 
+**Scope gaps.** A check that couldn't verify its scope is an `audit-coverage-gap` finding in
+that scope, never an `info` row, with the layer of that check. Keep the script's category on
+a traceability finding: in a project bootstrap, an open traceability finding holds promotion
+(`SYSTEM_INVARIANTS.md` §1).
+
 The report is written into `decisions` category `system-audit` with full payload, and into
 `security_audit_log` (one row per finding with severity, layer, subject, evidence_pointer).
 A `FAIL` triggers immediate Critical-priority notification to CoS.

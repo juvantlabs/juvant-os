@@ -102,7 +102,14 @@ A fork enters Bootstrap Mode when ALL of the following hold:
 8. When the first CSO audit returns PASS or WARN-WITH-CONDITIONS, the skill
    writes:
    - `master_context.bootstrap_completed_at = NOW()`,
+   - `master_context.bootstrap_audit_verdict` = the bare verdict token,
    - all `manifests.status = 'operational'`, mirrored on `agents.manifesto_status`.
+9. A project bootstrap promotes the same way in the project DB, unless a
+   traceability finding is open for that project (`manifesto-bootstrap-incomplete`,
+   `agent-manifest-drift`, `decision-trail-incomplete`, or an `audit-coverage-gap`
+   on the `access` layer). Then
+   its manifestos stay `operational_restricted` with no `deadline` until the CSO
+   closes the finding and the CEO re-triggers the step (`JUVANT_OS.md`).
 
 ### Manifesto lifecycle and sign-offs
 
