@@ -110,7 +110,7 @@ map_category() {
       echo "tool-matrix-change" ;;
     architecture)
       echo "arch-decision" ;;
-    manifesto-ceo-approval|manifesto-tier1|manifesto-tier2)
+    manifesto-ceo-approval)
       echo "bootstrap-action" ;;
     *)
       echo "" ;;
@@ -155,7 +155,8 @@ CANONICAL_LIST="'model-override','tool-matrix-change','pr-spec','gh-issue-spec',
 'direct-session','disclosure-audit','drift-audit','drift-finding',
 'eng-finding','eng-work-completed','ethical-concern','ethical-opinion',
 'ethical-validation','eval-run','gh-pr-review-spec','kb-promotion-candidate',
-'knowledge-base-retraction','manifesto','mcp-install-confirmed',
+'knowledge-base-retraction','manifesto','manifesto-tier1','manifesto-tier2',
+'mcp-install-confirmed',
 'monthly-ranking','offboarding','offboarding-action','pipeline-outcome',
 'pipeline-stage','prd-published','prd-retro','press-interaction',
 'proposal-sent','release-published','research-output','research-published',
