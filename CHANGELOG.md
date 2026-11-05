@@ -11,6 +11,30 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Manifesto lifecycle runs on the real schema** (BUG-079, juvant-os-pm#181).
+  Tier 1 and Tier 2 sign-offs, the Tier 1 queue and `[MANIFESTO PENDING]` relied on
+  `manifests` columns that never existed. `pending` is now the single initial
+  status. Sign-offs are `decisions` rows in the new categories `manifesto-tier1`
+  and `manifesto-tier2`, and each review cycle is a new `manifests` row (ADR 0037).
+  The CTO template now has its sign-off instructions.
+  **Adopter action:** run `scripts/migrate.sh`, then check
+  `SELECT status, COUNT(*) FROM manifests GROUP BY status;` and set any `draft` or
+  `pending_review` row to `pending`, or it stays out of the Tier 1 queue.
+
+### Changed
+
+- Tier 2 reviewers are CEthO, CHRO and CTO, as in `SYSTEM_INVARIANTS.md` §1. The
+  CHRO template said all C-suite agents, but only these have review instructions.
+
+### Removed
+
+- **Per-agent versioning.** Nothing populated the `upstream_*` and `installed_*`
+  data it read. Upstream sync is the only upgrade path: it lists agents with a
+  frontmatter change, keeps the CEthO consult, and CHRO starts a new review cycle
+  for them after the merge.
+
 ## [1.21.0] — 2026-11-05 — Knowledge base tags
 
 ### Added

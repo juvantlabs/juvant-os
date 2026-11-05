@@ -2988,17 +2988,17 @@ testco runs):
 ```sql
 -- WRONG — project manifestos to company state.db:
 sqlite3 .juvant/state.db <<SQL
-INSERT INTO manifests (agent, scope, project_id, ...) VALUES
-  ('pca', 'project', '<slug>', ...),
-  ('product-lead', 'project', '<slug>', ...),
+INSERT INTO manifests (agent, content, version, status, tier, ...) VALUES
+  ('pca', '<manifesto>', '1.0', 'pending', 1, ...),
+  ('product-lead', '<manifesto>', '1.0', 'pending', 1, ...),
   ...
 SQL
 
 -- CORRECT — project manifestos to per-project DB:
 sqlite3 .juvant/project-<slug>.db <<SQL
-INSERT INTO manifests (agent, scope, project_id, ...) VALUES
-  ('pca', 'project', '<slug>', ...),
-  ('product-lead', 'project', '<slug>', ...),
+INSERT INTO manifests (agent, content, version, status, tier, ...) VALUES
+  ('pca', '<manifesto>', '1.0', 'pending', 1, ...),
+  ('product-lead', '<manifesto>', '1.0', 'pending', 1, ...),
   ...
 SQL
 ```
@@ -3479,7 +3479,7 @@ live in `knowledge_base` rows per ARCH-012).
 5. **Commit** via `git add agents/projects/<slug>/ .claude/agents/<slug>-*.md`
    + `git commit -m "chore(<slug>): resync project agents from upstream templates"`.
 6. **Trigger re-Tier-1 manifesto review** for each agent whose file changed:
-   set `manifests.status='pending_review'` and notify CHRO + CTO.
+   start a new review cycle (SYSTEM_INVARIANTS §1) and notify its Tier 1 signers.
 
 ### Skill operation: *"Project status"*
 
@@ -3513,7 +3513,7 @@ columns; if uncertain, run `PRAGMA table_info(<table>)` first.
 |---|---|
 | `messages` | `id, from_agent, to_agent, type, content, priority, status, notify_ceo, ref_id, created_at, read_at` |
 | `inbound_queue` | `id, counterparty_id, agent_owner, content, confidence, status, created_at, picked_up_at, completed_at` — **`category` is NOT a top-level column: never use `WHERE category=` or `SELECT category`. For filtering: `json_extract(content, '$.category')`. For inserting: include as a key inside `json_object('category', '...')`** |
-| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record the successor `id` in an `audit_events` `status_change` row's `reason`; `rationale` is immutable); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'\|'legal'\|'product'\|'business'\|'system-audit'\|'incident-response'\|'security-remediation'\|'accessibility-audit'\|'aggregate-health-flag'\|'analyst-briefing'\|'backlog-transition'\|'bank-unavailable'\|'binding-confirmation'\|'brand-advisory'\|'brand-mode-ratification-routed'\|'brand-spec'\|'competitor-move'\|'content-performance'\|'content-published'\|'cross-project-dependency'\|'cross-project-release-coordination'\|'cross-project-tech-debt'\|'cso-audit-request'\|'data-deletion-proposal'\|'demo-conducted'\|'deployment'\|'design-debt'\|'design-system-drift'\|'direct-session'\|'disclosure-audit'\|'drift-audit'\|'drift-finding'\|'eng-finding'\|'eng-work-completed'\|'ethical-concern'\|'ethical-opinion'\|'ethical-validation'\|'eval-run'\|'gh-pr-review-spec'\|'kb-promotion-candidate'\|'knowledge-base-retraction'\|'manifesto'\|'mcp-install-confirmed'\|'monthly-ranking'\|'offboarding'\|'offboarding-action'\|'pipeline-outcome'\|'pipeline-stage'\|'prd-published'\|'prd-retro'\|'press-interaction'\|'proposal-sent'\|'release-published'\|'research-output'\|'research-published'\|'roadmap-transition'\|'spec-paused-cascade'\|'spec-rejected'\|'tech-exception'\|'tech-standard'\|'ux-research-published'\|'versioning'\|'weekly-engineering-report'` — `arch-decision`: architectural decision, durable rationale, no GH action; `system-audit`/`incident-response`/`security-remediation`: CSO audit + incident records (agents/company/cso.md); `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
+| `decisions` | `id, agent, title, category, rationale, source_ref, status, scope, upstream_candidate, held_for_fallback, approved_by, approved_at, executed_by, executed_at, created_at` — `scope`: `'company'`(default)`\|'global'` (master only); `status`: `'proposed'\|'approved'\|'rejected'\|'executed'\|'superseded'` (`superseded` = valid at approval time, replaced by successor — record the successor `id` in an `audit_events` `status_change` row's `reason`; `rationale` is immutable); `source_ref`: canonical GH pointer `'<org>/<repo>#<N>'` — NULL until executed; `category` canonical values: `'model-override'\|'tool-matrix-change'\|'pr-spec'\|'gh-issue-spec'\|'gh-project-update-spec'\|'gh-milestone-spec'\|'install-spec'\|'branch-protection-spec'\|'release-spec'\|'deployment-spec'\|'secret-rotation-spec'\|'eng-output-held'\|'disclosure-unavailable'\|'bootstrap-action'\|'cascade-escalation'\|'cascade-postmortem'\|'skill-gap'\|'migration-watch'\|'upstream-sync-proposal'\|'eng-platform-spec'\|'arch-decision'\|'operational-violation'\|'kb-orphan-review'\|'legal'\|'product'\|'business'\|'system-audit'\|'incident-response'\|'security-remediation'\|'accessibility-audit'\|'aggregate-health-flag'\|'analyst-briefing'\|'backlog-transition'\|'bank-unavailable'\|'binding-confirmation'\|'brand-advisory'\|'brand-mode-ratification-routed'\|'brand-spec'\|'competitor-move'\|'content-performance'\|'content-published'\|'cross-project-dependency'\|'cross-project-release-coordination'\|'cross-project-tech-debt'\|'cso-audit-request'\|'data-deletion-proposal'\|'demo-conducted'\|'deployment'\|'design-debt'\|'design-system-drift'\|'direct-session'\|'disclosure-audit'\|'drift-audit'\|'drift-finding'\|'eng-finding'\|'eng-work-completed'\|'ethical-concern'\|'ethical-opinion'\|'ethical-validation'\|'eval-run'\|'gh-pr-review-spec'\|'kb-promotion-candidate'\|'knowledge-base-retraction'\|'manifesto'\|'manifesto-tier1'\|'manifesto-tier2'\|'mcp-install-confirmed'\|'monthly-ranking'\|'offboarding'\|'offboarding-action'\|'pipeline-outcome'\|'pipeline-stage'\|'prd-published'\|'prd-retro'\|'press-interaction'\|'proposal-sent'\|'release-published'\|'research-output'\|'research-published'\|'roadmap-transition'\|'spec-paused-cascade'\|'spec-rejected'\|'tech-exception'\|'tech-standard'\|'ux-research-published'\|'versioning'\|'weekly-engineering-report'` — `arch-decision`: architectural decision, durable rationale, no GH action; `system-audit`/`incident-response`/`security-remediation`: CSO audit + incident records (agents/company/cso.md); `operational-violation`: CHRO enforcement record, status vocab `'open'\|'closed'`; `kb-orphan-review`: CRO review outcome for orphaned KB entries (FEAT-040); `upstream_candidate`: 0/1; there is NO `subject`, `payload`, or `summary` column |
 | `projects` | `id, name, db_url, status, maturity_status` — **`id` IS the slug** (e.g. `'hardys'`); there is no separate `slug` column |
 | `manifests` | `id, agent, content, version, status, tier, deadline, approved_by, approved_at, tier1_bootstrap, precondition_bypassed, bootstrap_baseline, created_at` |
 | `security_audit_log` | `id, auditor, session_id, scope, audit_type, layer, finding, severity, category, status, bootstrap_baseline, created_at, resolved_at` — append-only (SYSTEM_INVARIANTS §10): no DELETE, evidentiary columns immutable, `created_at` = DB clock (omit it); CSO verdict rows use `category='audit-verdict'`. Read current state from the view `security_audit_log_current` (adds `current_severity, current_status, current_created_at, current_resolved_at, is_test_artifact, event_count`) |
@@ -4141,7 +4141,7 @@ Triggered by *"Status"*, *"What's pending?"*, *"Morning brief"*, or any equivale
 ### Output format
 
 A unified dashboard, terse, grouped by priority. Apply the `[MANIFESTO PENDING]`
-flag to any agent whose `manifests.status` is not `'operational'`. Apply
+flag to any agent whose latest `manifests` row is not `'operational'`. Apply
 `[DISCLOSURE FALLBACK ACTIVE]` to all CoS-routed outputs while a Tier-2 cascade
 is escalated.
 
@@ -4327,7 +4327,7 @@ state change — NOT clarification turns or housekeeping):
    eng-finding, eng-work-completed, ethical-concern, ethical-opinion,
    ethical-validation, eval-run, gh-pr-review-spec,
    kb-promotion-candidate, knowledge-base-retraction, manifesto,
-   mcp-install-confirmed, monthly-ranking, offboarding,
+   manifesto-tier1, manifesto-tier2, mcp-install-confirmed, monthly-ranking, offboarding,
    offboarding-action, pipeline-outcome, pipeline-stage, prd-published,
    prd-retro, press-interaction, proposal-sent, release-published,
    research-output, research-published, roadmap-transition,
@@ -5044,6 +5044,7 @@ trail. **Company-scope agents only** — no project agents involved.
 
    | Category | Files |
    |---|---|
+   | `agents/` | Agent templates |
    | `hooks/` | Lifecycle bash scripts |
    | `helpers/` | Scheduled helper scripts |
    | `tests/` (framework-owned only) | Hook/helper/sync/schema/migrate test suites + their fakes — the explicit list in the whitelist, never a glob |
@@ -5056,6 +5057,11 @@ trail. **Company-scope agents only** — no project agents involved.
    For each changed file: filename + one-line semantic summary of what changed
    (read the diff, describe in plain language).
    CEO responds: **approve** / **skip** / **inspect** (show the full diff).
+
+   **Agents with a frontmatter change** (tools, skills, channels, model) are
+   listed apart. Before the CEO decides the `agents/` group, CoS routes that list
+   to CEthO, whose CONSULTED or OBJECTION goes in the presentation. The consult
+   doesn't block: the CEO decides.
 
    **HARD-REQUIRED:** The Skill **MUST NOT** apply any file change without an
    explicit CEO `approve` response for that category. Silence, ambiguity, or
@@ -5208,8 +5214,11 @@ trail. **Company-scope agents only** — no project agents involved.
       SET status='executed', executed_by='cos', executed_at=CURRENT_TIMESTAMP
       WHERE id=<row_id>;
       ```
-    - CHRO updates `manifests.version` for all company-scope agents to reflect
-      the new upstream tag.
+    - CHRO updates `manifests.version` on the latest row of all company-scope
+      agents to the new upstream tag, and logs a `versioning` decision. This sync
+      is the only upgrade path: there is no per-agent upgrade.
+    - For each agent with a frontmatter change (step 6): CHRO starts a new review
+      cycle (SYSTEM_INVARIANTS §1).
     - If the sync touched §1, §3, §4, §4b, §5, §6, or §10 of
       `SYSTEM_INVARIANTS.md`: CHRO triggers a system-wide manifesto
       re-validation pass (Tier 2 async review for all active agents).
@@ -5315,6 +5324,7 @@ tests/migrate/test-dry-run-no-write.sh
 tests/migrate/test-schema-apply-order.sh
 tests/migrate/test-rebuild-defaults.sh
 tests/migrate/test-kb-tags.sh
+tests/migrate/test-manifesto-signoffs.sh
 tests/migrate/test-v07-to-v08-agents.sh
 ```
 

@@ -34,15 +34,13 @@ PROSE = {
     "counterparties.prospects", "counterparties.regulators",
     "counterparty_history.prospects", "decisions.deployment", "decisions.incident",
     "decisions.since",
-    "manifests.installed_", "manifests.restricted", "projects.monthly",
+    "projects.monthly",
 }
 
 KNOWN_GAPS: set[str] = {
     "agents.cfo", "agents.last_bank_sync", "agents.last_deadline_sweep",
     "counterparties.consent_pointer",
     "decisions.reviewed_by",
-    "manifests.scope", "manifests.tier1_chro_approved_at", "manifests.tier1_cto_approved_at",
-    "manifests.upstream_breaking", "manifests.upstream_changelog", "manifests.upstream_version",
     "messages.tools_used",
 }
 

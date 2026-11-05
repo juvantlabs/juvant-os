@@ -192,7 +192,8 @@ your finding (`[REDACTED — {match_class}]`). Do not store the matched string a
 8. No agent file contains hardcoded vendor names where the abstract role applies (e.g. `finom`
    where the matrix says `bank` — see CTO matrix for the canonical list).
 9. No agent file contains unsubstituted placeholder tokens. The canonical pattern is a double-brace token wrapping an uppercase identifier (matching `\{\{[A-Z_]+\}\}` outside of code fences); any surviving match is a substitution failure (`FAIL`), with the explicit exception of runtime-bound placeholders enumerated in `SYSTEM_INVARIANTS.md` §2 substitution-rules allowlist (today: `ACTIVE_PROJECT`).
-10. `manifests` row exists for every agent file, with consistent `installed_sha`.
+10. `manifests` row exists for every agent file. A frontmatter change in the file's git history that is
+    newer than the agent's latest `manifests` row and didn't come through an Upstream sync is a finding.
 11. **Orphan-audit detection (cover-up failure mode, handbook ADR 0004 #6).**
     Any `security_audit_log` row with `auditor='cso'` that has **no
     corresponding `Task` tool invocation in the surrounding time

@@ -102,9 +102,10 @@ CREATE TABLE IF NOT EXISTS manifests (
   content                 TEXT NOT NULL,
   version                 TEXT DEFAULT '1.0',
   status                  TEXT DEFAULT 'pending',
-  -- 'pending' | 'approved' | 'rejected' | 'operational_restricted' | 'operational'
+  -- 'pending' | 'rejected' | 'operational_restricted' | 'operational' | 'superseded' | 'retired'
   -- operational_restricted: CEO-approved, Tier 2 async review in progress (SYSTEM_INVARIANTS §1)
   -- operational: fully cleared post-audit; normal operating state
+  -- One row per review cycle. Sign-offs are decisions rows (SYSTEM_INVARIANTS §1).
   tier                    INTEGER DEFAULT 2,
   deadline                DATETIME,
   approved_by             TEXT,
@@ -213,6 +214,7 @@ BEGIN
     'eng-finding','eng-work-completed','ethical-concern','ethical-opinion',
     'ethical-validation','eval-run','gh-pr-review-spec',
     'kb-promotion-candidate','knowledge-base-retraction','manifesto',
+    'manifesto-tier1','manifesto-tier2',
     'mcp-install-confirmed','monthly-ranking','offboarding',
     'offboarding-action','pipeline-outcome','pipeline-stage','prd-published',
     'prd-retro','press-interaction','proposal-sent','release-published',
@@ -251,6 +253,7 @@ BEGIN
     'eng-finding','eng-work-completed','ethical-concern','ethical-opinion',
     'ethical-validation','eval-run','gh-pr-review-spec',
     'kb-promotion-candidate','knowledge-base-retraction','manifesto',
+    'manifesto-tier1','manifesto-tier2',
     'mcp-install-confirmed','monthly-ranking','offboarding',
     'offboarding-action','pipeline-outcome','pipeline-stage','prd-published',
     'prd-retro','press-interaction','proposal-sent','release-published',

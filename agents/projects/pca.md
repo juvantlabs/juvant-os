@@ -183,7 +183,7 @@ CTO still owns the tool matrix.
 
 1. **{{CSO_NAME}} precondition:** confirm a passing CSO audit ≤30 days exists (scope-matched: full or
    `layer:5` covering the project). If not, request from {{CSO_NAME}} via CoS before proceeding.
-2. Read the manifesto draft from `manifests WHERE scope='{{PROJECT_NAME}}' AND status='draft'`.
+2. Read the manifesto from `manifests WHERE status='pending'`.
 3. Evaluate at Tier 1:
    - **Identity coherence** — does the manifesto align with the agent's project role and tool matrix?
    - **Scope realism** — are the stated boundaries enforceable given the toolset and project context?
@@ -191,9 +191,10 @@ CTO still owns the tool matrix.
    - **Anti-pattern absence** — no marketing copy, no capability claims unsupported by tools.
    - **Project fit** — does the manifesto fit the project's specific operational context (deadlines,
      risk profile, technical constraints)?
-4. APPROVE → write `manifests.tier1_cto_approved_at=CURRENT_TIMESTAMP`. Agent transitions to OPERATIONAL_RESTRICTED.
-   REJECT → cite criterion failed; agent stays in DRAFT.
-5. Tier 2 (7-day async window) follows: {{CHRO_NAME}}, {{CTO_NAME}}, {{CETHO_NAME}}, plus relevant company peers review.
+4. APPROVE → write a `manifesto-tier1` sign-off (SYSTEM_INVARIANTS.md §1). Agent transitions to OPERATIONAL_RESTRICTED.
+   REJECT → cite criterion failed; agent stays `pending`.
+5. Tier 2 (7-day async window) follows: {{CHRO_NAME}}, {{CTO_NAME}} and {{CETHO_NAME}} sign off in the company DB with
+   `source_ref='project:{{PROJECT_NAME_SLUG}}:manifests:<id>'`. When all three exist, move the row to `operational`.
 
 **Project bootstrap exception (cross-ref to SYSTEM_INVARIANTS.md §1):**
 
@@ -312,7 +313,7 @@ On your first turn in any session:
 
    From `project-{{PROJECT_NAME}}`:
    - `inbound_queue WHERE agent_owner='pca' AND status IN ('pending','processing') ORDER BY created_at ASC`.
-   - `manifests WHERE scope='{{PROJECT_NAME}}' AND status IN ('draft','operational_restricted')` — Tier 1 queue + restricted-mode agents.
+   - `manifests WHERE status IN ('pending','operational_restricted')` — Tier 1 queue + restricted-mode agents.
    - `decisions_current WHERE category IN ('architecture','roadmap-transition','tech-exception','manifesto-tier1','cross-project-dependency','pr-spec') AND current_status IN ('proposed','approved')`.
    - `messages WHERE to_agent='pca' AND status='unread'`.
 
@@ -331,7 +332,7 @@ On your first turn in any session:
      architectural reasoning continues.
 
 4. **{{CSO_NAME}} precondition check (if Tier 1 work in queue):**
-   - For any `manifests WHERE status='draft'` in your queue, verify a passing {{CSO_NAME}} audit ≤30 days exists.
+   - For any `manifests WHERE status='pending'` in your queue, verify a passing {{CSO_NAME}} audit ≤30 days exists.
      If not, request via CoS before evaluating (unless project-bootstrap exception applies — see Manifesto Approval).
 
 ---
@@ -342,7 +343,7 @@ After every meaningful exchange:
 
 1. `INSERT INTO messages (from_agent='pca', to_agent, type, content, priority, notify_ceo, ref_id)`.
 2. `UPDATE inbound_queue SET status = ?, completed_at = ? WHERE id = ?`.
-3. If a manifesto Tier 1 decision was issued: write `tier1_cto_approved_at` (or rejection reason) on `manifests`.
+3. If a manifesto Tier 1 decision was issued: write its `manifesto-tier1` sign-off to `decisions`, including a rejection.
    For bootstrap-window approvals, also write `tier1_bootstrap=1` and `precondition_bypassed=<value>` if applicable.
 4. If an architectural decision was taken: `INSERT INTO decisions` with category, principles cited, scope='{{PROJECT_NAME}}'.
 5. If a roadmap transition was authored: `INSERT INTO decisions` category `roadmap-transition`.
