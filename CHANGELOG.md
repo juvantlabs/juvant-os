@@ -11,8 +11,11 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-11-05 — Project audits and the manifesto flow, tested with real agents
+
 ### Changed
 
+- **Project bootstrap is a CEO override plus CSO audit, like company bootstrap.** The spec also asked for a Tier 1 wave by CHRO, CTO and the new PCA, which contradicted ADR 0008 and had no working path. CSO checks each manifesto's `bootstrap-action` row, which now carries `agent='ceo'` and `source_ref='manifests:<id>'`.
 - **Project manifestos stay `operational_restricted` while a traceability finding is open.** A WARN verdict used to promote them anyway. Findings in `manifesto-bootstrap-incomplete`, `agent-manifest-drift` or `decision-trail-incomplete`, and an `audit-coverage-gap` on the `access` layer, now hold promotion until the CSO closes them and the CEO re-triggers the step. Company bootstrap is unchanged.
 - `master_context.bootstrap_audit_verdict` is now written by the bootstrap transaction, as the bare verdict token.
 - The batch driver defaults to `claude-opus-5-5`, with a $15 cap set by `--max-budget=<usd>`.

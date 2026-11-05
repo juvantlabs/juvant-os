@@ -104,7 +104,9 @@ A fork enters Bootstrap Mode when ALL of the following hold:
    - `master_context.bootstrap_completed_at = NOW()`,
    - `master_context.bootstrap_audit_verdict` = the bare verdict token,
    - all `manifests.status = 'operational'`, mirrored on `agents.manifesto_status`.
-9. A project bootstrap promotes the same way in the project DB, unless a
+9. A project bootstrap is the same one-shot CEO override, in the project DB, with
+   `precondition_bypassed = 'project-bootstrap'`. It replaces Tier 1, because the
+   project's approver doesn't exist yet. It promotes the same way, unless a
    traceability finding is open for that project (`manifesto-bootstrap-incomplete`,
    `agent-manifest-drift`, `decision-trail-incomplete`, or an `audit-coverage-gap`
    on the `access` layer). Then
@@ -143,7 +145,7 @@ VALUES ('<signer>', 'Tier 1 sign-off: <agent> manifesto', 'manifesto-tier1',
   after bootstrap (§4b), and uses `project:<slug>:manifests:<id>`.
 
 **Tier 1 is blocking.** Required sign-offs: `chro` and `cto` for company-scope
-agents and for a new project's PCA, `pca` for other project-scope agents. An agent
+agents and for a project's PCA, `pca` for other project-scope agents. An agent
 doesn't sign its own manifesto; the other signers are enough. The row moves to
 `operational_restricted` only when all of them exist:
 
@@ -153,8 +155,8 @@ WHERE category='manifesto-tier1' AND source_ref='manifests:<id>'
   AND current_status='approved' AND is_test_artifact=0;
 ```
 
-CHRO makes this transition for company-scope agents and during a project
-bootstrap window, PCA for its project afterwards. It sets
+CHRO makes this transition for company-scope agents and for a PCA, the PCA for
+its project's other agents. It sets
 `deadline = datetime('now', '+7 days')`, and mirrors the status onto
 `agents.manifesto_status` in the same transaction.
 

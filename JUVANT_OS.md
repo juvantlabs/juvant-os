@@ -2983,7 +2983,7 @@ The canonical writes for this step are:
   - `decisions` rows category `bootstrap-action` for each manifesto
     approval → `.juvant/project-<slug>.db`.
   - `security_audit_log` rows from the project CSO audit
-    (sub-step 3 below) → `.juvant/project-<slug>.db` (this part already
+    (sub-step 2 below) → `.juvant/project-<slug>.db` (this part already
     works; documented here for completeness).
 
 The company `state.db` keeps a single `projects` table row (id, name,
@@ -3021,13 +3021,14 @@ statements in this step. For cloud-provider project DBs, use
 
 Sequencing:
 
-1. CHRO + CTO approve the new project's PCA manifesto first (these two are already
-   `operational` post-company-bootstrap — they evaluate normally per Tier 1 rules).
-   The PCA manifesto + agents row are written to `.juvant/project-<slug>.db`.
-2. Once the project PCA reaches `operational_restricted`, that PCA performs Tier 1
-   on the remaining project-scope agents (Product Lead, Design Lead, Eng Lead, Eng/*).
-   All 7 remaining manifestos + agents rows are written to `.juvant/project-<slug>.db`.
-3. CSO performs `bootstrap_baseline=1` audit immediately after, scoped to the project.
+1. The CEO reviews the 8 project manifestos under the one-shot override (ADR 0008):
+   no Tier 1 sign-offs, because the project's approver doesn't exist yet. For each
+   accepted manifesto, write to `.juvant/project-<slug>.db` the `manifests` row
+   (`approved_by=<CEO>`, `approved_at`, `tier1_bootstrap=1`,
+   `precondition_bypassed='project-bootstrap'`, `status='operational_restricted'`),
+   the `agents` row, and a `decisions` row category `bootstrap-action` with
+   `agent='ceo'` and `source_ref='manifests:<id>'`.
+2. CSO performs `bootstrap_baseline=1` audit immediately after, scoped to the project.
    **Same hard-required rule as company bootstrap (Step 9.7):** the audit is
    invoked via `Task(subagent_type='cso', ...)` — the Skill **MUST NOT**
    synthesize the verdict or write `security_audit_log` rows directly.
@@ -3048,7 +3049,7 @@ Sequencing:
    scope-independent. Wizard prose
    deliberately reuses the same script per ARCH-009 # 42
    (juvantlabs/juvant-os-pm) script scope-flag uniformity pattern.
-4. On PASS / WARN-WITH-CONDITIONS, check the project DB for open traceability
+3. On PASS / WARN-WITH-CONDITIONS, check the project DB for open traceability
    findings:
 
    ```sql

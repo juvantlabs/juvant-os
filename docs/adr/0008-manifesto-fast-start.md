@@ -57,7 +57,8 @@ standard flow cannot start. SYSTEM_INVARIANTS.md §1 resolves this:
   init (`tier1_bootstrap=1`, `precondition_bypassed='bootstrap'`).
 - CSO performs a `bootstrap_baseline=1` audit immediately after.
 - A project-scope analog (`precondition_bypassed='project-bootstrap'`) handles
-  new projects added to an established company.
+  new projects added to an established company. It is the same CEO override
+  plus CSO audit, with no Tier 1 wave (CEO decision, 2026-11-05, BUG-104).
 
 ## Consequences
 

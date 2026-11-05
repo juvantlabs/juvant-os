@@ -331,6 +331,8 @@ Blocking flags: [enumerated list, if FAIL]
 that scope, never an `info` row, with the layer of that check. Keep the script's category on
 a traceability finding: in a project bootstrap, an open traceability finding holds promotion
 (`SYSTEM_INVARIANTS.md` §1).
+In a bootstrap the CEO override replaces Tier 1: check each manifesto's `bootstrap-action` row,
+not `manifesto-tier1` rows.
 
 The report is written into `decisions` category `system-audit` with full payload, and into
 `security_audit_log` (one row per finding with severity, layer, subject, evidence_pointer).
