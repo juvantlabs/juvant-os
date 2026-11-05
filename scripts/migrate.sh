@@ -375,6 +375,7 @@ COMPANY_PATCHES=(
   "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only BEFORE INSERT ON decisions WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
   "CREATE TRIGGER IF NOT EXISTS enforce_global_scope_master_only_upd BEFORE UPDATE ON decisions WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
   "ALTER TABLE knowledge_base ADD COLUMN scope TEXT DEFAULT 'company';"
+  "ALTER TABLE knowledge_base ADD COLUMN tags TEXT;"
   "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only BEFORE INSERT ON knowledge_base WHEN NEW.scope = 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
   "CREATE TRIGGER IF NOT EXISTS enforce_global_kb_scope_master_only_upd BEFORE UPDATE ON knowledge_base WHEN NEW.scope = 'global' AND OLD.scope != 'global' BEGIN SELECT RAISE(ABORT, 'scope=global requires company_type=master in master_context') WHERE (SELECT value FROM master_context WHERE key='company_type') != 'master'; END;"
 )

@@ -11,6 +11,21 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Added
+
+- **`knowledge_base.tags`** (BUG-074, juvant-os-pm#161). Agents find backlog,
+  runbooks, design system and standards by tag, and the column didn't exist.
+  `scripts/migrate.sh` adds it, and existing rows keep their data.
+  **Adopter action:** run `scripts/migrate.sh`. Rows from before the column have
+  no tags, so those searches stay empty until the rows are tagged.
+
+### Fixed
+
+- Agent templates filter `knowledge_base` by project on `source_project`, using
+  the slug, and read company-wide rows as `source_project IS NULL`. Structured
+  entries (design system, runbook, backlog) keep their extra fields as JSON in
+  `content`. A retraction adds the `retracted` tag and a `decisions` row.
+
 ## [1.20.2] — 2026-11-04 — Agent templates use the real schema
 
 ### Fixed

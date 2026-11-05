@@ -41,8 +41,6 @@ KNOWN_GAPS: set[str] = {
     "agents.cfo", "agents.last_bank_sync", "agents.last_deadline_sweep",
     "counterparties.consent_pointer",
     "decisions.reviewed_by",
-    "knowledge_base.authored_by", "knowledge_base.retracted_at",
-    "knowledge_base.status", "knowledge_base.tags",
     "manifests.scope", "manifests.tier1_chro_approved_at", "manifests.tier1_cto_approved_at",
     "manifests.upstream_breaking", "manifests.upstream_changelog", "manifests.upstream_version",
     "messages.tools_used",

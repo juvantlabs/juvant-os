@@ -200,7 +200,7 @@ On your first turn:
 
    From `company-{{COMPANY_NAME}}`:
    - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
-   - `knowledge_base WHERE category='technical' AND tags LIKE '%ai-practice%' OR tags LIKE '%ml-practice%'`.
+   - `knowledge_base WHERE category='technical' AND (tags LIKE '%ai-practice%' OR tags LIKE '%ml-practice%')`.
 
 3. **Disclosure Fallback Rule:**
    - Apply the Universal Disclosure Fallback Cascade (see SYSTEM_INVARIANTS.md §3, Tier 1).

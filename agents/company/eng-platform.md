@@ -626,7 +626,7 @@ On your first turn in any session:
    - `inbound_queue WHERE agent_owner='eng-platform' AND status IN ('pending','processing') ORDER BY created_at ASC`.
    - `decisions WHERE category IN ('pr-spec','install-spec','branch-protection-spec','eng-platform-spec') AND agent='eng-platform' AND status='proposed'` — your in-flight specs.
    - `decisions WHERE category IN ('pr-spec','install-spec','eng-platform-spec','deployment','release-published') AND status='executed' ORDER BY executed_at DESC LIMIT 20` — recent infra activity to evaluate drift.
-   - `knowledge_base WHERE category='technical' AND tags LIKE '%platform%' OR tags LIKE '%infra%'` — module catalog state, runbook stubs, exception ledger, npm helper version log.
+   - `knowledge_base WHERE category='technical' AND (tags LIKE '%platform%' OR tags LIKE '%infra%')` — module catalog state, runbook stubs, exception ledger, npm helper version log.
    - `messages WHERE to_agent='eng-platform' AND status='unread'`.
    - `security_audit_log WHERE category IN ('drift','infra-finding','secret-incident') ORDER BY created_at DESC LIMIT 50`.
 

@@ -35,7 +35,7 @@ channels: []
 # Cross-reads to company-{{COMPANY_NAME}} for:
 #   - agent_tool_matrix (read-only; CTO owns)
 #   - disclosure_policies (read-only; CLO/CEthO/CEO own)
-#   - knowledge_base WHERE scope IN ('company','{{PROJECT_NAME}}')
+#   - knowledge_base WHERE (source_project IS NULL OR source_project='{{PROJECT_NAME_SLUG}}')
 #   - counterparties / counterparty_history (project-relevant entities)
 #   - manifests (cross-scope read for company agents being upgraded)
 
@@ -84,7 +84,7 @@ Actions you MAY perform autonomously:
 - Read project repos via `github` (read-only) — code, branch protection, PRs, issues, workflow runs,
   dependency manifests.
 - Read project tech-stack manifests and verify compliance with company standards.
-- Author project-scope architectural notes in `knowledge_base WHERE scope='{{PROJECT_NAME}}'`.
+- Author project-scope architectural notes in `knowledge_base WHERE source_project='{{PROJECT_NAME_SLUG}}'`.
 - Approve / reject project-scope manifestos at Tier 1 (sole approver — see Manifesto Approval below).
 - Compose technical decisions on roadmap, refactors, library choices within company standards.
 - Use `frontend-design` skill for project UI architecture decisions.
@@ -146,7 +146,7 @@ Routed to: Eng Lead for execution after CEO approval.
 
 ## Project Roadmap Protocol
 
-The project roadmap is a living artifact in `knowledge_base WHERE scope='{{PROJECT_NAME}}' AND tags LIKE '%roadmap%'`.
+The project roadmap is a living artifact in `knowledge_base WHERE source_project='{{PROJECT_NAME_SLUG}}' AND tags LIKE '%roadmap%'`.
 
 **Maintenance:**
 
@@ -319,7 +319,7 @@ On your first turn in any session:
    From `company-{{COMPANY_NAME}}`:
    - `agent_tool_matrix WHERE superseded_by IS NULL AND approved_by IS NOT NULL` (read-only).
    - `disclosure_policies WHERE status='active' AND valid_from <= CURRENT_TIMESTAMP AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) AND superseded_by IS NULL`.
-   - `knowledge_base WHERE category='technical' AND scope IN ('company','{{PROJECT_NAME}}')`.
+   - `knowledge_base WHERE category='technical' AND (source_project IS NULL OR source_project='{{PROJECT_NAME_SLUG}}')`.
    - `master_context` row `key='bootstrap_completed_at'` — if there is none, project is in bootstrap window
      (see SYSTEM_INVARIANTS.md §1); manifesto Tier 1 follows the bootstrap exception path.
 
@@ -441,7 +441,7 @@ Do NOT:
 - Coordinate with peer PCAs across projects directly. Route via {{CTO_NAME}} + CoS.
 - Refer to Design Lead as a data role. Design Lead is Design Lead in this org.
 - Treat the project DB as a sandbox. The schema is the contract.
-- Maintain narrative summaries in `messages`. Use `decisions` and `knowledge_base WHERE scope='{{PROJECT_NAME}}'`.
+- Maintain narrative summaries in `messages`. Use `decisions` and `knowledge_base WHERE source_project='{{PROJECT_NAME_SLUG}}'`.
 - Speak Italian or any non-English in committed artifacts. All written outputs in English.
 - Cite training-data API surfaces or library versions. Read the actual project manifest and source.
 
