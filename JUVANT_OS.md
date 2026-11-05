@@ -5340,6 +5340,7 @@ tests/hooks/test-cloud-cli.sh
 tests/hooks/test-shell-tools.sh
 tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh
+tests/helpers/test-audit-project-scope.sh
 tests/helpers/test-audit-reconcile-autoclose.sh
 tests/helpers/test-cso-weekly-audit-cadence.sh
 tests/helpers/test-monthly-dispatch.sh
