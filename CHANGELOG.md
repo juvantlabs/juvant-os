@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.21.2] — 2026-11-05 — Tier 2 async, CEO approval through the checks
+
 ### Fixed
 
 - **Tier 2 is async again** (BUG-101, juvant-os-pm#207). v1.21.1 made it blocking
