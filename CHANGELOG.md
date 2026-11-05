@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.21.1] — 2026-11-05 — Manifesto lifecycle on the real schema
+
 ### Fixed
 
 - **Manifesto lifecycle runs on the real schema** (BUG-079, juvant-os-pm#181).
