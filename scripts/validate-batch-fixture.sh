@@ -124,6 +124,9 @@ done
 require_one_of '.inputs.database.provider' local turso azure aws gcp
 require_string '.inputs.database.url'
 
+# ─── inputs.topology ───────────────────────────────────────────────
+require_one_of '.inputs.topology.company_type' single master sub
+
 # ─── inputs.bank ───────────────────────────────────────────────────
 require_one_of '.inputs.bank.provider' finom mercury revolut wise other skip
 if [[ "$(jq -r '.inputs.bank.provider' <<<"$JSON")" == "other" ]]; then

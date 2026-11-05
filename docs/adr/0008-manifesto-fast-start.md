@@ -6,7 +6,8 @@ Accepted (2026-04-23). Promoted from `juvantlabs/juvant-os-pm#8` (ARCH-008) on
 2026-05-02. Augmented 2026-05-01 by `SYSTEM_INVARIANTS.md` §1 (Bootstrap
 Protocol) for the chicken-and-egg problem at company / project init. Tier 1
 signers and the way reviews are recorded are updated by ADR 0037; Tier 2 stays
-async, and silence after 7 days is a pass.
+async, and silence after 7 days is a pass. A project bootstrap doesn't promote
+while a traceability finding is open (`SYSTEM_INVARIANTS.md` §1, BUG-102).
 
 ## Context
 

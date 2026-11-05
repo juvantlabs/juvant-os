@@ -63,6 +63,20 @@ if [[ -z "$ROLE" ]]; then
   fi
 fi
 
+# BUG-103: the extra binary this role gets on a local-provider instance (empty
+# otherwise). See local_db_cli in bash-policy.json.
+juvant_local_db_cli() {
+  local cfg="${JUVANT_CONFIG:-$SCRIPT_DIR/../.juvant/config.json}"
+  [[ -f "$cfg" && -f "$POLICY" ]] || return 0
+  jq -e '.db.provider == "local" or ([.projects[]?.db.provider] | index("local") != null)' \
+    "$cfg" >/dev/null 2>&1 || return 0
+  jq -r --arg role "$LOOKUP_ROLE" '
+    (.local_db_cli // empty) as $l
+    | select((.agent_allow[$role] // []) | index($l.granted_with) != null)
+    | $l.binary
+  ' "$POLICY" 2>/dev/null || true
+}
+
 # BUG-049: normalize ROLE → LOOKUP_ROLE for the Bash allow-list lookup.
 # Project-scope agents carry a project-slug prefix in agent_type
 # (e.g. "dog-ai-eng-lead"), but bash-policy.json `agent_allow` keys are
@@ -903,7 +917,7 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
               end
             ] | index($bin) // empty
           ' "$POLICY" 2>/dev/null || echo "")
-          if [[ -z "$ALLOW_OK" ]]; then
+          if [[ -z "$ALLOW_OK" && "$FIRST_TOKEN" != "$(juvant_local_db_cli)" ]]; then
             DECISION="deny"
             # BUG-039: self-remediating deny message — diagnostic prefix +
             # no-retry + native-tool remedy. Interim materialization of the
@@ -938,7 +952,7 @@ if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" \
       ((.universal_allow // [])[]),
       (($doc.agent_allow[$role] // [])[] |
         if startswith("@") then ($doc.tiers[ltrimstr("@")] // [])[] else . end)
-    ' "$POLICY" 2>/dev/null)$'\n'
+    ' "$POLICY" 2>/dev/null)$'\n'$(juvant_local_db_cli)$'\n'
     while IFS= read -r _seg_line; do
       _seg_kind="${_seg_line%% *}"; _seg_val="${_seg_line#* }"
       if [[ "$_seg_kind" == "P" ]]; then

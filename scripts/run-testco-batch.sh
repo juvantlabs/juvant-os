@@ -14,6 +14,8 @@
 #   --keep-tmp          Retain the staged /tmp/testco-batch-<slug>/ for debug.
 #   --dry-run           Validate + stage; do not spawn claude.
 #   --no-render         Suppress live progress board (still emits events to log).
+#   --max-budget=<usd> Spend cap for the Skill session (default 15, or
+#                      JUVANT_BATCH_BUDGET).
 #   --skill-version=<sha>
 #                       Override the Skill version label in run_start event.
 #                       Defaults to `git rev-parse HEAD`.
@@ -62,7 +64,8 @@ SKILL_VERSION=""
 # Override via --model=<id> per-run for experimentation (e.g.
 # claude-haiku-4-5 for cheapest-possible regression sanity, or future
 # Sonnet versions once the Skill has been refactored).
-MODEL="${JUVANT_BATCH_MODEL:-claude-opus-4-7}"
+MODEL="${JUVANT_BATCH_MODEL:-claude-opus-5-5}"
+BUDGET="${JUVANT_BATCH_BUDGET:-15}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -71,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --no-render) RENDER=0; shift ;;
     --skill-version=*) SKILL_VERSION="${1#--skill-version=}"; shift ;;
     --model=*) MODEL="${1#--model=}"; shift ;;
+    --max-budget=*) BUDGET="${1#--max-budget=}"; shift ;;
     -h|--help)
       sed -n '/^# Usage:/,/^# Per/p' "$0" | sed 's/^# *//'
       exit 0
@@ -142,6 +146,10 @@ RUN_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # ─── stage /tmp instance ───────────────────────────────────────────────
 TMP_DIR="/tmp/testco-batch-$SLUG"
 ORIGIN_DIR="${TMP_DIR}-origin.git"
+# The hooks-integrity check compares installed launchd jobs with those generated
+# for this checkout. On a Mac with a live instance that always differs and stops
+# the session, so the batch sees an empty directory.
+LAUNCHAGENTS_DIR="${TMP_DIR}-launchagents"
 LOG_FILE="$TMP_DIR/session.log"
 EVENT_FILE="$TMP_DIR/events.jsonl"
 
@@ -150,13 +158,14 @@ cleanup() {
     echo ""
     echo "Tmp retained: $TMP_DIR"
   else
-    rm -rf "$TMP_DIR" "$ORIGIN_DIR"
+    rm -rf "$TMP_DIR" "$ORIGIN_DIR" "$LAUNCHAGENTS_DIR"
   fi
 }
 trap cleanup EXIT
 
 echo "▶ Staging /tmp instance at $TMP_DIR..."
-rm -rf "$TMP_DIR" "$ORIGIN_DIR"
+rm -rf "$TMP_DIR" "$ORIGIN_DIR" "$LAUNCHAGENTS_DIR"
+mkdir -p "$LAUNCHAGENTS_DIR"
 git init --quiet --bare "$ORIGIN_DIR"
 git -C "$ROOT" worktree remove --force "$TMP_DIR" 2>/dev/null || true
 # Use clone (not worktree) so the test instance is fully detached.
@@ -304,18 +313,15 @@ ACTIVATION_PROMPT="Initialize Juvant OS using batch inputs from .juvant/batch-in
 # --include-hook-events: surfaces every PreToolUse/PostToolUse event
 #                        (Track 3 audit log fires visible in real time).
 # --verbose: required by --output-format=stream-json per claude --help.
-# --max-budget-usd: safety cap on a misbehaving Skill loop. $10 covers
-#                   single-company (~$3 observed) AND single-project
-#                   (~$6-7 observed after v0.8.3 fixture fixes; project-
-#                   init CSO audit + manifests adds ~$3-4 net of cache-
-#                   reuse benefit) with margin. Reduce per-scenario in a
-#                   fork if the budget is too generous; keep margin for
-#                   unexpected Skill recon overhead on cold-cache runs.
+# --max-budget-usd: safety cap on a misbehaving Skill loop. single-project
+#                   cost $9.36 on 2026-11-05, so the $15 default keeps a
+#                   margin. Override with --max-budget=<usd>.
 STREAM_FILE="$TMP_DIR/stream.jsonl"
 : > "$STREAM_FILE"
 
 (
   cd "$TMP_DIR"
+  export JUVANT_LAUNCHAGENTS_DIR="$LAUNCHAGENTS_DIR"
   "$CLAUDE_BIN" --print \
     --model "$MODEL" \
     --permission-mode bypassPermissions \
@@ -323,7 +329,7 @@ STREAM_FILE="$TMP_DIR/stream.jsonl"
     --verbose \
     --include-hook-events \
     --include-partial-messages \
-    --max-budget-usd 10 \
+    --max-budget-usd "$BUDGET" \
     "$ACTIVATION_PROMPT" 2>&1
 ) | tee "$LOG_FILE" | while IFS= read -r line; do
   # Three sinks:
@@ -500,7 +506,9 @@ assert_ok() {
 
 # bootstrap_verdict
 expected_verdicts=$(yq -o=json '.expect.bootstrap_verdict_acceptable // [.expect.bootstrap_verdict]' "$FIXTURE")
-actual_verdict=$(sqlite3 "$DB" "SELECT value FROM master_context WHERE key='bootstrap_audit_verdict';" 2>/dev/null || echo "")
+# The leading token, so prose after it can't fail a passing run. No token, no match.
+actual_verdict=$(sqlite3 "$DB" "SELECT value FROM master_context WHERE key='bootstrap_audit_verdict';" 2>/dev/null \
+  | grep -oE '^(PASS|WARN-WITH-CONDITIONS|FAIL)' || echo "")
 if jq -e --arg v "$actual_verdict" '. | index($v)' >/dev/null <<<"$expected_verdicts"; then
   assert_ok "bootstrap_verdict=$actual_verdict (acceptable)"
 else
@@ -550,14 +558,16 @@ if [[ "${#PROJECT_KEYS[@]}" -gt 0 ]]; then
     # per-project count via .expect.project_phase.projects[<slug>].agents_count;
     # single-project fixtures use the legacy flat
     # .expect.project_phase.project_agents_count key. Both honored.
-    expected_proj_agents=$(yq -r "
-      .expect.project_phase.projects[]?
-        | select(.slug == \"$proj_slug\")
-        | .agents_count
-      // .expect.project_phase.project_agents_count
-      // 8
-    " "$FIXTURE")
-    actual_proj_agents=$(sqlite3 "$DB" "SELECT COUNT(*) FROM agents WHERE project_id='$proj_slug';" 2>/dev/null || echo "0")
+    expected_proj_agents=$(yq -r ".expect.project_phase.projects[]? | select(.slug == \"$proj_slug\") | .agents_count" "$FIXTURE" 2>/dev/null)
+    if [[ -z "$expected_proj_agents" || "$expected_proj_agents" == "null" ]]; then
+      expected_proj_agents=$(yq -r '.expect.project_phase.project_agents_count // 8' "$FIXTURE")
+    fi
+    PROJ_DB="$TMP_DIR/.juvant/project-$proj_slug.db"
+    # Project agents live in the project DB (F-24).
+    actual_proj_agents=0
+    if [[ -f "$PROJ_DB" ]]; then
+      actual_proj_agents=$(sqlite3 "$PROJ_DB" "SELECT COUNT(*) FROM agents;" 2>/dev/null || echo "0")
+    fi
     if [[ "$actual_proj_agents" -ge "$expected_proj_agents" ]]; then
       assert_ok "project_agents_count[$proj_slug]=$actual_proj_agents (≥$expected_proj_agents)"
     else
@@ -568,7 +578,6 @@ if [[ "${#PROJECT_KEYS[@]}" -gt 0 ]]; then
     # DB at .juvant/project-<slug>.db, not the company state.db. Query the
     # right DB; fall back to the company DB for legacy fixtures that wrote
     # project audits there (pre-F-24).
-    PROJ_DB="$TMP_DIR/.juvant/project-$proj_slug.db"
     proj_audit=0
     if [[ -f "$PROJ_DB" ]]; then
       proj_audit=$(sqlite3 "$PROJ_DB" "SELECT COUNT(*) FROM security_audit_log WHERE auditor='cso' AND audit_type='bootstrap_baseline' AND scope='$proj_slug';" 2>/dev/null || echo "0")
@@ -581,6 +590,17 @@ if [[ "${#PROJECT_KEYS[@]}" -gt 0 ]]; then
       assert_ok "project CSO bootstrap_baseline audit fired [$proj_slug] ($proj_audit findings)"
     else
       assert_fail "project CSO bootstrap_baseline audit absent (scope=$proj_slug)"
+    fi
+
+    # An open traceability finding must hold promotion (SYSTEM_INVARIANTS §1).
+    if [[ -f "$PROJ_DB" ]]; then
+      held_findings=$(sqlite3 "$PROJ_DB" "SELECT COUNT(*) FROM security_audit_log_current WHERE current_status='open' AND is_test_artifact=0 AND (category IN ('manifesto-bootstrap-incomplete','agent-manifest-drift','decision-trail-incomplete') OR (category='audit-coverage-gap' AND layer='access'));" 2>/dev/null || echo "0")
+      promoted=$(sqlite3 "$PROJ_DB" "SELECT COUNT(*) FROM manifests WHERE status='operational';" 2>/dev/null || echo "0")
+      if [[ "$held_findings" -gt 0 && "$promoted" -gt 0 ]]; then
+        assert_fail "project_promotion_gate[$proj_slug]: $promoted manifests operational with $held_findings open traceability finding(s)"
+      else
+        assert_ok "project_promotion_gate[$proj_slug]: $held_findings open finding(s), $promoted operational"
+      fi
     fi
   done
 fi
@@ -644,8 +664,19 @@ fi
 # audit_findings caps
 p1_max=$(yq -r '.expect.audit_findings.p1_max' "$FIXTURE")
 p2_max=$(yq -r '.expect.audit_findings.p2_max' "$FIXTURE")
-p1_actual=$(sqlite3 "$DB" "SELECT COUNT(*) FROM security_audit_log WHERE severity='P1';" 2>/dev/null || echo "0")
-p2_actual=$(sqlite3 "$DB" "SELECT COUNT(*) FROM security_audit_log WHERE severity='P2';" 2>/dev/null || echo "0")
+# Across every DB, in both severity vocabularies (schema.sql: P0-P2; cso.md and
+# the audit script: low-critical). A verdict row repeats its top finding.
+count_findings() { # <sql severity list>
+  local total=0 db n
+  for db in "$DB" "$TMP_DIR"/.juvant/project-*.db; do
+    [[ -f "$db" ]] || continue
+    n=$(sqlite3 "$db" "SELECT COUNT(*) FROM security_audit_log WHERE severity IN ($1) AND category IS NOT 'audit-verdict';" 2>/dev/null || echo "0")
+    total=$(( total + n ))
+  done
+  echo "$total"
+}
+p1_actual=$(count_findings "'P1','high'")
+p2_actual=$(count_findings "'P2','medium'")
 if [[ "$p1_actual" -le "$p1_max" ]]; then
   assert_ok "audit_findings.p1=$p1_actual (≤$p1_max)"
 else
