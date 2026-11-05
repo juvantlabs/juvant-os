@@ -130,7 +130,9 @@ _project_db_bind() {
   local stripped
   JUVANT_DB_PROVIDER=$(jq -r --arg s "$SCOPE" '.projects[$s].db.provider // .projects[$s].provider // ""' "$CONFIG")
   JUVANT_DB_URL=$(jq -r --arg s "$SCOPE" '.projects[$s].db.url // .projects[$s].url // ""' "$CONFIG")
+  # shellcheck disable=SC2034  # read by juvant_db_query_resolved
   JUVANT_DB_TOKEN=$(juvant_secret_get ".projects[\"$SCOPE\"].db.auth_token // .projects[\"$SCOPE\"].auth_token" "$CONFIG")
+  # shellcheck disable=SC2034  # read by juvant_db_query_resolved
   JUVANT_DB_READ_TOKEN=$(juvant_secret_get ".projects[\"$SCOPE\"].db.read_token" "$CONFIG")
   JUVANT_DB_PATH=""
   if [[ "$JUVANT_DB_PROVIDER" == "local" && -n "$JUVANT_DB_URL" ]]; then
