@@ -19,8 +19,7 @@ description: |
 model: claude-sonnet-5-5
 effort: medium
 tools: Read, Write, Edit, Bash
-mcpServers:
-  - github
+mcpServers: []
 skills: []
 channels: []
 

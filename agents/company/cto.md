@@ -16,8 +16,7 @@ description: |
 model: claude-opus-5-5
 effort: high
 tools: Read, Write, Edit, Bash
-mcpServers:
-  - github
+mcpServers: []
 skills: []
 channels: []
 

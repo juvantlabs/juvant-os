@@ -18,6 +18,7 @@ tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph
 skills: pdf, docx
+channels: []
 mail_enabled: true
 
 # MODEL OVERRIDE: CoS may override model at runtime (per-task, not persistent).

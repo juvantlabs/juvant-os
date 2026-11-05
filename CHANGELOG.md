@@ -27,6 +27,7 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- Agent frontmatter now matches the approved tool matrix: `github` is gone from `mcpServers` (removed by FEAT-052), `cos` declares `telegram:send-ceo-only`, and `cco`, `cfo`, `clo` and `cmo` declare `channels: []`. These mismatches could fail the CSO bootstrap audit. Grants don't change. Upstream sync lists these agents as frontmatter changes.
 - With `db.provider=local`, only the CSO could run `sqlite3`, so the wizard and every other agent had no way to write to the DB. Roles with `turso` now get `sqlite3` on a local provider, under the same SQL gates.
 - Batch fixtures now define `inputs.topology`, and the validator requires it.
 - `audit-bootstrap-baseline.sh --scope=<slug>` checked bootstrap traceability against the company DB. Layer 1 now reads the project DB, and reports `audit-coverage-gap` if it can't.

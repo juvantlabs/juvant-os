@@ -14,7 +14,7 @@ tools: Read, Write, Edit, Bash
 mcpServers:
   - m365-graph
 skills: []
-channels: [telegram]
+channels: [telegram:send-ceo-only]
 
 # MODEL OVERRIDE: CoS may override model at runtime (per-task, not persistent).
 # Each project's Eng Lead may override Eng/* models within that project.
