@@ -19,8 +19,7 @@ description: |
 model: claude-sonnet-5-5
 effort: medium
 tools: Read, Write, Edit, Bash
-mcpServers:
-  - github
+mcpServers: []
 skills: frontend-design
 channels: []
 
@@ -204,12 +203,10 @@ CTO still owns the tool matrix.
   manifestos (10 company-scope + 5 project-scope + 4 Eng/*) are subject to the CEO-only override
   Tier 1 path with `tier1_bootstrap=1`. PCA's own manifesto is one of these 19; PCA becomes Tier 1
   approver for project peers only after the bootstrap completes (the `master_context` row `key='bootstrap_completed_at'` exists).
-- **For projects added post-bootstrap:** {{CHRO_NAME}} + {{CTO_NAME}} approve the new project PCA's
-  manifesto first (treating it as a company-scope-relevant boundary case, with the {{CSO_NAME}}
-  precondition unchanged). Once the new PCA is OPERATIONAL_RESTRICTED, PCA performs Tier 1 on the
-  remaining project-scope agents. The very first {{CSO_NAME}} audit covering the new project may
-  use `precondition_bypassed='project-bootstrap'` for the initial Tier 1 wave; {{CSO_NAME}}
-  performs `bootstrap_baseline=1` audit immediately after.
+- **For projects added post-bootstrap:** the CEO approves all 8 project manifestos, yours included,
+  under the one-shot override (`precondition_bypassed='project-bootstrap'`). No Tier 1 wave runs.
+  {{CSO_NAME}} performs the `bootstrap_baseline=1` audit immediately after, and you become Tier 1
+  approver for later project agents once the project is promoted.
 - **Outside bootstrap windows:** `precondition_bypassed` is not a permitted value. Tier 1 always
   requires a current scope-matched {{CSO_NAME}} audit.
 

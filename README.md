@@ -249,6 +249,7 @@ ignored and a hook that fails to start lets the tool call through.
 | **v1.19** | Opt-in OS-level protection of the guardrail files: agent Bash in the Claude Code sandbox (write-denied protected set, no unsandboxed retry, compiled network allowlist), sandbox-aware upstream sync, `[SANDBOX OFF]` detection (ADR 0036) | ✅ |
 | **v1.20** | Daily retention sweep for the plaintext files the m365-graph and m365-mail MCP servers leave in their download sandboxes (`retention.download_days`, default 7) | ✅ |
 | **v1.21** | `knowledge_base.tags`: agents find backlog, runbooks, design system and standards by tag. Run `scripts/migrate.sh` on upgrade | ✅ |
+| **v1.22** | Project audits read the project DB, and project manifestos stay restricted while a traceability finding is open. `sqlite3` for DB roles on a local provider. First test of the manifesto flow with real agents | ✅ |
 | **v2.0** | Always-on cloud agents (Azure), External Portal, Webhook Services, Teams Meeting Bot, M365 mail automation | Planned — requires cloud infrastructure |
 
 Roadmap detail and open issues are tracked in the private project management

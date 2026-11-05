@@ -11,8 +11,11 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.22.0] — 2026-11-05 — Project audits and the manifesto flow, tested with real agents
+
 ### Changed
 
+- **Project bootstrap is a CEO override plus CSO audit, like company bootstrap.** The spec also asked for a Tier 1 wave by CHRO, CTO and the new PCA, which contradicted ADR 0008 and had no working path. CSO checks each manifesto's `bootstrap-action` row, which now carries `agent='ceo'` and `source_ref='manifests:<id>'`.
 - **Project manifestos stay `operational_restricted` while a traceability finding is open.** A WARN verdict used to promote them anyway. Findings in `manifesto-bootstrap-incomplete`, `agent-manifest-drift` or `decision-trail-incomplete`, and an `audit-coverage-gap` on the `access` layer, now hold promotion until the CSO closes them and the CEO re-triggers the step. Company bootstrap is unchanged.
 - `master_context.bootstrap_audit_verdict` is now written by the bootstrap transaction, as the bare verdict token.
 - The batch driver defaults to `claude-opus-5-5`, with a $15 cap set by `--max-budget=<usd>`.
@@ -24,6 +27,7 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- Agent frontmatter now matches the approved tool matrix: `github` is gone from `mcpServers` (removed by FEAT-052), `cos` declares `telegram:send-ceo-only`, and `cco`, `cfo`, `clo` and `cmo` declare `channels: []`. These mismatches could fail the CSO bootstrap audit. Grants don't change. Upstream sync lists these agents as frontmatter changes.
 - With `db.provider=local`, only the CSO could run `sqlite3`, so the wizard and every other agent had no way to write to the DB. Roles with `turso` now get `sqlite3` on a local provider, under the same SQL gates.
 - Batch fixtures now define `inputs.topology`, and the validator requires it.
 - `audit-bootstrap-baseline.sh --scope=<slug>` checked bootstrap traceability against the company DB. Layer 1 now reads the project DB, and reports `audit-coverage-gap` if it can't.

@@ -25,7 +25,6 @@ model: claude-sonnet-5-5
 effort: medium
 tools: Read, Write, Edit, Bash
 mcpServers:
-  - github
   - m365-graph
 skills: frontend-design, docx
 channels: []

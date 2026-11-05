@@ -14,8 +14,7 @@ description: |
 model: claude-haiku-5-5
 effort: medium
 tools: Read, Write, Edit, Bash
-mcpServers:
-  - github
+mcpServers: []
 skills: frontend-design
 channels: []
 
