@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.21.0] — 2026-11-05 — Knowledge base tags
+
 ### Added
 
 - **`knowledge_base.tags`** (BUG-074, juvant-os-pm#161). Agents find backlog,
