@@ -1375,16 +1375,26 @@ missing, fail gracefully with the install hint:
 - Write the **tokens** to `.juvant/secrets.json` (decisions#305 B1b) — same key
   paths, gitignored, `chmod 600`. Only hook/helper processes read it; the
   PreToolUse secrets gate (Track 2h) denies every agent any tool access to it,
-  so the wizard stores each token with
-  `printf '%s' "<token>" | bash scripts/set-secret.sh .db.auth_token`
-  (add-only: an existing value is never replaced from inside Claude Code —
-  rotation is done by the CEO from their own terminal — or with Claude Code's
-  `!` shell mode, which is the CEO's own input and does not pass through the
-  PreToolUse gate (verified on an adopter, H14); the same holds for MCP server
-  launches such as `dotenv-cli -e <dotenv file> -- npx …`). Create a
-  least-privilege read-only token for the hooks' reads and store it as
-  `.db.read_token`:
-  `turso db tokens create company-{{COMPANY_NAME_SLUG}} --read-only`.
+  so tokens go in through `scripts/set-secret.sh` on stdin. **A secret never
+  appears in a Bash command or in the chat**: the command text goes to the
+  session transcript and the model, and whatever reaches the chat can't be
+  taken back. Two forms only:
+  - A token the CLI creates is piped straight in, and the wizard never sees it:
+    `turso db tokens create company-{{COMPANY_NAME_SLUG}} | bash scripts/set-secret.sh .db.auth_token`
+  - A value the CEO already holds (setup mode [B], bot tokens, webhook URLs) is
+    stored by the CEO from their own terminal, outside Claude Code, and the
+    wizard only confirms the path is set:
+    `read -rs S && printf '%s' "$S" | bash scripts/set-secret.sh .db.auth_token; unset S`
+
+  `set-secret.sh` is add-only: an existing value is never replaced from inside
+  Claude Code. Rotation is done by the CEO from their own terminal, or with
+  Claude Code's `!` shell mode, which is the CEO's own input and does not pass
+  through the PreToolUse gate (verified on an adopter, H14); the same holds for
+  MCP server launches such as `dotenv-cli -e <dotenv file> -- npx …`. Create a
+  least-privilege read-only token for the hooks' reads the same way:
+  `turso db tokens create company-{{COMPANY_NAME_SLUG}} --read-only | bash scripts/set-secret.sh .db.read_token`.
+  In batch mode fixture values are placeholders, so the `printf` form is
+  acceptable there.
 
 ```json
 {
@@ -1504,7 +1514,8 @@ top-level `notifications` object** — the shipped code reads them as
 Writing them at the document root leaves every read empty (`// ""`) and silently
 disables all Telegram/Teams sends (the BUG-057 failure mode). Write the wrapper
 exactly as shown. The bot token and the webhook URLs are **secrets**: they go in
-`.juvant/secrets.json` under the same `notifications` paths (decisions#305 B1b);
+`.juvant/secrets.json` under the same `notifications` paths (decisions#305 B1b),
+stored by the CEO from their own terminal (Step 2);
 `telegram_chat_id` and the Morning Brief keys stay in `config.json`. The block
 below shows the full logical shape:
 

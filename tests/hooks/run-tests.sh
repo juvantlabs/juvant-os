@@ -1883,6 +1883,52 @@ t_assert "hook exits 0 (does not abort)" "0" "$_mb_rc"
 t_assert "decision is allow" "allow" "$(echo "$_mb_out" | jq -r '.hookSpecificOutput.permissionDecision' 2>/dev/null)"
 
 # ─────────────────────────────────────────────
+# Audit summaries carry no secrets: input_summary is immutable, so a value that
+# lands there can only be rotated. Canaries are built at run time.
+# ─────────────────────────────────────────────
+suite "pre-tool-use.sh (audit summary redaction)"
+_rd_canary="CANARY$(date +%s)abcdefghijklmnop"
+_rd_summary() { # <event json>: the spooled row for one call, read back after the hook
+  rm -f "$JUVANT_SPOOL"
+  echo "$1" | bash "$HOOKS_DIR/pre-tool-use.sh" >/dev/null 2>&1
+  cat "$JUVANT_SPOOL" 2>/dev/null
+}
+_rd_bash() { jq -cn --arg c "$1" --arg t "${2:-Bash}" '{tool_name:$t,session_id:"s-rd",tool_input:{command:$c}}'; }
+_rd_has() { printf '%s' "$1" | grep -c "$2" || true; }
+
+_rd_row=$(_rd_summary "$(_rd_bash "printf '%s' \"$_rd_canary\" | bash scripts/set-secret.sh .db.auth_token")")
+t_assert "set-secret line: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+t_assert "set-secret line: row still written" "1" "$(_rd_has "$_rd_row" "REDACTED: set-secret")"
+_rd_long=$(printf 'x%.0s' $(seq 1 300))
+_rd_row=$(_rd_summary "$(_rd_bash "S=$_rd_canary; echo $_rd_long; printf '%s' \"\$S\" | bash scripts/set-secret.sh .a")")
+t_assert "value before a set-secret past the cut: not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+_rd_row=$(_rd_summary "$(_rd_bash "printf '%s' \"$_rd_canary\" | bash scripts/set-secret.sh .a" Monitor)")
+t_assert "Monitor runs the same line: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+_rd_row=$(_rd_summary "$(_rd_bash "curl -H 'Authorization: Bearer $_rd_canary' https://example.test/x")")
+t_assert "bearer header: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+t_assert "bearer header: the rest of the command stays" "1" "$(_rd_has "$_rd_row" "example.test")"
+_rd_row=$(_rd_summary "$(_rd_bash "TURSO_TOKEN=$_rd_canary echo ok")")
+t_assert "key=value: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+_rd_row=$(_rd_summary "$(_rd_bash "echo \$TURSO_TOKEN; export API_KEY=\$(cat f)")")
+t_assert "a variable reference is kept" "1" "$(_rd_has "$_rd_row" 'TURSO_TOKEN')"
+_rd_row=$(_rd_summary "$(_rd_bash "echo https://acme.webhook.office.com/webhookb2/$_rd_canary")")
+t_assert "webhook URL: path not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+_rd_row=$(_rd_summary "$(_rd_bash "echo 123456789:$_rd_canary$_rd_canary")")
+t_assert "bot token: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+_rd_row=$(_rd_summary "$(jq -cn --arg o "token: $_rd_canary" '{tool_name:"Edit",session_id:"s-rd",tool_input:{file_path:"a.md",old_string:$o,new_string:"y"}}')")
+t_assert "Edit old_string: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+_rd_row=$(_rd_summary "$(jq -cn --arg o "$_rd_canary" '{tool_name:"mcp__x__send",session_id:"s-rd",tool_input:{password:$o}}')")
+t_assert "MCP arguments: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+_rd_row=$(_rd_summary "$(_rd_bash "gh pr merge 12 --squash && JUVANT_SPEC_PARTIAL=1 true")")
+t_assert "spec-gate markers survive" "1" "$(_rd_has "$_rd_row" "gh pr merge 12.*JUVANT_SPEC_PARTIAL=1")"
+_rd_noperl="$TMPROOT/noperl"; mkdir -p "$_rd_noperl"
+printf '#!/bin/sh\nexit 1\n' > "$_rd_noperl/perl"; chmod +x "$_rd_noperl/perl"
+_rd_row=$(PATH="$_rd_noperl:$PATH" _rd_summary "$(_rd_bash "echo $_rd_canary")")
+t_assert "filter unavailable: value not in the row" "0" "$(_rd_has "$_rd_row" "$_rd_canary")"
+t_assert "filter unavailable: row still written" "1" "$(_rd_has "$_rd_row" "filter unavailable")"
+rm -f "$JUVANT_SPOOL"
+
+# ─────────────────────────────────────────────
 # G6 (decisions#303): with BOTH transports faked, a full drain must leave the
 # spool empty. Anything left means some write took a path the fakes don't
 # cover (e.g. a new curl endpoint, or a turso-only fake) and the suite passed

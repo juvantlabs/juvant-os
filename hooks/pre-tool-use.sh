@@ -105,11 +105,36 @@ ARGS_HASH=$(printf '%s' "$ARGS_JSON" | shasum -a 256 | awk '{print $1}')
 # the ended_at written by post-tool-use.sh.
 STARTED_AT=$(date -u +"%Y-%m-%d %H:%M:%S")
 
+# input_summary is set-once and can't be deleted, and it reaches every DB reader,
+# the spool and its backups: a secret stored here can only be rotated. Strip
+# secret-shaped text before it's cut to size. Fails closed: if the filter can't
+# run, the summary is dropped.
+# shellcheck disable=SC2016
+juvant_redact_secrets() {
+  LC_ALL=C perl -0777 -pe '
+    BEGIN { $r = "[REDACTED]" }
+    s/\b(Bearer\s+)[A-Za-z0-9._~+\/=-]{8,}/$1$r/gi;
+    s/((?:token|secret|password|passwd|api_?key)["\x27]?\s*[:=]\s*["\x27]?)(?!\$)[^\s"\x27,;&}]{6,}/$1$r/gi;
+    s/(--(?:[a-z-]*token|password|secret|api-key)[\s=]+["\x27]?)(?!\$)[^\s"\x27]{6,}/$1$r/gi;
+    s/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]*)?/$r/g;
+    s/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})/$r/g;
+    s/\b\d{6,12}:[A-Za-z0-9_-]{30,}/$r/g;
+    s{(https?://[^\s"\x27/]*(?:webhook\.office\.com|hooks\.slack\.com)/)[^\s"\x27]+}{$1$r}g;
+    s{([?&]sig=)[^\s"\x27&]+}{$1$r}g;
+    s{(://[^\s/:@]+:)[^\s/@]+@}{$1$r\@}g;
+  ' 2>/dev/null || printf '[REDACTED: filter unavailable]'
+}
+
 # Build input_summary — human-readable, max 200 chars (FEAT-040 Layer 1d)
 case "$TOOL_NAME" in
-  Bash)
+  Bash|Monitor)
     _RAW=$(echo "$EVENT_JSON" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
-    INPUT_SUMMARY=$(printf '%.200s' "$_RAW") ;;
+    if [[ "$_RAW" == *set-secret* ]]; then
+      # The value may sit anywhere on the line, in any form.
+      _SUMMARY_SRC="[REDACTED: set-secret.sh command]"
+    else
+      _SUMMARY_SRC="${_RAW:-$ARGS_JSON}"
+    fi ;;
   Edit)
     _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
     # Character-safe truncation: `head -c 80` cut BYTES, splitting a multi-byte
@@ -117,17 +142,20 @@ case "$TOOL_NAME" in
     # sequence") — with onFailure:block that BLOCKED the Edit. (Escapes are now
     # LC_ALL=C as well, so a stray byte can never fail them again.)
     _OLD=$(echo "$EVENT_JSON" | jq -r '.tool_input.old_string // ""' 2>/dev/null || echo "")
+    _OLD=$(printf '%s' "$_OLD" | juvant_redact_secrets)
     _OLD="${_OLD:0:80}"
-    INPUT_SUMMARY=$(printf '%.200s' "Edit $_FILE: $_OLD") ;;
+    _SUMMARY_SRC="Edit $_FILE: $_OLD" ;;
   Write)
     _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
-    INPUT_SUMMARY=$(printf '%.200s' "Write $_FILE") ;;
+    _SUMMARY_SRC="Write $_FILE" ;;
   Read)
     _FILE=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
-    INPUT_SUMMARY=$(printf '%.200s' "Read $_FILE") ;;
+    _SUMMARY_SRC="Read $_FILE" ;;
   *)
-    INPUT_SUMMARY=$(printf '%.200s' "$ARGS_JSON") ;;
+    _SUMMARY_SRC="$ARGS_JSON" ;;
 esac
+INPUT_SUMMARY=$(printf '%s' "$_SUMMARY_SRC" | juvant_redact_secrets)
+INPUT_SUMMARY=$(printf '%.200s' "$INPUT_SUMMARY")
 
 # Default: allow
 DECISION="allow"
