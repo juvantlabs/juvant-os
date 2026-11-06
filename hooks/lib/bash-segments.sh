@@ -15,7 +15,7 @@
 #   env / nice / nohup / timeout / xargs are listed AND unwrapped, command /
 #   builtin / exec / time are unwrapped; sudo / doas are listed, not unwrapped.
 #   Inline code is followed: bash|sh|zsh|dash|ksh -c <code>, eval <words>,
-#   find -exec|-execdir|-ok|-okdir <cmd>.
+#   find -exec|-execdir|-ok|-okdir <cmd>, helpers/with-timeout.sh <secs> <cmd>.
 #   Fail closed (P): unbalanced quotes / parens, an unterminated $( or
 #   backtick, a command name computed at run time ($cmd, "$(…)"), env -S,
 #   nesting deeper than _JBS_MAX_DEPTH.
@@ -419,7 +419,12 @@ _jbs_emit() {
         esac
         j=$((j + 1))
       done
-      if (( sc )); then _jbs_parse "$code" 0 "" $((depth + 1)); fi ;;
+      if (( sc )); then
+        _jbs_parse "$code" 0 "" $((depth + 1))
+      elif [[ "${w[j]:-}" == *with-timeout.sh ]] && (( j + 2 < m )); then
+        # helpers/with-timeout.sh <seconds> <command…> runs its arguments.
+        _jbs_emit "${w[@]:j+2}"
+      fi ;;
     eval)
       _jbs_parse "${w[*]:k+1}" 0 "" $((depth + 1)) ;;
     find)

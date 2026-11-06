@@ -159,6 +159,21 @@ while IFS=',' read -r agent calls baseline denied failed; do
   fi
 done <<< "$RESULTS"
 
+# One exec-scope denial is worth a look: it means an agent reached for a way
+# around its allow-list (BUG-103). The denied-rate check above needs 5 calls.
+EXEC_SCOPE=$(juvant_db_query_csv "
+SELECT agent, COUNT(*) FROM agent_actions_log
+WHERE status = 'denied' AND deny_reason LIKE 'deny:exec-scope:%'
+  AND julianday(CURRENT_TIMESTAMP) - julianday(started_at) <= (1.0/24)
+GROUP BY agent;
+" 2>/dev/null)
+while IFS=',' read -r agent n; do
+  agent=$(echo "$agent" | tr -d ' ')
+  n=$(echo "$n" | tr -d ' ')
+  [[ -n "$agent" && "$n" =~ ^[0-9]+$ ]] || continue
+  ANOMALIES+=("$agent: ${n} command(s) denied by exec scope in the last hour — check the session for a workaround")
+done <<< "$EXEC_SCOPE"
+
 if [[ "${#ANOMALIES[@]}" -eq 0 ]]; then
   echo "[anomaly-check] OK — no anomalies in last hour"
   exit 0
