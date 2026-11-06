@@ -23,9 +23,13 @@
 # per-instance substitution is needed.
 #
 # Usage:
-#   bash scripts/sync-hooks.sh [--dry-run]
+#   bash scripts/sync-hooks.sh [--dry-run] [--instance]
+#
+# --instance applies the framework denies whatever the origin says: at company
+# init, origin can still point at the upstream repo.
 #
 # Called by:
+#   - Company setup, Step 10, with --instance.
 #   - juv-upstream-sync post-apply step (when the template changed).
 #   - On demand, any time settings.json's hooks block drifts from canonical.
 
@@ -36,9 +40,11 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 TEMPLATE="$SCRIPT_DIR/templates/hooks-registration.json"
 SETTINGS="$REPO_ROOT/.claude/settings.json"
 DRY_RUN=0
+INSTANCE=0
 
 for arg in "$@"; do
   [[ "$arg" == "--dry-run" ]] && DRY_RUN=1
+  [[ "$arg" == "--instance" ]] && INSTANCE=1
 done
 
 if ! command -v jq &>/dev/null; then
@@ -79,6 +85,7 @@ case "${JUVANT_FRAMEWORK_DEV:-auto}" in
   0) APPLY_DENY=1 ;;
   *) [[ "$_origin" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]] && APPLY_DENY=0 ;;
 esac
+[[ "$INSTANCE" -eq 1 ]] && APPLY_DENY=1
 # The stale framework comment claimed .juvant/config.json was "explicitly
 # denied" — it never was (decisions#303). Rewrite only that framework-authored
 # sentence; any instance wording is left alone.

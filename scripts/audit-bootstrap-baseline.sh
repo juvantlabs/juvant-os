@@ -386,6 +386,17 @@ audit_layer_2_secrets() {
       "gitignore-incomplete"
   fi
 
+  # Not token-bearing, but they hold audit rows and copies of the spool.
+  local missing_state=()
+  for pat in ".juvant/project-*.db" ".juvant/backups/"; do
+    grep -qF "$pat" "$gi" || missing_state+=("$pat")
+  done
+  if [[ "${#missing_state[@]}" != "0" ]]; then
+    emit "secrets" "medium" \
+      ".gitignore missing runtime state: ${missing_state[*]}" \
+      "gitignore-incomplete"
+  fi
+
   # Tracked-secret scan (CSO Layer 2 mirror of CI step).
   local offenders=""
   if [[ -d "$ROOT/.git" ]]; then

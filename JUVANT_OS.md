@@ -2191,9 +2191,11 @@ path [3] each is shown then approved, etc.
 
 ### Wizard — Step 10: Initial commit
 
-After bootstrap completes successfully:
+After bootstrap completes successfully, merge the framework permission denies
+into `.claude/settings.json`, then commit:
 
 ```bash
+bash scripts/sync-hooks.sh --instance
 git add -A \
   agents/ \
   scripts/ \

@@ -84,6 +84,12 @@ JUVANT_FRAMEWORK_DEV=0 bash "$F0/scripts/sync-hooks.sh" >/dev/null 2>&1
 t_assert "framework repo + JUVANT_FRAMEWORK_DEV=0: denies merged" "yes" \
   "$(jq -e '.permissions.deny | index("Edit(.juvant/audit-spool.sql)") != null' "$F0/.claude/settings.json" >/dev/null && echo yes || echo no)"
 
+# ── company init: origin may still be upstream, --instance merges anyway ──
+FI="$TMPROOT/framework-instance"; mk_repo "$FI" git@github.com:juvantlabs/juvant-os.git
+bash "$FI/scripts/sync-hooks.sh" --instance >/dev/null 2>&1
+t_assert "upstream origin + --instance: denies merged" "yes" \
+  "$(jq -e '.permissions.deny | index("Edit(.juvant/audit-spool.sql)") != null' "$FI/.claude/settings.json" >/dev/null && echo yes || echo no)"
+
 echo ""
 echo " RESULTS: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]

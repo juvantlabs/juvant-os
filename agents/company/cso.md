@@ -121,7 +121,8 @@ The audit is your central deliverable. It runs:
 
 **Checks:**
 
-1. `.gitignore` excludes: `.env`, `*.env.*`, `.juvant/config.json`, `.juvant/sessions/`, `.claude/local/`,
+1. `.gitignore` excludes: `.env`, `*.env.*`, `.juvant/config.json`, `.juvant/state.db`, `.juvant/project-*.db`,
+   `.juvant/backups/`, `.juvant/sessions/`, `.claude/local/`,
    `node_modules/`, `*.pem`, `*.key`, `id_rsa*`.
 2. No tracked file matches secret patterns:
    - `sk-[A-Za-z0-9]{40,}` (API keys)
