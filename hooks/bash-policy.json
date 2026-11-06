@@ -133,6 +133,12 @@
     "infra_cli":  ["az", "aws", "gcloud"]
   },
 
+  "_exec_scope_comment": "BUG-103, ADR 0038. Roles with none of these binaries on their allow-list get hooks/lib/exec-scope.sh: bash/sh run only framework scripts, and allowed tools can't be used to run other commands. A role with an interpreter can run anything, so the check doesn't apply. Giving a role one of these binaries takes it out of the check: treat that as part of the tool-matrix-change.",
+
+  "exec_scope": {
+    "interpreters": ["python", "python2", "python3", "node", "deno", "bun", "perl", "ruby", "php", "lua", "npm", "npx", "pip", "pip3", "pytest", "vitest", "tsc"]
+  },
+
   "_local_db_cli_comment": "BUG-103: with db.provider=local (company or any project) the DB CLI is sqlite3, not turso. A role with turso gets sqlite3 there, same rights: both go through the same SQL gates, which also deny dot-commands such as .shell.",
   "local_db_cli": {"binary": "sqlite3", "granted_with": "turso"},
   "agent_allow": {

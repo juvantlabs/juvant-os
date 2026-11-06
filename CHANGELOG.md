@@ -13,10 +13,13 @@ All written artifacts in English. No exceptions.
 
 ### Security
 
+- Roles with no interpreter on their allow-list (`cos`, `cfo`, `clo`, `cmo`, `cco`, `chro`, `cetho`, `cro`, `cto`, `vpe`, `product-lead`, `Explore`) can no longer use an allowed binary to run another one (BUG-103, ADR 0038). `bash` and `sh` run only framework scripts under `hooks/`, `helpers/` and `scripts/`, the files Track 2f protects. `git`, `gh`, `sort`, `awk` and `sed` lose the flags and program text that run commands. `helpers/with-timeout.sh` now has its command checked. Denials read `deny:exec-scope:` and trigger `helpers/anomaly-check.sh`, and audit rows carry the hash of the script run.
 - Audit summaries no longer store secrets. `hooks/pre-tool-use.sh` drops any `set-secret.sh` command from `agent_actions_log.input_summary` and strips secret-shaped text from every tool's summary. The filter fails closed. The wizard no longer puts a secret on a Bash command line: tokens the CLI creates are piped into `set-secret.sh`, and values the CEO holds are stored from the CEO's own terminal.
 
 ### Upgrade
 
+- Upstream sync step 11: suites under `tests/` no longer run from CoS. Dispatch them to `eng-platform`, or run them with `! bash …`.
+- Check your own usage before syncing: any agent on the list above that runs a script outside those three folders will be denied. `SELECT agent, input_summary FROM agent_actions_log WHERE tool_name = 'Bash' AND input_summary LIKE '%bash %' AND input_summary NOT LIKE '%bash scripts/%' AND input_summary NOT LIKE '%bash helpers/%' AND input_summary NOT LIKE '%bash hooks/%' GROUP BY 1, 2;`
 - `input_summary` can't be edited or deleted, so older rows stay as they are. List them without printing the text: `SELECT id, started_at FROM agent_actions_log WHERE input_summary LIKE '%set-secret%';`. If any row exists, rotate the secrets stored in those sessions.
 
 ## [1.22.0] — 2026-11-05 — Project audits and the manifesto flow, tested with real agents

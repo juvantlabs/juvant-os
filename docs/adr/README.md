@@ -56,6 +56,7 @@ overrides it, both the new ADR and the original remain — the old one is annota
 | [0034](0034-security-policy-committed-file.md) | Instance security policy is a committed `security/policy.json` read from `origin/main` (never the working tree), fails closed; supersedes ADR 0025 clause 5 only | Proposed | 2026-10-29 |
 | [0035](0035-multi-library-document-spaces.md) | Multi-library document spaces: `spaces.<role>.libraries{}` (resource_ids + purpose) with `default_library` and purpose-based selection; the sensitive-space perimeter must cover every library; extends 0023/0025 | Accepted | 2026-11-02 |
 | [0037](0037-manifesto-signoffs-and-upgrades.md) | Manifesto sign-offs are `decisions` rows, each review cycle is a new `manifests` row, and Upstream sync is the only agent upgrade path | Accepted |
+| [0038](0038-bash-allow-list-scope.md) | Roles with no interpreter run only framework scripts, and the allow-list is stated as what it is: not a boundary against evasion | Accepted |
 | [0036](0036-kernel-enforced-guardrail-writes.md) | Kernel-enforced protection of guardrail files: agent Bash in the Claude Code sandbox (`denyWrite` on the protected set, no unsandboxed retry, compiled network allowlist, two excluded helpers); opt-in `feature_toggles.bash_sandbox`; Track 2f stays as defense-in-depth | Accepted | 2026-11-03 |
 
 ## Modification governance

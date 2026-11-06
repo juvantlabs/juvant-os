@@ -5263,6 +5263,9 @@ trail. **Company-scope agents only** — no project agents involved.
     claude.ai M365 connector is vendor-hosted and unversioned, so its canary
     re-runs on every sync — including against the instance's own
     `security/policy.json`. Surface results to CEO alongside the PR's CI status.
+    `helpers/` run from CoS. Everything under `tests/` is instance-editable, so
+    CoS can't run it (ADR 0038): dispatch those suites to `eng-platform`, or ask
+    the CEO to run them with `! bash …`.
 
 12. **Record completion + CHRO re-validation** (after the CEO has merged the
     PR; then `git checkout main && git pull --ff-only origin main`; if
@@ -5299,7 +5302,7 @@ hooks/lib/track-tokens.sh     hooks/lib/spec-marking-gate.sh
 hooks/lib/hooks-integrity.sh  hooks/lib/guardrail-paths.sh
 hooks/lib/security-policy.sh  hooks/lib/secrets.sh
 hooks/lib/alert.sh            hooks/lib/bash-segments.sh
-hooks/lib/cloud-cli.sh
+hooks/lib/cloud-cli.sh         hooks/lib/exec-scope.sh
 helpers/morning-brief.sh      helpers/activity-digest.sh
 helpers/anomaly-check.sh      helpers/audit-reconcile.sh
 helpers/turso-backup.sh       helpers/install-schedules.sh
@@ -5349,6 +5352,7 @@ tests/hooks/test-connector-gate.sh
 tests/hooks/test-secrets.sh
 tests/hooks/test-alert-delivery.sh
 tests/hooks/test-cloud-cli.sh
+tests/hooks/test-exec-scope.sh
 tests/hooks/test-shell-tools.sh
 tests/hooks/fixtures/transcript-sample.jsonl
 tests/helpers/test-audit-continuity-predicate.sh

@@ -1005,6 +1005,43 @@ if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" \
   fi
 fi
 
+# BUG-103: an allowed binary must not be a way to run one the role doesn't have.
+# Same operator exemption and same degraded mode as the check above. See
+# hooks/lib/exec-scope.sh.
+if [[ -f "$SCRIPT_DIR/lib/exec-scope.sh" && -f "$SCRIPT_DIR/lib/bash-segments.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/bash-segments.sh"
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/lib/exec-scope.sh"
+  _ES_CWD=$(echo "$EVENT_JSON" | jq -r '.cwd // ""' 2>/dev/null || echo "")
+  _ES_CWD="${_ES_CWD:-$PWD}"
+  if [[ "$DECISION" == "allow" && -f "$POLICY" \
+        && -n "$ROLE" && "$ROLE" != "unknown" && "$ROLE" != "ceo" && "$ROLE" != "operator" ]] \
+     && juvant_exec_scope_applies "$POLICY" "$LOOKUP_ROLE"; then
+    if [[ "$TOOL_NAME" == "Bash" ]]; then
+      _es_rc=0
+      _es_reason=$(juvant_exec_scope_check "$POLICY" "$COMMAND" "$SCRIPT_DIR/.." "$_ES_CWD") || _es_rc=$?
+      if [[ "$_es_rc" != 0 ]]; then
+        DECISION="deny"
+        DENY_REASON="$_es_reason"
+      fi
+    elif [[ "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Edit" ]]; then
+      _es_path=$(echo "$EVENT_JSON" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
+      if juvant_exec_scope_path_denied "$_es_path"; then
+        DECISION="deny"
+        DENY_REASON="deny:exec-scope:config — shell and git config files can name commands to run, so this role can't write '$_es_path'. Surface it to your parent (CoS). Refs: BUG-103"
+      fi
+    fi
+  fi
+  if [[ "$TOOL_NAME" == "Bash" ]]; then
+    case "$COMMAND" in
+      *bash*|*sh\ *)
+        _ES_HASH=$(juvant_exec_script_hashes "$COMMAND" "$_ES_CWD" 2>/dev/null || true)
+        [[ -n "$_ES_HASH" ]] && INPUT_SUMMARY="[script sha256:$_ES_HASH] $INPUT_SUMMARY" ;;
+    esac
+  fi
+fi
+
 # ─────────────────────────────────────────────
 # Track 2b — Scope boundary guard (SYSTEM_INVARIANTS §4b / §4c)
 # ─────────────────────────────────────────────
