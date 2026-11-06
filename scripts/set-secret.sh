@@ -4,9 +4,12 @@
 # way for the init wizard (or an operator) to store a token while the
 # PreToolUse secrets gate (Track 2h) denies every tool access to the file.
 #
-#   printf '%s' "<value>" | bash scripts/set-secret.sh <jq-path>
-#   e.g.  … | bash scripts/set-secret.sh .db.read_token
-#         … | bash scripts/set-secret.sh '.notifications.teams_webhooks.ops'
+#   <source of the value> | bash scripts/set-secret.sh <jq-path>
+#   e.g.  turso db tokens create <db> --read-only | bash scripts/set-secret.sh .db.read_token
+#         read -rs S && printf '%s' "$S" | bash scripts/set-secret.sh .db.auth_token; unset S
+#
+# Never put the value itself in a command run through Claude Code: the command
+# text reaches the session transcript and the model.
 #
 # ADD-ONLY: an existing value is never replaced from here. Replacing a secret
 # (rotating a token, changing where alerts go) is done by the CEO editing the
@@ -28,7 +31,7 @@ SECRETS="$(juvant_secrets_file "$CONFIG")"
 
 path="${1:-}"
 if ! [[ "$path" =~ ^(\.[A-Za-z_][A-Za-z0-9_-]*|\[\"[A-Za-z0-9_-]+\"\])+$ ]]; then
-  echo "set-secret: usage: printf '%s' <value> | bash scripts/set-secret.sh <.jq.path>" >&2; exit 1
+  echo "set-secret: usage: <source of the value> | bash scripts/set-secret.sh <.jq.path>" >&2; exit 1
 fi
 value=$(cat)
 [[ -n "$value" ]] || { echo "set-secret: empty value on stdin — refused" >&2; exit 1; }

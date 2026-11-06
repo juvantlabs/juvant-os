@@ -11,6 +11,14 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+### Security
+
+- Audit summaries no longer store secrets. `hooks/pre-tool-use.sh` drops any `set-secret.sh` command from `agent_actions_log.input_summary` and strips secret-shaped text from every tool's summary. The filter fails closed. The wizard no longer puts a secret on a Bash command line: tokens the CLI creates are piped into `set-secret.sh`, and values the CEO holds are stored from the CEO's own terminal.
+
+### Upgrade
+
+- `input_summary` can't be edited or deleted, so older rows stay as they are. List them without printing the text: `SELECT id, started_at FROM agent_actions_log WHERE input_summary LIKE '%set-secret%';`. If any row exists, rotate the secrets stored in those sessions.
+
 ## [1.22.0] — 2026-11-05 — Project audits and the manifesto flow, tested with real agents
 
 ### Changed
