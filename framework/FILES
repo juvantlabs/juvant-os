@@ -1,0 +1,10 @@
+# Framework-owned paths, one per line, relative to framework/.
+# `update` overwrites exactly these in a company repo and touches nothing else.
+# CI (tests/check-files.sh) fails if this list and the files under framework/
+# differ in either direction. This file itself is not listed.
+README.md
+agents/.gitkeep
+dashboard/.gitkeep
+hooks/.gitkeep
+skills/.gitkeep
+templates/.gitkeep

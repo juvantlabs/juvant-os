@@ -1,0 +1,23 @@
+name: v2
+
+on:
+  push:
+    branches: [v2]
+  pull_request:
+    branches: [v2]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tools
+        run: |
+          sudo apt-get install -y shellcheck jq
+          pip install --quiet pyyaml
+      - name: Lint, FILES check, unit tests
+        run: bash tests/run.sh

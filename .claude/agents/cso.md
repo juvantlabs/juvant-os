@@ -1,1 +1,0 @@
-../../agents/company/cso.md
