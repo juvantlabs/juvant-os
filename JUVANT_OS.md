@@ -2051,6 +2051,20 @@ path [3] each is shown then approved, etc.
    path [2] an edited body replaces the extracted one with an `UPDATE` after this
    step; the CEO's edit is the only other source of `content`.
 
+   In the same step, insert one `agents` row per founding agent. Sub-steps 4
+   and 8 mirror the manifesto state onto these rows. Without them the mirror
+   updates match nothing, and the CSO audit raises `agent-manifest-drift`:
+
+   ```sql
+   INSERT INTO agents (role, name, scope, manifesto_status, manifesto_tier,
+                       tier1_bootstrap)
+   VALUES ('cos', '<agent name>', 'company', 'pending', 1, 0),
+          ('cfo', '<agent name>', 'company', 'pending', 1, 0),
+          ...;
+   ```
+
+   `name` is the agent name compiled at Step 7.
+
 2. For each manifesto, present the draft to the CEO via the chat:
 
    ```
@@ -2223,7 +2237,9 @@ git add -A \
   README.md \
   CHANGELOG.md \
   SECURITY.md \
+  CLAUDE.md \
   docs/adr/ \
+  tests/ \
   VERSION
 git commit -m "init({{COMPANY_NAME_SLUG}}): bootstrap company-scope agents"
 git push
@@ -2239,9 +2255,10 @@ patched during the wizard run; both are part of the bootstrap deliverable.
 they don't change at re-bootstrap, but staging them on the first commit
 ensures fresh clones see runtime registration without an extra step.
 
-`README.md`, `CHANGELOG.md`, `SECURITY.md`, and `docs/adr/README.md` were
-rewritten at Step 7.6 with company-specific content; staging them on the
-first commit replaces the framework's templates in the per-company repo.
+`README.md`, `CHANGELOG.md`, `SECURITY.md`, `CLAUDE.md` and `docs/adr/README.md`
+were rewritten at Step 7.6 with company-specific content, and the framework's
+test results under `tests/` were removed; staging them on the first commit
+replaces the framework's files in the per-company repo.
 `VERSION` records the framework version this instance bootstrapped against —
 useful for upstream-sync compatibility checks later.
 
@@ -2265,11 +2282,11 @@ implements the rules documented in `docs/branch-protection-spec.md`:
 
 ```sql
 INSERT INTO decisions (agent, title, category, rationale, status,
-                       approved_by, approved_at, created_at)
+                       approved_by, approved_at)
 VALUES ('cso', 'Initial branch protection on main',
         'branch-protection-spec',
         '{"branch":"main","require_pr":true,"min_reviewers":1,"codeowners_required":true,"status_checks":["Juvant OS lint"],"linear_history":true,"block_force_push":true,"block_deletion":true,"include_admins":"plan-dependent","plan":"<gh-plan>"}',
-        'approved', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        'approved', ?, CURRENT_TIMESTAMP);
 ```
 
 Approval is implicit at company init via the bootstrap CEO-only override
@@ -3134,7 +3151,7 @@ gh label create "juvant:decision" \
 ### Wizard — Step 6: Initial commit
 
 ```bash
-git add agents/projects/ .claude/settings.json
+git add agents/projects/ .claude/settings.json .claude/agents/
 git commit -m "init({{PROJECT_NAME_SLUG}}): bootstrap project agents"
 git push
 ```
