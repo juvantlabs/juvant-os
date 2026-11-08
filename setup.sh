@@ -79,4 +79,4 @@ bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" >/dev/null
 left=$(grep -ho '{{[A-Z_]*}}' "$TARGET/CLAUDE.md" "$TARGET/manifesto.md" "$TARGET"/roles/*.md 2>/dev/null | sort -u | tr '\n' ' ' || true)
 echo "setup: juvant-os v2 installed in $TARGET ($(sed -n 's/.*"version": "\(.*\)".*/\1/p' "$TARGET/.claude/juvant-os.json"))."
 [[ -n "$left" ]] && echo "setup: placeholders to fill in the first session: $left"
-echo "setup: next: cd $TARGET && git init (if new) && claude. Nothing is committed yet."
+echo "setup: next: cd $TARGET && git init (if new), then start the Chief of Staff with a fixed name so collaborator sessions can reach it: claude --name cos --remote-control. Nothing is committed yet."

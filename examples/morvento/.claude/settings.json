@@ -1,4 +1,5 @@
 {
+  "_comment": "Company repo: documents and memory, not code. Collaborator sessions edit this working copy directly (no worktree) and leave committing to the Chief of Staff's wrap-up.",
   "permissions": {
     "deny": [
       "mcp__claude_ai_Microsoft_365__outlook_send_mail",
@@ -79,5 +80,8 @@
         ]
       }
     ]
+  },
+  "worktree": {
+    "bgIsolation": "none"
   }
 }

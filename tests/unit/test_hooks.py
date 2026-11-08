@@ -309,6 +309,7 @@ class Settings(unittest.TestCase):
         for event, sub in (("SessionStart", "session-start"), ("SubagentStart", "subagent-start"),
                            ("SubagentStop", "subagent-stop"), ("Stop", "stop")):
             self.assertIn(f"juvant_hooks.py\" {sub}", s["hooks"][event][0]["hooks"][0]["command"])
+        self.assertEqual(s["worktree"]["bgIsolation"], "none", "collaborator sessions must write where the CoS reads")
         deny = s["permissions"]["deny"]
         for prefix in (P_LOCAL, P_CLOUD):
             self.assertIn(prefix + "outlook_send_mail", deny)

@@ -26,17 +26,19 @@ Started by <CoS name> for <CEO name>, <YYYY-MM-DD>.
 <manifesto points that matter here, deadlines, what not to do>
 
 ## Done means
-<the deliverable and where to save it, e.g. drafts/<name>.md>
+<the deliverable and where to save it, e.g. drafts/<name>.md. Its own file: other sessions work in this same folder.>
 
 ## Talking to the CEO
 The CEO may open this session and talk to you directly. Their word overrides this brief.
+Don't commit: the Chief of Staff commits at wrap-up.
 When you finish, say so in one line, then stop and wait.
 ```
 
 4. **Start it** (one Bash command):
-   `claude --bg --name <name> [--agent <id>] "You are a collaborator session named <name>, not the Chief of Staff. Read state/briefs/<name>.md and do the work it describes."`
+   `claude --bg --remote-control --name <name> [--agent <id>] "You are a collaborator session named <name>, not the Chief of Staff. Read state/briefs/<name>.md and do the work it describes."`
+   `--remote-control` makes the session reachable from the Claude app and claude.ai/code too, under the same name.
    If it fails with `Workspace not trusted`, tell the CEO to run `claude` once in this repo and accept the trust prompt, then retry.
-5. **Ask to be told when it's done**: with `SendMessage` to `<name>` and `notify_when_idle`, without a message.
+5. **Ask to be told when it's done**: with `SendMessage` to `<name>` and `notify_when_idle`, without a message. The notice can get lost: when the CEO presses `←`, your own session moves to the background under a new address. So don't rely on it alone: whenever the CEO comes back to you while a collaborator is running, check it with `ListAgents` and say what finished.
 6. **Tell the CEO** in one line: the name, what it's doing, and how to reach it ("press `←`, then `Enter` on *<name>*").
 7. **When it's done**, read its deliverable, tell the CEO what's ready, and note it for wrap-up. If the session asks you something through a message, answer only within what the CEO already decided; route anything else to the CEO.
 
