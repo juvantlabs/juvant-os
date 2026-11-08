@@ -52,7 +52,7 @@ juvant_exec_scope_path_denied() {
 }
 
 _jes_deny() {
-  printf "deny:exec-scope:%s — %s This role has no interpreter on its allow-list, so an allowed tool can't be used to run other commands (handbook ADR 0004 Track 2, ADR 0038). Do NOT retry or rewrite the line another way: surface it to your parent (CoS) for a tool-matrix-change. Refs: BUG-103" "$1" "$2"
+  printf "deny:exec-scope:%s — %s This role has no interpreter on its allow-list, so an allowed tool can't be used to run other commands (handbook ADR 0004 Track 2). Framework scripts still run: bash scripts/<name>.sh, helpers/<name>.sh or hooks/<name>.sh. If one does the job, use it. Do NOT retry or rewrite the line another way: surface it to your parent (CoS) for a tool-matrix-change. Refs: BUG-103" "$1" "$2"
 }
 
 # _jes_real_dir <dir>: physical path, or nothing if it doesn't exist.

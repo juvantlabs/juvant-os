@@ -2033,9 +2033,23 @@ path [3] each is shown then approved, etc.
    VALUES (?, ?, '1.0', 'pending', 1, NULL, 0, NULL, CURRENT_TIMESTAMP);
    ```
 
-   `content` is the manifesto draft authored from a template (extracted from the
-   compiled subagent file's identity + scope + ethical commitments + anti-pattern
-   sections).
+   `content` is the compiled agent file without its YAML frontmatter, verbatim.
+   Never write or condense a body by hand: a summary nobody reviewed would become
+   the manifesto of record. Generate the statements with the shipped script, then
+   load the file with a redirect (the SQL gate denies SQL piped in from another
+   command):
+
+   ```bash
+   bash scripts/extract-manifest.sh --insert cos agents/company/cos.md \
+     cfo agents/company/cfo.md ... > /tmp/juvant-step9-manifests.sql
+   sqlite3 <db-path> < /tmp/juvant-step9-manifests.sql        # local DB
+   turso db shell <db-name> < /tmp/juvant-step9-manifests.sql  # cloud DB
+   ```
+
+   One `<agent> <file>` pair per founding agent. The script prints nothing if
+   any file is missing or has no body, so a partial file can't be loaded. Under
+   path [2] an edited body replaces the extracted one with an `UPDATE` after this
+   step; the CEO's edit is the only other source of `content`.
 
 2. For each manifesto, present the draft to the CEO via the chat:
 
@@ -3031,6 +3045,16 @@ Resolution: read `.projects.<slug>.db.url` from `.juvant/config.json`,
 strip leading `file:`, use that path for ALL project-scope INSERT
 statements in this step. For cloud-provider project DBs, use
 `turso db shell "$DB_URL"` per the F-24 split.
+
+The heredocs above show the target DB only. Generate the rows as in company
+Step 9: `content` is the compiled file without its frontmatter, never a body
+written by hand.
+
+```bash
+bash scripts/extract-manifest.sh --insert pca agents/projects/<slug>/pca.md \
+  product-lead agents/projects/<slug>/product-lead.md ... > /tmp/juvant-proj-manifests.sql
+sqlite3 <project-db-path> < /tmp/juvant-proj-manifests.sql
+```
 
 Sequencing:
 
@@ -5266,7 +5290,7 @@ trail. **Company-scope agents only** — no project agents involved.
     re-runs on every sync — including against the instance's own
     `security/policy.json`. Surface results to CEO alongside the PR's CI status.
     `helpers/` run from CoS. Everything under `tests/` is instance-editable, so
-    CoS can't run it (ADR 0038): dispatch those suites to `eng-platform`, or ask
+    CoS can't run it (the exec-scope gate): dispatch those suites to `eng-platform`, or ask
     the CEO to run them with `! bash …`.
 
 12. **Record completion + CHRO re-validation** (after the CEO has merged the
@@ -5325,6 +5349,7 @@ scripts/sync-sandbox.sh       scripts/templates/sandbox.json
 helpers/upstream-apply.sh     helpers/fetch-origin.sh
 scripts/deadlines.json        scripts/validate-security-policy.sh
 scripts/migrate-secrets.sh    scripts/set-secret.sh
+scripts/extract-manifest.sh
 scripts/upgrade-v0.5.sql
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
@@ -5383,6 +5408,7 @@ tests/helpers/test-turso-backup-archival.sh
 tests/sync/test-sync-compile.sh
 tests/sync/test-fake-db-pairing.sh
 tests/sync/test-sync-hooks.sh
+tests/sync/test-extract-manifest.sh
 tests/schema/validate.py
 tests/schema/test-audit-immutability.sh
 tests/schema/test-category-allowlist.py

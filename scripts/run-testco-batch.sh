@@ -529,6 +529,38 @@ else
   assert_fail "manifests_count=$actual_manifests (expected $expected_manifests)"
 fi
 
+# manifest_content (BUG-103) — every stored manifesto is its compiled agent
+# file without frontmatter, verbatim. A session that can't extract the bodies
+# and writes summaries instead passes every other check, so this one compares
+# content, not counts. Batch fixtures accept all defaults: no CEO edits.
+mc_bad=""; mc_n=0
+mc_tmp=$(mktemp "${TMPDIR:-/tmp}/testco-manifest-XXXXXX")
+mc_check() { # <db> <compiled-dir>
+  local db="$1" dir="$2" id agent
+  while IFS='|' read -r id agent; do
+    [[ -n "$id" ]] || continue
+    mc_n=$((mc_n + 1))
+    sqlite3 "$db" "SELECT content FROM manifests WHERE id = $id;" > "$mc_tmp" 2>/dev/null
+    if [[ ! -f "$dir/$agent.md" ]]; then
+      mc_bad+=" $agent(no compiled file)"
+    elif ! bash "$ROOT/scripts/extract-manifest.sh" --check "$dir/$agent.md" "$mc_tmp" 2>/dev/null; then
+      mc_bad+=" $agent($(wc -c < "$mc_tmp" | tr -d ' ')B)"
+    fi
+  done < <(sqlite3 "$db" "SELECT id, agent FROM manifests WHERE agent GLOB '[a-z]*' AND agent NOT GLOB '*[^a-z0-9-]*' ORDER BY id;" 2>/dev/null)
+}
+[[ -f "$DB" ]] && mc_check "$DB" "$TMP_DIR/agents/company"
+for proj_db in "$TMP_DIR"/.juvant/project-*.db; do
+  [[ -f "$proj_db" ]] || continue
+  mc_slug=$(basename "$proj_db" .db); mc_slug="${mc_slug#project-}"
+  mc_check "$proj_db" "$TMP_DIR/agents/projects/$mc_slug"
+done
+rm -f "$mc_tmp"
+if [[ -z "$mc_bad" ]]; then
+  assert_ok "manifest_content: $mc_n manifesto(s) match their compiled files"
+else
+  assert_fail "manifest_content: stored body differs from the compiled file for:$mc_bad"
+fi
+
 # Project-init phase assertions (only when fixture defines a project block).
 # v0.8.1+ (multi-project iteration): collect every inputs.project* key in
 # fixture order so multi-project-vpe.yaml + future N-project fixtures

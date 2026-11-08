@@ -496,29 +496,51 @@ if [[ "$TOOL_NAME" == "Bash" && -f "$POLICY" ]]; then
   # string literals that contain whitespace (prose) emptied, short literals
   # kept (so scope='global' / status='approved' stay visible), split on ';'.
   _sqlg_statements() {
-    local t="$1" n=${#1} i=0 c out="" lit="" inlit=0
-    while [[ $i -lt $n ]]; do
-      c="${t:$i:1}"
-      if [[ "$inlit" == 1 ]]; then
-        if [[ "$c" == "'" ]]; then
-          if [[ "${t:$((i + 1)):1}" == "'" ]]; then lit+="''"; i=$((i + 2)); continue; fi
-          case "$lit" in *[[:space:]]*) out+="''" ;; *) out+="'$lit'" ;; esac
-          inlit=0; lit=""
-        else lit+="$c"; fi
-      elif [[ "$c" == "'" ]]; then inlit=1; lit=""
-      elif [[ "$c" == "-" && "${t:$((i + 1)):1}" == "-" ]]; then
-        while [[ $i -lt $n && "${t:$i:1}" != $'\n' ]]; do i=$((i + 1)); done
-        continue
-      elif [[ "$c" == "/" && "${t:$((i + 1)):1}" == "*" ]]; then
-        i=$((i + 2)); while [[ $i -lt $n && "${t:$i:2}" != "*/" ]]; do i=$((i + 1)); done
-        i=$((i + 2)); out+=" "; continue
-      else out+="$c"; fi
-      i=$((i + 1))
-    done
-    [[ "$inlit" == 1 ]] && out+="'$lit"
-    out="${out//$'\n'/ }"; out="${out//$'\r'/ }"
-    # Trailing newline: `while read` would drop a final unterminated statement.
-    printf '%s\n' "$out" | tr ';' '\n'
+    # awk, not a bash character loop: bash 3.2 (macOS) indexes a string in
+    # O(position), so a 20 KB manifesto INSERT took 7 s and a bootstrap batch
+    # outran the hook timeout. Same state machine, one line at a time, bytes.
+    local trail=0
+    [[ "$1" == *$'\n' ]] && trail=1
+    printf '%s' "$1" | LC_ALL=C awk -v trail="$trail" '
+      BEGIN { out = ""; lit = ""; inlit = 0; incom = 0; first = 1 }
+      {
+        n = split($0, ch, "")
+        if (!first) {
+          # The newline that ended the previous line.
+          if (inlit) lit = lit "\n"
+          else if (!incom) out = out " "
+        }
+        first = 0
+        i = 1
+        while (i <= n) {
+          c = ch[i]
+          if (incom) {
+            if (c == "*" && i < n && ch[i + 1] == "/") { incom = 0; i += 2; out = out " "; continue }
+            i++; continue
+          }
+          if (inlit) {
+            if (c == "\047") {
+              if (i < n && ch[i + 1] == "\047") { lit = lit "\047\047"; i += 2; continue }
+              if (lit ~ /[[:space:]]/) out = out "\047\047"; else out = out "\047" lit "\047"
+              inlit = 0; lit = ""
+            } else lit = lit c
+          } else if (c == "\047") { inlit = 1; lit = "" }
+          else if (c == "-" && i < n && ch[i + 1] == "-") { i = n + 1; continue }
+          else if (c == "/" && i < n && ch[i + 1] == "*") { incom = 1; i += 2; continue }
+          else out = out c
+          i++
+        }
+      }
+      END {
+        if (trail) { if (inlit) lit = lit "\n"; else if (!incom) out = out " " }
+        if (incom) out = out " "
+        if (inlit) out = out "\047" lit
+        gsub(/\r/, " ", out); gsub(/\n/, " ", out)
+        # Trailing newline: `while read` would drop a final unterminated statement.
+        n = split(out, st, ";")
+        for (k = 1; k <= n; k++) print st[k]
+        if (n == 0) print ""
+      }'
   }
   _SQLG_DENY_PS=0
   if [[ "$COMMAND" == *turso* || "$COMMAND" == *sqlite3* ]]; then

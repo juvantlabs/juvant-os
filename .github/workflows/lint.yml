@@ -180,6 +180,8 @@ jobs:
           bash tests/sync/test-fake-db-pairing.sh
           # decisions#303 R2: framework permission denies merged by sync-hooks.sh.
           bash tests/sync/test-sync-hooks.sh
+          # BUG-103: manifesto bodies extracted verbatim from compiled files.
+          bash tests/sync/test-extract-manifest.sh
 
       - name: Hook tests (FEAT-008 L2)
         run: |

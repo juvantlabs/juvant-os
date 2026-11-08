@@ -18,6 +18,9 @@ All written artifacts in English. No exceptions.
 
 ### Fixed
 
+- Bootstrap stores the real manifestos again (BUG-103). Company Step 9 and project Step 5 asked the session to extract each body from its compiled file and shipped no tool for it, so a role with no interpreter could end up writing short summaries that became the manifestos of record. `scripts/extract-manifest.sh` now generates the `INSERT` statements: the body is the compiled file without its frontmatter, verbatim. The batch driver compares every stored manifesto with its compiled file.
+- The SQL gate in `hooks/pre-tool-use.sh` now splits statements in linear time. On macOS bash 3.2 the old loop took seconds per kilobyte, so loading a set of manifestos ran past the hook timeout.
+- Exec-scope denials point to the framework scripts that still run, instead of an ADR adopters don't have.
 - The `cro` manifesto no longer runs `helpers/morning-brief.sh`, which posts to a Teams channel the role doesn't have: it reports to CoS. It reads documents through `m365-graph`, because `ms-graph` covers mail and calendar only, and `ms-graph` leaves its tool matrix row. Its quarterly KB audit now follows the retraction and promotion paths the manifesto states, and it writes only canonical categories.
 - Seven manifestos (`cco`, `cetho`, `cfo`, `chro`, `clo`, `cmo`, `cro`) said the Bash allow-list was empty. It isn't: they now state what `hooks/bash-policy.json` grants.
 - `.gitignore` covers `.juvant/project-*.db` and `.juvant/backups/`, which hold audit rows and copies of the audit spool. The audit baseline and the CSO checklist now check for them.
