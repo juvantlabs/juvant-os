@@ -237,3 +237,16 @@ _juvant_plist_env_ok() {
   done
   return 0
 }
+
+# Guardrail-job findings for the session-start audit row: unloaded and missing
+# jobs first (they are what the 300-char row must keep), then mismatched and
+# unexpected plists, joined with ';'. Reads the findings on stdin. Always
+# exits 0: under `set -euo pipefail` a grep with no match must not abort the
+# caller (BUG-106 — a check that found only missing jobs stopped SessionStart).
+juvant_guardrail_jobs_summary() {
+  local in
+  in=$(cat)
+  { printf '%s\n' "$in" | grep -E '^(job-not-loaded|plist-missing):' || true
+    printf '%s\n' "$in" | grep -E '^plist-(mismatch|unexpected):' || true
+  } | paste -sd ';' - | cut -c1-300
+}

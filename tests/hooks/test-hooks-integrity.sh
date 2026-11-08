@@ -230,6 +230,22 @@ t_assert "v2 main content in a v1 instance → rc 1 (baseline is upstream/v1)" "
 t_assert "v2 main content → named not-from-upstream" "yes" \
   "$([[ "$OUT" == *"not-from-upstream: hooks/stop.sh"* ]] && echo yes || echo no)"
 
+# ── BUG-106: the job summary never aborts a strict-mode caller ──────────────
+_js() { printf '%s\n' "$1" | bash -c 'set -euo pipefail; . "$0"; juvant_guardrail_jobs_summary; echo "rc=$?"' "$ROOT_DIR/hooks/lib/hooks-integrity.sh" 2>&1; }
+OUTJ=$(_js $'plist-missing: io.juvant.guardrails.a.plist\nplist-missing: io.juvant.guardrails.b.plist')
+t_assert "BUG-106: only missing jobs → summary, no abort" "plist-missing: io.juvant.guardrails.a.plist;plist-missing: io.juvant.guardrails.b.plist|rc=0" \
+  "$(printf '%s' "$OUTJ" | paste -sd '|' -)"
+OUTJ=$(_js 'plist-mismatch: io.juvant.guardrails.c.plist (ProgramArguments)')
+t_assert "BUG-106: only mismatched plists → summary, no abort" "plist-mismatch: io.juvant.guardrails.c.plist (ProgramArguments)|rc=0" \
+  "$(printf '%s' "$OUTJ" | paste -sd '|' -)"
+OUTJ=$(_js $'plist-mismatch: io.juvant.guardrails.c.plist (keys)\njob-not-loaded: io.juvant.guardrails.d')
+t_assert "BUG-106: unloaded/missing listed before mismatches" "job-not-loaded: io.juvant.guardrails.d;plist-mismatch: io.juvant.guardrails.c.plist (keys)|rc=0" \
+  "$(printf '%s' "$OUTJ" | paste -sd '|' -)"
+OUTJ=$(_js 'not-from-upstream: hooks/stop.sh')
+t_assert "BUG-106: no job findings → empty summary, no abort" "rc=0" "$(printf '%s' "$OUTJ" | grep -v '^$' | paste -sd '|' -)"
+t_assert "BUG-106: session-start uses the strict-mode-safe summary" "1" \
+  "$(grep -c 'juvant_guardrail_jobs_summary' "$ROOT_DIR/hooks/session-start.sh")"
+
 # ── session-start.sh wiring: warning on stdout, never blocks ────────────────
 # Run the instance's own session-start.sh (DB-less: no .juvant/config.json).
 cp "$ROOT_DIR/hooks/session-start.sh" "$INST/hooks/session-start.sh"

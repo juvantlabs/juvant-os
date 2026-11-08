@@ -11,6 +11,17 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.22.3] — 2026-11-08 — SessionStart no longer stops on missing guardrail jobs
+
+### Fixed
+
+- SessionStart stopped early when the only guardrail-job findings were missing or unloaded jobs (BUG-106). The summary for the audit row ran two greps under `set -euo pipefail`, and the second one matched nothing. The session then skipped the DB update, the `guardrail-jobs` row and the CEO alert. It happens right after a sync that adds jobs, until `helpers/install-schedules.sh` runs. The summary is now `juvant_guardrail_jobs_summary` in `hooks/lib/hooks-integrity.sh` and can't fail.
+- The SECURITY WARNING from the integrity check says to restore from `upstream/v1`, not `upstream/main`.
+
+### Upgrade
+
+- Upstream sync as usual; it reads `upstream/v1`.
+
 ## [1.22.2] — 2026-11-08 — v1 frozen on its own branch
 
 ### Changed
