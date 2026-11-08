@@ -15,6 +15,10 @@ while IFS= read -r f; do
   jq empty "$f" 2>/dev/null || { echo "invalid JSON: $f"; fail=1; }
 done < <(git ls-files -co --exclude-standard '*.json')
 
+while IFS= read -r f; do
+  python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])' "$f" || { echo "python syntax error: $f"; fail=1; }
+done < <(git ls-files -co --exclude-standard '*.py')
+
 "${PYTHON:-python3}" - <<'PY' || fail=1
 import pathlib, re, sys, yaml
 bad = []

@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "_comment": "Hard limits (design §7). MCP rules match the tool's own name, the part after the last '__', lowercased, for any server prefix. Order: money deny, outbound deny (drafts exempt), then ask. Regexes are Python syntax.",
+  "mcp": {
+    "draft_allow": "draft",
+    "draft_never": "(^|_)send(_|$)",
+    "deny": [
+      {
+        "id": "money",
+        "pattern": "(^|_)(pay|payment|payments|payout|transfer|wire|refund|charge|bonifico)(_|$)|(create|send|issue|submit|emit)_(\\w+_)?invoice|invoice_(create|send|issue|submit)",
+        "why": "payments, transfers, refunds and invoice issuing happen in the vendor's own UI, by the CEO (hard limit 2)"
+      },
+      {
+        "id": "outbound",
+        "pattern": "(^|_)(send|forward|reply|reply_all|respond|post|publish|share|invite)(_|$)|(create|update|cancel|decline|accept)_event|create_chat|set_vacation|auto_reply|out_of_office|create_filter|create_rule|inbox_rule",
+        "why": "outbound is draft-only: agents draft, the CEO sends (hard limit 1). Create a draft instead"
+      }
+    ],
+    "ask": [
+      {
+        "id": "destructive",
+        "pattern": "(^|_)(delete|remove|trash|purge|move|rename|upload|overwrite)(_|$)|update_file|copy_item|create_folder",
+        "why": "changes or removes documents or mail: the CEO confirms (hard limit 4)"
+      }
+    ]
+  },
+  "known_prefixes": [
+    "mcp__claude_ai_Microsoft_365__",
+    "mcp__Microsoft_365__"
+  ],
+  "bash": {
+    "deny": [
+      {
+        "id": "force-push",
+        "pattern": "\\bgit\\b[^;&|\\n]*\\bpush\\b[^;&|\\n]*(\\s--force(-with-lease|-if-includes)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*\\b|\\s\\+[^\\s]+)",
+        "why": "force push rewrites shared history (hard limit 4)"
+      }
+    ],
+    "ask": [
+      {
+        "id": "reset-hard",
+        "pattern": "\\bgit\\b[^;&|\\n]*\\breset\\b[^;&|\\n]*--hard\\b",
+        "why": "discards local work (hard limit 4)"
+      },
+      {
+        "id": "clean-force",
+        "pattern": "\\bgit\\b[^;&|\\n]*\\bclean\\b[^;&|\\n]*\\s-[a-zA-Z]*f",
+        "why": "deletes untracked files (hard limit 4)"
+      }
+    ],
+    "rm_outside_repo": "ask",
+    "temp_dirs": ["/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/"]
+  },
+  "secrets": [
+    {"id": "github-token", "pattern": "\\bgh[pousr]_[A-Za-z0-9]{36}\\b"},
+    {"id": "github-pat", "pattern": "\\bgithub_pat_[A-Za-z0-9_]{60,}"},
+    {"id": "anthropic-key", "pattern": "\\bsk-ant-[A-Za-z0-9_-]{20,}"},
+    {"id": "openai-key", "pattern": "\\bsk-(proj-)?[A-Za-z0-9_-]{40,}"},
+    {"id": "slack-token", "pattern": "\\bxox[abprs]-[A-Za-z0-9-]{10,}"},
+    {"id": "aws-access-key", "pattern": "\\bAKIA[0-9A-Z]{16}\\b"},
+    {"id": "entra-client-secret", "pattern": "\\b[A-Za-z0-9_.-]{3}8Q~[A-Za-z0-9_.~-]{31,34}"},
+    {"id": "private-key", "pattern": "-----BEGIN ([A-Z]+ )?PRIVATE KEY-----"}
+  ]
+}
