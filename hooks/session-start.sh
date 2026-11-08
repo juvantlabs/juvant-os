@@ -40,8 +40,8 @@ if [[ -f "$SCRIPT_DIR/lib/hooks-integrity.sh" ]]; then
   _HI_RC=0
   _HI_OUT=$(juvant_hooks_integrity_check "$REPO_ROOT") || _HI_RC=$?
   if [[ "$_HI_RC" -eq 1 ]]; then
-    _HI_LIST=$(printf '%s' "$_HI_OUT" | grep -v '^baseline:' | paste -sd ';' - | sed 's/;/; /g')
-    echo "SECURITY WARNING (hooks integrity, decisions#300): guardrail files differ from the canonical upstream content — ${_HI_LIST}. The PreToolUse gate may have been tampered with. Surface this to the CEO and the CSO before any other work; restore with 'git checkout upstream/main -- <file>' once reviewed."
+    _HI_LIST=$(printf '%s' "$_HI_OUT" | { grep -v '^baseline:' || true; } | paste -sd ';' - | sed 's/;/; /g')
+    echo "SECURITY WARNING (hooks integrity, decisions#300): guardrail files differ from the canonical upstream content — ${_HI_LIST}. The PreToolUse gate may have been tampered with. Surface this to the CEO and the CSO before any other work; restore with 'git checkout upstream/v1 -- <file>' once reviewed."
     echo "[session-start] SECURITY WARNING: hooks integrity check failed: ${_HI_LIST}" >&2
     if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
       _HI_SUM=$(printf 'hooks integrity: %s' "$_HI_LIST" | cut -c1-200 | LC_ALL=C sed "s/'/''/g")
@@ -61,8 +61,7 @@ if [[ -f "$SCRIPT_DIR/lib/hooks-integrity.sh" ]]; then
         # shellcheck disable=SC1091
         . "$SCRIPT_DIR/lib/alert.sh"
         # Unloaded / missing jobs first: they are what the 300-char row must keep.
-        _HI_JOBS=$( { printf '%s\n' "$_HI_OUT" | grep -E '^(job-not-loaded|plist-missing):'
-                      printf '%s\n' "$_HI_OUT" | grep -E '^plist-(mismatch|unexpected):'; } | paste -sd ';' - | cut -c1-300)
+        _HI_JOBS=$(printf '%s\n' "$_HI_OUT" | juvant_guardrail_jobs_summary)
         _HI_ALERT_ID=$(juvant_alert_id 2>/dev/null || echo "")
         if [[ -n "$JUVANT_DB_PROVIDER" ]]; then
           _HI_ROW=$(printf 'guardrail launchd jobs: %s; alert=%s' "$_HI_JOBS" "$_HI_ALERT_ID" | LC_ALL=C sed "s/'/''/g")
