@@ -58,17 +58,20 @@ printf '%s' "$WL" | grep -qF "hooks/lib/pause-windows.sh" \
 # Instance-local tests (JUVANT_OS.md: e.g. tests/hooks/test-<instance>-*.sh,
 # never touched by sync) are not in that tree and must not be flagged. The
 # reference tree is HEAD in the framework repo itself (origin is canonical),
-# else the adopter's upstream/main; with neither, the check is skipped.
+# else the adopter's upstream/v1 (FEAT-069), then upstream/main; with neither,
+# the check is skipped.
 _origin=$(git remote get-url origin 2>/dev/null || echo "")
 if [[ "$_origin" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]]; then
   _ref="HEAD"
+elif git rev-parse --verify -q upstream/v1 >/dev/null 2>&1; then
+  _ref="upstream/v1"
 elif git rev-parse --verify -q upstream/main >/dev/null 2>&1; then
   _ref="upstream/main"
 else
   _ref=""
 fi
 if [[ -z "$_ref" ]]; then
-  ok "SKIP test-whitelist completeness: no framework reference tree (not the framework repo, no upstream/main ref)"
+  ok "SKIP test-whitelist completeness: no framework reference tree (not the framework repo, no upstream/v1 or upstream/main ref)"
 else
   tmiss=0; tlocal=0
   for f in $(git ls-files 'tests/hooks/*' 'tests/helpers/*' 'tests/sync/*' 'tests/schema/*' 'tests/migrate/*'); do

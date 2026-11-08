@@ -12,9 +12,10 @@
 # are runtime data — Track 2f protects them; there is nothing to compare.)
 #
 # Baseline — no recorded hash that an agent could re-record after tampering:
-#   • canonical `upstream` remote with an `upstream/main` ref (every adopter
-#     that runs Upstream sync has one): each file's git blob must be a blob that
-#     its directory has held at SOME point in upstream/main history. An instance
+#   • canonical `upstream` remote with an `upstream/v1` ref, or `upstream/main`
+#     before the first fetch of `v1` (FEAT-069: v1 is frozen on branch `v1`):
+#     each file's git blob must be a blob that its directory has held at SOME
+#     point in that ref's history. An instance
 #     that is behind upstream still passes (old upstream content is upstream
 #     content); any byte not authored upstream fails.
 #   • otherwise: the working tree must match HEAD (uncommitted drift only;
@@ -44,7 +45,7 @@
 # JUVANT_LAUNCHCTL the launchctl binary used for the loaded-job check.
 
 juvant_hooks_integrity_check() {
-  local root="$1" mode origin up blobs f h rel found=0 synced_re
+  local root="$1" mode origin up blobs f h rel found=0 synced_re base
   local fw="${JUVANT_FRAMEWORK_DEV:-auto}"
   if ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "skip: not a git work tree"; return 2
@@ -75,15 +76,17 @@ juvant_hooks_integrity_check() {
   synced_re=$(juvant_guardrail_synced_re)
 
   up=$(git -C "$root" remote get-url upstream 2>/dev/null || echo "")
-  if [[ "$up" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]] \
-     && git -C "$root" rev-parse --verify -q upstream/main >/dev/null 2>&1; then
+  base=""
+  if git -C "$root" rev-parse --verify -q upstream/v1 >/dev/null 2>&1; then base=upstream/v1
+  elif git -C "$root" rev-parse --verify -q upstream/main >/dev/null 2>&1; then base=upstream/main; fi
+  if [[ "$up" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]] && [[ -n "$base" ]]; then
     mode="upstream"
     # Every blob these trees have held in upstream history (post-image of each
     # change) plus the current tree.
     blobs=$( {
-      git -C "$root" log --no-abbrev --format= --raw upstream/main -- hooks/ helpers/ scripts/ 2>/dev/null \
+      git -C "$root" log --no-abbrev --format= --raw "$base" -- hooks/ helpers/ scripts/ 2>/dev/null \
         | awk '{print $4}'
-      git -C "$root" ls-tree -r upstream/main -- hooks/ helpers/ scripts/ 2>/dev/null | awk '{print $3}'
+      git -C "$root" ls-tree -r "$base" -- hooks/ helpers/ scripts/ 2>/dev/null | awk '{print $3}'
     } | sort -u)
   else
     mode="head"
@@ -150,7 +153,7 @@ juvant_hooks_integrity_check() {
     fi
   fi
 
-  [[ "$mode" == head ]] && echo "baseline: HEAD (no canonical upstream/main ref — uncommitted drift only)"
+  [[ "$mode" == head ]] && echo "baseline: HEAD (no canonical upstream/v1 or upstream/main ref — uncommitted drift only)"
   [[ "$found" == 1 ]] && return 1
   return 0
 }

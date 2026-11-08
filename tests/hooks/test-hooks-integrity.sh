@@ -7,8 +7,8 @@
 #
 # Builds throwaway git repos: an "upstream" repo holding the framework hooks/
 # with two commits of history, and an "instance" repo whose `upstream` remote
-# URL is the canonical juvantlabs/juvant-os and whose upstream/main ref points
-# at the fetched upstream commit. No network.
+# URL is the canonical juvantlabs/juvant-os and whose upstream/main (or, from
+# FEAT-069, upstream/v1) ref points at the fetched upstream commit. No network.
 #
 # Run:  bash tests/hooks/test-hooks-integrity.sh
 # Exit: 0 on all-pass, non-zero on any failure.
@@ -212,6 +212,23 @@ OUT=$(JUVANT_FRAMEWORK_DEV=1 juvant_hooks_integrity_check "$INST"); RC=$?
 t_assert "JUVANT_FRAMEWORK_DEV=1 → skipped rc 2" "2" "$RC"
 OUT=$(JUVANT_FRAMEWORK_DEV=0 juvant_hooks_integrity_check "$INST5"); RC=$?
 t_assert "JUVANT_FRAMEWORK_DEV=0 forces the check even on a canonical origin" "1" "$RC"
+
+# ── FEAT-069: baseline is upstream/v1 when present; main may carry v2 ───────
+INSTV="$TMPROOT/instance-v1"; mk_instance "$INSTV"
+g -C "$INSTV" update-ref refs/remotes/upstream/v1 refs/remotes/upstream/main
+mkdir -p "$TMPROOT/v2tree/hooks"; echo 'echo framework-v2' > "$TMPROOT/v2tree/hooks/stop.sh"
+V2BLOB=$(g -C "$INSTV" hash-object -w "$TMPROOT/v2tree/hooks/stop.sh")
+V2TREE=$(printf '100644 blob %s\tstop.sh\n' "$V2BLOB" | g -C "$INSTV" mktree)
+V2ROOT=$(printf '040000 tree %s\thooks\n' "$V2TREE" | g -C "$INSTV" mktree)
+V2=$(g -C "$INSTV" commit-tree "$V2ROOT" -p refs/remotes/upstream/main -m "v2 on main")
+g -C "$INSTV" update-ref refs/remotes/upstream/main "$V2"
+run_check "$INSTV"
+t_assert "v1 instance, v2 on upstream main → still clean (rc 0)" "0" "$RC"
+cp "$TMPROOT/v2tree/hooks/stop.sh" "$INSTV/hooks/stop.sh"
+run_check "$INSTV"
+t_assert "v2 main content in a v1 instance → rc 1 (baseline is upstream/v1)" "1" "$RC"
+t_assert "v2 main content → named not-from-upstream" "yes" \
+  "$([[ "$OUT" == *"not-from-upstream: hooks/stop.sh"* ]] && echo yes || echo no)"
 
 # ── session-start.sh wiring: warning on stdout, never blocks ────────────────
 # Run the instance's own session-start.sh (DB-less: no .juvant/config.json).

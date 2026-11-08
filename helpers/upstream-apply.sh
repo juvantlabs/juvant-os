@@ -9,13 +9,15 @@
 # It applies nothing but canonical upstream content:
 #   - the `upstream` remote must be the canonical juvantlabs/juvant-os
 #     (.git/config is write-denied in the sandbox, so an agent cannot repoint it);
-#   - it resolves upstream main itself (`git ls-remote`) and fetches it,
+#   - it resolves upstream v1 itself (`git ls-remote`) and fetches it,
 #     then applies from THAT commit — never from refs/remotes/upstream/*,
 #     which sandboxed Bash can still move;
 #   - every file must match the Framework whitelist read from that same
 #     upstream commit's JUVANT_OS.md (globs such as agents/projects/*.md
 #     included); no absolute paths, no `..`, nothing under .git/;
 #   - it runs only on a sync branch (`sync/…`, created in step 7), never on main.
+# v1 is frozen on the upstream branch `v1` (FEAT-069): `main` carries v2,
+# a different framework, and is never applied here.
 # Afterwards it reconciles .claude/settings.json (scripts/sync-hooks.sh and
 # scripts/sync-sandbox.sh — both idempotent). Each applied file is logged to
 # .juvant/logs/upstream-apply.log; the call itself is audited by the
@@ -55,10 +57,11 @@ if [[ "$BRANCH" != sync/* ]]; then
   log "REFUSED: current branch is '${BRANCH:-<detached>}' — create the sync branch first (git checkout -b sync/upstream-<tag>)"; exit 1
 fi
 
-SHA=$(git ls-remote upstream refs/heads/main 2>/dev/null | awk '{print $1; exit}')
-if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then log "REFUSED: cannot resolve upstream main (git ls-remote)"; exit 1; fi
-git fetch --no-tags -q upstream main
-if ! git cat-file -e "${SHA}^{commit}" 2>/dev/null; then log "REFUSED: upstream main $SHA not present after fetch"; exit 1; fi
+UB=v1
+SHA=$(git ls-remote upstream "refs/heads/$UB" 2>/dev/null | awk '{print $1; exit}')
+if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then log "REFUSED: cannot resolve upstream $UB (git ls-remote)"; exit 1; fi
+git fetch --no-tags -q upstream "$UB"
+if ! git cat-file -e "${SHA}^{commit}" 2>/dev/null; then log "REFUSED: upstream $UB $SHA not present after fetch"; exit 1; fi
 
 WHITELIST=$(git show "${SHA}:JUVANT_OS.md" 2>/dev/null \
   | awk '/^\*\*Framework whitelist\*\*/{f=1} f&&/^```$/{c++; if (c==2) exit; next} f&&c==1{print}' \
@@ -84,7 +87,7 @@ for f in "$@"; do
     log "REFUSED $f — not on the upstream Framework whitelist"; rc=1; continue
   fi
   if ! git cat-file -e "${SHA}:${f}" 2>/dev/null; then
-    log "SKIPPED $f — not present in upstream main ${SHA:0:12}"; rc=1; continue
+    log "SKIPPED $f — not present in upstream $UB ${SHA:0:12}"; rc=1; continue
   fi
   if git checkout "$SHA" -- "$f"; then
     log "APPLIED $f @ upstream ${SHA:0:12}"

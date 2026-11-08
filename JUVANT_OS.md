@@ -5106,12 +5106,19 @@ trail. **Company-scope agents only** — no project agents involved.
 > "No upstream remote configured. Run: `git remote add upstream https://github.com/juvantlabs/juvant-os.git`"
 > and stop.
 
+**v1 lives on the upstream branch `v1`.** juvant-os v2 is a different
+framework and replaces upstream `main`. A v1 instance syncs from `upstream/v1`
+only, never from `upstream/main`. If `upstream/v1` doesn't exist after the
+fetch, stop and surface: *"Upstream has no v1 branch. Don't sync from main:
+it may carry v2."*
+
 **Procedure:**
 
 1. **Fetch** — `git fetch upstream --tags`.
 
-2. **Version delta** — compare instance HEAD against `upstream/main`.
-   Report: current tag (from `git describe --tags`), latest upstream tag,
+2. **Version delta** — compare instance HEAD against `upstream/v1`.
+   Report: current tag (from `git describe --tags`), latest v1 tag
+   (`git describe --tags --abbrev=0 upstream/v1`),
    N commits ahead (instance-specific), M commits behind (framework updates).
    If M = 0: *"Already up to date with upstream."* and stop.
 
@@ -5141,7 +5148,7 @@ trail. **Company-scope agents only** — no project agents involved.
    approval.
 
 5. **Compute diff** — for each file in the **framework whitelist** below,
-   run `git diff HEAD upstream/main -- <file>`. Skip files with no diff.
+   run `git diff HEAD upstream/v1 -- <file>`. Skip files with no diff.
 
 6. **Present proposed changes** grouped by category, one group at a time:
 
@@ -5191,8 +5198,8 @@ trail. **Company-scope agents only** — no project agents involved.
 
 7. **Apply approved files** — first create the sync branch off the current
    `main` (`git checkout -b sync/upstream-<tag>`), then
-   `git checkout upstream/main -- <file>` for each approved file. Use exactly
-   this form (or `git restore --source=upstream/main -- <file>`) for
+   `git checkout upstream/v1 -- <file>` for each approved file. Use exactly
+   this form (or `git restore --source=upstream/v1 -- <file>`) for
    `hooks/*.sh`, `hooks/lib/*.sh`, `hooks/bash-policy.json`, `helpers/*.sh`
    and `scripts/*.sh`: the Track 2f tamper floor denies every other write to
    those files, and allows this one only while `upstream` is the canonical
@@ -5454,7 +5461,7 @@ ADR 0034, decisions#305), `agents/company/*.md`, `agents/projects/*/`,
 whitelist above — instance-local tests, `tests/fixtures/`, `tests/integration/`),
 `.mcp.json`, `.claude/settings.json`.
 
-**Emergency note.** A direct `git fetch upstream && git merge upstream/main`
+**Emergency note.** A direct `git fetch upstream && git merge upstream/v1`
 is for emergencies only and must be followed by a full CSO post-incident audit.
 Per-company instances are mirror-pushed standalone repos — the GitHub
 "Sync fork" UI is not used.

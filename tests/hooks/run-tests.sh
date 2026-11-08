@@ -1419,11 +1419,19 @@ t_assert "2f sync: git checkout upstream/main -- hook (canonical upstream) → a
   "$(_t2f_upc 'git checkout upstream/main -- hooks/pre-tool-use.sh')"
 t_assert "2f sync: git restore --source=upstream/main (canonical) → allow" "no" \
   "$(_t2f_upc 'git restore --source=upstream/main hooks/lib/db.sh')"
+t_assert "2f sync: git checkout upstream/v1 -- hook (canonical, FEAT-069) → allow" "no" \
+  "$(_t2f_upc 'git checkout upstream/v1 -- hooks/pre-tool-use.sh')"
+t_assert "2f sync: git restore --source=upstream/v1 (canonical) → allow" "no" \
+  "$(_t2f_upc 'git restore --source=upstream/v1 hooks/lib/db.sh')"
+t_assert "2f sync: git checkout upstream/v2 -- hook → deny" "yes" \
+  "$(_t2f_upc 'git checkout upstream/v2 -- hooks/pre-tool-use.sh')"
 t_assert "2f sync: git checkout origin/main -- hook → deny" "yes" \
   "$(_t2f_upc 'git checkout origin/main -- hooks/pre-tool-use.sh')"
 git -C "$_t2f_up" remote set-url upstream https://github.com/evil/juvant-os.git
 t_assert "2f sync: upstream/main from a NON-canonical upstream → deny" "yes" \
   "$(_t2f_upc 'git checkout upstream/main -- hooks/pre-tool-use.sh')"
+t_assert "2f sync: upstream/v1 from a NON-canonical upstream → deny" "yes" \
+  "$(_t2f_upc 'git checkout upstream/v1 -- hooks/pre-tool-use.sh')"
 rm -rf "$_t2f_up"
 
 # Framework-dev exempt (=1): guardrail edits are allowed.
