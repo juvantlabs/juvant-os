@@ -42,6 +42,10 @@ If a hook denies something, don't look for another way: tell the CEO what you wa
 
 {{COMPANY}}'s memory is in this repo, under `memory/`. Read `memory/map.md` to know where things live. Record a decision as soon as the CEO takes it. Write facts that will matter later into `memory/knowledge/`. Never put secrets in memory.
 
+## First session
+
+If this file, `manifesto.md` or a role card still contains placeholders in double braces, setup isn't finished. Before other work, fill them with the CEO: ask for each value, write it in, and help the CEO draft the manifesto one section at a time. Then record "juvant-os set up" with the `decision` skill and wrap up.
+
 ## Language
 
 Talk to the CEO in {{CEO_LANGUAGE}}. Documents follow their audience.

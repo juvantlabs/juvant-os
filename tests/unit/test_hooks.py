@@ -236,6 +236,54 @@ class ContextAndActivity(HookCase):
         self.assertEqual(self.decision("Bash", {"command": "ls"}), "allow")
 
 
+class ClaudeDirProtection(HookCase):
+    def test_write_and_edit_under_claude_ask(self):
+        for tool, key in (("Write", "file_path"), ("Edit", "file_path"), ("MultiEdit", "file_path")):
+            for path in (".claude/hooks/limits.json", ".claude/settings.json",
+                         os.path.join(self.repo, ".claude", "agents", "legal.md"), ".claude/x/../hooks/a"):
+                with self.subTest(tool=tool, path=path):
+                    self.assertEqual(self.decision(tool, {key: path, "content": "x", "new_string": "x"}), "ask")
+
+    def test_writes_elsewhere_allowed(self):
+        for path in ("memory/decisions/a.md", "CLAUDE.md", os.path.expanduser("~/.claude/projects/x/memory/m.md"),
+                     "notes/.claude-ideas.md"):
+            with self.subTest(path=path):
+                self.assertEqual(self.decision("Write", {"file_path": path, "content": "x"}), "allow")
+
+    def test_bash_writes_ask(self):
+        for c in ("echo '{}' > .claude/hooks/limits.json", "sed -i '' s/a/b/ .claude/hooks/limits.json",
+                  "cp /tmp/x .claude/settings.json", "rm .claude/hooks/juvant_hooks.py",
+                  "python3 -c 'open(\".claude/hooks/limits.json\",\"w\")'", "git checkout -- .claude",
+                  "bash .claude/skills/update/update.sh --from /tmp/evil", "bash .claude/skills/update/update.sh v2 --repo /tmp/x.git",
+                  "tee -a .claude/settings.json < /dev/null"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "ask")
+
+    def test_bash_reads_and_sanctioned_allowed(self):
+        for c in ("cat .claude/juvant-os.json", "ls -la .claude", "git diff --stat .claude", "git add .claude",
+                  "grep -r limits .claude/hooks", "find .claude -name '*.md'", "bash .claude/skills/update/update.sh v2.0.1",
+                  "python3 .claude/hooks/juvant_hooks.py log-outcome 'done'", "echo hi && cat .claude/settings.json"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "allow")
+
+
+class LogOutcome(HookCase):
+    def run_cli(self, *args):
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)
+        return subprocess.run([sys.executable, SCRIPT, "log-outcome", *args], capture_output=True, text=True, env=env)
+
+    def test_outcome_lines(self):
+        self.assertEqual(self.run_cli("Contract reviewed:", "STOP, 11 issues").returncode, 0)
+        self.assertEqual(self.run_cli("--agent", "legal", "Found 11 issues").returncode, 0)
+        rows = self.state("activity.jsonl")
+        self.assertEqual(rows[0]["event"], "outcome")
+        self.assertEqual(rows[0]["outcome"], "Contract reviewed: STOP, 11 issues")
+        self.assertEqual(rows[1]["agent_type"], "legal")
+
+    def test_empty_outcome_refused(self):
+        self.assertEqual(self.run_cli().returncode, 2)
+
+
 class Settings(unittest.TestCase):
     def test_registration(self):
         with open(os.path.join(ROOT, "framework", "templates", "settings.json"), encoding="utf-8") as f:

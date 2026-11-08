@@ -11,8 +11,12 @@ agents/legal.md
 dashboard/.gitkeep
 hooks/juvant_hooks.py
 hooks/limits.json
-skills/.gitkeep
+skills/decision/SKILL.md
+skills/update/SKILL.md
+skills/update/update.sh
+skills/wrap-up/SKILL.md
 templates/CLAUDE.md
+templates/gitignore
 templates/manifesto.md
 templates/roles/ethics.md
 templates/roles/finance.md

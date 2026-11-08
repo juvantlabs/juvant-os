@@ -6,6 +6,7 @@
     subagent-start  SubagentStart: inject manifesto.md (+ roles/<id>.md), activity.
     subagent-stop   SubagentStop: activity.
     stop            Stop: activity.
+    log-outcome     called by the wrap-up skill: [--agent TYPE] "one line".
 
 Reads the event JSON on stdin. Paths are relative to $CLAUDE_PROJECT_DIR (the
 company repo); the config sits next to this file. Standard library only.
@@ -169,6 +170,11 @@ def cmd_limits():
                 deny(f"juvant-os hard limit 3: secret-shaped text ({rule['id']}) in a {tool} call. "
                      "Secrets never go in the repo, memory or chat: the CEO stores them from their own terminal.")
 
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit") and in_claude_dir(
+            str(inp.get("file_path") or inp.get("notebook_path") or "")):
+        ask("juvant-os hard limit (protect-claude-dir): this changes .claude/, where the hard limits, agents and "
+            "settings live. The CEO confirms; framework files change through the update skill.")
+
     if tool.startswith("mcp__"):
         decision, rule = mcp_decision(cfg, tool)
         if decision:
@@ -188,8 +194,58 @@ def cmd_limits():
         for rule in cfg["bash"]["ask"]:
             if rule["re"].search(command):
                 ask(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
+        if bash_writes_claude_dir(command):
+            ask("juvant-os hard limit (protect-claude-dir): this command may change .claude/, where the hard limits, "
+                "agents and settings live. The CEO confirms; framework files change through the update skill.")
         if cfg["bash"].get("rm_outside_repo") == "ask" and rm_outside_repo(cfg, command):
             ask("juvant-os hard limit (rm-outside-repo): recursive delete outside the company repo (hard limit 4).")
+
+
+# ── .claude/ protection (the hard limits must not edit themselves) ───────────
+READ_ONLY_VERBS = {"cat", "less", "head", "tail", "ls", "grep", "rg", "wc", "diff", "file", "stat", "sha256sum", "shasum"}
+GIT_READ = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commit"}
+SANCTIONED = re.compile(r"^(bash|sh)\s+(\./)?\.claude/skills/update/update\.sh(\s|$)")
+
+
+def in_claude_dir(path):
+    if not path:
+        return False
+    full = os.path.realpath(path if os.path.isabs(path) else os.path.join(ROOT, path))
+    base = os.path.realpath(os.path.join(ROOT, ".claude"))
+    return full == base or full.startswith(base + os.sep)
+
+
+def bash_writes_claude_dir(command):
+    """True if a Bash command may write under .claude/ outside the sanctioned update script."""
+    if ".claude" not in command:
+        return False
+    for segment in re.split(r"[;&|\n]+", command):
+        seg = segment.strip()
+        if ".claude" not in seg:
+            continue
+        if SANCTIONED.match(seg) and not re.search(r"--(from|repo|target)\b", seg):
+            continue  # update from a published tag only; a local source could carry anything
+        if re.search(r">>?\s*\S*\.claude", seg):
+            return True
+        try:
+            words = shlex.split(seg)
+        except ValueError:
+            return True
+        while words and "=" in words[0] and not words[0].startswith(("-", "/", ".")):
+            words = words[1:]
+        if not words:
+            continue
+        verb = os.path.basename(words[0])
+        if verb in READ_ONLY_VERBS:
+            continue
+        if verb == "git" and len(words) > 1 and words[1] in GIT_READ:
+            continue
+        if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in words):
+            continue
+        if verb in ("python3", "python") and len(words) > 1 and words[1].endswith(".claude/hooks/juvant_hooks.py"):
+            continue
+        return True
+    return False
 
 
 # ── context injection and activity ───────────────────────────────────────────
@@ -267,12 +323,29 @@ def cmd_stop():
     activity("stop", ev, outcome=one_line(ev.get("last_assistant_message", ""), OUTCOME_CAP))
 
 
+def cmd_log_outcome():
+    args = sys.argv[2:]
+    agent = ""
+    if len(args) >= 2 and args[0] == "--agent":
+        agent, args = args[1], args[2:]
+    text = one_line(" ".join(args), OUTCOME_CAP)
+    if not text:
+        sys.stderr.write('usage: juvant_hooks.py log-outcome [--agent TYPE] "one line"\n')
+        sys.exit(2)
+    row = {"ts": now(), "event": "outcome", "outcome": text}
+    if agent:
+        row["agent_type"] = agent
+    append_jsonl(ACTIVITY, row)
+    print("logged")
+
+
 COMMANDS = {
     "limits": cmd_limits,
     "session-start": cmd_session_start,
     "subagent-start": cmd_subagent_start,
     "subagent-stop": cmd_subagent_stop,
     "stop": cmd_stop,
+    "log-outcome": cmd_log_outcome,
 }
 
 if __name__ == "__main__":

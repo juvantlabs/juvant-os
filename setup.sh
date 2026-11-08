@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# setup.sh — create a juvant-os v2 company repo. Run it from a clone of
+# juvant-os at a v2 tag:
+#
+#   bash setup.sh <company-dir> [--company NAME] [--ceo NAME] [--cos NAME]
+#                 [--language LANG] [--legal NAME] [--finance NAME] [--ethics NAME]
+#
+# Copies the templates (CLAUDE.md, manifesto.md, roles/, .claude/settings.json,
+# .gitignore) once, installs the framework into .claude/ through the update
+# script, and creates memory/ and state/. Placeholders it isn't given stay as
+# {{…}}: the Chief of Staff fills them with the CEO in the first session.
+# Refuses on a juvant-os v1 instance, on an existing v2 install, and on any
+# template file that already exists. Nothing is committed.
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+FW="$HERE/framework"
+
+[[ $# -ge 1 && "$1" != -* ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
+TARGET="$1"; shift
+declare -a SUBS=()
+while [[ $# -gt 0 ]]; do
+  [[ $# -ge 2 ]] || { echo "setup: $1 needs a value" >&2; exit 2; }
+  case "$1" in
+    --company) SUBS+=("COMPANY=$2") ;;
+    --ceo) SUBS+=("CEO_NAME=$2") ;;
+    --cos) SUBS+=("COS_NAME=$2") ;;
+    --language) SUBS+=("CEO_LANGUAGE=$2") ;;
+    --legal) SUBS+=("LEGAL_NAME=$2") ;;
+    --finance) SUBS+=("FINANCE_NAME=$2") ;;
+    --ethics) SUBS+=("ETHICS_NAME=$2") ;;
+    *) echo "setup: unknown option $1" >&2; exit 2 ;;
+  esac
+  shift 2
+done
+
+mkdir -p "$TARGET"; TARGET="$(cd "$TARGET" && pwd)"
+[[ -d "$TARGET/.juvant" ]] && { echo "setup: $TARGET is a juvant-os v1 instance (.juvant/ exists). Migrate it instead." >&2; exit 1; }
+[[ -f "$TARGET/.claude/juvant-os.json" ]] && { echo "setup: juvant-os v2 is already installed in $TARGET. Use the update skill." >&2; exit 1; }
+
+pairs=(
+  "templates/CLAUDE.md:CLAUDE.md"
+  "templates/manifesto.md:manifesto.md"
+  "templates/roles/legal.md:roles/legal.md"
+  "templates/roles/finance.md:roles/finance.md"
+  "templates/roles/ethics.md:roles/ethics.md"
+  "templates/settings.json:.claude/settings.json"
+  "templates/gitignore:.gitignore"
+)
+for p in "${pairs[@]}"; do
+  [[ -e "$TARGET/${p##*:}" ]] && { echo "setup: $TARGET/${p##*:} already exists. Move it away first; setup never overwrites." >&2; exit 1; }
+done
+for p in "${pairs[@]}"; do
+  mkdir -p "$(dirname "$TARGET/${p##*:}")"
+  cp "$FW/${p%%:*}" "$TARGET/${p##*:}"
+done
+
+# Fill the placeholders we were given (literal replacement, any characters).
+if [[ ${#SUBS[@]} -gt 0 ]]; then
+  python3 - "$TARGET" "${SUBS[@]}" <<'PY'
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+subs = dict(a.split("=", 1) for a in sys.argv[2:])
+for rel in ("CLAUDE.md", "manifesto.md", "roles/legal.md", "roles/finance.md", "roles/ethics.md"):
+    p = root / rel
+    text = p.read_text(encoding="utf-8")
+    for k, v in subs.items():
+        text = text.replace("{{" + k + "}}", v)
+    p.write_text(text, encoding="utf-8")
+PY
+fi
+
+mkdir -p "$TARGET/memory/decisions" "$TARGET/memory/knowledge" "$TARGET/memory/journal" "$TARGET/state"
+[[ -e "$TARGET/memory/map.md" ]] || printf '# Where things live\n\nNever put secrets here.\n\n| What | Where |\n|---|---|\n' > "$TARGET/memory/map.md"
+for d in decisions knowledge journal; do [[ -e "$TARGET/memory/$d/.gitkeep" ]] || : > "$TARGET/memory/$d/.gitkeep"; done
+[[ -e "$TARGET/state/.gitkeep" ]] || : > "$TARGET/state/.gitkeep"
+
+bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" >/dev/null
+
+left=$(grep -ho '{{[A-Z_]*}}' "$TARGET/CLAUDE.md" "$TARGET/manifesto.md" "$TARGET"/roles/*.md 2>/dev/null | sort -u | tr '\n' ' ' || true)
+echo "setup: juvant-os v2 installed in $TARGET ($(sed -n 's/.*"version": "\(.*\)".*/\1/p' "$TARGET/.claude/juvant-os.json"))."
+[[ -n "$left" ]] && echo "setup: placeholders to fill in the first session: $left"
+echo "setup: next: cd $TARGET && git init (if new) && claude. Nothing is committed yet."

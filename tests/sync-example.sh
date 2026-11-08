@@ -1,30 +1,33 @@
 #!/usr/bin/env bash
 # tests/sync-example.sh [--check]
-# Copies the framework into examples/morvento/.claude/ the way `setup` and
-# `update` will in a company repo: agents, hooks, and settings.json from the
-# template. With --check, changes nothing and fails if the copy has drifted.
+# Installs the framework into examples/morvento/.claude/ with the real update
+# script (and .claude/settings.json from the template), the way setup does in
+# a company repo. With --check, installs into a scratch copy and fails if the
+# example has drifted from it. .claude/juvant-os.json (timestamped) is ignored.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FW="$ROOT/framework"
-EX="$ROOT/examples/morvento/.claude"
+EX="$ROOT/examples/morvento"
 
-pairs=(
-  "agents/legal.md:agents/legal.md"
-  "agents/finance.md:agents/finance.md"
-  "agents/ethics.md:agents/ethics.md"
-  "hooks/juvant_hooks.py:hooks/juvant_hooks.py"
-  "hooks/limits.json:hooks/limits.json"
-  "templates/settings.json:settings.json"
-)
+install_into() { # <company-dir>
+  bash "$FW/skills/update/update.sh" --from "$FW" --target "$1" >/dev/null
+  cp "$FW/templates/settings.json" "$1/.claude/settings.json"
+}
 
-rc=0
-for p in "${pairs[@]}"; do
-  src="$FW/${p%%:*}"; dst="$EX/${p##*:}"
-  if [[ "${1:-}" == "--check" ]]; then
-    cmp -s "$src" "$dst" || { echo "sync-example: drift: examples/morvento/.claude/${p##*:} differs from framework/${p%%:*}"; rc=1; }
-  else
-    mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"
-  fi
-done
-[[ "${1:-}" == "--check" && "$rc" == 0 ]] && echo "sync-example: OK"
-exit "$rc"
+if [[ "${1:-}" != "--check" ]]; then
+  install_into "$EX"
+  rm -f "$EX/.claude/juvant-os.json"
+  exit 0
+fi
+
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/ex"
+install_into "$T/ex"
+rm -f "$T/ex/.claude/juvant-os.json"
+if diff -r "$T/ex/.claude" "$EX/.claude" >"$T/diff" 2>&1; then
+  echo "sync-example: OK"
+else
+  echo "sync-example: examples/morvento/.claude has drifted from the framework (run bash tests/sync-example.sh):"
+  sed 's/^/  /' "$T/diff" | head -20
+  exit 1
+fi
