@@ -35,6 +35,7 @@ usage() {
 # dropped, one final newline. With -v sql=1 the body is emitted with single
 # quotes doubled, ready to sit inside a SQL string literal. All text work is in
 # awk: bash 3.2 (macOS) pattern substitution is quadratic on a 40 KB body.
+# shellcheck disable=SC2016  # awk program text, not shell expansions
 BODY_AWK='
   f { buf[++k] = $0; next }
   /^---[[:space:]]*$/ { n++; if (n == 2) f = 1 }
