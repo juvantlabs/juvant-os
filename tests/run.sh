@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.." || exit 1
 fail=0
 bash tests/lint.sh || fail=1
 bash tests/check-files.sh || fail=1
+bash tests/sync-example.sh --check || fail=1
 for t in tests/unit/*.sh; do
   echo "== $t"; bash "$t" || fail=1
 done

@@ -1,0 +1,83 @@
+{
+  "permissions": {
+    "deny": [
+      "mcp__claude_ai_Microsoft_365__outlook_send_mail",
+      "mcp__claude_ai_Microsoft_365__outlook_send_draft",
+      "mcp__claude_ai_Microsoft_365__outlook_forward_mail",
+      "mcp__claude_ai_Microsoft_365__outlook_set_vacation",
+      "mcp__claude_ai_Microsoft_365__outlook_create_filter",
+      "mcp__claude_ai_Microsoft_365__outlook_create_event",
+      "mcp__claude_ai_Microsoft_365__outlook_update_event",
+      "mcp__claude_ai_Microsoft_365__outlook_respond_to_event",
+      "mcp__claude_ai_Microsoft_365__teams_send_chat_message",
+      "mcp__claude_ai_Microsoft_365__teams_send_channel_message",
+      "mcp__claude_ai_Microsoft_365__teams_reply_channel_message",
+      "mcp__claude_ai_Microsoft_365__teams_create_chat",
+      "mcp__Microsoft_365__outlook_send_mail",
+      "mcp__Microsoft_365__outlook_send_draft",
+      "mcp__Microsoft_365__outlook_forward_mail",
+      "mcp__Microsoft_365__outlook_set_vacation",
+      "mcp__Microsoft_365__outlook_create_filter",
+      "mcp__Microsoft_365__outlook_create_event",
+      "mcp__Microsoft_365__outlook_update_event",
+      "mcp__Microsoft_365__outlook_respond_to_event",
+      "mcp__Microsoft_365__teams_send_chat_message",
+      "mcp__Microsoft_365__teams_send_channel_message",
+      "mcp__Microsoft_365__teams_reply_channel_message",
+      "mcp__Microsoft_365__teams_create_chat"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py\" limits"
+          }
+        ],
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py\" session-start"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py\" subagent-start"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py\" subagent-stop"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py\" stop"
+          }
+        ]
+      }
+    ]
+  }
+}

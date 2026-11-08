@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""juvant-os v2 hooks. One script, one subcommand per Claude Code event.
+
+    limits          PreToolUse: hard limits (design §7). Fails closed.
+    session-start   SessionStart: status line, findings to surface, activity.
+    subagent-start  SubagentStart: inject manifesto.md (+ roles/<id>.md), activity.
+    subagent-stop   SubagentStop: activity.
+    stop            Stop: activity.
+
+Reads the event JSON on stdin. Paths are relative to $CLAUDE_PROJECT_DIR (the
+company repo); the config sits next to this file. Standard library only.
+"""
+import json
+import os
+import re
+import shlex
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+CONFIG = os.path.join(HERE, "limits.json")
+ROOT = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+STATE = os.path.join(ROOT, "state")
+ACTIVITY = os.path.join(STATE, "activity.jsonl")
+FINDINGS = os.path.join(STATE, "limits-findings.jsonl")
+CONTEXT_CAP = 9500
+OUTCOME_CAP = 160
+ROLE_ID = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
+
+
+# ── small helpers ────────────────────────────────────────────────────────────
+def now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def read_event():
+    raw = sys.stdin.read()
+    try:
+        ev = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        ev = {}
+    return ev if isinstance(ev, dict) else {}
+
+
+def append_jsonl(path, row):
+    """Best effort: logging never blocks a tool call or a session."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def one_line(text, cap):
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= cap else text[: cap - 1] + "…"
+
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+
+def deny(reason):
+    # stderr + exit 2 is what Claude Code treats as a block; the JSON is the
+    # documented form. Both, so either reading of the contract denies.
+    emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                 "permissionDecision": "deny",
+                                 "permissionDecisionReason": reason}})
+    sys.stderr.write(reason + "\n")
+    sys.exit(2)
+
+
+def ask(reason):
+    emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                 "permissionDecision": "ask",
+                                 "permissionDecisionReason": reason}})
+    sys.exit(0)
+
+
+def load_config():
+    with open(CONFIG, encoding="utf-8") as f:
+        cfg = json.load(f)
+    # Compile now: a bad pattern must fail closed, not at match time.
+    for rule in cfg["mcp"]["deny"] + cfg["mcp"]["ask"] + cfg["bash"]["deny"] + cfg["bash"]["ask"] + cfg["secrets"]:
+        rule["re"] = re.compile(rule["pattern"])
+    cfg["mcp"]["draft_allow_re"] = re.compile(cfg["mcp"]["draft_allow"])
+    cfg["mcp"]["draft_never_re"] = re.compile(cfg["mcp"]["draft_never"])
+    return cfg
+
+
+# ── limits ───────────────────────────────────────────────────────────────────
+def mcp_decision(cfg, tool):
+    """(decision, rule) for an mcp__ tool; decision in {None, 'deny', 'ask'}."""
+    name = tool.rsplit("__", 1)[-1].lower()
+    m = cfg["mcp"]
+    is_draft = bool(m["draft_allow_re"].search(name)) and not m["draft_never_re"].search(name)
+    for rule in m["deny"]:
+        if rule["id"] == "outbound" and is_draft:
+            continue
+        if rule["re"].search(name):
+            return "deny", rule
+    for rule in m["ask"]:
+        if rule["re"].search(name):
+            return "ask", rule
+    return None, None
+
+
+def texts_to_scan(tool, inp):
+    if tool == "Bash":
+        return [inp.get("command", "")]
+    if tool == "Write":
+        return [inp.get("content", "")]
+    if tool == "Edit":
+        return [inp.get("new_string", "")]
+    if tool == "MultiEdit":
+        return [e.get("new_string", "") for e in inp.get("edits", []) if isinstance(e, dict)]
+    if tool == "NotebookEdit":
+        return [inp.get("new_source", "")]
+    return []
+
+
+def rm_outside_repo(cfg, command):
+    """True if a recursive rm targets something outside the repo and temp dirs."""
+    root = os.path.realpath(ROOT)
+    temps = tuple(cfg["bash"]["temp_dirs"])
+    for segment in re.split(r"[;&|\n]+", command):
+        try:
+            words = shlex.split(segment)
+        except ValueError:
+            words = segment.split()
+        while words and (words[0] in ("sudo", "env", "command", "builtin") or "=" in words[0]):
+            words = words[1:]
+        if not words or os.path.basename(words[0]) != "rm":
+            continue
+        flags = [w for w in words[1:] if w.startswith("-") and not w.startswith("--")]
+        long_flags = [w for w in words[1:] if w.startswith("--")]
+        recursive = any("r" in f[1:].lower() for f in flags) or "--recursive" in long_flags
+        if not recursive:
+            continue
+        for target in (w for w in words[1:] if not w.startswith("-")):
+            if target.startswith(("~", "$HOME", "${HOME}")) or ".." in target.split("/"):
+                return True
+            if target.startswith("/"):
+                real = os.path.realpath(target)
+                if real.startswith(temps) or target.startswith(temps):
+                    continue
+                if real == root or not real.startswith(root + os.sep):
+                    return True
+            elif target in ("*", ".", "./", ".git", "./.git"):
+                return True  # the whole repo, or its history
+    return False
+
+
+def cmd_limits():
+    ev = read_event()
+    tool = str(ev.get("tool_name", ""))
+    inp = ev.get("tool_input") or {}
+    if not isinstance(inp, dict):
+        inp = {}
+    try:
+        cfg = load_config()
+    except (OSError, ValueError, KeyError, TypeError, re.error) as e:
+        deny(f"juvant-os hard limits: config unreadable ({CONFIG}: {e}). Every checked tool is blocked until it is restored (run `update`).")
+
+    for rule in cfg["secrets"]:
+        for text in texts_to_scan(tool, inp):
+            if text and rule["re"].search(text):
+                deny(f"juvant-os hard limit 3: secret-shaped text ({rule['id']}) in a {tool} call. "
+                     "Secrets never go in the repo, memory or chat: the CEO stores them from their own terminal.")
+
+    if tool.startswith("mcp__"):
+        decision, rule = mcp_decision(cfg, tool)
+        if decision:
+            prefix = tool[: len(tool) - len(tool.rsplit("__", 1)[-1])]
+            if prefix not in cfg["known_prefixes"]:
+                append_jsonl(FINDINGS, {"ts": now(), "kind": "unlisted-prefix", "prefix": prefix,
+                                        "tool": tool, "decision": decision, "rule": rule["id"]})
+            reason = f"juvant-os hard limit ({rule['id']}): {tool} — {rule['why']}."
+            deny(reason) if decision == "deny" else ask(reason)
+        return
+
+    if tool == "Bash":
+        command = str(inp.get("command", ""))
+        for rule in cfg["bash"]["deny"]:
+            if rule["re"].search(command):
+                deny(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
+        for rule in cfg["bash"]["ask"]:
+            if rule["re"].search(command):
+                ask(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
+        if cfg["bash"].get("rm_outside_repo") == "ask" and rm_outside_repo(cfg, command):
+            ask("juvant-os hard limit (rm-outside-repo): recursive delete outside the company repo (hard limit 4).")
+
+
+# ── context injection and activity ───────────────────────────────────────────
+def read_text(rel):
+    try:
+        with open(os.path.join(ROOT, rel), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def activity(event, ev, **extra):
+    row = {"ts": now(), "event": event, "session": ev.get("session_id", "")}
+    for key in ("agent_type", "agent_id"):
+        if ev.get(key):
+            row[key] = ev[key]
+    row.update({k: v for k, v in extra.items() if v})
+    append_jsonl(ACTIVITY, row)
+
+
+def cmd_subagent_start():
+    ev = read_event()
+    activity("subagent_start", ev)
+    parts = []
+    manifesto = read_text("manifesto.md")
+    parts.append("# Company manifesto\n\n" + manifesto if manifesto
+                 else "# Company manifesto\n\n(manifesto.md is missing from the company repo: tell the CEO.)")
+    agent = str(ev.get("agent_type", ""))
+    if ROLE_ID.match(agent):
+        card = read_text(os.path.join("roles", agent + ".md"))
+        if card:
+            parts.append(f"# Your role card (roles/{agent}.md)\n\n" + card)
+    text = "\n\n".join(parts)
+    if len(text) > CONTEXT_CAP:
+        text = text[:CONTEXT_CAP] + "\n\n[truncated: read manifesto.md and your role card in full]"
+    emit({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": text}})
+
+
+def cmd_session_start():
+    ev = read_event()
+    activity("session_start", ev, source=ev.get("source", ""))
+    lines = []
+    try:
+        load_config()
+        lines.append("juvant-os hard limits active: outbound draft-only, no payments or invoice issuing, "
+                     "no secrets in files or commands, destructive changes ask the CEO.")
+    except (OSError, ValueError, KeyError, TypeError, re.error) as e:
+        lines.append(f"WARNING: juvant-os hard limits config is unreadable ({e}). Checked tools are blocked. "
+                     "Tell the CEO and restore it with `update`.")
+    prefixes = set()
+    try:
+        with open(FINDINGS, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    prefixes.add(json.loads(line).get("prefix", ""))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    prefixes.discard("")
+    if prefixes:
+        lines.append("Tell the CEO: limited tools were called under MCP prefixes the permission rules don't list ("
+                     + ", ".join(sorted(prefixes)) + "). The hook blocked them; add the prefixes to "
+                     "`known_prefixes` and to the permission denies in .claude/settings.json.")
+    emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}})
+
+
+def cmd_subagent_stop():
+    ev = read_event()
+    activity("subagent_stop", ev, outcome=one_line(ev.get("last_assistant_message", ""), OUTCOME_CAP))
+
+
+def cmd_stop():
+    ev = read_event()
+    activity("stop", ev, outcome=one_line(ev.get("last_assistant_message", ""), OUTCOME_CAP))
+
+
+COMMANDS = {
+    "limits": cmd_limits,
+    "session-start": cmd_session_start,
+    "subagent-start": cmd_subagent_start,
+    "subagent-stop": cmd_subagent_stop,
+    "stop": cmd_stop,
+}
+
+if __name__ == "__main__":
+    name = sys.argv[1] if len(sys.argv) > 1 else ""
+    if name not in COMMANDS:
+        sys.stderr.write("usage: juvant_hooks.py " + "|".join(COMMANDS) + "\n")
+        sys.exit(2)
+    try:
+        COMMANDS[name]()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — a crash in limits must block, elsewhere it must not
+        if name == "limits":
+            deny(f"juvant-os hard limits: the check failed ({type(e).__name__}: {e}). Blocked to stay safe.")
+        sys.stderr.write(f"juvant_hooks {name}: {type(e).__name__}: {e}\n")
+        sys.exit(0)

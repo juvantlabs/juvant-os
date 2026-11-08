@@ -5,9 +5,16 @@
 # Paths under templates/ are copied by `setup` only, once: after that the
 # company owns them and `update` leaves them alone.
 README.md
-agents/.gitkeep
+agents/ethics.md
+agents/finance.md
+agents/legal.md
 dashboard/.gitkeep
 hooks/juvant_hooks.py
 hooks/limits.json
 skills/.gitkeep
+templates/CLAUDE.md
+templates/manifesto.md
+templates/roles/ethics.md
+templates/roles/finance.md
+templates/roles/legal.md
 templates/settings.json
