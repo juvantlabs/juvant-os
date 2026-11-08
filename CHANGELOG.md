@@ -11,6 +11,20 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.22.2] — 2026-11-08 — v1 frozen on its own branch
+
+### Changed
+
+- Upstream sync follows the upstream branch `v1` instead of `main` (FEAT-069). v1 is frozen there; a lighter v2 will replace `main`. The version delta, the per-file diff, the apply step and the emergency note now name `upstream/v1`, and sync stops if upstream has no `v1` branch.
+- `helpers/upstream-apply.sh` resolves, fetches and applies `v1` only. It never falls back to `main`.
+- The Track 2f restore exception in `hooks/pre-tool-use.sh` accepts `git checkout upstream/v1 -- <file>` and `git restore --source=upstream/v1`. `upstream/main` is still accepted, so the sync that installs this release can finish after the hook itself is replaced.
+- The SessionStart integrity check uses `upstream/v1` as its baseline, and `upstream/main` only until `v1` has been fetched.
+
+### Upgrade
+
+- Run Upstream sync once to reach 1.22.2, before v2 replaces `main`. That sync still reads `upstream/main`; every later one reads `upstream/v1`.
+- If you skipped 1.22.1, its Upgrade notes apply too.
+
 ## [1.22.1] — 2026-11-08 — Real manifestos at bootstrap, scoped script execution
 
 ### Security

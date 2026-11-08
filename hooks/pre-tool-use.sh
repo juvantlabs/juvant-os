@@ -1019,7 +1019,7 @@ if [[ "$DECISION" == "allow" && "$TOOL_NAME" == "Bash" && -f "$POLICY" \
   else
     # Lib missing: most likely mid upstream-sync (step 7 applies files one by
     # one, pre-tool-use.sh before hooks/lib/), where a deny would block the
-    # very `git checkout upstream/main -- hooks/lib/bash-segments.sh` that
+    # very `git checkout upstream/v1 -- hooks/lib/bash-segments.sh` that
     # restores it. Degrade to the first-token check above (the pre-v1.17.3
     # behaviour) and say so; the SessionStart integrity check flags a
     # tracked-but-missing hooks/lib file.
@@ -2094,9 +2094,11 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       #      that references a guardrail path is allowed only for a recognised
       #      read-only verb; any redirect onto a guardrail path → deny.
       # The single sanctioned Bash write is the upstream-sync apply step
-      # (JUVANT_OS.md "Upstream sync" step 7): `git checkout upstream/main --
-      # <file>` / `git restore --source=upstream/main`, and only while the
-      # `upstream` remote is the canonical juvantlabs/juvant-os.
+      # (JUVANT_OS.md "Upstream sync" step 7): `git checkout upstream/v1 --
+      # <file>` / `git restore --source=upstream/v1`, and only while the
+      # `upstream` remote is the canonical juvantlabs/juvant-os. v1 is frozen
+      # on branch `v1` (FEAT-069); `upstream/main` is still accepted so the
+      # sync that installs v1.22.2 can finish after this file is replaced.
       # Residual (detection, not prevention — the SessionStart integrity check,
       # hooks/lib/hooks-integrity.sh, catches the result): paths assembled at
       # runtime (`f=hooks; rm "$f/x.sh"`), `patch`/`git apply`/archive
@@ -2108,17 +2110,17 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
       # except under tests/.
       _gr_raw_ref() { juvant_guardrail_raw_ref "$1"; }
 
-      # `git checkout upstream/main -- …` / `git restore --source=upstream/main …`
-      # against the canonical upstream remote.
+      # `git checkout upstream/v1 -- …` / `git restore --source=upstream/v1 …`
+      # (or upstream/main, see above) against the canonical upstream remote.
       _gr_upstream_restore() {
         local a prev="" src="" u
         for a in "$@"; do
           case "$a" in --source=*) src="${a#--source=}" ;; esac
           if [[ "$prev" == "--source" || "$prev" == "-s" ]]; then src="$a"; fi
-          if [[ "$a" == "upstream/main" && -z "$src" ]]; then src="$a"; fi
+          if [[ ( "$a" == "upstream/v1" || "$a" == "upstream/main" ) && -z "$src" ]]; then src="$a"; fi
           prev="$a"
         done
-        [[ "$src" == "upstream/main" ]] || return 1
+        [[ "$src" == "upstream/v1" || "$src" == "upstream/main" ]] || return 1
         u=$(git -C "$SCRIPT_DIR/.." remote get-url upstream 2>/dev/null || echo "")
         [[ "$u" =~ (^|[/:])juvantlabs/juvant-os(\.git)?$ ]]
       }
@@ -2378,7 +2380,7 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
                 return 1 ;;
               checkout|restore)
                 if _gr_upstream_restore "${args[@]}"; then return 1; fi
-                _GR_DENY_WHY="git $sub of a guardrail path (only a restore from the canonical upstream/main is allowed — Upstream sync step 7)"
+                _GR_DENY_WHY="git $sub of a guardrail path (only a restore from the canonical upstream/v1 is allowed — Upstream sync step 7)"
                 return 0 ;;
               *)
                 _GR_DENY_WHY="git ${sub:-<?>} on a guardrail path"; return 0 ;;
@@ -2493,7 +2495,7 @@ if [[ "$DECISION" == "allow" && ( "$TOOL_NAME" == "Write" || "$TOOL_NAME" == "Ed
         fi
         if [[ -n "$_GR_DENY_WHY" ]]; then
           DECISION="deny"
-          DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064, decisions#303): Bash write to a protected path (gate scripts, bash-policy.json, helpers/, scripts/, the audit spool or its backups) is denied in a deployed instance — $_GR_DENY_WHY. Synced files change only via upstream sync (git checkout upstream/main -- <file>); the spool is written by the hook and drained by its helper. Read-only access (cat/grep/diff/git diff/log/show) and running a hook or helper (bash helpers/drain-audit-spool.sh) are allowed. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
+          DENY_REASON="guardrail tamper floor (Track 2f / FEAT-064, decisions#303): Bash write to a protected path (gate scripts, bash-policy.json, helpers/, scripts/, the audit spool or its backups) is denied in a deployed instance — $_GR_DENY_WHY. Synced files change only via upstream sync (git checkout upstream/v1 -- <file>); the spool is written by the hook and drained by its helper. Read-only access (cat/grep/diff/git diff/log/show) and running a hook or helper (bash helpers/drain-audit-spool.sh) are allowed. (Framework dev: export JUVANT_FRAMEWORK_DEV=1.)"
         fi
       fi
     fi

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # tests/helpers/test-upstream-apply.sh
 # ADR 0036 — helpers/upstream-apply.sh applies only canonical upstream content:
-# canonical remote, sync/* branch, upstream main resolved and fetched by the
-# helper (a moved refs/remotes/upstream/main is ignored), Framework whitelist of
-# that commit (globs included), repo-relative paths; then reconciles settings.
+# canonical remote, sync/* branch, upstream v1 resolved and fetched by the
+# helper (a moved refs/remotes/upstream/v1 is ignored; upstream main, which
+# carries v2, is never applied — FEAT-069), Framework whitelist of that commit
+# (globs included), repo-relative paths; then reconciles settings.
 
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -38,6 +39,10 @@ cp "$REPO/helpers/upstream-apply.sh" "$W/helpers/"
 cp "$REPO/scripts/sync-hooks.sh" "$REPO/scripts/sync-sandbox.sh" "$W/scripts/"
 cp "$REPO/scripts/templates/hooks-registration.json" "$REPO/scripts/templates/sandbox.json" "$W/scripts/templates/"
 g -C "$W" add -A; g -C "$W" commit -qm v2; g -C "$W" push -q origin main 2>/dev/null
+# v1 is frozen on branch v1; main moves on to a different framework.
+g -C "$W" push -q origin main:v1 2>/dev/null
+echo 'echo framework-v2-main' > "$W/hooks/stop.sh"
+g -C "$W" commit -qam "v2 on main"; g -C "$W" push -q origin main 2>/dev/null
 
 # The instance: older content, `upstream` remote, a sync branch.
 I="$T/inst"; g clone -q "$UP" "$I" 2>/dev/null
@@ -49,9 +54,10 @@ g -C "$I" remote rename origin upstream
 g -C "$I" checkout -q -b sync/upstream-test
 run(){ ( cd "$I" && bash helpers/upstream-apply.sh "$@" ) 2>&1; echo "EXIT:$?"; }
 
-echo "=== applies a whitelisted file from upstream main ==="
+echo "=== applies a whitelisted file from upstream v1, not main ==="
 out=$(run hooks/stop.sh)
 has "APPLIED" "$out" "APPLIED hooks/stop.sh"
+has "from v1" "$out" "@ upstream"
 eq "content is upstream's" "echo upstream-v2" "$(cat "$I/hooks/stop.sh")"
 has "exit 0" "$out" "EXIT:0"
 has "logged" "$(cat "$I/.juvant/logs/upstream-apply.log")" "APPLIED hooks/stop.sh"
@@ -66,10 +72,10 @@ has "absolute path" "$(run /etc/hosts)" "not a repo-relative path"
 has "under .git" "$(run .git/config)" "not a repo-relative path"
 has "refusal exits 1" "$(run hooks/secret-tool.sh)" "EXIT:1"
 
-echo "=== a moved refs/remotes/upstream/main is ignored ==="
+echo "=== a moved refs/remotes/upstream/v1 is ignored ==="
 echo 'echo evil' > "$I/hooks/stop.sh"
 EVIL=$(cd "$I" && g add hooks/stop.sh >/dev/null && g commit -qm evil && git rev-parse HEAD)
-g -C "$I" update-ref refs/remotes/upstream/main "$EVIL"
+g -C "$I" update-ref refs/remotes/upstream/v1 "$EVIL"
 run hooks/stop.sh >/dev/null
 eq "content is still upstream's" "echo upstream-v2" "$(cat "$I/hooks/stop.sh")"
 
@@ -80,6 +86,12 @@ g -C "$I" checkout -q sync/upstream-test
 g -C "$I" remote set-url upstream "$T/evil/juvant-os-fork.git"
 has "non-canonical upstream" "$(run hooks/stop.sh)" "not the canonical juvantlabs/juvant-os"
 g -C "$I" remote set-url upstream "$UP"
+
+echo "=== no upstream v1 branch: refused, main never used ==="
+g -C "$UP" branch -q -D v1
+out=$(run hooks/stop.sh)
+has "refused without v1" "$out" "REFUSED: cannot resolve upstream v1"
+eq "content untouched" "echo upstream-v2" "$(cat "$I/hooks/stop.sh")"
 
 echo "=== settings reconciled (sync-hooks + sync-sandbox) ==="
 echo '{"feature_toggles":{"bash_sandbox":true}}' > "$I/.juvant/config.json"

@@ -9,6 +9,13 @@
 
 ---
 
+> **v1 is frozen on the [`v1` branch](https://github.com/juvantlabs/juvant-os/tree/v1).**
+> A lighter v2 is being written and will replace `main`. Instances on v1.22.2
+> or later sync from `v1` and are not affected. On an older version, run
+> Upstream sync once to reach v1.22.2 before v2 lands on `main`.
+
+---
+
 ## What is Juvant OS?
 
 Juvant OS is a Skill-first multi-agent system built on Claude Code. You open
