@@ -11,6 +11,8 @@ All written artifacts in English. No exceptions.
 
 ## [Unreleased]
 
+## [1.22.1] — 2026-11-08 — Real manifestos at bootstrap, scoped script execution
+
 ### Security
 
 - Roles with no interpreter on their allow-list (`cos`, `cfo`, `clo`, `cmo`, `cco`, `chro`, `cetho`, `cro`, `cto`, `vpe`, `product-lead`, `Explore`) can no longer use an allowed binary to run another one (BUG-103, ADR 0038). `bash` and `sh` run only framework scripts under `hooks/`, `helpers/` and `scripts/`, the files Track 2f protects. `git`, `gh`, `sort`, `awk` and `sed` lose the flags and program text that run commands. `helpers/with-timeout.sh` now has its command checked. Denials read `deny:exec-scope:` and trigger `helpers/anomaly-check.sh`, and audit rows carry the hash of the script run.
