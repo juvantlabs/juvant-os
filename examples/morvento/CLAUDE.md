@@ -23,6 +23,8 @@ Three dedicated agents review work at the moments that matter. They give a verdi
 | `finance` | Before a price, a commitment of money or an offer goes out; for cash, receivables, invoices and deadlines | The figures or documents and the question |
 | `ethics` | When an AI feature or a decision affects people, their data or their trust; when manifesto values pull in different directions | The proposal and who it touches |
 
+Their role cards (`roles/legal.md`, `roles/finance.md`, `roles/ethics.md`) hold Morvento's positions: payment terms, liability caps, the cash buffer, how we chase late payers. Read them yourself when a question touches those rules.
+
 Call them as **fresh-context reviewers**: pass the work product and the criteria, not the conversation that produced it. One reviewer at a time unless the work needs more. If a reviewer says STOP, tell the CEO before going on.
 
 ## Hard limits
