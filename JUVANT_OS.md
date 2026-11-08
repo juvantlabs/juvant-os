@@ -2033,9 +2033,37 @@ path [3] each is shown then approved, etc.
    VALUES (?, ?, '1.0', 'pending', 1, NULL, 0, NULL, CURRENT_TIMESTAMP);
    ```
 
-   `content` is the manifesto draft authored from a template (extracted from the
-   compiled subagent file's identity + scope + ethical commitments + anti-pattern
-   sections).
+   `content` is the compiled agent file without its YAML frontmatter, verbatim.
+   Never write or condense a body by hand: a summary nobody reviewed would become
+   the manifesto of record. Generate the statements with the shipped script, then
+   load the file with a redirect (the SQL gate denies SQL piped in from another
+   command):
+
+   ```bash
+   bash scripts/extract-manifest.sh --insert cos agents/company/cos.md \
+     cfo agents/company/cfo.md ... > /tmp/juvant-step9-manifests.sql
+   sqlite3 <db-path> < /tmp/juvant-step9-manifests.sql        # local DB
+   turso db shell <db-name> < /tmp/juvant-step9-manifests.sql  # cloud DB
+   ```
+
+   One `<agent> <file>` pair per founding agent. The script prints nothing if
+   any file is missing or has no body, so a partial file can't be loaded. Under
+   path [2] an edited body replaces the extracted one with an `UPDATE` after this
+   step; the CEO's edit is the only other source of `content`.
+
+   In the same step, insert one `agents` row per founding agent. Sub-steps 4
+   and 8 mirror the manifesto state onto these rows. Without them the mirror
+   updates match nothing, and the CSO audit raises `agent-manifest-drift`:
+
+   ```sql
+   INSERT INTO agents (role, name, scope, manifesto_status, manifesto_tier,
+                       tier1_bootstrap)
+   VALUES ('cos', '<agent name>', 'company', 'pending', 1, 0),
+          ('cfo', '<agent name>', 'company', 'pending', 1, 0),
+          ...;
+   ```
+
+   `name` is the agent name compiled at Step 7.
 
 2. For each manifesto, present the draft to the CEO via the chat:
 
@@ -2191,9 +2219,11 @@ path [3] each is shown then approved, etc.
 
 ### Wizard — Step 10: Initial commit
 
-After bootstrap completes successfully:
+After bootstrap completes successfully, merge the framework permission denies
+into `.claude/settings.json`, then commit:
 
 ```bash
+bash scripts/sync-hooks.sh --instance
 git add -A \
   agents/ \
   scripts/ \
@@ -2207,7 +2237,9 @@ git add -A \
   README.md \
   CHANGELOG.md \
   SECURITY.md \
+  CLAUDE.md \
   docs/adr/ \
+  tests/ \
   VERSION
 git commit -m "init({{COMPANY_NAME_SLUG}}): bootstrap company-scope agents"
 git push
@@ -2223,9 +2255,10 @@ patched during the wizard run; both are part of the bootstrap deliverable.
 they don't change at re-bootstrap, but staging them on the first commit
 ensures fresh clones see runtime registration without an extra step.
 
-`README.md`, `CHANGELOG.md`, `SECURITY.md`, and `docs/adr/README.md` were
-rewritten at Step 7.6 with company-specific content; staging them on the
-first commit replaces the framework's templates in the per-company repo.
+`README.md`, `CHANGELOG.md`, `SECURITY.md`, `CLAUDE.md` and `docs/adr/README.md`
+were rewritten at Step 7.6 with company-specific content, and the framework's
+test results under `tests/` were removed; staging them on the first commit
+replaces the framework's files in the per-company repo.
 `VERSION` records the framework version this instance bootstrapped against —
 useful for upstream-sync compatibility checks later.
 
@@ -2249,11 +2282,11 @@ implements the rules documented in `docs/branch-protection-spec.md`:
 
 ```sql
 INSERT INTO decisions (agent, title, category, rationale, status,
-                       approved_by, approved_at, created_at)
+                       approved_by, approved_at)
 VALUES ('cso', 'Initial branch protection on main',
         'branch-protection-spec',
         '{"branch":"main","require_pr":true,"min_reviewers":1,"codeowners_required":true,"status_checks":["Juvant OS lint"],"linear_history":true,"block_force_push":true,"block_deletion":true,"include_admins":"plan-dependent","plan":"<gh-plan>"}',
-        'approved', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        'approved', ?, CURRENT_TIMESTAMP);
 ```
 
 Approval is implicit at company init via the bootstrap CEO-only override
@@ -2305,8 +2338,8 @@ every Bash tool call:
   `git push --force` to main, `gh repo delete`, `DROP DATABASE`,
   writes to credential paths, fork-bombs, etc.
 - **Per-agent allow-list**: positive scope. CFO/CLO/CCO/CMO/CHRO/
-  CRO/CEthO have NO Bash by default. CoS/Eng Lead/CSO/CTO/eng-* have
-  scoped allow-lists.
+  CRO/CEthO get `git`, `gh`, `turso` and read utilities. CoS/Eng Lead/
+  CSO/CTO/eng-* have wider scoped allow-lists.
 - **Local provider**: with `db.provider=local`, on the company or any
   project, a role that has `turso` also gets `sqlite3`, under the same
   SQL gates (`local_db_cli` in `hooks/bash-policy.json`).
@@ -3030,6 +3063,16 @@ strip leading `file:`, use that path for ALL project-scope INSERT
 statements in this step. For cloud-provider project DBs, use
 `turso db shell "$DB_URL"` per the F-24 split.
 
+The heredocs above show the target DB only. Generate the rows as in company
+Step 9: `content` is the compiled file without its frontmatter, never a body
+written by hand.
+
+```bash
+bash scripts/extract-manifest.sh --insert pca agents/projects/<slug>/pca.md \
+  product-lead agents/projects/<slug>/product-lead.md ... > /tmp/juvant-proj-manifests.sql
+sqlite3 <project-db-path> < /tmp/juvant-proj-manifests.sql
+```
+
 Sequencing:
 
 1. The CEO reviews the 8 project manifestos under the one-shot override (ADR 0008):
@@ -3108,7 +3151,7 @@ gh label create "juvant:decision" \
 ### Wizard — Step 6: Initial commit
 
 ```bash
-git add agents/projects/ .claude/settings.json
+git add agents/projects/ .claude/settings.json .claude/agents/
 git commit -m "init({{PROJECT_NAME_SLUG}}): bootstrap project agents"
 git push
 ```
@@ -3622,7 +3665,7 @@ Triggered by `/juv-boot-sequence`, or automatically at SessionStart.
    - `security_audit_log_current WHERE current_status='open' AND current_severity IN ('P0','P1','critical','high') AND is_test_artifact=0` (the view applies `audit_events` corrections/closures — SYSTEM_INVARIANTS §10).
    - `knowledge_base WHERE source_project IS NULL ORDER BY created_at DESC LIMIT 5` (recent company-scope additions).
    - If a project is active: `knowledge_base WHERE source_project = '<active_project_id>' ORDER BY created_at DESC` (all project-scope entries — no limit; these are the adopter's canonical project context). `<active_project_id>` = `master_context.value WHERE key='active_project'` = `projects.id` (the slug, e.g. `'hardys'` — there is no separate `slug` column).
-   - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then runs `bash helpers/morning-brief.sh` to send an updated brief to Teams.
+   - `source_snapshots WHERE last_changed_at > (SELECT MAX(created_at) FROM session_snapshots LIMIT 1)` — sources that changed since the last session. If any rows: surface to CEO as *"X sources changed since your last session"* with `delta_summary` per source, then offer: **"Want me to route these to CRO for knowledge extraction?"** If CEO says yes, spawn `Task(subagent_type='cro')` with the list of changed sources as context. CRO processes the deltas, writes to `knowledge_base`, then reports to CoS, who surfaces the result to the CEO.
    - **Log file reading policy** (BUG-027): `.juvant/logs/*.log` files accumulate output across runs. When reading them for health assessment, **always filter to the most recent run** by finding the last `=== RUN <RUN_ID> ===` boundary. Never surface entries from prior runs as current issues — doing so re-reports already-fixed bugs as active. To read only the last run: `awk '/^=== RUN /{run=1; buf=""} run{buf=buf"\n"$0} END{print buf}' .juvant/logs/<helper>.log`
 4b. **If `company_type='sub'`: read global decisions from master** (ADR 0017)
    ```sql
@@ -5264,7 +5307,7 @@ trail. **Company-scope agents only** — no project agents involved.
     re-runs on every sync — including against the instance's own
     `security/policy.json`. Surface results to CEO alongside the PR's CI status.
     `helpers/` run from CoS. Everything under `tests/` is instance-editable, so
-    CoS can't run it (ADR 0038): dispatch those suites to `eng-platform`, or ask
+    CoS can't run it (the exec-scope gate): dispatch those suites to `eng-platform`, or ask
     the CEO to run them with `! bash …`.
 
 12. **Record completion + CHRO re-validation** (after the CEO has merged the
@@ -5323,6 +5366,7 @@ scripts/sync-sandbox.sh       scripts/templates/sandbox.json
 helpers/upstream-apply.sh     helpers/fetch-origin.sh
 scripts/deadlines.json        scripts/validate-security-policy.sh
 scripts/migrate-secrets.sh    scripts/set-secret.sh
+scripts/extract-manifest.sh
 scripts/upgrade-v0.5.sql
 scripts/templates/commands/juv-boot-sequence.md
 scripts/templates/commands/juv-upstream-sync.md
@@ -5381,6 +5425,7 @@ tests/helpers/test-turso-backup-archival.sh
 tests/sync/test-sync-compile.sh
 tests/sync/test-fake-db-pairing.sh
 tests/sync/test-sync-hooks.sh
+tests/sync/test-extract-manifest.sh
 tests/schema/validate.py
 tests/schema/test-audit-immutability.sh
 tests/schema/test-category-allowlist.py

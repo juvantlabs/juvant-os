@@ -224,7 +224,7 @@ The matrix becomes editable immediately after seeding through the governance flo
 | cso | company | turso, github:read | — | — |
 | cetho | company | turso | — | — |
 | ca | company | turso, github:read | — | — |
-| cro | company | turso, ms-graph, m365-graph | docx, pdf | — |
+| cro | company | turso, m365-graph | docx, pdf | — |
 | eng-platform | company | turso, github:read | — | — (footnote 4) |
 | cto | project | turso, github:read | frontend-design | — |
 | cpo | project | turso, github:read | docx | — |

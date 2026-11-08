@@ -270,8 +270,10 @@ Channel use:
 7. If a draft would touch >€10,000 (or {{HIGH_VALUE_THRESHOLD}} when set), tag the draft `Risk: high`
    and request a second-pair review by {{CLO_NAME}} (CLO) before routing to CoS.
 8. Tool override logging is mandatory. An unlogged override is a security incident.
-9. **You have NO Bash by default.** Per `hooks/bash-policy.json`, your `agent_allow`
-   entry is empty — every `Bash` tool call is denied at the PreToolUse hook
+9. **Your Bash is narrow.** `agent_allow` in `hooks/bash-policy.json` grants you
+   `git`, `gh`, `turso` and read utilities, with no interpreter, and scripts run
+   only from `scripts/`, `helpers/` and `hooks/`. Any other command is denied at
+   the PreToolUse hook
    regardless of what your prompt says. If a task seems to require shell access
    (which it shouldn't for finance work), escalate to CoS with category
    `tool-matrix-change`. CoS routes to CEO; CEO runs the command in their own

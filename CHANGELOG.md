@@ -16,8 +16,23 @@ All written artifacts in English. No exceptions.
 - Roles with no interpreter on their allow-list (`cos`, `cfo`, `clo`, `cmo`, `cco`, `chro`, `cetho`, `cro`, `cto`, `vpe`, `product-lead`, `Explore`) can no longer use an allowed binary to run another one (BUG-103, ADR 0038). `bash` and `sh` run only framework scripts under `hooks/`, `helpers/` and `scripts/`, the files Track 2f protects. `git`, `gh`, `sort`, `awk` and `sed` lose the flags and program text that run commands. `helpers/with-timeout.sh` now has its command checked. Denials read `deny:exec-scope:` and trigger `helpers/anomaly-check.sh`, and audit rows carry the hash of the script run.
 - Audit summaries no longer store secrets. `hooks/pre-tool-use.sh` drops any `set-secret.sh` command from `agent_actions_log.input_summary` and strips secret-shaped text from every tool's summary. The filter fails closed. The wizard no longer puts a secret on a Bash command line: tokens the CLI creates are piped into `set-secret.sh`, and values the CEO holds are stored from the CEO's own terminal.
 
+### Fixed
+
+- Bootstrap stores the real manifestos again (BUG-103). Company Step 9 and project Step 5 asked the session to extract each body from its compiled file and shipped no tool for it, so a role with no interpreter could end up writing short summaries that became the manifestos of record. `scripts/extract-manifest.sh` now generates the `INSERT` statements: the body is the compiled file without its frontmatter, verbatim. The batch driver compares every stored manifesto with its compiled file.
+- The SQL gate in `hooks/pre-tool-use.sh` now splits statements in linear time. On macOS bash 3.2 the old loop took seconds per kilobyte, so loading a set of manifestos ran past the hook timeout.
+- Exec-scope denials point to the framework scripts that still run, instead of an ADR adopters don't have.
+- Company Step 9 now inserts the `agents` rows for the founding agents. The mirror updates had nothing to match, so every CSO audit raised `agent-manifest-drift`.
+- The Step 10 commit includes `CLAUDE.md` and `tests/`, which Step 7.6 rewrites and prunes. The project Step 6 commit includes the `.claude/agents/` registrations, so a fresh clone sees the project agents. The Step 10.5 `INSERT` no longer sets `created_at`, which the SQL gate denies.
+- The `cro` manifesto no longer runs `helpers/morning-brief.sh`, which posts to a Teams channel the role doesn't have: it reports to CoS. It reads documents through `m365-graph`, because `ms-graph` covers mail and calendar only, and `ms-graph` leaves its tool matrix row. Its quarterly KB audit now follows the retraction and promotion paths the manifesto states, and it writes only canonical categories.
+- Seven manifestos (`cco`, `cetho`, `cfo`, `chro`, `clo`, `cmo`, `cro`) said the Bash allow-list was empty. It isn't: they now state what `hooks/bash-policy.json` grants.
+- `.gitignore` covers `.juvant/project-*.db` and `.juvant/backups/`, which hold audit rows and copies of the audit spool. The audit baseline and the CSO checklist now check for them.
+- Company setup merges the framework permission denies into `.claude/settings.json` at Step 10. Until now only upstream sync did, so a new instance ran without them until its first sync.
+- `scripts/run-testco-lifecycle.sh` no longer seeds sign-offs after a Tier 1 refusal. Transition and activation now run on the row the reviewers really signed. After a refusal they're skipped and the script exits 3.
+
 ### Upgrade
 
+- `.gitignore` isn't synced: add `.juvant/project-*.db` and `.juvant/backups/` by hand, and check that neither is tracked with `git ls-files .juvant`. The audit baseline raises a medium finding until you do.
+- The seven manifestos above, `cso` and `cto` change, so they get a new review cycle at sync. `cro` also needs a `tool-matrix-change` to drop `ms-graph` from its `agent_tool_matrix` row.
 - Upstream sync step 11: suites under `tests/` no longer run from CoS. Dispatch them to `eng-platform`, or run them with `! bash …`.
 - Check your own usage before syncing: any agent on the list above that runs a script outside those three folders will be denied. `SELECT agent, input_summary FROM agent_actions_log WHERE tool_name = 'Bash' AND input_summary LIKE '%bash %' AND input_summary NOT LIKE '%bash scripts/%' AND input_summary NOT LIKE '%bash helpers/%' AND input_summary NOT LIKE '%bash hooks/%' GROUP BY 1, 2;`
 - `input_summary` can't be edited or deleted, so older rows stay as they are. List them without printing the text: `SELECT id, started_at FROM agent_actions_log WHERE input_summary LIKE '%set-secret%';`. If any row exists, rotate the secrets stored in those sessions.

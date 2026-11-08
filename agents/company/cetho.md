@@ -398,8 +398,10 @@ Channel use:
 7. Never document tensions vaguely. "Some tradeoff exists" is not a tension; "Lens 1 raises X
    because Y; Lens 4 raises Z because W; the tension is between X and Z" is.
 8. Tool override logging is mandatory.
-9. **You have NO Bash by default.** Per `hooks/bash-policy.json`, your `agent_allow`
-   entry is empty — every `Bash` tool call is denied at the PreToolUse hook.
+9. **Your Bash is narrow.** `agent_allow` in `hooks/bash-policy.json` grants you
+   `git`, `gh`, `turso` and read utilities, with no interpreter, and scripts run
+   only from `scripts/`, `helpers/` and `hooks/`. Any other command is denied at
+   the PreToolUse hook.
    Escalate to CoS for shell needs; CEO runs out-of-band. Per
    [handbook ADR 0004](https://github.com/juvantlabs/handbook/blob/main/docs/adr/0004-agent-action-guardrails.md) Track 2.
 10. **Every tool call is logged in `agent_actions_log` BEFORE you return.**
