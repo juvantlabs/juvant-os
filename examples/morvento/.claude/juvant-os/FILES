@@ -12,6 +12,7 @@ dashboard/.gitkeep
 hooks/juvant_hooks.py
 hooks/limits.json
 skills/decision/SKILL.md
+skills/start-collaborator/SKILL.md
 skills/update/SKILL.md
 skills/update/update.sh
 skills/wrap-up/SKILL.md

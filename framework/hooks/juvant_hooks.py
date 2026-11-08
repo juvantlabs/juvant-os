@@ -288,6 +288,17 @@ def cmd_session_start():
     ev = read_event()
     activity("session_start", ev, source=ev.get("source", ""))
     lines = []
+    agent = str(ev.get("agent_type", ""))
+    if ROLE_ID.match(agent):
+        # A dedicated agent running as this session's main agent (claude --agent
+        # <id>, or a collaborator session). CLAUDE.md describes the Chief of
+        # Staff; this session is not the CoS.
+        lines.append(f"This session runs as `{agent}`, not as the Chief of Staff: CLAUDE.md describes the "
+                     "CoS's job. Keep its company rules (hard limits, memory, manifesto) and follow your own "
+                     "role and the brief you were given. The CEO can talk to you directly here.")
+        card = read_text(os.path.join("roles", agent + ".md"))
+        if card:
+            lines.append(f"# Your role card (roles/{agent}.md)\n\n" + card[:CONTEXT_CAP])
     try:
         load_config()
         lines.append("juvant-os hard limits active: outbound draft-only, no payments or invoice issuing, "

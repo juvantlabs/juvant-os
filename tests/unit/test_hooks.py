@@ -224,6 +224,20 @@ class ContextAndActivity(HookCase):
         self.assertLessEqual(len(rows[2]["outcome"]), 160)
         self.assertNotIn("\n", rows[2]["outcome"])
 
+    def test_session_as_dedicated_agent(self):
+        self.write("roles/finance.md", "name: Greta\nMinimum cash buffer: 90000")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "agent_type": "finance"})
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("runs as `finance`, not as the Chief of Staff", ctx)
+        self.assertIn("Minimum cash buffer: 90000", ctx)
+        self.assertIn("hard limits active", ctx)
+        rows = self.state("activity.jsonl")
+        self.assertEqual(rows[-1]["agent_type"], "finance")
+
+    def test_session_as_main_thread_has_no_role_note(self):
+        _, out, _ = self.run_hook("session-start", {"session_id": "s"})
+        self.assertNotIn("not as the Chief of Staff", out["hookSpecificOutput"]["additionalContext"])
+
     def test_session_start_status(self):
         rc, out, _ = self.run_hook("session-start", {"session_id": "s"})
         self.assertEqual(rc, 0)
