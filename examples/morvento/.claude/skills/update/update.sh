@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # .claude/skills/update/update.sh — install or update juvant-os v2 in a company repo.
 #
-#   update.sh                           install the latest published GitHub release
+#   update.sh                           install the latest published GitHub release (v2+, not pre-release)
 #   update.sh <tag>                     install that release (it must be a published
 #                                       GitHub release, pre-releases included)
 #   options:  --target <company-dir>    default: the git toplevel of the current dir
@@ -56,16 +56,27 @@ else
   SLUG="${JUVANT_OS_RELEASE_SLUG:-$(sed -nE 's#^(https://|git@)github\.com[/:]([^/]+/[^/]+)$#\2#p' <<< "${REPO_URL%.git}")}"
   [[ -n "$SLUG" ]] || { echo "update: $REPO_URL is not a GitHub repository: releases can't be checked" >&2; exit 2; }
   API="${JUVANT_OS_API:-https://api.github.com}/repos/$SLUG/releases"
-  if [[ -n "$TAG" ]]; then URL="$API/tags/$TAG"; else URL="$API/latest"; fi
-  REL="$(curl -fsSL "$URL" 2>/dev/null)" || REL=""
-  if [[ -z "$REL" ]]; then
-    if [[ -n "$TAG" ]]; then echo "update: $TAG is not a published release of $SLUG: nothing to install" >&2; exit 1; fi
-    echo "update: $SLUG has no published release: nothing to update."; exit 0
+  published() { # <tag> [stable]: prints the tag if it is a published release (stable: not a pre-release)
+    curl -fsSL "$API/tags/$1" 2>/dev/null | python3 -c '
+import json, sys
+try: r = json.load(sys.stdin)
+except Exception: sys.exit(1)
+ok = not r.get("draft") and r.get("tag_name") == sys.argv[1] and not (sys.argv[2:] and r.get("prerelease"))
+print(sys.argv[1]) if ok else sys.exit(1)' "$@"
+  }
+  if [[ -n "$TAG" ]]; then
+    published "$TAG" >/dev/null || { echo "update: $TAG is not a published release of $SLUG: nothing to install" >&2; exit 1; }
+  else
+    # Latest v2+ release: newest version tags first, the first published stable release wins.
+    # (GitHub's own "latest" can point at a v1 release.)
+    for t in $(git ls-remote --tags --refs "$REPO_URL" 2>/dev/null | sed 's#.*refs/tags/##' | python3 -c '
+import re, sys
+v = [(tuple(map(int, m.groups())), t) for t in sys.stdin.read().split() if (m := re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", t)) and int(m.group(1)) >= 2]
+print("\n".join(t for _, t in sorted(v, reverse=True)[:20]))'); do
+      TAG="$(published "$t" stable)" && break || TAG=""
+    done
+    [[ -n "$TAG" ]] || { echo "update: $SLUG has no published v2 release: nothing to update."; exit 0; }
   fi
-  REL_TAG="$(python3 -c 'import json,sys; r=json.load(sys.stdin); print("" if r.get("draft") else r.get("tag_name",""))' <<< "$REL")"
-  [[ -n "$REL_TAG" && ( -z "$TAG" || "$REL_TAG" == "$TAG" ) ]] \
-    || { echo "update: ${TAG:-the latest release} is not a published release of $SLUG" >&2; exit 1; }
-  TAG="$REL_TAG"
   if [[ -z "$COUNTRY" && -f "$TARGET/.claude/juvant-os.json" ]] && grep -q "\"version\": \"$TAG\"" "$TARGET/.claude/juvant-os.json"; then
     echo "update: juvant-os $TAG is already installed: nothing to update."; exit 0
   fi
