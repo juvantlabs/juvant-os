@@ -21,6 +21,9 @@
 # roles/, memory/, state/, .claude/settings.json) are never touched. Nothing is
 # committed: review `git status` and commit.
 set -euo pipefail
+# The whole script sits in one { } block: bash parses it all before running, so
+# installing a new version of this very file mid-run cannot derail it.
+{
 
 REPO_URL="${JUVANT_OS_REPO:-https://github.com/juvantlabs/juvant-os.git}"
 FROM=""; TAG=""; TARGET=""; COUNTRY=""
@@ -46,6 +49,7 @@ if [[ -d "$TARGET/.juvant" ]]; then
 fi
 
 TMP=""
+# shellcheck disable=SC2329  # called by the EXIT trap
 cleanup() { [[ -n "$TMP" ]] && rm -rf "$TMP"; return 0; }
 trap cleanup EXIT
 if [[ -n "$FROM" ]]; then
@@ -153,3 +157,5 @@ if git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "$TARGET" status --short -- .claude
 fi
 echo "update: nothing committed. Review the changes, then commit them."
+exit 0
+}
