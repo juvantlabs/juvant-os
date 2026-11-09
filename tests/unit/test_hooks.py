@@ -84,6 +84,20 @@ class McpLimits(HookCase):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(tool), "deny")
 
+    def test_money_reads_allowed(self):
+        for tool in ("mcp__finom__get_payments", "mcp__finom__list_transfers", "mcp__finom__get_payment_details",
+                     "mcp__finom__list_invoices", "mcp__finom__get_transactions", "mcp__finom__list_payouts",
+                     "mcp__Finom__search_transactions", "mcp__finom__get_balance"):
+            with self.subTest(tool=tool):
+                self.assertEqual(self.decision(tool), "allow")
+
+    def test_money_actions_denied(self):
+        for tool in ("mcp__finom__create_payment", "mcp__finom__initiate_transfer", "mcp__finom__payment_create",
+                     "mcp__finom__approve_payout", "mcp__finom__pay", "mcp__finom__refund", "mcp__finom__schedule_transfer",
+                     "mcp__finom__send_invoice", "mcp__finom__issue_invoice", "mcp__finom__transfer_execute"):
+            with self.subTest(tool=tool):
+                self.assertEqual(self.decision(tool), "deny")
+
     def test_destructive_asks(self):
         for tool in ("sharepoint_delete_item", "sharepoint_move_item", "sharepoint_rename_item",
                      "sharepoint_upload_file", "sharepoint_update_file", "sharepoint_copy_item",
