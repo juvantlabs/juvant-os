@@ -34,6 +34,7 @@ def v1_db(path):
         (3, "Maybe open Berlin office", "strategy", "Idea", "proposed", None, None, "2026-10-01", "company"),
         (4, "Old supplier policy", "procurement", "Replaced", "superseded", "CEO", "2026-05-01", "2026-05-01", "company"),
         (5, "Rotate token", "security", "token was " + FAKE_TOKEN, "executed", None, None, "2026-10-10", "company"),
+        (6, "Do not re-propose the split", "product", "Not now", "deferred", "CEO", "2026-08-01", "2026-08-01", "company"),
     ])
     con.execute("INSERT INTO knowledge_base (category, title, content, tags, source_project, created_at) VALUES (?,?,?,?,?,?)",
                 ("runbook", "How we close the month", "Steps: bank, receivables, packet.", "finance;monthly", "acme", "2026-10-02"))
@@ -158,6 +159,21 @@ class Migrate(unittest.TestCase):
             report = fh.read()
         self.assertIn("Components in v1 (now projects)", report)
         self.assertIn('--shared-with "everyone (public repository)"', report)
+
+    def test_include_status(self):
+        decisions, _ = self.read("memory/decisions/*-v1-*.md") if False else ("", [])
+        self.assertEqual(self.run_tool().returncode, 0)
+        decisions, _ = self.read("memory/decisions/*-v1-*.md")
+        self.assertNotIn("Do not re-propose", decisions, "deferred skipped by default")
+        co2 = os.path.join(self.tmp, "co2")
+        subprocess.run(["bash", os.path.join(ROOT, "setup.sh"), co2], check=True, capture_output=True)
+        r = subprocess.run([sys.executable, TOOL, self.db, co2, "--include-status", "deferred"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        texts = []
+        for f in glob.glob(os.path.join(co2, "memory", "decisions", "*-v1-6.md")):
+            with open(f, encoding="utf-8") as fh:
+                texts.append(fh.read())
+        self.assertTrue(texts and "status: deferred" in texts[0] and "Do not re-propose" in texts[0])
 
     def test_deadlines(self):
         dl = os.path.join(self.tmp, "deadlines.json")

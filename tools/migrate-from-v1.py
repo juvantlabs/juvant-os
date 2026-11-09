@@ -5,6 +5,7 @@
         [--skip-category CAT ...] [--keep-all-categories] [--include-proposed]
         [--with-contact-emails] [--project <slug>=<v1-project.db> ...]
         [--kb-by-category] [--components <components.json>] [--deadlines <deadlines.json>]
+        [--include-status STATUS ...]
 
 <v1.db> is a SQLite copy of the v1 company DB. For a Turso DB, make one with
     turso db shell <db-name> .dump | sqlite3 v1.db
@@ -13,7 +14,8 @@
 What moves, as v2 memory files (format: memory/README.md in the v2 repo):
 - decisions approved or executed      -> memory/decisions/<date>-<slug>-v1-<id>.md
   (superseded ones keep status: superseded; proposed and rejected are skipped
-  unless --include-proposed; governance categories are skipped by default,
+  unless --include-proposed; other statuses (e.g. deferred, closed) only with
+  --include-status, keeping that status in v2 so they stay out of the active list; governance categories are skipped by default,
   see DEFAULT_SKIP, unless --keep-all-categories)
 - knowledge_base rows                 -> memory/knowledge/<slug>.md, one per row
   (with --kb-by-category: memory/knowledge/<category>/<slug>.md)
@@ -140,7 +142,8 @@ def migrate_decisions(con, w, rep, args, skip, base="memory"):
     if "decisions" not in tables(con):
         rep.lines.append("- No `decisions` table.")
         return
-    keep = {"approved", "executed", "superseded"} | ({"proposed"} if args.include_proposed else set())
+    extra = {x.lower() for x in args.include_status}
+    keep = {"approved", "executed", "superseded"} | ({"proposed"} if args.include_proposed else set()) | extra
     by_cat = {}
     for d in rows(con, "decisions"):
         status = (d.get("status") or "").lower()
@@ -156,7 +159,7 @@ def migrate_decisions(con, w, rep, args, skip, base="memory"):
         title = clean(d.get("title"), rep) or f"Decision {d.get('id')}"
         rationale = clean(d.get("rationale"), rep)
         decided_by = clean(d.get("approved_by"), rep) or "CEO (from v1, approver not recorded)"
-        v2_status = "superseded" if status == "superseded" else ("proposed" if status == "proposed" else "active")
+        v2_status = status if status in ("superseded", "proposed") or status in extra else "active"
         tags = [cat, d.get("scope") if d.get("scope") not in (None, "company") else ""]
         body = (f"---\ndate: {date}\ndecided_by: {decided_by}\nstatus: {v2_status}\ntags: {yaml_list(tags)}\n"
                 f"source: juvant-os v1 decisions#{d.get('id')}\n---\n\n# {title}\n\n"
@@ -345,6 +348,8 @@ def main():
     ap.add_argument("--keep-all-categories", action="store_true")
     ap.add_argument("--include-proposed", action="store_true")
     ap.add_argument("--with-contact-emails", action="store_true")
+    ap.add_argument("--include-status", action="append", default=[], metavar="STATUS",
+                    help="also migrate decisions with this v1 status (e.g. deferred, closed), keeping it")
     ap.add_argument("--deadlines", metavar="FILE", help="v1 scripts/deadlines.json, into memory/deadlines.md")
     ap.add_argument("--components", metavar="FILE",
                     help="v1 components array (from config.json) to turn into projects")
