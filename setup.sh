@@ -106,10 +106,10 @@ for d in decisions knowledge journal; do [[ -e "$TARGET/memory/$d/.gitkeep" ]] |
 [[ -e "$TARGET/state/.gitkeep" ]] || : > "$TARGET/state/.gitkeep"
 
 if [[ -n "$COUNTRY" ]]; then
-  bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" --country "$COUNTRY" | grep -i 'country' || true
+  JUVANT_OS_SETUP=1 bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" --country "$COUNTRY" | grep -i 'country' || true
 else
-  bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" >/dev/null
-  echo "setup: no country pack chosen. Skills stay country-neutral; add one later with: bash .claude/skills/update/update.sh --country <code> <tag>"
+  JUVANT_OS_SETUP=1 bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" >/dev/null
+  echo "setup: no country pack chosen. Skills stay country-neutral; add one later with: bash .claude/skills/update/update.sh --country <code>"
 fi
 
 left=$(grep -ho '{{[A-Z_]*}}' "$TARGET/CLAUDE.md" "$TARGET/manifesto.md" "$TARGET"/roles/*.md 2>/dev/null | sort -u | tr '\n' ' ' || true)

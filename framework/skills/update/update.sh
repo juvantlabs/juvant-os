@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # .claude/skills/update/update.sh — install or update juvant-os v2 in a company repo.
 #
-#   update.sh <tag>                     fetch juvant-os at <tag> and update this repo
-#   update.sh --from <framework-dir>    use a local framework/ folder (setup, tests)
+#   update.sh                           install the latest published GitHub release
+#   update.sh <tag>                     install that release (it must be a published
+#                                       GitHub release, pre-releases included)
 #   options:  --target <company-dir>    default: the git toplevel of the current dir
-#             --repo <git-url>          default: $JUVANT_OS_REPO or the public repo
+#             --repo <github-url>       default: $JUVANT_OS_REPO or the public repo
 #             --country <code>          install that country pack (e.g. it); default:
 #                                       the country already recorded, if any
+#
+# Only official releases install: never a branch, never main. No published
+# release newer than the installed one means there is nothing to update.
+# (--from <framework-dir> exists only for setup.sh and the tests, which set
+# JUVANT_OS_SETUP=1.)
 #
 # Copies every path in framework/FILES except templates/ into .claude/, removes
 # framework files that the new version no longer ships, installs the company's
@@ -29,7 +35,9 @@ while [[ $# -gt 0 ]]; do
     *) TAG="$1"; shift ;;
   esac
 done
-[[ -n "$FROM" || -n "$TAG" ]] || { echo "update: give a tag (e.g. v2.0.0) or --from <framework-dir>" >&2; exit 2; }
+if [[ -n "$FROM" && "${JUVANT_OS_SETUP:-}" != 1 ]]; then
+  echo "update: juvant-os installs only from an official GitHub release, never from a local folder or a branch. Run update.sh [<tag>]." >&2; exit 2
+fi
 TARGET="${TARGET:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 TARGET="$(cd "$TARGET" && pwd)"
 
@@ -44,6 +52,23 @@ if [[ -n "$FROM" ]]; then
   FW="$(cd "$FROM" && pwd)"
   VERSION="$(git -C "$FW" describe --tags --always 2>/dev/null || echo local)"
 else
+  # The release must exist on GitHub, published (not a draft).
+  SLUG="${JUVANT_OS_RELEASE_SLUG:-$(sed -nE 's#^(https://|git@)github\.com[/:]([^/]+/[^/]+)$#\2#p' <<< "${REPO_URL%.git}")}"
+  [[ -n "$SLUG" ]] || { echo "update: $REPO_URL is not a GitHub repository: releases can't be checked" >&2; exit 2; }
+  API="${JUVANT_OS_API:-https://api.github.com}/repos/$SLUG/releases"
+  if [[ -n "$TAG" ]]; then URL="$API/tags/$TAG"; else URL="$API/latest"; fi
+  REL="$(curl -fsSL "$URL" 2>/dev/null)" || REL=""
+  if [[ -z "$REL" ]]; then
+    if [[ -n "$TAG" ]]; then echo "update: $TAG is not a published release of $SLUG: nothing to install" >&2; exit 1; fi
+    echo "update: $SLUG has no published release: nothing to update."; exit 0
+  fi
+  REL_TAG="$(python3 -c 'import json,sys; r=json.load(sys.stdin); print("" if r.get("draft") else r.get("tag_name",""))' <<< "$REL")"
+  [[ -n "$REL_TAG" && ( -z "$TAG" || "$REL_TAG" == "$TAG" ) ]] \
+    || { echo "update: ${TAG:-the latest release} is not a published release of $SLUG" >&2; exit 1; }
+  TAG="$REL_TAG"
+  if [[ -z "$COUNTRY" && -f "$TARGET/.claude/juvant-os.json" ]] && grep -q "\"version\": \"$TAG\"" "$TARGET/.claude/juvant-os.json"; then
+    echo "update: juvant-os $TAG is already installed: nothing to update."; exit 0
+  fi
   TMP="$(mktemp -d)"
   git clone -q --depth 1 --branch "$TAG" "$REPO_URL" "$TMP/src" 2>/dev/null \
     || { echo "update: cannot fetch $TAG from $REPO_URL" >&2; exit 1; }

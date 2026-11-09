@@ -84,8 +84,18 @@ rm -r "$W/framework/skills/decision"; mkdir -p "$W/framework/skills/brief"; prin
 echo "changed template" >> "$W/framework/templates/CLAUDE.md"
 sed -i.bak -e 's#^skills/decision/SKILL.md$#skills/brief/SKILL.md#' "$W/framework/FILES"; rm "$W/framework/FILES.bak"
 g -C "$W" add -A; g -C "$W" commit -qm B; g -C "$W" tag v2.0.1; g -C "$W" push -q "$F" main --tags 2>/dev/null || g -C "$F" fetch -q "$W" 'refs/tags/*:refs/tags/*'
-( cd "$U" && bash .claude/skills/update/update.sh v2.0.1 --repo "$F" >/dev/null 2>&1 ); rc=$?
-check "update exits 0" "[[ $rc == 0 ]]"
+# Fake GitHub releases API (file://): v2.0.1 is a published release, v2.0.0 is only a tag, v2.0.2 is a draft.
+A="$T/api/repos/acme/fw/releases"; mkdir -p "$A/tags"
+echo '{"tag_name": "v2.0.1", "draft": false, "prerelease": false}' > "$A/tags/v2.0.1"
+echo '{"tag_name": "v2.0.2", "draft": true}' > "$A/tags/v2.0.2"
+cp "$A/tags/v2.0.1" "$A/latest"
+export JUVANT_OS_API="file://$T/api" JUVANT_OS_RELEASE_SLUG=acme/fw
+( cd "$U" && bash .claude/skills/update/update.sh v2.0.0 --repo "$F" >/dev/null 2>&1 ); check "a tag without a release is refused" "[[ $? == 1 ]] && ! grep -q v2.0.0 '$U/.claude/juvant-os.json'"
+( cd "$U" && bash .claude/skills/update/update.sh v2.0.2 --repo "$F" >/dev/null 2>&1 ); check "a draft release is refused" "[[ $? == 1 ]]"
+( cd "$U" && bash .claude/skills/update/update.sh --from "$W/framework" >/dev/null 2>&1 ); check "--from outside setup is refused" "[[ $? == 2 ]]"
+( cd "$U" && JUVANT_OS_RELEASE_SLUG=acme/none bash .claude/skills/update/update.sh --repo "$F" 2>&1 | grep -q 'no published release' ); check "no releases: nothing to update" "[[ $? == 0 ]]"
+( cd "$U" && bash .claude/skills/update/update.sh --repo "$F" >/dev/null 2>&1 ); rc=$?
+check "update with no tag installs the latest release" "[[ $rc == 0 ]]"
 check "hook updated" "grep -q 'CONTEXT_CAP = 9400' '$U/.claude/hooks/juvant_hooks.py'"
 check "removed skill removed" "[[ ! -e '$U/.claude/skills/decision/SKILL.md' ]]"
 check "new skill installed" "[[ -f '$U/.claude/skills/brief/SKILL.md' ]]"
@@ -95,7 +105,8 @@ check "only framework paths changed (got: ${changed:-none})" "[[ -z '$changed' ]
 check "company CLAUDE.md untouched" "grep -q 'custom company line' '$U/CLAUDE.md' && ! grep -q 'changed template' '$U/CLAUDE.md'"
 check "company settings untouched" "[[ \$(cat '$U/.claude/settings.json') == '{\"mine\":true}' ]]"
 check "role card untouched" "[[ \$(cat '$U/roles/legal.md') == 'x' ]]"
-( cd "$K" && g init -q && bash .claude/skills/update/update.sh --from "$ROOT/framework" >/dev/null 2>&1 )
+out=$(cd "$U" && bash .claude/skills/update/update.sh --repo "$F" 2>&1); check "latest already installed: nothing to update" "[[ $? == 0 ]] && grep -q 'already installed' <<< '$out'"
+( cd "$K" && g init -q && JUVANT_OS_SETUP=1 bash .claude/skills/update/update.sh --from "$ROOT/framework" >/dev/null 2>&1 )
 check "update keeps the recorded country pack" "grep -q '\"country\": \"it\"' '$K/.claude/juvant-os.json' && [[ -f '$K/.claude/country/legal.md' ]]"
 check "nothing committed" "[[ \$(g -C '$U' log --oneline | wc -l | tr -d ' ') == 2 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh v9.9.9 --repo "$F" >/dev/null 2>&1 ); check "unknown tag fails" "[[ $? != 0 ]]"
