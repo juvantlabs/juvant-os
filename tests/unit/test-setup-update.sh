@@ -19,6 +19,7 @@ check "CLAUDE.md filled (special characters kept)" "grep -q 'Acme & Co — Chief
 check "unfilled placeholders listed" "[[ \"\$out\" == *'{{LEGAL_NAME}}'* ]]"
 check "framework in .claude/" "[[ -f '$C/.claude/hooks/juvant_hooks.py' && -f '$C/.claude/agents/legal.md' && -f '$C/.claude/skills/decision/SKILL.md' ]]"
 check "settings from the template" "cmp -s '$ROOT/framework/templates/settings.json' '$C/.claude/settings.json'"
+check "memory README installed" "[[ -f '$C/memory/README.md' ]] && cmp -s '$ROOT/framework/templates/memory-README.md' '$C/memory/README.md'"
 check "memory and state created" "[[ -d '$C/memory/decisions' && -d '$C/memory/journal' && -f '$C/memory/map.md' && -d '$C/state' ]]"
 check "version recorded" "grep -q '\"version\"' '$C/.claude/juvant-os.json'"
 check "templates not copied into .claude/" "[[ ! -e '$C/.claude/templates' ]]"

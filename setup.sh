@@ -73,6 +73,7 @@ PY
 fi
 
 mkdir -p "$TARGET/memory/decisions" "$TARGET/memory/knowledge" "$TARGET/memory/journal" "$TARGET/state"
+[[ -e "$TARGET/memory/README.md" ]] || cp "$FW/templates/memory-README.md" "$TARGET/memory/README.md"
 [[ -e "$TARGET/memory/map.md" ]] || printf '# Where things live\n\nNever put secrets here.\n\n| What | Where |\n|---|---|\n' > "$TARGET/memory/map.md"
 for d in decisions knowledge journal; do [[ -e "$TARGET/memory/$d/.gitkeep" ]] || : > "$TARGET/memory/$d/.gitkeep"; done
 [[ -e "$TARGET/state/.gitkeep" ]] || : > "$TARGET/state/.gitkeep"

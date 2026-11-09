@@ -307,6 +307,62 @@ def cmd_subagent_start():
     emit({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": text}})
 
 
+MAP_CAP = 2500
+DIGEST_CAP = 5000
+RECENT_DECISIONS = 8
+
+
+def frontmatter(text):
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    out = {}
+    if m:
+        for line in m.group(1).splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                out[k.strip()] = v.strip()
+    return out
+
+
+def memory_digest():
+    """Short memory context for the main session: map, recent active decisions,
+    and what the latest journal says is waiting for the CEO."""
+    parts = []
+    m = read_text(os.path.join("memory", "map.md"))
+    if m:
+        parts.append("## memory/map.md\n\n" + (m if len(m) <= MAP_CAP else m[:MAP_CAP] + "\n[…truncated: read memory/map.md]"))
+    ddir = os.path.join(ROOT, "memory", "decisions")
+    rows = []
+    try:
+        names = sorted((n for n in os.listdir(ddir) if n.endswith(".md")), reverse=True)
+    except OSError:
+        names = []
+    for n in names:
+        text = read_text(os.path.join("memory", "decisions", n)) or ""
+        fm = frontmatter(text)
+        if fm.get("status", "active") != "active":
+            continue
+        title = next((l[2:].strip() for l in text.splitlines() if l.startswith("# ")), n[:-3])
+        rows.append(f"- {fm.get('date', n[:10])} — {title} (memory/decisions/{n})")
+        if len(rows) == RECENT_DECISIONS:
+            break
+    if rows:
+        parts.append("## Recent decisions (active)\n\n" + "\n".join(rows))
+    jdir = os.path.join(ROOT, "memory", "journal")
+    try:
+        days = sorted((n for n in os.listdir(jdir) if re.match(r"\d{4}-\d{2}-\d{2}\.md$", n)), reverse=True)
+    except OSError:
+        days = []
+    if days:
+        text = read_text(os.path.join("memory", "journal", days[0])) or ""
+        waiting = [l.strip() for l in text.splitlines() if re.match(r"^\s*-\s*Waiting for the CEO", l, re.I)]
+        if waiting:
+            parts.append(f"## Waiting for the CEO (memory/journal/{days[0]})\n\n" + "\n".join(waiting))
+    if not parts:
+        return ""
+    text = "# Company memory digest\n\nFrom the files in memory/. Search memory/ for anything else; if a fact isn't there, say it isn't recorded.\n\n" + "\n\n".join(parts)
+    return text if len(text) <= DIGEST_CAP else text[:DIGEST_CAP] + "\n[…truncated]"
+
+
 def cmd_session_start():
     ev = read_event()
     activity("session_start", ev, source=ev.get("source", ""))
@@ -340,6 +396,10 @@ def cmd_session_start():
     except OSError:
         pass
     prefixes.discard("")
+    if not ROLE_ID.match(agent):
+        digest = memory_digest()
+        if digest:
+            lines.append(digest)
     if prefixes:
         lines.append("Tell the CEO: limited tools were called under MCP prefixes the permission rules don't list ("
                      + ", ".join(sorted(prefixes)) + "). The hook blocked them; add the prefixes to "

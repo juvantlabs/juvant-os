@@ -301,6 +301,56 @@ class LogOutcome(HookCase):
         self.assertEqual(self.run_cli().returncode, 2)
 
 
+class MemoryDigest(HookCase):
+    def write(self, rel, text):
+        path = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def decision(self, name, date, status, title):
+        self.write(f"memory/decisions/{name}.md", f"---\ndate: {date}\nstatus: {status}\n---\n\n# {title}\n")
+
+    def ctx(self, event=None):
+        _, out, _ = self.run_hook("session-start", event or {"session_id": "s"})
+        return out["hookSpecificOutput"]["additionalContext"]
+
+    def test_digest_contents(self):
+        self.write("memory/map.md", "| Contracts | SharePoint |")
+        self.decision("2026-09-15-old-price", "2026-09-15", "superseded", "Old price")
+        self.decision("2026-10-20-new-price", "2026-10-20", "active", "New price 49")
+        self.write("memory/journal/2026-11-05.md", "- Waiting for the CEO: older\n")
+        self.write("memory/journal/2026-11-06.md", "## x\n- Done: a\n- Waiting for the CEO: approve the packet\n")
+        c = self.ctx()
+        self.assertIn("| Contracts | SharePoint |", c)
+        self.assertIn("New price 49 (memory/decisions/2026-10-20-new-price.md)", c)
+        self.assertNotIn("Old price", c)
+        self.assertIn("approve the packet", c)
+        self.assertNotIn("older", c)
+
+    def test_recent_decisions_capped_newest_first(self):
+        for i in range(1, 13):
+            self.decision(f"2026-10-{i:02d}-d{i}", f"2026-10-{i:02d}", "active", f"Decision {i}")
+        c = self.ctx()
+        self.assertIn("Decision 12", c)
+        self.assertIn("Decision 5", c)
+        self.assertNotIn("Decision 4 ", c)
+        self.assertLess(c.index("Decision 12"), c.index("Decision 11"))
+
+    def test_digest_capped(self):
+        self.write("memory/map.md", "m" * 20000)
+        c = self.ctx()
+        self.assertIn("truncated: read memory/map.md", c)
+        self.assertLess(len(c), 6500)
+
+    def test_no_memory_no_digest(self):
+        self.assertNotIn("Company memory digest", self.ctx())
+
+    def test_no_digest_for_dedicated_agent_sessions(self):
+        self.write("memory/map.md", "MAPLINE")
+        self.assertNotIn("MAPLINE", self.ctx({"session_id": "s", "agent_type": "legal"}))
+
+
 class Settings(unittest.TestCase):
     def test_registration(self):
         with open(os.path.join(ROOT, "framework", "templates", "settings.json"), encoding="utf-8") as f:

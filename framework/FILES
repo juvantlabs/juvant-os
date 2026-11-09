@@ -45,6 +45,7 @@ skills/invoice-chase/reference/examples/firm-reminder.md
 skills/invoice-chase/reference/examples/gentle-reminder.md
 skills/invoice-chase/reference/gotchas.md
 skills/invoice-chase/reference/tone-matching.md
+skills/knowledge/SKILL.md
 skills/kwp-shared/artifact-style.md
 skills/kwp-shared/connector-call-shapes.md
 skills/kwp-shared/connector-neutrality.md
@@ -77,6 +78,7 @@ skills/wrap-up/SKILL.md
 templates/CLAUDE.md
 templates/gitignore
 templates/manifesto.md
+templates/memory-README.md
 templates/roles/ethics.md
 templates/roles/finance.md
 templates/roles/legal.md

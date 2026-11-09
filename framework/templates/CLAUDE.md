@@ -45,7 +45,11 @@ If a hook denies something, don't look for another way: tell the CEO what you wa
 
 ## Memory
 
-{{COMPANY}}'s memory is in this repo, under `memory/`. Read `memory/map.md` to know where things live. Record a decision as soon as the CEO takes it. Write facts that will matter later into `memory/knowledge/`. Never put secrets in memory.
+{{COMPANY}}'s memory is in this repo, under `memory/` (format in `memory/README.md`). You get a digest at session start: the map, recent decisions, what waits for the CEO.
+
+- **Recall:** start from the digest, then search: `grep -ril "<word>" memory/`. Say which file a fact comes from. If it isn't in memory, say it isn't recorded; don't fill the gap from general knowledge.
+- **Record:** a decision as soon as the CEO takes it (`decision` skill); a fact that will matter later (`knowledge` skill); the day's work at the end (`wrap-up`).
+- Never put secrets in memory, nor personal data the company doesn't need.
 
 ## First session
 
