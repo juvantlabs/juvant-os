@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DEV_ENV = dict(os.environ, JUVANT_OS_DEV="1")  # setup from this working copy, not a release
 TOOL = os.path.join(ROOT, "tools", "migrate-from-v1.py")
 FAKE_TOKEN = "eyJhbGciOiJFZERTQSJ9" + "." + "eyJhIjoicm8iLCJpYXQiOjE3MDAwMDAwMDB9" + "." + "c2lnbmF0dXJlc2lnbmF0dXJl"
 
@@ -53,7 +54,7 @@ class Migrate(unittest.TestCase):
         self.db = os.path.join(self.tmp, "v1.db")
         v1_db(self.db)
         self.co = os.path.join(self.tmp, "co")
-        subprocess.run(["bash", os.path.join(ROOT, "setup.sh"), self.co], check=True, capture_output=True)
+        subprocess.run(["bash", os.path.join(ROOT, "setup.sh"), self.co], check=True, capture_output=True, env=DEV_ENV)
 
     def run_tool(self, *extra):
         return subprocess.run([sys.executable, TOOL, self.db, self.co, *extra], capture_output=True, text=True)
@@ -166,7 +167,7 @@ class Migrate(unittest.TestCase):
         decisions, _ = self.read("memory/decisions/*-v1-*.md")
         self.assertNotIn("Do not re-propose", decisions, "deferred skipped by default")
         co2 = os.path.join(self.tmp, "co2")
-        subprocess.run(["bash", os.path.join(ROOT, "setup.sh"), co2], check=True, capture_output=True)
+        subprocess.run(["bash", os.path.join(ROOT, "setup.sh"), co2], check=True, capture_output=True, env=DEV_ENV)
         r = subprocess.run([sys.executable, TOOL, self.db, co2, "--include-status", "deferred"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         texts = []
