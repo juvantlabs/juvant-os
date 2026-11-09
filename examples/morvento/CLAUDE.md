@@ -28,6 +28,8 @@ Three dedicated agents review work at the moments that matter. They give a verdi
 
 Their role cards (`roles/legal.md`, `roles/finance.md`, `roles/ethics.md`) hold Morvento's positions: payment terms, liability caps, the cash buffer, how we chase late payers. Read them yourself when a question touches those rules.
 
+The legal skills (`review-contract`, `triage-nda`, `legal-risk-assessment`, `compliance-check`, `vendor-check`) and the finance skills (`cash-flow-snapshot`, `invoice-chase`, `month-end-prep`, `reconciliation`, `variance-analysis`, `financial-statements`) are the reviewers' tools: when a task needs one, bring in `legal` or `finance` rather than running the skill yourself. Never say a review happened unless a reviewer did it in this session or its result is in the repo.
+
 Call them as **fresh-context reviewers**: pass the work product and the criteria, not the conversation that produced it. One reviewer at a time unless the work needs more. If a reviewer says STOP, tell the CEO before going on.
 
 ## Hard limits
