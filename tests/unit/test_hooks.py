@@ -130,6 +130,14 @@ class McpLimits(HookCase):
         _, out, _ = self.run_hook("session-start", {"session_id": "s"})
         self.assertIn("mcp__Office365__", out["hookSpecificOutput"]["additionalContext"])
 
+    def test_known_prefix_no_longer_warned(self):
+        # Logged before the prefix was added to known_prefixes: no warning forever after.
+        os.makedirs(os.path.join(self.repo, "state"), exist_ok=True)
+        with open(os.path.join(self.repo, "state", "limits-findings.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"prefix": "mcp__claude-artifacts__", "tool": "mcp__claude-artifacts__publish_files"}) + "\n")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s"})
+        self.assertNotIn("mcp__claude-artifacts__", out["hookSpecificOutput"]["additionalContext"])
+
 
 class BashAndSecrets(HookCase):
     def bash(self, command):
@@ -559,6 +567,26 @@ class MemoryDigest(HookCase):
         self.assertIn("Decision 5", c)
         self.assertNotIn("Decision 4 ", c)
         self.assertLess(c.index("Decision 12"), c.index("Decision 11"))
+
+    def test_waiting_items_shown_to_the_ceo(self):
+        # The agent can't speak first: the CEO sees the list on screen (systemMessage).
+        self.write("memory/journal/2026-11-06.md",
+                   "- Waiting for the CEO: see the section below\n- Waiting for the CEO: approve the packet; merge PR 12\n")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        msg = out.get("systemMessage", "")
+        self.assertIn("Waiting for you (memory/journal/2026-11-06.md)", msg)
+        self.assertIn("• approve the packet; merge PR 12", msg)
+        self.assertNotIn("see the section", msg)
+        self.assertIn("already sees", out["hookSpecificOutput"]["additionalContext"])
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "compact"})
+        self.assertNotIn("systemMessage", out)
+        _, out, _ = self.run_hook("session-start", {"session_id": "t", "source": "startup", "agent_type": "finance"})
+        self.assertNotIn("systemMessage", out)
+
+    def test_nothing_waiting_no_banner(self):
+        self.write("memory/journal/2026-11-06.md", "- Done: a\n")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        self.assertNotIn("systemMessage", out)
 
     def test_digest_capped(self):
         self.write("memory/map.md", "m" * 20000)

@@ -529,6 +529,35 @@ def frontmatter(text):
     return out
 
 
+def waiting_for_ceo():
+    """(day, ["- Waiting for the CEO: …", …]) from the latest journal; (None, []) if none."""
+    jdir = os.path.join(ROOT, "memory", "journal")
+    try:
+        days = sorted((n for n in os.listdir(jdir) if re.match(r"\d{4}-\d{2}-\d{2}\.md$", n)), reverse=True)
+    except OSError:
+        return None, []
+    if not days:
+        return None, []
+    text = read_text(os.path.join("memory", "journal", days[0])) or ""
+    return days[0], [l.strip() for l in text.splitlines() if re.match(r"^\s*-\s*Waiting for the CEO", l, re.I)]
+
+
+WAITING_SHOW_CAP = 1200
+
+
+def waiting_banner():
+    """What the CEO sees on screen at session start: the agent can't speak first."""
+    day, waiting = waiting_for_ceo()
+    items = [re.sub(r"^\s*-\s*Waiting for the CEO\s*:?\s*", "", l, flags=re.I) for l in waiting]
+    items = [i for i in items if i and not re.match(r"^(see|nothing|none)\b", i, re.I)]
+    if not items:
+        return ""
+    text = f"Waiting for you (memory/journal/{day}):\n" + "\n".join("• " + i for i in items)
+    if len(text) > WAITING_SHOW_CAP:
+        text = text[:WAITING_SHOW_CAP].rsplit(" ", 1)[0] + " …"
+    return text + "\nAsk the Chief of Staff to go through them."
+
+
 def memory_digest():
     """Short memory context for the main session: map, recent active decisions,
     and what the latest journal says is waiting for the CEO."""
@@ -578,16 +607,9 @@ def memory_digest():
             break
     if prow:
         parts.append("## Projects\n\n" + "\n".join(prow))
-    jdir = os.path.join(ROOT, "memory", "journal")
-    try:
-        days = sorted((n for n in os.listdir(jdir) if re.match(r"\d{4}-\d{2}-\d{2}\.md$", n)), reverse=True)
-    except OSError:
-        days = []
-    if days:
-        text = read_text(os.path.join("memory", "journal", days[0])) or ""
-        waiting = [l.strip() for l in text.splitlines() if re.match(r"^\s*-\s*Waiting for the CEO", l, re.I)]
-        if waiting:
-            parts.append(f"## Waiting for the CEO (memory/journal/{days[0]})\n\n" + "\n".join(waiting))
+    day, waiting = waiting_for_ceo()
+    if waiting:
+        parts.append(f"## Waiting for the CEO (memory/journal/{day})\n\n" + "\n".join(waiting))
     if not parts:
         return ""
     text = "# Company memory digest\n\nFrom the files in memory/. Search memory/ for anything else; if a fact isn't there, say it isn't recorded.\n\n" + "\n\n".join(parts)
@@ -686,6 +708,10 @@ def cmd_session_start():
     except OSError:
         pass
     prefixes.discard("")
+    try:  # a prefix added to known_prefixes since it was logged no longer needs the CEO
+        prefixes -= set(load_config()["known_prefixes"])
+    except (OSError, ValueError, KeyError, TypeError, re.error):
+        pass
     sharing = github_sharing_note()
     if sharing:
         lines.append(sharing)
@@ -697,7 +723,15 @@ def cmd_session_start():
         lines.append("Tell the CEO: limited tools were called under MCP prefixes the permission rules don't list ("
                      + ", ".join(sorted(prefixes)) + "). The hook blocked them; add the prefixes to "
                      "`known_prefixes` and to the permission denies in .claude/settings.json.")
-    emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}})
+    out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}}
+    if not ROLE_ID.match(agent) and ev.get("source") in ("startup", "resume", "clear", None):
+        banner = waiting_banner()
+        if banner:
+            out["systemMessage"] = banner
+            lines.append("The CEO already sees the 'Waiting for the CEO' list on screen. When they first write, "
+                         "start from it: what's still open, and what you recommend doing first.")
+            out["hookSpecificOutput"]["additionalContext"] = "\n".join(lines)
+    emit(out)
 
 
 def cmd_subagent_stop():

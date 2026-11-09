@@ -28,7 +28,8 @@
   },
   "known_prefixes": [
     "mcp__claude_ai_Microsoft_365__",
-    "mcp__Microsoft_365__"
+    "mcp__Microsoft_365__",
+    "mcp__claude-artifacts__"
   ],
   "bash": {
     "deny": [

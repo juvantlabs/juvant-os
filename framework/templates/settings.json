@@ -25,7 +25,9 @@
       "mcp__Microsoft_365__teams_send_chat_message",
       "mcp__Microsoft_365__teams_send_channel_message",
       "mcp__Microsoft_365__teams_reply_channel_message",
-      "mcp__Microsoft_365__teams_create_chat"
+      "mcp__Microsoft_365__teams_create_chat",
+      "mcp__claude-artifacts__reply_comment",
+      "mcp__claude-artifacts__reply_shared_comment"
     ]
   },
   "hooks": {
