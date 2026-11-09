@@ -59,6 +59,18 @@ class McpLimits(HookCase):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(tool), "deny")
 
+    def test_private_artifact_publish_allowed(self):
+        # The dashboard skill publishes a private claude.ai page (artifacts start private).
+        for tool in ("mcp__claude-artifacts__publish_files", "mcp__claude-artifacts__publish_version",
+                     "mcp__claude-artifacts__edit_version", "mcp__claude_ai_Artifacts__publish_files"):
+            with self.subTest(tool=tool):
+                self.assertEqual(self.decision(tool), "allow")
+        # Comments reach other people; other servers' publish stays outbound.
+        for tool in ("mcp__claude-artifacts__reply_comment", "mcp__claude-artifacts__reply_shared_comment",
+                     "mcp__social__publish_files", "mcp__x-artifacts__publish_post"):
+            with self.subTest(tool=tool):
+                self.assertEqual(self.decision(tool), "deny")
+
     def test_drafts_allowed(self):
         for tool in (P_CLOUD + "outlook_create_draft", P_LOCAL + "outlook_create_reply_draft",
                      P_LOCAL + "outlook_create_reply_all_draft", P_LOCAL + "outlook_update_draft",

@@ -87,6 +87,7 @@ def load_config():
         rule["re"] = re.compile(rule["pattern"])
     cfg["mcp"]["draft_allow_re"] = re.compile(cfg["mcp"]["draft_allow"])
     cfg["mcp"]["draft_never_re"] = re.compile(cfg["mcp"]["draft_never"])
+    cfg["mcp"]["private_publish_re"] = re.compile(cfg["mcp"].get("private_publish", "(?!)"))
     return cfg
 
 
@@ -96,8 +97,9 @@ def mcp_decision(cfg, tool):
     name = tool.rsplit("__", 1)[-1].lower()
     m = cfg["mcp"]
     is_draft = bool(m["draft_allow_re"].search(name)) and not m["draft_never_re"].search(name)
+    private_page = bool(m["private_publish_re"].search(tool))
     for rule in m["deny"]:
-        if rule["id"] == "outbound" and is_draft:
+        if rule["id"] == "outbound" and (is_draft or private_page):
             continue
         if rule["re"].search(name):
             return "deny", rule

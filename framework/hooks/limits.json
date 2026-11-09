@@ -4,6 +4,8 @@
   "mcp": {
     "draft_allow": "draft",
     "draft_never": "(^|_)send(_|$)",
+    "private_publish": "^mcp__[A-Za-z0-9_-]*[Aa]rtifacts__(publish_files|publish_version|edit_version)$",
+    "_private_publish": "Full tool names exempt from the outbound rule: claude.ai artifacts are created private to the CEO and these tools can't share them (the dashboard skill uses them). Commenting and sharing stay outbound.",
     "deny": [
       {
         "id": "money",
