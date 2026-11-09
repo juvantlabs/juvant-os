@@ -4,6 +4,7 @@
     python3 tools/migrate-from-v1.py <v1.db> <v2-company-dir> [--dry-run]
         [--skip-category CAT ...] [--keep-all-categories] [--include-proposed]
         [--with-contact-emails] [--project <slug>=<v1-project.db> ...]
+        [--kb-by-category]
 
 <v1.db> is a SQLite copy of the v1 company DB. For a Turso DB, make one with
     turso db shell <db-name> .dump | sqlite3 v1.db
@@ -15,7 +16,9 @@ What moves, as v2 memory files (format: memory/README.md in the v2 repo):
   unless --include-proposed; governance categories are skipped by default,
   see DEFAULT_SKIP, unless --keep-all-categories)
 - knowledge_base rows                 -> memory/knowledge/<slug>.md, one per row
+  (with --kb-by-category: memory/knowledge/<category>/<slug>.md)
 - counterparties with contacts and history -> memory/knowledge/<type>-<slug>.md
+  (with --kb-by-category: memory/knowledge/<type>/<slug>.md)
   (contact names and roles; emails only with --with-contact-emails)
 - every v1 project                    -> memory/projects/<slug>/README.md, a card
   from the projects table (name, status, maturity); with --project, that project
@@ -157,7 +160,7 @@ def migrate_decisions(con, w, rep, args, skip, base="memory"):
     rep.lines.append(f"- v1 decisions by category ({base}): " + ", ".join(f"{k} {v}" for k, v in sorted(by_cat.items())))
 
 
-def migrate_knowledge(con, w, rep, base="memory"):
+def migrate_knowledge(con, w, rep, base="memory", by_category=False):
     if "knowledge_base" not in tables(con):
         rep.lines.append("- No `knowledge_base` table.")
         return
@@ -169,10 +172,11 @@ def migrate_knowledge(con, w, rep, base="memory"):
         sources = [f"juvant-os v1 knowledge_base#{k.get('id')}"] + ([clean(k["source_ref"], rep)] if k.get("source_ref") else [])
         body = (f"---\nupdated: {day(k.get('created_at'))}\ntags: {yaml_list(tags)}\nsources: {yaml_list(sources)}\n---\n\n"
                 f"# {title}\n\n{clean(k.get('content'), rep)}\n")
-        w.write(f"{base}/knowledge/{slug(title)}.md", body)
+        folder = f"{base}/knowledge/{slug(k.get('category') or 'general', 3)}" if by_category else f"{base}/knowledge"
+        w.write(f"{folder}/{slug(title)}.md", body)
 
 
-def migrate_counterparties(con, w, rep, with_emails):
+def migrate_counterparties(con, w, rep, with_emails, by_category=False):
     t = tables(con)
     if "counterparties" not in t:
         return
@@ -200,7 +204,8 @@ def migrate_counterparties(con, w, rep, with_emails):
             lines.append("\n## History\n")
             for h in sorted(hist, key=lambda h: str(h.get("last_contact") or h.get("updated_at") or "")):
                 lines.append(f"- {clean(h.get('summary'), rep)} ({day(h.get('last_contact'), h.get('updated_at'))}, v1)\n")
-        w.write(f"memory/knowledge/{kind}-{slug(name, 4)}.md", "".join(lines))
+        rel = f"memory/knowledge/{kind}/{slug(name, 4)}.md" if by_category else f"memory/knowledge/{kind}-{slug(name, 4)}.md"
+        w.write(rel, "".join(lines))
 
 
 def project_cards(con, w, rep, project_slugs):
@@ -253,6 +258,8 @@ def main():
     ap.add_argument("--keep-all-categories", action="store_true")
     ap.add_argument("--include-proposed", action="store_true")
     ap.add_argument("--with-contact-emails", action="store_true")
+    ap.add_argument("--kb-by-category", action="store_true",
+                    help="put knowledge in memory/knowledge/<category>/ (and counterparties in <type>/)")
     ap.add_argument("--project", action="append", default=[], metavar="SLUG=DB",
                     help="a v1 project DB to migrate into memory/projects/<slug>/")
     args = ap.parse_args()
@@ -271,8 +278,8 @@ def main():
     rep = Report()
     w = Writer(target, args.dry_run, rep)
     migrate_decisions(con, w, rep, args, skip)
-    migrate_knowledge(con, w, rep)
-    migrate_counterparties(con, w, rep, args.with_contact_emails)
+    migrate_knowledge(con, w, rep, by_category=args.kb_by_category)
+    migrate_counterparties(con, w, rep, args.with_contact_emails, by_category=args.kb_by_category)
     pairs = []
     for spec in args.project:
         if "=" not in spec:
@@ -287,7 +294,7 @@ def main():
     for ps, pdb in pairs:
         pcon = sqlite3.connect(f"file:{os.path.abspath(pdb)}?mode=ro", uri=True)
         migrate_decisions(pcon, w, rep, args, skip, base=f"memory/projects/{ps}")
-        migrate_knowledge(pcon, w, rep, base=f"memory/projects/{ps}")
+        migrate_knowledge(pcon, w, rep, base=f"memory/projects/{ps}", by_category=args.kb_by_category)
     agents_and_projects(con, rep)
 
     summary = [f"# Migration from juvant-os v1 ({dt.date.today().isoformat()})\n",

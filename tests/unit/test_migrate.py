@@ -131,6 +131,13 @@ class Migrate(unittest.TestCase):
         kb, _ = self.read("memory/knowledge/*.md")
         self.assertIn("mario@ferro.example", kb)
 
+    def test_kb_by_category(self):
+        r = self.run_tool("--kb-by-category")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.co, "memory", "knowledge", "runbook", "how-we-close-the-month.md")))
+        self.assertTrue(os.path.isfile(os.path.join(self.co, "memory", "knowledge", "client", "ferro-logistica.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.co, "memory", "knowledge", "how-we-close-the-month.md")))
+
     def test_dry_run_writes_nothing(self):
         before = sorted(os.listdir(os.path.join(self.co, "memory", "decisions")))
         r = self.run_tool("--dry-run")

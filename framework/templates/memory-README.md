@@ -34,7 +34,9 @@ supersedes: <file, if any>
 
 A decision is never edited to say something else: a new decision supersedes it, and the old one gets `status: superseded`.
 
-## knowledge/`<topic>.md`
+## knowledge/`<topic>.md` (or knowledge/`<category>`/`<topic>.md`)
+
+Knowledge may be grouped in one sub-folder per category (`runbook/`, `standards/`, `client/`, …): keep whichever layout the company already uses.
 
 ```
 ---
