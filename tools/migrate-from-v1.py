@@ -4,7 +4,7 @@
     python3 tools/migrate-from-v1.py <v1.db> <v2-company-dir> [--dry-run]
         [--skip-category CAT ...] [--keep-all-categories] [--include-proposed]
         [--with-contact-emails] [--project <slug>=<v1-project.db> ...]
-        [--kb-by-category]
+        [--kb-by-category] [--components <components.json>]
 
 <v1.db> is a SQLite copy of the v1 company DB. For a Turso DB, make one with
     turso db shell <db-name> .dump | sqlite3 v1.db
@@ -23,6 +23,12 @@ What moves, as v2 memory files (format: memory/README.md in the v2 repo):
 - every v1 project                    -> memory/projects/<slug>/README.md, a card
   from the projects table (name, status, maturity); with --project, that project
   DB's decisions and knowledge go to memory/projects/<slug>/decisions|knowledge/
+- v1 components (config.json components[], e.g. MCP servers, libraries)
+                                      -> projects like any other: a card in
+  memory/projects/<slug>/README.md with the repo and its audience (a public repo
+  is read by everyone). Their decisions and knowledge stay in their repo (ADRs,
+  issues labelled juvant:decision, docs), linked from the card. Pass the
+  components array saved to a file: --components /tmp/components.json
 - agent names                         -> listed in MIGRATION-REPORT.md, for the
   role cards, not written into them
 
@@ -230,6 +236,45 @@ def project_cards(con, w, rep, project_slugs):
         w.write(rel, body)
 
 
+def component_cards(path, w, rep):
+    """v1 components become v2 projects: one card each."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        sys.exit(f"migrate: can't read {path}: {e}")
+    items = data.get("components", data) if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        sys.exit(f"migrate: {path} should hold a list of components (or {{\"components\": [...]}})")
+    rep.lines.append("\n## Components in v1 (now projects)\n")
+    for c in items:
+        if not isinstance(c, dict):
+            continue
+        s_ = slug(c.get("slug") or c.get("name") or "component", 8)
+        repo = clean(c.get("repo"), rep)
+        public = str(c.get("visibility", "")).lower() == "public"
+        audience = "everyone (public repository)" if public else "company only"
+        kind = clean(c.get("type"), rep) or "component"
+        rel = f"memory/projects/{s_}/README.md"
+        rep.lines.append(f"- {c.get('name') or s_} (`{s_}`, {kind}, {repo or 'no repo'}, {'public' if public else 'private'})")
+        if os.path.exists(os.path.join(w.target, rel)) or rel in w.planned:
+            rep.skip("component card already present")
+            continue
+        body = (f"---\nstatus: active\nstarted: {dt.date.today().isoformat()}\ntags: {yaml_list(['project', 'component', kind])}\n"
+                f"source: juvant-os v1 config components/{s_}\n---\n\n# {clean(c.get('name'), rep) or s_}\n\n"
+                f"## Goal\n\n<!-- to fill in: what this {kind} is for, who uses it -->\n\n"
+                f"## People\n\n- v1 maintainer agent: `{clean(c.get('maintainer'), rep) or s_ + '-maintainer'}` (in v2: a collaborator session when needed)\n\n"
+                f"## Repositories and audience\n\n| Repository / library | What | Read by |\n|---|---|---|\n"
+                f"| {('github.com/' + repo) if repo else '(none recorded)'} | code ({kind}) | {audience} |\n\n"
+                f"## Documents: language and audience\n\nIn-repo documents (README, docs/adr/, issues) are read by {audience}.\n\n"
+                f"## Where else things live\n\n- Decisions: in-repo ADRs (`docs/adr/`) and issues labelled `juvant:decision`.\n"
+                f"- Local checkout (v1): {clean(c.get('working_tree'), rep) or '(not recorded)'}\n\n"
+                f"## Status\n\n- Migrated from juvant-os v1 as a component (maturity: {c.get('maturity') or 'n/a'}).\n")
+        w.write(rel, body)
+        if public:
+            rep.lines.append(f"  public repo: link it with the project-repo skill and --shared-with \"everyone (public repository)\"")
+
+
 def agents_and_projects(con, rep):
     t = tables(con)
     if "agents" in t:
@@ -258,6 +303,8 @@ def main():
     ap.add_argument("--keep-all-categories", action="store_true")
     ap.add_argument("--include-proposed", action="store_true")
     ap.add_argument("--with-contact-emails", action="store_true")
+    ap.add_argument("--components", metavar="FILE",
+                    help="v1 components array (from config.json) to turn into projects")
     ap.add_argument("--kb-by-category", action="store_true",
                     help="put knowledge in memory/knowledge/<category>/ (and counterparties in <type>/)")
     ap.add_argument("--project", action="append", default=[], metavar="SLUG=DB",
@@ -291,6 +338,8 @@ def main():
             sys.exit(f"migrate: {pdb} not found")
         pairs.append((ps, pdb))
     project_cards(con, w, rep, [p for p, _ in pairs])
+    if args.components:
+        component_cards(args.components, w, rep)
     for ps, pdb in pairs:
         pcon = sqlite3.connect(f"file:{os.path.abspath(pdb)}?mode=ro", uri=True)
         migrate_decisions(pcon, w, rep, args, skip, base=f"memory/projects/{ps}")

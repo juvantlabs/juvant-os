@@ -32,6 +32,8 @@ python3 tools/migrate-from-v1.py /tmp/v1-company.db ~/Projects/<company>-v2 \
 
 Read the summary with the CEO: decisions by category, what is skipped (v1 governance records are skipped by default), redactions, agent names, project cards. Run again without `--dry-run`, with the options you chose. Delete the `/tmp/v1-*.db` copies afterwards: they hold whole databases.
 
+**Components** (v1 single-maintainer repos such as MCP servers, libraries, toolboxes) become projects like any other: they were listed only in the instance's config, not in the database. Save the `components` array of that config to a file and add `--components /tmp/components.json`: each gets a project card with its repository and audience (a public repository is read by everyone, so link it later with `--shared-with "everyone (public repository)"`). Their decisions and knowledge stay in their own repositories (ADRs, issues labelled `juvant:decision`), linked from the card. The v1 master/child company types have no equivalent in v2 and are dropped.
+
 What moves: approved and executed decisions, the knowledge base, counterparties with their contacts and history, a card per project. What stays in v1, archived: audit logs, messages, queues, manifesto records, sessions.
 
 ## 3. Move the internal documents

@@ -138,6 +138,27 @@ class Migrate(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.co, "memory", "knowledge", "client", "ferro-logistica.md")))
         self.assertFalse(os.path.exists(os.path.join(self.co, "memory", "knowledge", "how-we-close-the-month.md")))
 
+    def test_components_become_projects(self):
+        comp = os.path.join(self.tmp, "components.json")
+        with open(comp, "w") as f:
+            f.write('{"components": [{"slug": "m365-graph", "name": "M365 Graph MCP", "repo": "acme/m365-graph-mcp-server", '
+                    '"visibility": "public", "type": "mcp-server", "maintainer": "m365-graph-maintainer", '
+                    '"maturity": "preview", "working_tree": "/Users/x/Projects/m365"}, '
+                    '{"slug": "tools", "name": "Toolbox", "repo": "acme/tools", "visibility": "private", "type": "toolbox"}]}')
+        r = self.run_tool("--components", comp)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        card, _ = self.read("memory/projects/m365-graph/README.md")
+        self.assertIn("# M365 Graph MCP", card)
+        self.assertIn("tags: [project, component, mcp-server]", card)
+        self.assertIn("| github.com/acme/m365-graph-mcp-server | code (mcp-server) | everyone (public repository) |", card)
+        self.assertIn("juvant:decision", card)
+        priv, _ = self.read("memory/projects/tools/README.md")
+        self.assertIn("company only", priv)
+        with open(os.path.join(self.co, "MIGRATION-REPORT.md"), encoding="utf-8") as fh:
+            report = fh.read()
+        self.assertIn("Components in v1 (now projects)", report)
+        self.assertIn('--shared-with "everyone (public repository)"', report)
+
     def test_dry_run_writes_nothing(self):
         before = sorted(os.listdir(os.path.join(self.co, "memory", "decisions")))
         r = self.run_tool("--dry-run")
