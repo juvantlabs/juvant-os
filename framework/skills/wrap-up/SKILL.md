@@ -16,6 +16,8 @@ description: "Close a work session: journal entry, open items, what waits for th
 - Open: <what's left, and who has it>
 ```
 
+"Waiting for the CEO" is the **whole current list**, one line, not just what's new: carry over what's still open from earlier sections, drop what's done. The CEO sees this line on screen when the next session starts.
+
 2. **Collaborator sessions.** For each brief in `state/briefs/` started today, check the session with `ListAgents`: done, working or waiting for the CEO. Add it to the journal (deliverable and where it is) and log its outcome with `--agent <name>` (step 5). Sessions still working stay as they are; say so to the CEO.
 3. **Decisions.** If the CEO decided something that isn't recorded yet, use the `decision` skill first.
 4. **Knowledge.** Facts learned that will matter later (a client's preference, a supplier's terms, where a document lives) go into `memory/knowledge/` or `memory/map.md`. No secrets.

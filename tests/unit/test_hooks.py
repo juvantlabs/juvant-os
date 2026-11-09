@@ -616,12 +616,12 @@ class MemoryDigest(HookCase):
     def test_waiting_items_shown_to_the_ceo(self):
         # The agent can't speak first: the CEO sees the list on screen (systemMessage).
         self.write("memory/journal/2026-11-06.md",
-                   "- Waiting for the CEO: see the section below\n- Waiting for the CEO: approve the packet; merge PR 12\n")
+                   "## 09:00\n- Waiting for the CEO: old item, done since\n## 18:00\n- Waiting for the CEO: approve the packet; merge PR 12\n")
         _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
         msg = out.get("systemMessage", "")
         self.assertIn("Waiting for you (memory/journal/2026-11-06.md)", msg)
         self.assertIn("• approve the packet; merge PR 12", msg)
-        self.assertNotIn("see the section", msg)
+        self.assertNotIn("old item", msg)
         self.assertIn("already sees", out["hookSpecificOutput"]["additionalContext"])
         _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "compact"})
         self.assertNotIn("systemMessage", out)
