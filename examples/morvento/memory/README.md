@@ -60,6 +60,19 @@ One section per session: done, decided, waiting for the CEO, open.
 
 One folder per project, same formats as above, plus `README.md`: the project card (frontmatter `status: active | paused | closed`; goal, people, where things live, status). A decision or fact about one project goes in its folder; one that applies to the company goes in the company's.
 
+## private.md
+
+Files marked **private**: one row each, readable only by the agents listed (`cos` is the Chief of Staff; the CEO can always read).
+
+```
+| File | Readers | Why | Added |
+|---|---|---|---|
+| docs/legal/settlement-2026.md | legal, cos | settlement terms | 2026-11-09 |
+| https://contoso.sharepoint.com/sites/legal/Shared%20Documents/nda-x.docx | legal | NDA under negotiation | 2026-11-09 |
+```
+
+The hooks block anyone else from opening the file (reading, editing, Bash, the Microsoft 365 connector by its address). A broad search can still show a line of it in its results. Changing this file asks the CEO. Mark files, never whole folders or libraries.
+
 ## map.md
 
 Where documents, systems and accounts live (never their credentials), and the people the company works with and their role.

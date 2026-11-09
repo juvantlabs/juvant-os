@@ -191,6 +191,15 @@ def cmd_limits():
                 deny(f"juvant-os hard limit 3: secret-shaped text ({rule['id']}) in a {tool} call. "
                      "Secrets never go in the repo, memory or chat: the CEO stores them from their own terminal.")
 
+    who = agent_identity(ev)
+    row = private_violation(tool, inp, who)
+    if row:
+        deny(f"juvant-os private file: this file is marked private in {PRIVATE_REGISTRY} and `{who}` isn't among "
+             f"the readers ({row}). Ask the CEO, or someone listed, to pass on what you need.")
+    fp_ = str(inp.get("file_path") or "")
+    if tool in ("Write", "Edit", "MultiEdit") and fp_ and norm_path(fp_) == norm_path(PRIVATE_REGISTRY):
+        ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
+
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit") and in_claude_dir(
             str(inp.get("file_path") or inp.get("notebook_path") or "")):
         ask("juvant-os hard limit (protect-claude-dir): this changes .claude/, where the hard limits, agents and "
@@ -221,6 +230,8 @@ def cmd_limits():
             if why:
                 deny(f"juvant-os hard limit (shared-repo): {why}. Writing where people outside the company read "
                      "is outbound: work on a branch, open a draft PR (gh pr create --draft), and the CEO merges.")
+        if PRIVATE_REGISTRY in command and re.search(r"(>|\btee\b|\bsed\b|\bmv\b|\bcp\b|\brm\b|\bpython3?\b)", command):
+            ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
         if bash_writes_claude_dir(command):
             ask("juvant-os hard limit (protect-claude-dir): this command may change .claude/, where the hard limits, "
                 "agents and settings live. The CEO confirms; framework files change through the update skill.")
@@ -287,6 +298,78 @@ def bash_writes_claude_dir(command):
             continue
         return True
     return False
+
+
+# ── private files (memory/private.md) ───────────────────────────────────────
+PRIVATE_REGISTRY = os.path.join("memory", "private.md")
+SESSION_AGENTS = os.path.join(STATE, "session-agents.json")
+
+
+def private_entries():
+    """[(match, allowed set, raw)] from memory/private.md; [] if missing."""
+    text = read_text(PRIVATE_REGISTRY) or ""
+    out = []
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 2 or not cells[0] or set(cells[0]) <= set("-: ") or cells[0].lower() in ("file", "path"):
+            continue
+        match = cells[0].strip("`").strip()
+        allowed = {a.strip().lower() for a in re.split(r"[,;\s]+", cells[1]) if a.strip()}
+        out.append((match, allowed, line.strip()))
+    return out
+
+
+def agent_identity(ev):
+    """Subagent type; else the type the session started as; else cos (main session)."""
+    a = str(ev.get("agent_type") or "")
+    if a:
+        return a.lower()
+    try:
+        with open(SESSION_AGENTS, encoding="utf-8") as f:
+            a = str(json.load(f).get(str(ev.get("session_id", "")), ""))
+    except (OSError, ValueError, AttributeError):
+        a = ""
+    return (a or "cos").lower()
+
+
+def norm_path(p):
+    p = os.path.expanduser(str(p))
+    return os.path.realpath(p if os.path.isabs(p) else os.path.join(ROOT, p))
+
+
+def private_violation(tool, inp, who):
+    """The registry row that this call would break, or None."""
+    entries = private_entries()
+    if not entries:
+        return None
+    blob = json.dumps(inp, ensure_ascii=False)
+    for match, allowed, raw in entries:
+        if who in allowed:
+            continue
+        is_url = "://" in match or not ("/" in match or "." in os.path.basename(match))
+        if is_url:
+            if match in blob:
+                return raw
+            continue
+        target = norm_path(match)
+        if tool in ("Read", "Edit", "MultiEdit", "Write", "NotebookEdit"):
+            fp = inp.get("file_path") or inp.get("notebook_path") or ""
+            if fp and norm_path(fp) == target:
+                return raw
+        elif tool in ("Grep", "Glob"):
+            p = inp.get("path") or ""
+            if p and norm_path(p) == target:
+                return raw
+        elif tool == "Bash":
+            cmd = str(inp.get("command", ""))
+            rel = os.path.relpath(target, os.path.realpath(ROOT))
+            if match in cmd or target in cmd or (not rel.startswith("..") and rel in cmd):
+                return raw
+        elif tool.startswith("mcp__") and match in blob:
+            return raw
+    return None
 
 
 # ── repositories shared outside the company ──────────────────────────────────
@@ -500,6 +583,21 @@ def cmd_session_start():
     activity("session_start", ev, source=ev.get("source", ""))
     lines = []
     agent = str(ev.get("agent_type", ""))
+    if ev.get("session_id"):
+        try:
+            os.makedirs(STATE, exist_ok=True)
+            try:
+                with open(SESSION_AGENTS, encoding="utf-8") as f:
+                    known = json.load(f)
+            except (OSError, ValueError):
+                known = {}
+            known[str(ev["session_id"])] = agent
+            if len(known) > 500:
+                known = dict(list(known.items())[-500:])
+            with open(SESSION_AGENTS, "w", encoding="utf-8") as f:
+                json.dump(known, f)
+        except OSError:
+            pass
     if ROLE_ID.match(agent):
         # A dedicated agent running as this session's main agent (claude --agent
         # <id>, or a collaborator session). CLAUDE.md describes the Chief of

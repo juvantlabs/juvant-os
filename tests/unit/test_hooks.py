@@ -378,6 +378,58 @@ class GithubSharingCheck(HookCase):
         self.assertNotIn("outside collaborator", self.ctx(self.fake_gh(3)), "cached result reused")
 
 
+class PrivateFiles(HookCase):
+    def setUp(self):
+        super().setUp()
+        os.makedirs(os.path.join(self.repo, "memory"), exist_ok=True)
+        os.makedirs(os.path.join(self.repo, "docs", "legal"), exist_ok=True)
+        open(os.path.join(self.repo, "docs", "legal", "settlement.md"), "w").write("terms")
+        with open(os.path.join(self.repo, "memory", "private.md"), "w") as f:
+            f.write("# Private files\n\n| File | Readers | Why | Added |\n|---|---|---|---|\n"
+                    "| docs/legal/settlement.md | legal, cos | settlement | 2026-11-09 |\n"
+                    "| https://x.sharepoint.com/sites/legal/nda.docx | legal | NDA | 2026-11-09 |\n"
+                    "| 01ITEMIDABC123 | finance | salary review | 2026-11-09 |\n")
+
+    def as_agent(self, agent, tool, inp, session="s1"):
+        ev = {"tool_name": tool, "tool_input": inp, "session_id": session}
+        if agent:
+            ev["agent_type"] = agent
+        rc, out, _ = self.run_hook("limits", ev)
+        d = out.get("hookSpecificOutput", {}).get("permissionDecision")
+        return "deny" if rc == 2 else (d or "allow")
+
+    def test_readers_allowed_others_denied(self):
+        f = os.path.join(self.repo, "docs", "legal", "settlement.md")
+        self.assertEqual(self.as_agent("legal", "Read", {"file_path": f}), "allow")
+        self.assertEqual(self.as_agent(None, "Read", {"file_path": "docs/legal/settlement.md"}), "allow", "main session is cos")
+        self.assertEqual(self.as_agent("finance", "Read", {"file_path": f}), "deny")
+        self.assertEqual(self.as_agent("general-purpose", "Edit", {"file_path": f, "new_string": "x"}), "deny")
+        self.assertEqual(self.as_agent("general-purpose", "Bash", {"command": "cat docs/legal/settlement.md"}), "deny")
+        self.assertEqual(self.as_agent("general-purpose", "Grep", {"pattern": "x", "path": f}), "deny")
+        self.assertEqual(self.as_agent("general-purpose", "Read", {"file_path": os.path.join(self.repo, "docs", "other.md")}), "allow")
+
+    def test_connector_urls_and_ids(self):
+        url = {"uri": "https://x.sharepoint.com/sites/legal/nda.docx"}
+        self.assertEqual(self.as_agent("legal", "mcp__Microsoft_365__read_resource", url), "allow")
+        self.assertEqual(self.as_agent(None, "mcp__Microsoft_365__read_resource", url), "deny", "cos not listed for the NDA")
+        self.assertEqual(self.as_agent("legal", "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}), "deny")
+        self.assertEqual(self.as_agent("finance", "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}), "allow")
+
+    def test_session_started_as_agent(self):
+        self.run_hook("session-start", {"session_id": "bg1", "agent_type": "finance"})
+        self.assertEqual(self.as_agent(None, "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}, session="bg1"), "allow")
+        self.assertEqual(self.as_agent(None, "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}, session="other"), "deny")
+
+    def test_registry_changes_ask(self):
+        self.assertEqual(self.as_agent(None, "Edit", {"file_path": "memory/private.md", "new_string": "x"}), "ask")
+        self.assertEqual(self.as_agent(None, "Bash", {"command": "sed -i '' 3d memory/private.md"}), "ask")
+        self.assertEqual(self.as_agent(None, "Read", {"file_path": "memory/private.md"}), "allow", "the list itself is readable")
+
+    def test_no_registry_no_rule(self):
+        os.remove(os.path.join(self.repo, "memory", "private.md"))
+        self.assertEqual(self.as_agent("finance", "Read", {"file_path": "docs/legal/settlement.md"}), "allow")
+
+
 class LogOutcome(HookCase):
     def run_cli(self, *args):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)

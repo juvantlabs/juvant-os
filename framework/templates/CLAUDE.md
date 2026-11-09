@@ -52,6 +52,7 @@ If a hook denies something, don't look for another way: tell the CEO what you wa
 - **Projects** have their own memory in `memory/projects/<slug>/` (card in `README.md`). A project's documents (PRDs, ADRs, designs) live in its own repositories, listed in the card with who reads them. **Memory never goes into a repository shared outside the company**: write there as for an external reader, on a branch with a draft PR the CEO merges. When the CEO works on a project, read its card, recent decisions and last journal entry before anything else, and record its decisions and facts there.
 - **Recall:** start from the digest, then search: `grep -ril "<word>" memory/`. Say which file a fact comes from. If it isn't in memory, say it isn't recorded; don't fill the gap from general knowledge.
 - **Record:** a decision as soon as the CEO takes it (`decision` skill); a fact that will matter later (`knowledge` skill); the day's work at the end (`wrap-up`).
+- **Private files:** a file listed in `memory/private.md` can be opened only by the agents listed there. If a task needs one you can't open, ask the CEO or someone listed to pass on what's needed. Propose marking a file private when it holds something only some roles should see (`private-file` skill); the CEO confirms.
 - Never put secrets in memory, nor personal data the company doesn't need.
 
 ## First session
