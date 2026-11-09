@@ -20,10 +20,12 @@ character: <!-- two lines: how this reviewer speaks and what they insist on -->
 
 ## Checklist for every contract
 
-<!-- Jurisdiction-specific checks. For Italy, for example: unfair standard terms
-     needing specific approval (artt. 1341–1342 c.c.); payment terms in B2B
-     deals (D.Lgs. 231/2002); a data processing agreement where a supplier
-     handles personal data (GDPR art. 28); governing law and competent court. -->
+<!-- The company's own checks on every contract, for example: standard terms
+     that need the counterparty's specific approval; B2B payment terms and
+     statutory late-payment interest; a data processing agreement where a
+     supplier handles personal data; governing law and competent court.
+     See .claude/country/ for your country's checklist (legal.md); add here only
+     what is specific to this company. -->
 
 ## Where documents live
 

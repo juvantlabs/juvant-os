@@ -29,6 +29,16 @@ mkdir -p "$T/v1/.juvant"; bash "$ROOT/setup.sh" "$T/v1" >/dev/null 2>&1; check "
 mkdir -p "$T/mine"; echo "my own" > "$T/mine/CLAUDE.md"; bash "$ROOT/setup.sh" "$T/mine" >/dev/null 2>&1
 check "existing CLAUDE.md never overwritten" "[[ \$? == 1 && \$(cat '$T/mine/CLAUDE.md') == 'my own' ]]"
 
+echo "== country packs"
+K="$T/withit"; bash "$ROOT/setup.sh" "$K" --country it >/dev/null 2>&1
+check "setup --country it records the country" "grep -q '\"country\": \"it\"' '$K/.claude/juvant-os.json' && grep -q '\"country_pack\": \"framework\"' '$K/.claude/juvant-os.json'"
+check "Italian pack installed" "[[ -f '$K/.claude/country/legal.md' && -f '$K/.claude/country/finance.md' && -f '$K/.claude/country/locale.md' ]]"
+check "no temporary pack files installed" "! ls '$K/.claude/country/' | grep -q '^_'"
+N="$T/withde"; bash "$ROOT/setup.sh" "$N" --country de >/dev/null 2>&1
+check "unknown country: recorded, no pack" "grep -q '\"country\": \"de\"' '$N/.claude/juvant-os.json' && grep -q '\"country_pack\": \"none\"' '$N/.claude/juvant-os.json' && [[ ! -d '$N/.claude/country' ]]"
+check "no --country: no pack" "[[ ! -d '$C/.claude/country' ]] && grep -q '\"country\": \"\"' '$C/.claude/juvant-os.json'"
+bash "$ROOT/setup.sh" "$T/badcc" --country 'it;rm' >/dev/null 2>&1; check "bad country code refused" "[[ \$? != 0 ]]"
+
 echo "== update between two tags"
 F="$T/fw.git"; W="$T/fw"
 mkdir -p "$W"; cp -R "$ROOT/framework" "$W/framework"
@@ -57,6 +67,8 @@ check "only framework paths changed (got: ${changed:-none})" "[[ -z '$changed' ]
 check "company CLAUDE.md untouched" "grep -q 'custom company line' '$U/CLAUDE.md' && ! grep -q 'changed template' '$U/CLAUDE.md'"
 check "company settings untouched" "[[ \$(cat '$U/.claude/settings.json') == '{\"mine\":true}' ]]"
 check "role card untouched" "[[ \$(cat '$U/roles/legal.md') == 'x' ]]"
+( cd "$K" && g init -q && bash .claude/skills/update/update.sh --from "$ROOT/framework" >/dev/null 2>&1 )
+check "update keeps the recorded country pack" "grep -q '\"country\": \"it\"' '$K/.claude/juvant-os.json' && [[ -f '$K/.claude/country/legal.md' ]]"
 check "nothing committed" "[[ \$(g -C '$U' log --oneline | wc -l | tr -d ' ') == 2 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh v9.9.9 --repo "$F" >/dev/null 2>&1 ); check "unknown tag fails" "[[ $? != 0 ]]"
 mkdir -p "$U/.juvant"; ( cd "$U" && bash .claude/skills/update/update.sh v2.0.1 --repo "$F" >/dev/null 2>&1 ); check "update refuses on a v1 instance" "[[ $? == 1 ]]"

@@ -3,7 +3,7 @@ name: content-creation
 description: "Draft marketing content across channels: blog posts, LinkedIn and other social posts, newsletters, landing pages, press releases and case studies. Use when writing any marketing content, when you need channel-specific formatting, search-friendly copy, headline options or calls to action. Produces drafts for the CEO to approve; never publishes or schedules."
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `marketing/skills/content-creation` at commit e050c2e (Apache-2.0). Modified for juvant-os: voice, claims and product facts come from the manifesto and `memory/knowledge/`; every piece is a draft in `drafts/` that the CEO publishes; EU/Italian notes for newsletters, press releases and testimonials; examples scaled to a small B2B company.
+> Adapted from anthropics/knowledge-work-plugins `marketing/skills/content-creation` at commit e050c2e (Apache-2.0). Modified for juvant-os: voice, claims and product facts come from the manifesto and `memory/knowledge/`; every piece is a draft in `drafts/` that the CEO publishes; notes for newsletters, press releases and testimonials; examples scaled to a small B2B company; country-neutral; local rules from the country pack.
 
 # Content Creation
 
@@ -19,11 +19,17 @@ skill produces is a draft. It never publishes, posts, schedules or sends.
    supported, write `[needs proof: …]` instead of inventing a figure.
 3. Check `brand.md` for approved claims, claims never used, name spellings and
    channels; check the manifesto's "What we never do".
-4. Language: follow the manifesto (for example Italian for an Italian audience,
-   English otherwise). Numbers and dates per
+4. Language: follow the manifesto (for example the local language for a local
+   audience, English otherwise). Numbers and dates per
    [currency and locale](../kwp-shared/currency-and-locale.md).
 5. If a campaign plan exists in `drafts/` for this piece, follow its messages and
    calendar.
+6. **Local rules.** If `.claude/country/marketing.md` or `country/marketing.md`
+   exists, apply its checks and use its terms (consent for newsletters, privacy
+   notices on forms, footer details, testimonials and case studies, advertising
+   claims); read `locale.md` from the same folder for register and formats. If
+   neither exists, say which points depend on local law or practice and list
+   them under NOT CHECKED (to check with local counsel).
 
 ## Where the draft goes
 
@@ -60,10 +66,12 @@ out; `brand-review` can run the full check.
 - **Header**: one line of value
 - **Body**: 2 to 3 blocks, each scannable with a bold first sentence
 - **One primary call to action**
-- **Footer**: unsubscribe link, company details (name, address, VAT number), links
+- **Footer**: unsubscribe link, company details (as the local rules require,
+  e.g. name, address, VAT or registration number), links
 
-Send only to people who have consented (GDPR); if the CEO asks about a list whose
-origin is unclear, flag it for the `legal` reviewer rather than drafting around it.
+Send only to people who have consented, as the local direct-marketing rules
+require (GDPR in the EU); if the CEO asks about a list whose origin is unclear,
+flag it for the `legal` reviewer rather than drafting around it.
 
 ### Landing page
 - **Headline**: the main benefit in under 10 words
@@ -81,7 +89,8 @@ origin is unclear, flag it for the `legal` reviewer rather than drafting around 
 ### Press release
 - **Headline**: factual, newsworthy, under 80 characters
 - **Subheadline**: optional context
-- **Dateline**: city and date (`Bologna, 14 marzo 2026`)
+- **Dateline**: city and date, in the locale's date format (e.g.
+  `Bologna, 14 March 2026`)
 - **Lead paragraph**: who, what, when, where, why, in 2 to 3 sentences
 - **Body**: details, quotes, context
 - **Boilerplate**: the standard company description (from `memory/knowledge/` if
@@ -116,7 +125,7 @@ without the written consent the manifesto and `roles/legal.md` require.
 
 ### Social
 - **LinkedIn**: professional but human; paragraph breaks; stories and lessons
-  work; about 1.300 characters is the sweet spot before "see more". Founder
+  work; about 1,300 characters is the sweet spot before "see more". Founder
   profiles often reach further than the company page.
 - **X**: short and direct; threads for longer stories.
 - **Instagram**: visual first; storytelling hooks; line breaks.
@@ -132,7 +141,8 @@ without the written consent the manifesto and `roles/legal.md` require.
 
 ### Web pages
 - Benefits before features
-- Speak to the reader ("you"; in Italian, tu or Lei per the brand file)
+- Speak to the reader ("you"; formal or informal address per the brand file,
+  where the language has both)
 - Minimal jargon unless the audience expects it
 - Every section answers "so what?"
 - Less friction: fewer form fields, clear next steps, trust signals near the call
@@ -142,7 +152,7 @@ without the written consent the manifesto and `roles/legal.md` require.
 
 ### Keywords
 - One main keyword and 2 to 3 secondary ones per piece, in the language of the
-  audience (Italian searches for an Italian audience)
+  audience (searches in the local language for a local audience)
 - Main keyword in: headline, first paragraph, one subheading, meta description,
   URL slug
 - Secondary keywords where natural
@@ -170,7 +180,7 @@ without the written consent the manifesto and `roles/legal.md` require.
 - **Why [common belief] is wrong (and what to do instead)**
 - **The [adjective] guide to [topic]**
 - **[Do this], not [that]**: "Answer faster, not more"
-- **What [result] taught us about [topic]**: "What 10.000 customer emails taught us about tone"
+- **What [result] taught us about [topic]**: "What 10,000 customer emails taught us about tone"
 - **[Topic]: what [audience] needs to know in [year]**
 
 ### Hooks

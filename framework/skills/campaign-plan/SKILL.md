@@ -4,7 +4,7 @@ description: "Generate a full campaign brief with objectives, audience, messagin
 argument-hint: "<campaign objective or product>"
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `marketing/skills/campaign-plan` at commit e050c2e (Apache-2.0). Modified for juvant-os: context comes from the manifesto, `memory/knowledge/` and `roles/finance.md` instead of questions; the plan is a draft in `drafts/` for the CEO to approve; no spend, scheduling or publishing; connector placeholders removed; examples scaled to a small Italian B2B company.
+> Adapted from anthropics/knowledge-work-plugins `marketing/skills/campaign-plan` at commit e050c2e (Apache-2.0). Modified for juvant-os: context comes from the manifesto, `memory/knowledge/` and `roles/finance.md` instead of questions; the plan is a draft in `drafts/` for the CEO to approve; no spend, scheduling or publishing; connector placeholders removed; examples scaled to a small B2B company; country-neutral; local rules from the country pack.
 
 # Campaign Plan
 
@@ -24,6 +24,13 @@ in it is booked, bought, scheduled or published by this skill.
 - `roles/finance.md`: who approves spending and above what amount
 - `memory/decisions/`: past decisions about marketing, budgets or positioning
 - past campaign plans or results, if `memory/map.md` points to them
+
+**Local rules.** If `.claude/country/marketing.md` or `country/marketing.md`
+exists, apply its checks and use its terms (consent for direct marketing, opt-out
+registers, consumer rules, contests and prize promotions, seasonal calendar).
+Read `locale.md` from the same folder for public holidays. If neither exists, say
+which points depend on local law or practice and list them under NOT CHECKED (to
+check with local counsel).
 
 **Then ask the CEO, in one message, only what those files don't answer:**
 
@@ -112,8 +119,9 @@ provides; otherwise say they are first-time estimates.
 - by channel or activity
 - production versus distribution costs
 - contingency (typically 10 to 15%)
-- amounts in euro, per [currency and locale](../kwp-shared/currency-and-locale.md),
-  stating whether VAT is included
+- amounts in the company's currency, per
+  [currency and locale](../kwp-shared/currency-and-locale.md), stating whether
+  VAT or sales tax is included
 - which items need CEO approval under `roles/finance.md` (for example anything
   over the approval threshold, or any recurring cost)
 
@@ -128,8 +136,9 @@ This is a proposal. The skill never commits, books or changes a budget.
 - immediate actions to start
 - approvals needed from the CEO (budget, messages, anything public)
 - reviews by the `legal` reviewer (comparative claims, testimonials, personal
-  data in the campaign, contests or prize promotions, which have specific rules in
-  Italy) or the `ethics` reviewer where the manifesto calls for it
+  data in the campaign, contests or prize promotions, which often have specific
+  local rules: see the country pack) or the `ethics` reviewer where the manifesto
+  calls for it
 - key decision points
 
 ## Planning reference
@@ -149,7 +158,7 @@ Define success before planning anything.
 SMART: specific, measurable, achievable, relevant, time-bound.
 
 Example: "30 demo requests from retail and services companies with 5 to 50
-employees in Emilia-Romagna and Lombardy within 8 weeks of the launch."
+employees in our two home regions within 8 weeks of the launch."
 
 #### Audience
 - **Firmographics and role**: role, seniority, company size, sector, region
@@ -218,8 +227,9 @@ Decide how you'll know it worked, before launch.
 ### Content calendar
 
 #### Process
-1. **Start with milestones**: launch, events, releases, seasonal moments (in Italy
-  plan around August and the Christmas period, when B2B attention drops)
+1. **Start with milestones**: launch, events, releases, seasonal moments (plan
+  around public holidays and the periods when B2B attention drops; the country
+  pack's `marketing.md` and `locale.md` name them)
 2. **Work backwards**: what must be live when, and the production lead time
 3. **Map content to funnel stages**: awareness, consideration, conversion
 4. **Group by theme**: weekly or fortnightly themes
@@ -286,7 +296,7 @@ Add time for CEO approval and, where needed, legal review.
 | Qualified leads | Contacts that fit the target |
 | Cost per lead | Efficiency |
 | Lead-to-qualified rate | Quality |
-| Pipeline value | Opportunity created (in euro) |
+| Pipeline value | Opportunity created (in the company's currency) |
 
 #### Product launch
 | Metric | Measures |

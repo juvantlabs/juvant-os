@@ -1,10 +1,10 @@
 ---
 name: monday-brief
-description: "Runs the CEO's start-of-week briefing: business-pulse for the snapshot of cash, receivables, proposals and the watch list, then the week ahead read straight from the Outlook calendar, open mail threads, deadlines in roles/finance.md and what's waiting in drafts/ and memory/decisions/, merged into one page the CEO reads in under two minutes. Needs no particular source and builds from whatever is available, or from what the CEO tells it. Use on 'Monday brief', 'start my week', 'what do I need to know this week', 'weekly briefing', 'catch me up before Monday'."
+description: "Runs the CEO's start-of-week briefing: business-pulse for the snapshot of cash, receivables, proposals and the watch list, then the week ahead read straight from the Outlook calendar, open mail threads, deadlines in roles/finance.md and the country pack and what's waiting in drafts/ and memory/decisions/, merged into one page the CEO reads in under two minutes. Needs no particular source and builds from whatever is available, or from what the CEO tells it. Use on 'Monday brief', 'start my week', 'what do I need to know this week', 'weekly briefing', 'catch me up before Monday'."
 allowed-tools: Read, Grep, Glob
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/monday-brief` at commit e050c2e (Apache-2.0). Modified for juvant-os: the report-builder link is replaced by the company's own recurring deadlines and pending decisions; sources are the repo, exports and Outlook; output in chat and `drafts/`; posting, `--post`/`--save-to` arguments and scheduling removed.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/monday-brief` at commit e050c2e (Apache-2.0). Modified for juvant-os: the report-builder link is replaced by the company's own recurring deadlines and pending decisions; sources are the repo, exports and Outlook; output in chat and `drafts/`; posting, `--post`/`--save-to` arguments and scheduling removed; country-neutral; local rules from the country pack.
 
 Run the Monday briefing. Two parts, one document. The CEO should read it in under
 two minutes and know exactly what the week is.
@@ -33,9 +33,15 @@ Read directly, widened from the day to the week:
   focused work, days already full
 - **Outlook mail**: threads where the CEO owes someone an answer or promised
   something for this week
-- **Deadlines** from `roles/finance.md`: the F24 on the 16th if it falls this
-  week, the commercialista's packet, VAT dates, contract renewals noted in
-  `memory/`
+- **Deadlines** from `roles/finance.md`: tax and contribution payments falling
+  this week, the external accountant's packet, VAT or sales-tax dates, contract
+  renewals noted in `memory/`
+
+**Local rules.** If `.claude/country/finance.md` or `country/finance.md` exists,
+apply its calendar and use its terms for the week's deadlines; read `locale.md`
+from the same folder for public holidays that shorten the week. If neither
+exists, say which points depend on local law or practice and list them under NOT
+CHECKED (to check with the accountant).
 - **`memory/decisions/`**: follow-ups due this week from recent decisions
 - **`drafts/` and `state/activity.jsonl`**: drafts and reviews waiting on the CEO
 
@@ -52,8 +58,8 @@ notice when the week's commitments don't fit inside it.
 **One Monday document, not two reports in a row.**
 
 - Cash, receivables and proposals come from Step 1 and appear once.
-- Deadlines fold into the section they belong to: the F24 sits next to the cash
-  line; a promised proposal sits next to the proposals.
+- Deadlines fold into the section they belong to: a tax payment sits next to
+  the cash line; a promised proposal sits next to the proposals.
 - The week ahead and open commitments come from Step 2.
 - **The one thing closes the document.** Pick one and say why: the deadline, the
   amount, the person waiting.
@@ -62,7 +68,7 @@ notice when the week's commitments don't fit inside it.
 - Amounts and dates per [currency and locale](../kwp-shared/currency-and-locale.md);
   no personal identifiers ([personal data](../kwp-shared/personal-data.md)).
 
-Example close, Morvento: "The one thing: Studio Varenna owes € 7.320 across two
+Example close, Morvento (e.g., in its locale): "The one thing: Studio Varenna owes € 7.320 across two
 invoices, the older one 46 days late, and you meet their partner on Wednesday.
 Ask about it in person; our rule says you call at 45 days anyway."
 
@@ -85,8 +91,8 @@ plus at most two others:
 - a collections problem: "who owes us money" runs `invoice-chase`
 - cash worry: "cash forecast" runs `cash-flow-snapshot`
 - a full inbox: "go through my inbox" runs `inbox-manager`
-- month start: "prepare the month end" runs `month-end-prep` for the
-  commercialista's packet
+- month start: "prepare the month end" runs `month-end-prep` for the external
+  accountant's packet
 
 Max three offers; never repeat one the CEO declined this session.
 

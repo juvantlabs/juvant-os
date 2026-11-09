@@ -1,10 +1,10 @@
 ---
 name: proposal-builder
-description: "Turns whatever came out of a discovery conversation (a meeting transcript, call notes, an email thread, an RFP or tender document, a brief from the client, scrappy notes) into a costed proposal, quote or statement of work built on the company's own template, prices and terms. Stops at a draft in drafts/ (markdown, plus DOCX or PDF when asked) with a private risk read for the CEO; never sends, signs or invoices. Use whenever a quote, offer, estimate, proposal or SOW is the deliverable, including 'write this up for them', 'put together a quote', 'turn my notes into a proposal', 'respond to this RFP', 'price this out', 'facciamo un'offerta'."
+description: "Turns whatever came out of a discovery conversation (a meeting transcript, call notes, an email thread, an RFP or tender document, a brief from the client, scrappy notes) into a costed proposal, quote or statement of work built on the company's own template, prices and terms. Stops at a draft in drafts/ (markdown, plus DOCX or PDF when asked) with a private risk read for the CEO; never sends, signs or invoices. Use whenever a quote, offer, estimate, proposal or SOW is the deliverable, including 'write this up for them', 'put together a quote', 'turn my notes into a proposal', 'respond to this RFP', 'price this out', or the same in the CEO's language."
 allowed-tools: Read, Grep, Glob
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: discovery from Outlook, SharePoint/OneDrive, Teams or uploads; prices and terms from `roles/finance.md`, `memory/knowledge/` and past proposals; stops at a draft in `drafts/`; DocuSign routing, deposit invoices, payment links, Apollo research and CRM logging removed; Italian terms (IVA, payment terms, artt. 1341–1342 c.c.) flagged for review.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: discovery from Outlook, SharePoint/OneDrive, Teams or uploads; prices and terms from `roles/finance.md`, `memory/knowledge/` and past proposals; stops at a draft in `drafts/`; DocuSign routing, deposit invoices, payment links, Apollo research and CRM logging removed; VAT, payment terms and standard-terms approval flagged for review; country-neutral; local rules from the country pack.
 
 # Proposal Builder
 
@@ -55,6 +55,14 @@ or state the assumption in the document.
   here (for example a client asking to use their customers' data in a way the
   manifesto rules out). Say so before drafting.
 
+**Local rules.** If the country pack's `legal.md`, `finance.md` or `locale.md`
+exists (in `.claude/country/` or `country/`), apply its checks and use its terms: how
+prices state VAT or sales tax, statutory payment terms and late-payment rules,
+standard terms that need the client's specific approval, the e-invoicing system,
+formats. If neither exists, say which points depend on local law or practice
+and list them under NOT CHECKED (to check with local counsel or the
+accountant).
+
 ## Step 2: Price from the company's own numbers
 
 Read `reference/pricing_method.md`. The core rule: price from what the company
@@ -75,7 +83,8 @@ Find two or three genuinely comparable jobs and build from them, adjusting for
 what's different. Show the CEO what you compared against.
 
 **Never invent a rate, a number of days or a discount.** If there's no comparable
-and no rule, leave the line as `€ ______` and say it needs the CEO's number. A
+and no rule, leave the line blank (e.g. `€ ______`) and say it needs the CEO's
+number. A
 proposal with one blank beats one with a made-up figure.
 
 **Never go below the floor.** If the comparables or the client's budget point
@@ -100,8 +109,9 @@ Every proposal needs:
 
 - what the client asked for, restated so they know they were heard
 - scope, in specifics, and an explicit **"not included"** section
-- pricing in lines the client understands, net of VAT with "+ IVA" (or as
-  `roles/finance.md` says)
+- pricing in lines the client understands, saying whether VAT or sales tax is
+  included, with the wording the locale file gives (or as `roles/finance.md`
+  says)
 - timeline and what it depends on, marked "to be confirmed by the team" until
   the people doing the work have checked it
 - terms: payment terms from `roles/finance.md`, payment schedule, validity
@@ -121,10 +131,11 @@ Before showing the proposal, tell the CEO privately what worries you:
   discounts above the rule in `roles/finance.md`)
 - anything that needs a reviewer before it goes out:
   - **`legal`**: contract value above the threshold the manifesto or
-    `roles/legal.md` sets (Morvento: over € 10.000); the client's own terms
+    `roles/legal.md` sets (e.g. Morvento: over € 10.000); the client's own terms
     attached; liability, penalties or IP clauses; standard terms of ours that may
-    need the client's specific written approval (artt. 1341–1342 c.c.); a data
-    processing agreement (GDPR art. 28) if the work touches personal data
+    need the client's specific written approval where local law requires it
+    (country pack `legal.md`); a data processing agreement (e.g. GDPR art. 28 in
+    the EU) if the work touches personal data
   - **`finance`**: payment terms beyond the role card's maximum, or a price below
     the floor
   - **`ethics`**: anything about client data, AI behaviour or promises the
@@ -133,7 +144,7 @@ Before showing the proposal, tell the CEO privately what worries you:
 
 This is separate from the document. The client sees the proposal; the CEO sees
 the proposal plus the honest read. This skill assists the CEO and the reviewers;
-it doesn't replace counsel or the commercialista.
+it doesn't replace counsel or the external accountant.
 
 ## Step 5: Deliver the draft for review
 
@@ -156,8 +167,8 @@ When the CEO says the proposal was accepted, lost or got no answer:
 
 1. **Accepted**: say what follows and who does it: the contract or order
    confirmation (with the `legal` reviewer if Step 4 flagged it), the first
-   invoice issued through SDI by the CEO or the commercialista per the agreed
-   terms. Offer to draft a welcome email and a kickoff agenda. Do not issue or
+   invoice issued by the CEO or the external accountant per the agreed terms
+   (through the e-invoicing system, if the country has one). Offer to draft a welcome email and a kickoff agenda. Do not issue or
    prepare an invoice in any invoicing system.
 2. **Any outcome**: propose recording it, with the final price and the reason if
    known, as a decision in `memory/decisions/` (or the place `memory/map.md`

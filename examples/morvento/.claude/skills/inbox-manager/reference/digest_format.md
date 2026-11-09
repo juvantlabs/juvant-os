@@ -1,6 +1,6 @@
 # Digest format
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/inbox-manager` at commit e050c2e (Apache-2.0). Modified for juvant-os: drafts live in Outlook Drafts and the CEO sends them; no send-approval prompt or batch send; no filing; Morvento example.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/inbox-manager` at commit e050c2e (Apache-2.0). Modified for juvant-os: drafts live in Outlook Drafts and the CEO sends them; no send-approval prompt or batch send; no filing; Morvento example; country-neutral; local rules from the country pack.
 
 The digest is the product. Everything else this skill does is upstream of it.
 
@@ -54,7 +54,7 @@ DRAFTED: 11 replies in your Outlook Drafts
    2 thank-yous for referrals
 
 ROUTED: 3
-   Hosting EU invoice, € 1.847 + IVA, due 30/11 → finance (recurring cost)
+   Hosting EU invoice, € 1.847 net of VAT, due 30/11 → finance (recurring cost)
    Studio Varenna on the September invoice → invoice-chase; say "who owes us
       money" to see the thread
    NDA from Ferramenta Bassi → legal reviewer; ask for the NDA review

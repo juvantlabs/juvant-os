@@ -1,6 +1,6 @@
 # Proposal structure
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: manifesto rules for proposals, VAT and Italian terms, reviewer checkpoints, no e-signature fields; template saving becomes a proposal to the CEO.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: manifesto rules for proposals, VAT and standard-terms checks, reviewer checkpoints, no e-signature fields; template saving becomes a proposal to the CEO; country-neutral; local rules from the country pack.
 
 Use the company's own template when one exists (`memory/map.md`). This structure
 is the fallback, and what to propose as a template if the company has none.
@@ -16,8 +16,9 @@ one, and detailed after.
 
 **1. Header**
 
-Company name and details (name, address, VAT number), client name and contact,
-date, proposal number, validity date.
+Company name and details (name, address, VAT or registration number, as the
+locale file says), client name and contact, date, proposal number, validity
+date.
 
 **2. What you asked for**
 
@@ -30,7 +31,7 @@ The scope, in specifics: what is configured, built or delivered, for how many
 users, channels or sites, in which languages, in what order. Write it so a
 stranger could tell whether it was done. "Set up the assistant" isn't scope.
 "Configure Morvento Assist for the shared inbox and web chat of 4 shops, in
-Italian and English, with 12 user accounts and a half-day training" is.
+two named languages, with 12 user accounts and a half-day training" is.
 
 **4. What's not included**
 
@@ -62,8 +63,8 @@ This offer assumes:
 **6. Investment**
 
 Price lines the client recognises as decisions; one-off and recurring amounts
-shown separately; net of VAT ("+ IVA"). Options as labelled tiers, with the
-recommended one named.
+shown separately; net of VAT or sales tax, with the locale file's wording.
+Options as labelled tiers, with the recommended one named.
 
 **7. Timeline**
 
@@ -77,13 +78,16 @@ keep.
 Payment terms and schedule (from `roles/finance.md`), change process, validity,
 reference to the general terms or contract that will govern the work. Data
 processing: if the work involves personal data the client controls, say a data
-processing agreement (GDPR art. 28) will be signed; the text comes from the
-`legal` reviewer, not from here.
+processing agreement (e.g. GDPR art. 28 in the EU) will be signed; the text
+comes from the `legal` reviewer, not from here.
 
-If the proposal attaches the company's general terms with clauses that may need
-the client's specific written approval (artt. 1341–1342 c.c.: for example
-limitation of liability, termination, choice of court), flag it for the `legal`
-reviewer; don't draft those clauses.
+**Local rules.** If `.claude/country/legal.md` or `country/legal.md` exists,
+apply its checks on standard terms: some countries require the client's
+specific written approval of certain clauses in standard terms (for example
+limitation of liability, termination, choice of court). If the proposal attaches
+the company's general terms with such clauses, flag it for the `legal` reviewer;
+don't draft those clauses. If neither file exists, list the point under NOT
+CHECKED (to check with local counsel).
 
 **9. Next step**
 
@@ -125,7 +129,7 @@ never one the brand file or the manifesto rules out.
 - Markdown in `drafts/` as the working copy; DOCX for editing and PDF for sending
   when asked
 - Company logo and colors from the template or `memory/knowledge/brand.md`
-- Price table right-aligned, euro formatting (`€ 4.550`)
+- Price table right-aligned, in the locale's currency format (e.g. `€ 4.550`)
 - Page numbers and the proposal number in the footer
 
 ---

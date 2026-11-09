@@ -49,7 +49,7 @@ If a hook denies something, don't look for another way: tell the CEO what you wa
 
 ## First session
 
-If this file, `manifesto.md` or a role card still contains placeholders in double braces, setup isn't finished. Before other work, fill them with the CEO: ask for each value, write it in, and help the CEO draft the manifesto one section at a time. Then record "juvant-os set up" with the `decision` skill and wrap up.
+If this file, `manifesto.md` or a role card still contains placeholders in double braces, setup isn't finished. Before other work, fill them with the CEO: ask for each value, write it in, and help the CEO draft the manifesto one section at a time. If `.claude/juvant-os.json` names a country whose `country_pack` is `none`, offer the `country-pack` skill to draft the local rules. Then record "juvant-os set up" with the `decision` skill and wrap up.
 
 ## Language
 

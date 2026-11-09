@@ -1,6 +1,6 @@
 # Voice: writing in the company's and the CEO's name
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/shared/voice-profile.md` at commit e050c2e (Apache-2.0). Modified for juvant-os: the voice comes from the manifesto's "How we sound" and `memory/knowledge/brand.md` instead of a profile stored in this file; corrections become proposals to update memory/knowledge.
+> Adapted from anthropics/knowledge-work-plugins `small-business/shared/voice-profile.md` at commit e050c2e (Apache-2.0). Modified for juvant-os: the voice comes from the manifesto's "How we sound" and `memory/knowledge/brand.md` instead of a profile stored in this file; corrections become proposals to update memory/knowledge; country-neutral; local rules from the country pack.
 
 **Shared across skills.** Every skill that writes something that goes out under
 the CEO's or the company's name (an email reply, a reminder, a proposal, a post,
@@ -26,9 +26,14 @@ Read before writing anything in the CEO's or the company's name:
    that person. Match them. This is read for the current draft only; do not
    store it anywhere.
 
-Language follows the manifesto: if it says "Italian with Italian clients,
-English otherwise", write to an Italian counterparty in Italian, even though
-the skill's own instructions are in English.
+Language follows the manifesto: if it says, for example, "our language with
+local clients, English otherwise", write to a local counterparty in that
+language, even though the skill's own instructions are in English.
+
+**Local rules.** If `.claude/country/locale.md` or `country/locale.md` exists,
+use its business language and register: forms of address, titles, greetings and
+the local filler phrases to avoid. If neither exists, take register from the
+thread and the brand file, and say the local conventions were not checked.
 
 ---
 
@@ -39,9 +44,9 @@ business email ever written. From the sources above, pin down:
 
 | Trait | What to capture |
 |---|---|
-| Greeting | The exact form ("Ciao Dana," vs "Gentile dott.ssa Rossi,") |
+| Greeting | The exact form ("Hi Dana," vs "Dear Dr Rossi,") |
 | Sign-off | Exact, including first name only or full name and title |
-| Register | Tu or Lei in Italian; first names or titles |
+| Register | Formal or informal address where the language has both (e.g. tu/Lei, du/Sie, tu/vous); first names or titles |
 | Sentence length | Short and clipped, or longer |
 | Directness | Is the ask in line 2 or line 6 |
 | Product language | What the company calls its own product and services |
@@ -51,8 +56,8 @@ business email ever written. From the sources above, pin down:
 **The never-dos matter most.** If the brand file says the company never says
 "revolutionary", one occurrence is enough for a reader to know someone else
 wrote the text. Generic filler ("I hope this email finds you well", "just
-following up", "spero che stia bene", "come da accordi") is out unless the
-company's files say otherwise.
+following up", and the local equivalents the locale file lists) is out unless
+the company's files say otherwise.
 
 ---
 

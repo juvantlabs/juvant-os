@@ -4,7 +4,7 @@ description: "Quickly triage an incoming NDA and classify it GREEN (fine to sign
 argument-hint: "<NDA file or text>"
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `legal/skills/triage-nda` at commit e050c2e (Apache-2.0). Modified for juvant-os: screening criteria read from roles/legal.md, Italian law checks added, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape, no signature routing.
+> Adapted from anthropics/knowledge-work-plugins `legal/skills/triage-nda` at commit e050c2e (Apache-2.0). Modified for juvant-os: screening criteria read from roles/legal.md, local law checks added, country-neutral; local rules from the country pack, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape, no signature routing.
 
 # NDA triage
 
@@ -29,7 +29,9 @@ Where the role card is silent, use these market defaults and say so in NOT CHECK
 - No non-solicitation, non-compete or exclusivity.
 - No residuals clause, or a narrow one.
 - No penalties.
-- Italian law and an Italian court for Italian counterparties; the court in the role card if it names one.
+- Our own country's law and courts for counterparties in our own country; the court in the role card if it names one.
+
+**Local rules.** If `.claude/country/legal.md` or `country/legal.md` exists, apply its checks and use its terms (penalty rules, formalities for standard terms, default law and court, advisers who may receive information). If neither exists, say which points depend on local law or practice and list them under NOT CHECKED ("to check with local counsel").
 
 ## Step 3: Screen
 
@@ -60,7 +62,7 @@ All should be present:
 
 ### 5. Permitted disclosures
 - [ ] **Employees** who need to know.
-- [ ] **Contractors and advisers** (including our commercialista and lawyer) under similar duties.
+- [ ] **Contractors and advisers** (including our external accountant and lawyer) under similar duties.
 - [ ] **Affiliates**, if relevant.
 - [ ] **Law and authorities**.
 
@@ -77,7 +79,7 @@ All should be present:
 
 ### 8. Remedies and penalties
 - [ ] **Injunctive relief**: acknowledging that urgent court measures may be sought is standard.
-- [ ] **No penalty clause** (clausola penale) or liquidated damages. Italian NDAs from larger companies often include one; check its amount against the role card's penalty position. A judge can reduce a manifestly excessive penalty (art. 1384 c.c.), but don't plan on it; whether a penalty in standard terms needs specific approval is a question for counsel.
+- [ ] **No penalty clause** or liquidated damages. NDAs from larger companies often include one; check its amount against the role card's penalty position. Whether a court can reduce an excessive penalty, and whether a penalty in standard terms needs a formality, depends on local law: apply the country pack, and don't plan on a reduction; open questions go to counsel.
 - [ ] **Symmetric** in a mutual NDA.
 
 ### 9. Problem provisions
@@ -90,13 +92,13 @@ All should be present:
 - [ ] **No audit rights**.
 
 ### 10. Personal data
-- [ ] If personal data will be exchanged (e.g. client user lists, employee data), the NDA is not enough: a DPA under GDPR art. 28 or a data-sharing agreement is needed. Flag it.
+- [ ] If personal data will be exchanged (e.g. client user lists, employee data), the NDA is not enough: a DPA (GDPR art. 28 where GDPR applies, or the local equivalent) or a data-sharing agreement is needed. Flag it.
 
 ### 11. Governing law and courts
-- [ ] **Law and court** per the role card (for Italian counterparties: Italian law and the court the role card names).
+- [ ] **Law and court** per the role card (for counterparties in our own country: our law and the court the role card names).
 - [ ] **Consistent**: law and court in the same jurisdiction.
 - [ ] **No mandatory arbitration** in a standard NDA.
-- [ ] **Specific approval**: if the NDA is the counterparty's standard form and contains a jurisdiction clause, tacit renewal, arbitration or limits on our rights, the specific-approval block (artt. 1341–1342 c.c.) should list them.
+- [ ] **Standard-terms formalities**: if the NDA is the counterparty's standard form and contains a jurisdiction clause, tacit renewal, arbitration or limits on our rights, check whether local law requires a specific approval or other formality for them (country pack) and whether it is met.
 
 ## Step 4: Classify
 
@@ -178,6 +180,6 @@ If asked for a marked-up version or a counter-draft, write it to `drafts/<nda-na
 
 - If it isn't really an NDA (labelled NDA but with commercial terms), flag it RED immediately and recommend `review-contract`.
 - If the confidentiality clause sits inside a larger agreement (e.g. an MSA), say that the wider context may change the analysis.
-- NDAs are often in Italian ("accordo di riservatezza"). Review in the original language; quote it as is.
+- NDAs are often in the local business language (the country pack gives the local name). Review in the original language; quote it as is.
 - If a recurring pattern emerges (e.g. a client group always sends the same form), propose adding the position to `roles/legal.md`; don't edit it yourself.
 - This is screening; counsel should review anything the reader is unsure about.

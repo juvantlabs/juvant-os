@@ -1,6 +1,6 @@
 # Sources: what skills read, and one source of record per figure
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/shared/connector-neutrality.md` at commit e050c2e (Apache-2.0). Modified for juvant-os: the vendor-peer table (ledgers, CRMs, payments, payroll) is replaced by the sources juvant-os actually has; the source-of-record and capability-honesty rules are kept; plugin-registration notes removed.
+> Adapted from anthropics/knowledge-work-plugins `small-business/shared/connector-neutrality.md` at commit e050c2e (Apache-2.0). Modified for juvant-os: the vendor-peer table (ledgers, CRMs, payments, payroll) is replaced by the sources juvant-os actually has; the source-of-record and capability-honesty rules are kept; plugin-registration notes removed; country-neutral; local rules from the country pack.
 
 **Shared across skills.** A skill runs on what the company actually has. It
 never recommends a vendor, and it never pretends a source exists.
@@ -17,8 +17,12 @@ never recommends a vendor, and it never pretends a source exists.
 | Team chat | Teams, through the Microsoft 365 connector | Read only |
 | Company context | The repo: `manifesto.md`, `roles/*.md`, `memory/knowledge/`, `memory/map.md`, `memory/decisions/`, `state/activity.jsonl`, `drafts/` | Read; skills write only to `drafts/` unless their SKILL.md says otherwise |
 | Bank | Exports (CSV, PDF statements) the CEO provides | Read only |
-| E-invoicing (SDI) | Exports or lists the CEO provides (XML, CSV, PDF) | Read only |
-| Bookkeeping, payroll, tax filings | The commercialista | Documents the CEO forwards |
+| E-invoicing (if the country has a national system) | Exports or lists the CEO provides (XML, CSV, PDF) | Read only |
+| Bookkeeping, payroll, tax filings | The external accountant | Documents the CEO forwards |
+
+The country pack's `finance.md` (`.claude/country/finance.md` or
+`country/finance.md`) names the local e-invoicing system and the external
+accountant's role, if any.
 
 There is no CRM, no accounting ledger connector, no payments processor, no
 payroll system and no e-signature tool. Skills that would use one in their
@@ -33,7 +37,8 @@ pipeline list in `memory/` or SharePoint, past proposals) or ask the CEO.
 used, and which ones it could not reach, in one quiet line.
 
 **One figure, one source of record.** When two sources hold the same figure (a
-receivables total in an SDI export and in the commercialista's spreadsheet), the
+receivables total in an e-invoicing export and in the external accountant's
+spreadsheet), the
 total comes from one, the output says which, and the other is used only to flag
 differences. Never sum the same figure across two sources. If it's unclear which
 is authoritative, ask once; if the answer should hold, propose adding it to
@@ -56,7 +61,8 @@ build the same output from them.
 ## What this does not change
 
 - **Hard limits.** Nothing here widens what a skill may do. Outbound is
-  draft-only; no skill writes to a bank, to SDI, or to anything outside the repo
-  and the Outlook drafts folder.
-- **Honesty about scope.** A skill that only covers Italian rules says so
-  (`currency-and-locale.md`).
+  draft-only; no skill writes to a bank, to an e-invoicing system, or to anything
+  outside the repo and the Outlook drafts folder.
+- **Honesty about scope.** Local rules come from the country pack. Without one,
+  a skill says which points depend on local law or practice and lists them as
+  not checked (`currency-and-locale.md`).

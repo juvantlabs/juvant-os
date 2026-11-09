@@ -1,8 +1,8 @@
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/cash-flow-snapshot` at commit e050c2e (Apache-2.0). Modified for juvant-os: ledger/PayPal cases replaced by the receivables list, bank and SDI exports, and Italian fixed-cost patterns.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/cash-flow-snapshot` at commit e050c2e (Apache-2.0). Modified for juvant-os: ledger/PayPal cases replaced by the receivables list, bank and e-invoicing exports, and recurring salary and tax patterns; country-neutral; local rules from the country pack.
 
 # Gotchas — cash-flow-snapshot
 
-Known edge cases in the data.
+Known edge cases in the data. Where a case depends on local rules (withholding taxes, bank export formats, the tax calendar), apply `.claude/country/finance.md` or `country/finance.md` if it exists; otherwise list the point under NOT CHECKED.
 
 ---
 
@@ -16,17 +16,17 @@ Known edge cases in the data.
 
 ## 2. Payments net of withholding tax
 
-**Bad:** Expecting the full invoice total from a client that withholds tax (e.g. on professional fees) and then flagging the shortfall as a late or partial payment.
+**Bad:** Expecting the full invoice total from a client that withholds tax (e.g. on professional fees, where the country requires it) and then flagging the shortfall as a late or partial payment.
 
-**Good:** Where the invoice carries a withholding (*ritenuta d'acconto*), the inflow is the net amount; the withheld part is a tax credit, not cash. If unsure whether an invoice carries one, check the e-invoice and ask the commercialista.
+**Good:** Where the invoice carries a withholding, the inflow is the net amount; the withheld part is a tax credit, not cash. If unsure whether an invoice carries one, check the invoice and ask the accountant.
 
 ---
 
 ## 3. Bank and spreadsheet exports name columns differently
 
-**Bad:** Requiring exact names like "Date", "Amount". Italian bank exports use "Data contabile", "Data valuta", "Importo", or separate "Dare" and "Avere" columns; rigid parsing fails silently.
+**Bad:** Requiring exact names like "Date", "Amount". Bank exports use local names (the country pack lists them), separate value and booking dates, or separate debit and credit columns; rigid parsing fails silently.
 
-**Good:** Match loosely (date → data contabile → data operazione; amount → importo, or avere − dare; description → causale / descrizione). Use the value date (*data valuta*) for cash timing. Show the header row and confirm the mapping before computing: one question beats a silent wrong forecast.
+**Good:** Match loosely (date → booking date → transaction date; amount, or credit − debit; description → reference / narrative). Use the value date for cash timing. Show the header row and confirm the mapping before computing: one question beats a silent wrong forecast.
 
 ---
 
@@ -40,9 +40,9 @@ Known edge cases in the data.
 
 ## 5. Lumpy outflows that monthly averages hide
 
-**Bad:** Spreading fixed costs evenly at "about EUR 30,000 a month". December carries the 13th month and a larger F24 in January (withholdings on it); end of June and end of November carry tax payments; some insurance and licences are annual.
+**Bad:** Spreading fixed costs evenly at "about EUR 30,000 a month". Extra monthly salaries, larger tax payments that follow them, income-tax balances and advances, and annual insurance and licences all land on specific dates (the country pack gives the local calendar).
 
-**Good:** Place each outflow on its own date. Ask the CEO or the commercialista for the 13th/14th month and tax-advance amounts rather than estimating them.
+**Good:** Place each outflow on its own date. Ask the CEO or the accountant for extra-salary and tax-advance amounts rather than estimating them.
 
 ---
 

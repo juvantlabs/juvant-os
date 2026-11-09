@@ -4,6 +4,7 @@
 #
 #   bash setup.sh <company-dir> [--company NAME] [--ceo NAME] [--cos NAME]
 #                 [--language LANG] [--legal NAME] [--finance NAME] [--ethics NAME]
+#                 [--country CODE]   e.g. it: installs framework/countries/it/ if it exists
 #
 # Copies the templates (CLAUDE.md, manifesto.md, roles/, .claude/settings.json,
 # .gitignore) once, installs the framework into .claude/ through the update
@@ -17,7 +18,7 @@ FW="$HERE/framework"
 
 [[ $# -ge 1 && "$1" != -* ]] || { sed -n '2,14p' "$0" >&2; exit 2; }
 TARGET="$1"; shift
-declare -a SUBS=()
+declare -a SUBS=(); COUNTRY=""
 while [[ $# -gt 0 ]]; do
   [[ $# -ge 2 ]] || { echo "setup: $1 needs a value" >&2; exit 2; }
   case "$1" in
@@ -28,11 +29,13 @@ while [[ $# -gt 0 ]]; do
     --legal) SUBS+=("LEGAL_NAME=$2") ;;
     --finance) SUBS+=("FINANCE_NAME=$2") ;;
     --ethics) SUBS+=("ETHICS_NAME=$2") ;;
+    --country) COUNTRY="$2" ;;
     *) echo "setup: unknown option $1" >&2; exit 2 ;;
   esac
   shift 2
 done
 
+[[ -z "$COUNTRY" || "$COUNTRY" =~ ^[a-z]{2}(-[a-z]+)?$ ]] || { echo "setup: bad country code '$COUNTRY' (use a lowercase ISO code such as it, fr, de)" >&2; exit 2; }
 mkdir -p "$TARGET"; TARGET="$(cd "$TARGET" && pwd)"
 [[ -d "$TARGET/.juvant" ]] && { echo "setup: $TARGET is a juvant-os v1 instance (.juvant/ exists). Migrate it instead." >&2; exit 1; }
 [[ -f "$TARGET/.claude/juvant-os.json" ]] && { echo "setup: juvant-os v2 is already installed in $TARGET. Use the update skill." >&2; exit 1; }
@@ -74,7 +77,12 @@ mkdir -p "$TARGET/memory/decisions" "$TARGET/memory/knowledge" "$TARGET/memory/j
 for d in decisions knowledge journal; do [[ -e "$TARGET/memory/$d/.gitkeep" ]] || : > "$TARGET/memory/$d/.gitkeep"; done
 [[ -e "$TARGET/state/.gitkeep" ]] || : > "$TARGET/state/.gitkeep"
 
-bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" >/dev/null
+if [[ -n "$COUNTRY" ]]; then
+  bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" --country "$COUNTRY" | grep -i 'country' || true
+else
+  bash "$FW/skills/update/update.sh" --from "$FW" --target "$TARGET" >/dev/null
+  echo "setup: no country pack chosen. Skills stay country-neutral; add one later with: bash .claude/skills/update/update.sh --country <code> <tag>"
+fi
 
 left=$(grep -ho '{{[A-Z_]*}}' "$TARGET/CLAUDE.md" "$TARGET/manifesto.md" "$TARGET"/roles/*.md 2>/dev/null | sort -u | tr '\n' ' ' || true)
 echo "setup: juvant-os v2 installed in $TARGET ($(sed -n 's/.*"version": "\(.*\)".*/\1/p' "$TARGET/.claude/juvant-os.json"))."

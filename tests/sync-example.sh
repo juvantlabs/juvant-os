@@ -10,7 +10,7 @@ FW="$ROOT/framework"
 EX="$ROOT/examples/morvento"
 
 install_into() { # <company-dir>
-  bash "$FW/skills/update/update.sh" --from "$FW" --target "$1" >/dev/null
+  bash "$FW/skills/update/update.sh" --from "$FW" --target "$1" --country it >/dev/null
   cp "$FW/templates/settings.json" "$1/.claude/settings.json"
 }
 

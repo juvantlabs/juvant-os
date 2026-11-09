@@ -1,4 +1,4 @@
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: rebuilt on the Morvento receivables list and the role card's firm-reminder step; consolidated invoices; statutory interest kept out of the draft and offered to the CEO separately.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: rebuilt on the Morvento receivables list and the role card's firm-reminder step; consolidated invoices; statutory interest kept out of the draft and offered to the CEO separately; country-neutral; local rules from the country pack.
 
 # Firm Reminder — example
 
@@ -6,7 +6,7 @@
 
 **Step:** firm reminder (oldest invoice past 30 days, per `roles/finance.md`) · **Score:** `occasionally-late` (no paid invoices on record) · **Tone:** direct, with a pay-by date
 
-**Saved as:** Outlook draft in the CEO's mailbox. (Shown in English; the real draft is in Italian.)
+**Saved as:** Outlook draft in the CEO's mailbox. (Shown in English; the real draft is in the language Morvento uses with this client, e.g. Italian.)
 
 ---
 
@@ -31,7 +31,7 @@ Morvento
 
 ---
 
-**Note to the CEO (in the summary, not in the draft):** these are B2B invoices, so D.Lgs. 231/2002 statutory late-payment interest and the lump-sum recovery compensation would apply to 2026/079 from 25 September if you choose to claim them. I haven't included them: it's your call on the relationship. Confirm the rate in force with counsel or the commercialista before claiming. If 2026/079 is still unpaid on 8 November (45 days), the next step is your call to the client; I'll prepare the brief.
+**Note to the CEO (in the summary, not in the draft):** these are B2B invoices, so statutory late-payment interest (and, where the country's legal pack provides it, a recovery-cost compensation) would apply to 2026/079 from the day after the due date, e.g. 25 September, if you choose to claim them. I haven't included them: it's your call on the relationship. Confirm the rate in force with counsel or the accountant before claiming. If 2026/079 is still unpaid on 8 November (45 days), the next step is your call to the client; I'll prepare the brief.
 
 ---
 

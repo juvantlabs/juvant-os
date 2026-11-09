@@ -1,4 +1,4 @@
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: rebuilt on the Morvento receivables list and the role card's friendly-reminder step; saved as a draft, not sent.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: rebuilt on the Morvento receivables list and the role card's friendly-reminder step; saved as a draft, not sent; country-neutral; local rules from the country pack.
 
 # Friendly Reminder — example
 
@@ -6,7 +6,7 @@
 
 **Step:** friendly reminder (7 days late per `roles/finance.md`) · **Score:** `occasionally-late` (fewer than 3 invoices on record) · **Tone:** polite, factual
 
-**Saved as:** Outlook draft in the CEO's mailbox, to the address invoice 2026/099 was sent to. (Shown in English; the real draft is written in Italian, the language Morvento uses with this client.)
+**Saved as:** Outlook draft in the CEO's mailbox, to the address invoice 2026/099 was sent to. (Shown in English; the real draft is written in the language Morvento uses with this client, e.g. Italian.)
 
 ---
 

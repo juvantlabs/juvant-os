@@ -5,22 +5,26 @@
 #   update.sh --from <framework-dir>    use a local framework/ folder (setup, tests)
 #   options:  --target <company-dir>    default: the git toplevel of the current dir
 #             --repo <git-url>          default: $JUVANT_OS_REPO or the public repo
+#             --country <code>          install that country pack (e.g. it); default:
+#                                       the country already recorded, if any
 #
 # Copies every path in framework/FILES except templates/ into .claude/, removes
-# framework files that the new version no longer ships, and records the version
-# in .claude/juvant-os.json. The company's own files (CLAUDE.md, manifesto.md,
+# framework files that the new version no longer ships, installs the company's
+# country pack (framework/countries/<code>/ into .claude/country/), and records
+# version and country in .claude/juvant-os.json. The company's own files (CLAUDE.md, manifesto.md,
 # roles/, memory/, state/, .claude/settings.json) are never touched. Nothing is
 # committed: review `git status` and commit.
 set -euo pipefail
 
 REPO_URL="${JUVANT_OS_REPO:-https://github.com/juvantlabs/juvant-os.git}"
-FROM=""; TAG=""; TARGET=""
+FROM=""; TAG=""; TARGET=""; COUNTRY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --from) FROM="$2"; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
     --repo) REPO_URL="$2"; shift 2 ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    --country) COUNTRY="$2"; shift 2 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     -*) echo "update: unknown option $1" >&2; exit 2 ;;
     *) TAG="$1"; shift ;;
   esac
@@ -48,7 +52,7 @@ fi
 COMMIT="$(git -C "$FW" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 [[ -f "$FW/FILES" ]] || { echo "update: $FW/FILES missing: not a juvant-os v2 framework" >&2; exit 1; }
 
-listed() { grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1" | grep -v '^templates/' || true; }
+listed() { grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1" | grep -v -e '^templates/' -e '^countries/' || true; }
 dest_of() {
   case "$1" in
     README.md) echo ".claude/juvant-os/README.md" ;;
@@ -83,12 +87,32 @@ while IFS= read -r p; do
   cp "$FW/$p" "$TARGET/$d"; copied=$((copied+1))
 done <<< "$NEW"
 
+# Country pack: the code passed now, else the one recorded at the last install.
+if [[ -z "$COUNTRY" && -f "$TARGET/.claude/juvant-os.json" ]]; then
+  COUNTRY="$(sed -n 's/.*"country": "\([a-z-]*\)".*/\1/p' "$TARGET/.claude/juvant-os.json")"
+fi
+[[ -z "$COUNTRY" || "$COUNTRY" =~ ^[a-z]{2}(-[a-z]+)?$ ]] || { echo "update: bad country code '$COUNTRY'" >&2; exit 2; }
+PACK="none"
+if [[ -n "$COUNTRY" ]]; then
+  rm -rf "$TARGET/.claude/country"
+  if [[ -d "$FW/countries/$COUNTRY" ]]; then
+    mkdir -p "$TARGET/.claude/country"
+    for f in "$FW/countries/$COUNTRY/"*.md; do [[ "$(basename "$f")" == _* ]] || cp "$f" "$TARGET/.claude/country/"; done
+    PACK="framework"
+  fi
+fi
+
 mkdir -p "$TARGET/.claude/juvant-os"
 cp "$FW/FILES" "$OLD_FILES"
-printf '{\n  "version": "%s",\n  "commit": "%s",\n  "installed": "%s"\n}\n' \
-  "$VERSION" "$COMMIT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/.claude/juvant-os.json"
+printf '{\n  "version": "%s",\n  "commit": "%s",\n  "country": "%s",\n  "country_pack": "%s",\n  "installed": "%s"\n}\n' \
+  "$VERSION" "$COMMIT" "$COUNTRY" "$PACK" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/.claude/juvant-os.json"
 
 echo "update: juvant-os $VERSION ($COMMIT): $copied framework files installed, $removed removed."
+if [[ -n "$COUNTRY" && "$PACK" == none ]]; then
+  echo "update: no framework country pack for '$COUNTRY'. The Chief of Staff can draft one with the CEO (country-pack skill) in country/."
+elif [[ -n "$COUNTRY" ]]; then
+  echo "update: country pack '$COUNTRY' installed in .claude/country/."
+fi
 if git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "$TARGET" status --short -- .claude
 fi

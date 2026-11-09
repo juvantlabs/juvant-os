@@ -1,9 +1,10 @@
 # Gotchas
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: photo-quantity case replaced by volume guesses; signature routing replaced by never-send; added overpromising the product, unchecked dates and missing reviews; outcomes proposed for `memory/decisions/`; Morvento examples.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: photo-quantity case replaced by volume guesses; signature routing replaced by never-send; added overpromising the product, unchecked dates and missing reviews; outcomes proposed for `memory/decisions/`; Morvento examples; country-neutral; local rules from the country pack.
 
 Failure modes that lose money or lose the job. A proposal is a commitment; a
-mistake has a euro value.
+mistake has a price. Examples use Morvento's euro amounts, with "+ VAT" for the
+locale's net-of-tax wording.
 
 ---
 
@@ -50,13 +51,13 @@ An assumption the CEO knows about but the client never saw is no protection.
 
 **Bad**
 ```
-Line 4: CRM integration: € 2.600 + IVA (4 days). Delivery by 15 December.
+Line 4: CRM integration: € 2.600 + VAT (4 days). Delivery by 15 December.
 ```
 Derived from nothing; a date the team never saw.
 
 **Good**
 ```
-Line 4: CRM integration: € ______ + IVA. Needs the team's estimate.
+Line 4: CRM integration: € ______ + VAT. Needs the team's estimate.
 Timeline: indicative, to be confirmed by the team.
 ```
 
@@ -117,8 +118,8 @@ urgency.
 CEO says "they accepted".
 
 **Good**: the draft is in `drafts/`; the CEO sends it. On acceptance, say what
-follows and who does it (order confirmation, first invoice through SDI by the CEO
-or the commercialista).
+follows and who does it (order confirmation, first invoice by the CEO or the
+external accountant, through the e-invoicing system if the country has one).
 
 ---
 
@@ -128,7 +129,7 @@ or the commercialista).
 
 **Good**: propose the entry for `memory/decisions/`:
 ```
-2026-11-20, Ottica Lenzi: lost at € 4.875 + IVA setup. Competitor at about
+2026-11-20, Ottica Lenzi: lost at € 4.875 + VAT setup. Competitor at about
 € 3.500, no approval step. Our day rate held; the difference was scope.
 ```
 
@@ -139,4 +140,6 @@ or the commercialista).
 **Bad**: 90 days payment because the client asked.
 
 **Good**: `roles/finance.md` says 60 days end of month at most, and the manifesto
-says never more than 60. Price at our terms and flag the request to the CEO.
+says never more than 60 (e.g. Morvento). Price at our terms and flag the request
+to the CEO; if the country pack's `legal.md` sets statutory limits on B2B
+payment terms, name them.

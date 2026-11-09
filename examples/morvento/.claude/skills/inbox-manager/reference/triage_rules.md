@@ -1,9 +1,16 @@
 # Triage rules
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/inbox-manager` at commit e050c2e (Apache-2.0). Modified for juvant-os: Italian signals (PEC, SDI, F24, INPS), CEO instead of owner, Morvento worked example.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/inbox-manager` at commit e050c2e (Apache-2.0). Modified for juvant-os: legal-weight mail, e-invoicing notifications and tax deadlines as signals, CEO instead of owner, Morvento worked example; country-neutral; local rules from the country pack.
 
 Three buckets. The whole value of this skill is that the first bucket is short and
 correct.
+
+**Local rules.** If the country pack's `locale.md`, `finance.md` or `legal.md`
+exists (in `.claude/country/` or `country/`), apply its checks and use its terms: which mail
+has legal weight, which authorities and forms of notice exist, which tax and
+contribution deadlines are hard. If neither exists, say which points depend on
+local law or practice and list them under NOT CHECKED (to check with local
+counsel or the accountant).
 
 ---
 
@@ -16,14 +23,15 @@ An item belongs here only if the CEO personally has to do something:
 | A decision only the CEO can make | Accept or decline a project, approve a change to scope, a discount |
 | Money moving | A supplier invoice over the approval threshold in `roles/finance.md`, a refund request, a payment dispute |
 | An unhappy customer | A complaint, an escalation, a second email with a sharper tone |
-| A hard deadline | F24 due on the 16th, an insurance renewal, a tender deadline, a document the commercialista needs by the 5th |
+| A hard deadline | A tax or contribution payment due this week (dates in the country pack's `finance.md`), an insurance renewal, a tender deadline, a document the external accountant needs by a set date |
 | A commitment already made | The CEO wrote "I'll send the numbers Wednesday" and it's Wednesday |
-| Anything legal or regulatory | A contract, a formal notice (diffida), a PEC from a public authority, the Agenzia delle Entrate, INPS, a court |
-| Payment details changed | New IBAN, urgent transfer request, lookalike sender domain: needs you, never drafted, verify by phone |
+| Anything legal or regulatory | A contract, a formal notice, certified mail from a public authority, the tax authority, the social-security institute, a court |
+| Payment details changed | New bank details, urgent transfer request, lookalike sender domain: needs you, never drafted, verify by phone |
 
-**PEC is never handled automatically.** A message from a certified-email (PEC)
-address has legal weight in Italy; it always lands in needs-you, with the sender
-and subject, and a note to involve the `legal` reviewer if it's a notice.
+**Mail with legal weight is never handled automatically.** Where the country
+has certified or registered email with legal effect (the locale file names it),
+a message of that kind always lands in needs-you, with the sender and subject,
+and a note to involve the `legal` reviewer if it's a notice.
 
 **Rank by consequence, not arrival time.** What happens if this waits 24 hours? A
 deadline on Friday outranks a newer, lighter question.
@@ -42,8 +50,8 @@ The CEO's job on this bucket is to skim and send, not to think.
 ## Bucket 3: Handled
 
 Receipts, newsletters, delivery notices, calendar confirmations, platform
-notifications, automatic reports, SDI notification emails for invoices already
-known.
+notifications, automatic reports, e-invoicing system notifications for invoices
+already known.
 
 **Report as a count with categories, never a list.** "41 handled: 22 receipts, 9
 newsletters, 6 deliveries, 4 notifications." The CEO can ask to see any category.
@@ -72,9 +80,9 @@ Giulia's inbox: 63 new since yesterday afternoon.
 
 **Needs you (4)**
 
-1. **Commercialista: documents for the monthly packet due Thursday 5th.** Dott.
-   Rinaldi is still missing October's expense receipts. Without them the VAT
-   settlement is calculated on incomplete figures.
+1. **External accountant: documents for the monthly packet due Thursday 5th.**
+   Dott. Rinaldi is still missing October's expense receipts. Without them the
+   VAT settlement is calculated on incomplete figures.
 2. **Bottega Verdi: change of scope, about 6 extra days.** They want German
    answers added to the setup project. Needs a yes or no before their Friday
    meeting; price not given yet.

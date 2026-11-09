@@ -1,8 +1,8 @@
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: PayPal/Stripe/Airwallex/QuickBooks cases replaced by the receivables list, bank exports, SDI and Outlook cases.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: PayPal/Stripe/Airwallex/QuickBooks cases replaced by the receivables list, bank exports, e-invoicing and Outlook cases; country-neutral; local rules from the country pack.
 
 # Gotchas
 
-Known failure modes for invoice-chase.
+Known failure modes for invoice-chase. Where a case depends on local rules (withholding taxes, e-invoice rejection, accounts addresses), apply `.claude/country/finance.md` or `country/finance.md` if it exists; otherwise list the point under NOT CHECKED.
 
 ---
 
@@ -14,7 +14,7 @@ The receivables list is updated by hand. A client who paid last week still shows
 
 **Short payment equal to the withholding tax.**
 
-Where an invoice carries a withholding (*ritenuta d'acconto*), the client pays the net and the difference is not owed to the company in cash. Don't chase it as a partial payment. If unsure, check the e-invoice and ask the commercialista.
+Where an invoice carries a withholding tax (the country pack says when clients must withhold), the client pays the net and the difference is not owed to the company in cash. Don't chase it as a partial payment. If unsure, check the invoice and ask the accountant.
 
 ---
 
@@ -30,9 +30,9 @@ Never draft two reminders to the same client in one batch. Consolidate into one 
 
 ---
 
-**The invoice was never delivered by SDI.**
+**The invoice was never delivered by the e-invoicing system.**
 
-An e-invoice rejected by SDI (*scartata*) was never legally issued; the client may not even have it. If the SDI export shows a rejection or a delivery problem, flag it for the CEO and the commercialista instead of chasing.
+Where the country has an e-invoicing system, an e-invoice it rejected may never have been legally issued (the country pack says); the client may not even have it. If the e-invoicing export shows a rejection or a delivery problem, flag it for the CEO and the accountant instead of chasing.
 
 ---
 
@@ -44,13 +44,13 @@ A client who wrote to contest the amount or the work should not receive a remind
 
 **Reminder goes to the wrong person.**
 
-Invoices often go to an accounts address (*amministrazione@*), while the relationship sits with someone else. Use the address the invoices were sent to, and copy the business contact only if the CEO wants. If no address is found, say so by name: "no contact address on file for Studio Varenna".
+Invoices often go to an accounts address (e.g. `accounts@`, or the local equivalent), while the relationship sits with someone else. Use the address the invoices were sent to, and copy the business contact only if the CEO wants. If no address is found, say so by name: "no contact address on file for Studio Varenna".
 
 ---
 
 **Internal or test entries in the list.**
 
-Filter out rows whose client is the company itself, or whose name contains "test", "prova" or "demo", and flag them.
+Filter out rows whose client is the company itself, or whose name contains "test" or "demo" (or the local-language equivalent), and flag them.
 
 ---
 

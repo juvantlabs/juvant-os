@@ -4,7 +4,7 @@ description: "Review a contract against the company's negotiation positions in r
 argument-hint: "<contract file or text>"
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `legal/skills/review-contract` at commit e050c2e (Apache-2.0). Modified for juvant-os: playbook read from roles/legal.md, Italian law checks added, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape, redlines go to drafts only.
+> Adapted from anthropics/knowledge-work-plugins `legal/skills/review-contract` at commit e050c2e (Apache-2.0). Modified for juvant-os: playbook read from roles/legal.md, local law checks added, country-neutral; local rules from the country pack, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape, redlines go to drafts only.
 
 # Contract review against our positions
 
@@ -38,12 +38,14 @@ If something is missing, infer it from the document where you safely can (the pa
 
 The playbook is `roles/legal.md`:
 - **"Our positions"** table: per topic, what we accept, what we push back on, what we never sign.
-- **"Checklist for every contract"**: the checks that apply every time (Italian law included).
+- **"Checklist for every contract"**: the checks that apply every time (local law included).
 - **"People of reference"**: who to escalate to.
 
 Map the three columns to the classification below: *We accept* → GREEN, *We push back* → YELLOW, *We never sign* → RED.
 
 If the role card has no position for a clause, review it against widely accepted commercial standards and say so in the finding ("no company position; generic standard"). If `roles/legal.md` is missing entirely, review generically, state it at the top of NOT CHECKED, and propose that the CEO adds positions to the role card. Do not invent company positions.
+
+**Local rules.** If `.claude/country/legal.md` or `country/legal.md` exists, apply its checks and use its terms. If neither exists, say which points depend on local law or practice and list them under NOT CHECKED ("to check with local counsel").
 
 ## Step 4: Clause-by-clause analysis
 
@@ -60,29 +62,29 @@ Cover at least:
 | **Limitation of liability** | Cap amount, carve-outs, mutual vs one-sided, indirect/consequential damages |
 | **Indemnification** | Scope, mutual vs one-sided, cap, IP infringement, data breach |
 | **Intellectual property** | Pre-existing IP, developed IP, assignment, licence grants |
-| **Data protection** | DPA (GDPR art. 28), roles, sub-processors, breach notification, transfers outside the EU |
+| **Data protection** | DPA (GDPR art. 28 or the local equivalent), roles, sub-processors, breach notification, transfers outside the EU or the home jurisdiction |
 | **Confidentiality** | Scope, term, carve-outs, return/destruction |
 | **Warranties** | Scope, disclaimers, duration |
-| **Term and termination** | Duration, renewal (tacit or not), withdrawal (recesso), termination for breach, effects |
+| **Term and termination** | Duration, renewal (tacit or not), withdrawal for convenience, termination for breach, effects |
 | **Governing law and disputes** | Law, competent court, arbitration |
 | **Penalties** | Amount, cap, grace period, relation to damages |
 | **Insurance** | Required cover and minimums |
 | **Assignment** | Consent, change of control |
 | **Force majeure** | Scope, notice, termination rights |
-| **Payment** | Days, starting point (invoice date, end of month), late interest, price changes, IVA |
+| **Payment** | Days, starting point (invoice date, end of month), late interest, price changes, VAT/sales tax |
 
 For each clause, say whether it is present, absent, or unusual.
 
-### Italian law checks (always)
+### Local law checks (always)
 
-Apply the role card checklist. At minimum:
+Apply the role card checklist and the country pack's contract law checklist (see **Local rules** in Step 3). At minimum, check:
 
-- **Unfair standard terms (artt. 1341–1342 c.c.)**: when one party's standard terms or a form contract impose terms such as limitation of liability, withdrawal, suspension, tacit renewal, limits on raising defences, restrictions on contractual freedom with third parties, arbitration clauses or derogations from court jurisdiction, they need specific written approval. Check that the specific-approval block exists and lists every such clause, in our own templates and in the counterparty's. A missing or incomplete block is a finding.
-- **Payment terms (D.Lgs. 231/2002)**: B2B terms over 60 days need to be expressly agreed and not grossly unfair; check what the role card allows. Statutory late-payment interest runs by law; clauses excluding it are suspect.
-- **Personal data**: if either party processes personal data on the other's behalf, a DPA under GDPR art. 28 is required.
+- **Unfair standard terms**: whether the local law requires specific approval or other formalities for onerous terms in standard terms or form contracts (typically limitation of liability, withdrawal, suspension, tacit renewal, arbitration, jurisdiction), and whether the contract meets them, in our own templates and in the counterparty's. A missing or incomplete formality is a finding.
+- **Payment terms**: the statutory maximum B2B payment terms and the statutory late-payment rules; check what the role card allows. Clauses excluding statutory late-payment interest are suspect.
+- **Personal data**: if either party processes personal data on the other's behalf, a DPA is required (GDPR art. 28 where GDPR applies, or the local equivalent).
 - **Value thresholds**: apply the manifesto and role card thresholds for mandatory legal review or outside counsel.
 
-Do not state Italian legal specifics you are not sure of. If a point turns on case law, sector regulation or foreign law, say so and route it to the counsel in the role card.
+Do not state local legal specifics you are not sure of. If a point turns on case law, sector regulation or foreign law, say so and route it to the counsel in the role card. With no country pack, list each of the points above under NOT CHECKED.
 
 ### Detailed clause guidance
 
@@ -90,7 +92,7 @@ Do not state Italian legal specifics you are not sure of. If a point turns on ca
 
 Review: cap amount (fixed sum, multiple of fees, uncapped); mutual or not; what is carved out of the cap; whether indirect, consequential or lost-profit damages are excluded and whether that exclusion is mutual; per-claim, per-year or aggregate.
 
-Common issues: cap at a fraction of fees (e.g. "fees of the last 3 months" on a small contract); one-sided carve-outs; carve-outs so broad they remove the cap ("any breach of Section X" where X covers most obligations); no exclusion of indirect damages for one party. Note that under Italian law clauses excluding liability for wilful misconduct or gross negligence are not valid (art. 1229 c.c.), so carve-outs for those are normal; check with counsel before relying on anything finer.
+Common issues: cap at a fraction of fees (e.g. "fees of the last 3 months" on a small contract); one-sided carve-outs; carve-outs so broad they remove the cap ("any breach of Section X" where X covers most obligations); no exclusion of indirect damages for one party. Many legal systems do not allow excluding liability for wilful misconduct or gross negligence, so carve-outs for those are normal; check the country pack's limits on excluding liability, and check with counsel before relying on anything finer.
 
 #### Indemnification
 
@@ -106,21 +108,21 @@ Common issues: assignment wide enough to capture our pre-existing code or produc
 
 #### Data protection
 
-Review: is a DPA needed; controller vs processor; sub-processors (authorisation and notice of changes); breach notification time (the controller must be able to notify the Garante within 72 hours, GDPR art. 33); transfers outside the EU and their mechanism (adequacy decision, SCCs); deletion or return at the end; security measures and audits; purpose limitation.
+Review: is a DPA needed; controller vs processor; sub-processors (authorisation and notice of changes); breach notification time (under GDPR the controller must be able to notify the supervisory authority within 72 hours, art. 33; elsewhere use the local deadline from the country pack); transfers outside the EU (or the home jurisdiction) and their mechanism (adequacy decision, SCCs); deletion or return at the end; security measures and audits; purpose limitation.
 
 Common issues: no DPA though personal data is processed; blanket sub-processor authorisation with no notice; breach notice slower than the controller needs; transfers outside the EU without a mechanism; no deletion obligation. For a full DPA review use the checklist in the `compliance-check` skill.
 
 #### Term and termination
 
-Review: initial term and renewal; tacit renewal and its notice (disdetta) window; withdrawal for convenience (recesso), notice and fees; termination for breach (cure period, express termination clause under art. 1456 c.c.); effects (data return, transition, surviving clauses).
+Review: initial term and renewal; tacit renewal and its notice-of-non-renewal window; withdrawal for convenience, notice and fees; termination for breach (cure period, any express termination clause and how local law treats it); effects (data return, transition, surviving clauses).
 
-Common issues: long terms with no withdrawal; tacit renewal with a short notice window; no cure period; client termination without paying for work done; survival clauses that extend the contract indefinitely. Tacit renewal and withdrawal rights are among the terms that need specific approval under art. 1341 c.c.
+Common issues: long terms with no withdrawal; tacit renewal with a short notice window; no cure period; client termination without paying for work done; survival clauses that extend the contract indefinitely. Check the country pack for whether tacit renewal and withdrawal rights need specific approval in standard terms.
 
 #### Governing law and disputes
 
-Review: governing law; court or arbitration; seat and rules of arbitration; mediation or escalation steps first. For civil and commercial disputes, Italian law requires an attempt at mediation before court for some matters; check with counsel whether it applies rather than assuming.
+Review: governing law; court or arbitration; seat and rules of arbitration; mediation or escalation steps first. Some countries require an attempt at mediation before court for some civil and commercial matters; check the country pack and confirm with counsel whether it applies rather than assuming.
 
-Common issues: foreign law or a remote court for an Italian counterparty; arbitration with rules favouring the drafter; jurisdiction clauses without specific approval (art. 1341 c.c.).
+Common issues: foreign law or a remote court for a counterparty in our own country; arbitration with rules favouring the drafter; jurisdiction clauses missing a formality the local law requires.
 
 ## Step 5: Classify deviations
 
@@ -128,7 +130,7 @@ Common issues: foreign law or a remote court for an Italian counterparty; arbitr
 
 **YELLOW (negotiate)**: outside our position but within a negotiable range (*We push back* column), common in the market. Needs replacement wording and a fallback. Examples: payment at 60 days end of month when we want 30; tacit renewal with a short notice window; one-sided IP indemnity.
 
-**RED (escalate)**: in the *We never sign* column, triggers an escalation rule in the role card or manifesto, or poses material risk. Examples: unlimited liability; transfer of our pre-existing IP; no DPA where personal data is processed; uncapped penalties; foreign law for an Italian client; a non-compete or exclusivity nobody discussed. Explain the specific risk, give market-standard replacement wording, estimate exposure, and name who should look at it (from "People of reference").
+**RED (escalate)**: in the *We never sign* column, triggers an escalation rule in the role card or manifesto, or poses material risk. Examples: unlimited liability; transfer of our pre-existing IP; no DPA where personal data is processed; uncapped penalties; foreign law for a client in our own country; a non-compete or exclusivity nobody discussed. Explain the specific risk, give market-standard replacement wording, estimate exposure, and name who should look at it (from "People of reference").
 
 ## Step 6: Replacement wording
 
@@ -145,7 +147,7 @@ If the request asks for a redline document, write it to `drafts/<contract-name>-
 
 ## Step 7: Negotiation strategy
 
-- **Must-haves (deal breakers)**: *We never sign* items; anything conflicting with mandatory law (GDPR, 231/2002, nullity under art. 1229 c.c.); IP provisions that put our product at risk.
+- **Must-haves (deal breakers)**: *We never sign* items; anything conflicting with mandatory law (data protection law, statutory payment and late-payment rules, limits on excluding liability; the country pack lists them); IP provisions that put our product at risk.
 - **Should-haves**: *We push back* items; indemnity scope; termination flexibility; audit and compliance rights.
 - **Nice-to-haves (concession candidates)**: preferred court when the alternative is acceptable; notice periods; definitions; insurance certificates.
 
@@ -169,7 +171,7 @@ NOT CHECKED
 ```
 
 Mapping:
-- **VERDICT**: STOP if any RED item, a missing art. 1341–1342 approval on a clause we need to rely on, or an escalation threshold is hit and the review hasn't happened; CHANGES if any YELLOW item; OK if everything is GREEN.
+- **VERDICT**: STOP if any RED item, a missing statutory approval or formality (per the country pack) on a clause we need to rely on, or an escalation threshold is hit and the review hasn't happened; CHANGES if any YELLOW item; OK if everything is GREEN.
 - **Severity**: RED → high; YELLOW → medium (high if it is a must-have); GREEN items with something worth noting → low. Order findings by importance, not by clause number: a missing liability cap comes before a typo.
 - Each finding quotes the clause and gives the proposed text.
 
@@ -198,7 +200,7 @@ Then, below the three blocks:
 
 ## Notes
 
-- Contracts are often in Italian. Review in the original language, quote it as is, write proposed text in the contract's language, and explain in the language of the request.
+- Contracts are often in the local business language. Review in the original language, quote it as is, write proposed text in the contract's language, and explain in the language of the request.
 - For long contracts (50+ pages), cover the most material sections first and list the rest under NOT CHECKED, unless asked for a complete review.
 - If a durable lesson emerges (a new standard position, a recurring counterparty clause), propose adding it to `roles/legal.md` or `memory/knowledge/<file>.md`; don't edit them yourself.
 - Always remind the reader that the analysis must be reviewed by qualified counsel before being relied on.

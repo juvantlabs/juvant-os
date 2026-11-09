@@ -17,4 +17,6 @@ character: <!-- two lines -->
 
 ## Frameworks we follow
 
-<!-- e.g. EU AI Act risk categories, GDPR principles, an internal AI policy. -->
+<!-- e.g. the AI-regulation risk categories that apply to us, data-protection
+     principles under the applicable law, an internal AI policy.
+     See .claude/country/ for your country's checklist. -->

@@ -1,6 +1,6 @@
 # Discovery extraction
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: inputs reached through Outlook, SharePoint/OneDrive and Teams or pasted; Zoom and jobsite-photo/drawing sections replaced by client briefs and screenshots of current tools; RFP section kept, with public tenders sent to counsel; Morvento examples.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: inputs reached through Outlook, SharePoint/OneDrive and Teams or pasted; Zoom and jobsite-photo/drawing sections replaced by client briefs and screenshots of current tools; RFP section kept, with public tenders sent to counsel; Morvento examples; country-neutral; local rules from the country pack.
 
 Discovery arrives in whatever form the CEO could capture between meetings. Every
 one of these is a normal input.
@@ -102,7 +102,8 @@ price on a non-compliant response loses.
 Extract in this order:
 
 1. **Submission mechanics**: deadline, format, page limits, how it's delivered
-   (portal, PEC, email). Miss any of these and nothing else matters.
+   (portal, certified email where the country has it, ordinary email). Miss
+   any of these and nothing else matters.
 2. **Mandatory requirements**: certifications, insurance, references, turnover
    minimums, data location, security requirements
 3. **The scope of work**
@@ -119,9 +120,9 @@ disqualifying unless partners can count. Worth checking before I write the rest?
 ```
 
 **Public tenders** (from a public administration) have formal participation
-rules and documents of their own. Draft the technical and economic content, but
-send the participation requirements to the `legal` reviewer and counsel; don't
-assume what's needed.
+rules and documents of their own, set by local procurement law. Draft the
+technical and economic content, but send the participation requirements to the
+`legal` reviewer and counsel; don't assume what's needed.
 
 ---
 

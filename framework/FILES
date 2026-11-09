@@ -2,12 +2,17 @@
 # `update` overwrites exactly these in a company repo and touches nothing else.
 # CI (tests/check-files.sh) fails if this list and the files under framework/
 # differ in either direction. This file itself is not listed.
+# Paths under countries/<code>/ are installed only for the company's country.
 # Paths under templates/ are copied by `setup` only, once: after that the
 # company owns them and `update` leaves them alone.
 README.md
 agents/ethics.md
 agents/finance.md
 agents/legal.md
+countries/it/finance.md
+countries/it/legal.md
+countries/it/locale.md
+countries/it/marketing.md
 dashboard/.gitkeep
 hooks/juvant_hooks.py
 hooks/limits.json
@@ -26,6 +31,7 @@ skills/cash-flow-snapshot/reference/gotchas.md
 skills/competitive-brief/SKILL.md
 skills/compliance-check/SKILL.md
 skills/content-creation/SKILL.md
+skills/country-pack/SKILL.md
 skills/decision/SKILL.md
 skills/financial-statements/SKILL.md
 skills/inbox-manager/SKILL.md

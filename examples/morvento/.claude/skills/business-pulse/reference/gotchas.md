@@ -1,6 +1,6 @@
 # Gotchas
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/business-pulse` at commit e050c2e (Apache-2.0). Modified for juvant-os: QuickBooks, Gmail and Slack cases replaced by stale exports, double counting, Outlook errors and sharing; the "don't ask before reading" rule kept.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/business-pulse` at commit e050c2e (Apache-2.0). Modified for juvant-os: QuickBooks, Gmail and Slack cases replaced by stale exports, double counting, Outlook errors and sharing; the "don't ask before reading" rule kept; country-neutral; local rules from the country pack.
 
 Known failure modes, with good and bad versions.
 
@@ -26,7 +26,8 @@ Cash: € 112.400 at 30/10 (latest bank export; 10 days old)
 
 ## The same figure counted twice
 
-Receivables appear in the SDI export and in the commercialista's spreadsheet.
+Receivables appear in the e-invoicing export and in the external accountant's
+spreadsheet.
 Adding them doubles the total.
 
 **Good**: one source of record per figure, named in the appendix; the other

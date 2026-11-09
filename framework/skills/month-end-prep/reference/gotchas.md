@@ -1,8 +1,8 @@
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/month-end-prep` at commit e050c2e (Apache-2.0). Modified for juvant-os: QuickBooks/Xero/PayPal cases replaced by bank statement, SDI and card-settlement cases for an Italian company whose books are kept by the commercialista.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/month-end-prep` at commit e050c2e (Apache-2.0). Modified for juvant-os: QuickBooks/Xero/PayPal cases replaced by bank statement, e-invoicing and card-settlement cases for a company whose books are kept by an external accountant; country-neutral; local rules from the country pack.
 
 # Gotchas
 
-Common mistakes in preparing the monthly packet. Each entry: the pattern, why it matters, a Bad / Good example.
+Common mistakes in preparing the monthly packet. Each entry: the pattern, why it matters, a Bad / Good example. Where a case depends on local rules (the e-invoicing system, which suppliers fall outside it), apply `.claude/country/finance.md` or `country/finance.md` if it exists; otherwise list the point under NOT CHECKED.
 
 ---
 
@@ -22,13 +22,13 @@ Before flagging, try combinations of the counterparty's open invoices that sum t
 
 ## Gotcha: Reading a reissued e-invoice as a duplicate (or missing a real one)
 
-**Why it matters:** A supplier may cancel an invoice with a credit note and reissue it; both reach SDI. Counting both overstates payables; ignoring a real duplicate leads to paying twice.
+**Why it matters:** A supplier may cancel an invoice with a credit note and reissue it; both reach the e-invoice record. Counting both overstates payables; ignoring a real duplicate leads to paying twice.
 
 ### ✗ Bad
 
 > Received invoices scanned: no duplicates.
 
-(Only bank lines were scanned; the same supplier invoice arrived twice through SDI and hasn't been paid yet.)
+(Only bank lines were scanned; the same supplier invoice arrived twice as an e-invoice and hasn't been paid yet.)
 
 ### ✓ Good
 
@@ -46,7 +46,7 @@ Scan received e-invoices as documents (same supplier, same total, within 5 days)
 
 ### ✓ Good
 
-Separate refunds from receipts. Match a supplier refund to the supplier's credit note (SDI received) or to the original card charge. Flag only if neither exists.
+Separate refunds from receipts. Match a supplier refund to the supplier's credit note (received e-invoices) or to the original card charge. Flag only if neither exists.
 
 ---
 
@@ -60,13 +60,13 @@ Separate refunds from receipts. Match a supplier refund to the supplier's credit
 
 ### ✓ Good
 
-Compare the provider's net payout to the bank credit; list the fees separately as a cost needing the provider's monthly fee statement (a document for the commercialista). Delta under EUR 0.50 after fees: matched.
+Compare the provider's net payout to the bank credit; list the fees separately as a cost needing the provider's monthly fee statement (a document for the accountant). Delta under 0.50 (e.g. EUR) after fees: matched.
 
 ---
 
 ## Gotcha: Foreign software subscriptions with no paperwork
 
-**Why it matters:** Card payments to non-Italian suppliers (cloud hosting, SaaS tools) don't come through SDI. Without the supplier's invoice the commercialista can't account for them correctly.
+**Why it matters:** Card payments to foreign suppliers (cloud hosting, SaaS tools) usually don't come through the national e-invoicing system, if there is one. Without the supplier's invoice the accountant can't account for them correctly.
 
 ### ✗ Bad
 
@@ -74,13 +74,13 @@ Compare the provider's net payout to the bank credit; list the fees separately a
 
 ### ✓ Good
 
-For every card payment with no SDI invoice, look for the supplier's invoice or receipt in the receipts folder and in Outlook (most send them by email; many also have it in the account's billing page, which the CEO must download). List the missing ones with supplier, date and amount.
+For every card payment with no e-invoice, look for the supplier's invoice or receipt in the receipts folder and in Outlook (most send them by email; many also have it in the account's billing page, which the CEO must download). List the missing ones with supplier, date and amount.
 
 ---
 
 ## Gotcha: Writing the packet when flags are still open
 
-**Why it matters:** The packet is what the commercialista works from. Writing it with unacknowledged flags bakes errors into the books.
+**Why it matters:** The packet is what the accountant works from. Writing it with unacknowledged flags bakes errors into the books.
 
 ### ✗ Bad
 

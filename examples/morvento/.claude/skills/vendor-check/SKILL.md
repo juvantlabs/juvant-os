@@ -4,7 +4,7 @@ description: "Check the status of the company's agreements with a supplier (or c
 argument-hint: "[vendor name]"
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `legal/skills/vendor-check` at commit e050c2e (Apache-2.0). Modified for juvant-os: searches SharePoint/OneDrive, Outlook and Teams through the Microsoft 365 connector plus repo files (no CLM or CRM), adds Italian renewal and DPA checks, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape.
+> Adapted from anthropics/knowledge-work-plugins `legal/skills/vendor-check` at commit e050c2e (Apache-2.0). Modified for juvant-os: searches SharePoint/OneDrive, Outlook and Teams through the Microsoft 365 connector plus repo files (no CLM or CRM), adds local renewal and DPA checks, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape, country-neutral; local rules from the country pack.
 
 # Vendor agreement status
 
@@ -15,9 +15,11 @@ Check the status of existing agreements with a counterparty and give one consoli
 ## Step 1: Identify the counterparty
 
 Take the name from the request. If none was given, say so and stop. Handle variations:
-- Legal name vs brand ("Rossi Software S.r.l." vs "RossiSoft").
+- Legal name vs brand (e.g. "Rossi Software Ltd" vs "RossiSoft").
 - Abbreviations and former names.
-- Group companies (parent, subsidiaries, Italian branch of a foreign company). The VAT number (partita IVA) identifies the entity; use it if you find it.
+- Group companies (parent, subsidiaries, local branch of a foreign company). The VAT number or company registration number identifies the entity; use it if you find it.
+
+**Local rules.** If `.claude/country/legal.md` or `country/legal.md` exists, apply its checks and use its terms (entity identifiers, formalities for standard terms, renewal notice terms). If neither exists, say which points depend on local law or practice and list them under NOT CHECKED ("to check with local counsel").
 
 If the name is ambiguous, check all plausible entities and say which you found; list the ambiguity under NOT CHECKED.
 
@@ -36,13 +38,13 @@ Read `roles/legal.md` ("Where documents live") and `memory/map.md` first: they s
 - Supporting documents: security certifications, insurance certificates.
 
 **Outlook mail** (Microsoft 365 connector)
-- Contract-related threads in the last 6 months: negotiations, signed copies sent as attachments, renewal or price-change notices, disdetta (notice of non-renewal), terms-of-service update notices.
+- Contract-related threads in the last 6 months: negotiations, signed copies sent as attachments, renewal or price-change notices, notices of non-renewal, terms-of-service update notices.
 
 **Teams** (Microsoft 365 connector)
 - Recent mentions in the last 3 months: requests involving the counterparty, open questions, problems.
 
 **CEO-provided exports**
-- If the CEO provided bank or SDI e-invoice exports, they show whether we actually pay or bill this counterparty and since when. A relationship that is invoiced but has no contract on file is a finding. You don't look into amounts; that is the finance reviewer's job.
+- If the CEO provided bank exports or e-invoice exports (from the e-invoicing system, if the country has one), they show whether we actually pay or bill this counterparty and since when. A relationship that is invoiced but has no contract on file is a finding. You don't look into amounts; that is the finance reviewer's job.
 
 Many SaaS suppliers have no signed contract: we accepted their online terms. Then the "agreement" is the version of their terms and DPA in force; record where it is published and whether we kept a copy.
 
@@ -56,7 +58,7 @@ For each agreement found:
 | **Status** | Active, expired, in negotiation, awaiting signature |
 | **Start date** | |
 | **End / renewal date** | |
-| **Renewal** | Tacit renewal yes/no; renewal term; notice (disdetta) deadline as a date |
+| **Renewal** | Tacit renewal yes/no; renewal term; notice-of-non-renewal deadline as a date |
 | **Key terms** | Liability cap, governing law and court, withdrawal and termination, payment terms |
 | **Amendments** | Amendments, addenda, price changes |
 | **Where** | Exact location of the signed copy |
@@ -70,7 +72,7 @@ Compare key terms with `roles/legal.md` and note deviations briefly; for a full 
 
 [OK/MISSING] NDA — [status]
 [OK/MISSING] Contract or accepted terms — [status or "not found"]
-[OK/MISSING] DPA (GDPR art. 28) — [status or "not found"]
+[OK/MISSING] DPA (GDPR art. 28 or local equivalent) — [status or "not found"]
 [OK/MISSING] Order forms / SOWs — [status or "not found"]
 [OK/MISSING] SLA — [status or "not found"]
 [OK/MISSING] Insurance certificate — [status or "not found", only if required]
@@ -79,12 +81,12 @@ Compare key terms with `roles/legal.md` and note deviations briefly; for a full 
 Flag gaps that the relationship needs:
 - **Personal data without a DPA**: if the counterparty processes personal data for us (or we for them) and no DPA is on file, that is a high finding. Check sub-processors and processing locations against our position.
 - **Invoiced but no contract**: from CEO-provided exports.
-- **Clauses needing specific approval** (artt. 1341–1342 c.c.) in their standard terms with no signed approval block, where we rely on our position (e.g. jurisdiction, tacit renewal).
+- **Clauses needing a statutory formality** (e.g. specific written approval of onerous standard terms, per the country pack) in their standard terms with no signed approval, where we rely on our position (e.g. jurisdiction, tacit renewal).
 - **Expired but still used**: services still paid for under an expired contract.
 
 ## Step 5: Deadlines and surviving obligations
 
-- **Within 90 days**: any end date or **disdetta** deadline. Highlight it. For tacit renewals, the date that matters is the last day to give notice, not the end date.
+- **Within 90 days**: any end date or **notice-of-non-renewal** deadline. Highlight it. For tacit renewals, the date that matters is the last day to give notice, not the end date.
 - **Surviving obligations** of expired agreements: confidentiality, indemnities, data deletion or return, non-solicitation.
 - Calendar: if a deadline is found, propose that the Chief of Staff adds it to the CEO's Outlook calendar. You don't create events yourself.
 
@@ -135,7 +137,7 @@ Then, below the three blocks:
 [Relevant mail or Teams threads, with dates]
 ```
 
-If asked for a follow-up (a request for a DPA, a disdetta letter), write it as a draft: `drafts/<vendor>-<topic>.md` or an Outlook draft through the connector, and tell the Chief of Staff it is ready for the CEO to send. Never send it yourself.
+If asked for a follow-up (a request for a DPA, a notice-of-non-renewal letter), write it as a draft: `drafts/<vendor>-<topic>.md` or an Outlook draft through the connector, and tell the Chief of Staff it is ready for the CEO to send. Never send it yourself.
 
 ## Notes
 

@@ -4,7 +4,7 @@ description: "Research competitors and produce a positioning and messaging compa
 argument-hint: "<competitor or market segment>"
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `marketing/skills/competitive-brief` at commit e050c2e (Apache-2.0). Modified for juvant-os: our side of the comparison comes from `memory/knowledge/` and the manifesto; internal evidence comes from Outlook, SharePoint and the repo; web research only if the session has it; output is a draft in `drafts/`; monitoring "alerts" and scheduling removed.
+> Adapted from anthropics/knowledge-work-plugins `marketing/skills/competitive-brief` at commit e050c2e (Apache-2.0). Modified for juvant-os: our side of the comparison comes from `memory/knowledge/` and the manifesto; internal evidence comes from Outlook, SharePoint and the repo; web research only if the session has it; output is a draft in `drafts/`; monitoring "alerts" and scheduling removed; country-neutral; local rules from the country pack.
 
 # Competitive Brief
 
@@ -61,10 +61,16 @@ For each competitor:
 #### Secondary sources (third parties)
 - Review sites: recurring praise and complaints
 - Analyst and sector reports, where available
-- Trade and local press (including Italian business press for local competitors)
-- Company registry data for Italian competitors (size, revenue band) when the CEO
+- Trade and local press (including the national business press for local
+  competitors)
+- Company registry data for local competitors (size, revenue band) when the CEO
   provides a registry extract
 - Community forums and groups: user sentiment
+
+**Local rules.** If `.claude/country/marketing.md` or `country/marketing.md`
+exists, use its research sources (local press, the companies register) and its
+rules on comparative claims. If neither exists, say which points depend on local
+law or practice and list them under NOT CHECKED (to check with local counsel).
 
 ### Internal sources (often the most useful)
 

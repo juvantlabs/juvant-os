@@ -5,22 +5,24 @@ argument-hint: "<line item> <period> vs <comparison>"
 allowed-tools: Read, Grep, Glob
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `finance/skills/variance-analysis` at commit e050c2e (Apache-2.0). Modified for juvant-os: scaled to a small Italian company in EUR, figures come from the commercialista's statements and CEO-provided exports, and the output fits the finance agent's VERDICT / FIGURES / FINDINGS / NOT CHECKED shape.
+> Adapted from anthropics/knowledge-work-plugins `finance/skills/variance-analysis` at commit e050c2e (Apache-2.0). Modified for juvant-os: scaled to a small company, figures come from the external accountant's statements and CEO-provided exports, and the output fits the finance agent's VERDICT / FIGURES / FINDINGS / NOT CHECKED shape; country-neutral; local rules from the country pack.
 
 # Variance Analysis
 
-**Important**: this skill assists with variance analysis but does not provide financial advice. Analyses that feed reporting, financing or tax decisions should be reviewed by the commercialista or another qualified professional before use.
+**Important**: this skill assists with variance analysis but does not provide financial advice. Analyses that feed reporting, financing or tax decisions should be reviewed by the external accountant or another qualified professional before use.
 
-Techniques for decomposing variances, setting materiality, writing variance explanations and building a bridge from one figure to another. Amounts are in EUR.
+Techniques for decomposing variances, setting materiality, writing variance explanations and building a bridge from one figure to another. Amounts are in the company's currency (examples use EUR).
+
+**Local rules.** If `.claude/country/finance.md` or `country/finance.md` exists, apply its checks and use its terms (the accountant's statement names, payroll cost items, seasonality). If neither exists, say which points depend on local law or practice and list them under NOT CHECKED ("to check with the accountant").
 
 ## Where the numbers come from
 
 Read before asking:
 
 - `roles/finance.md`: the company's rules (payment terms, cash buffer, pricing floor, spending approval) and the data sources it lists.
-- The commercialista's periodic statements (monthly or quarterly *situazione contabile*, trial balance, annual *bilancio*), as files the CEO provides or stored on SharePoint/OneDrive (see `memory/map.md` for where).
+- The external accountant's periodic statements (monthly or quarterly interim statement, trial balance, annual accounts), as files the CEO provides or stored on SharePoint/OneDrive (see `memory/map.md` for where).
 - A budget or plan, if one exists: look in `memory/decisions/` and `memory/map.md`. Many small companies have no formal budget; then compare to the prior period and the same period last year, and say so.
-- Bank exports and SDI e-invoice exports the CEO provides; the receivables list named in the role card.
+- Bank exports and e-invoicing exports (if the country has an e-invoicing system) the CEO provides; the receivables list named in the role card.
 
 Never invent a figure. If a comparison basis is missing, say which one and compare on what you have.
 
@@ -76,7 +78,7 @@ Mix effect  = Sum of (Budget rate_i x (Actual volume_i - Expected volume_i at bu
 
 ### Personnel cost
 
-For people-cost variances. In Italy personnel cost is gross salary plus employer social contributions (INPS, INAIL) plus the TFR accrual, and in most collective agreements a 13th month (and sometimes a 14th) accrued across the year. The payroll figures come from the commercialista or payroll provider; use totals only, never per-person pay.
+For people-cost variances. Personnel cost is gross salary plus employer social contributions plus any statutory items the country requires (severance accruals, extra monthly salaries accrued across the year); the country pack lists them. The payroll figures come from the external accountant or payroll provider; use totals only, never per-person pay.
 
 ```
 Total personnel variance = Actual personnel cost - Budget personnel cost
@@ -86,8 +88,8 @@ Decompose into:
 2. Rate variance       = (Actual average cost - Budget average cost) x Budget HC
 3. Mix variance        = shift between levels or contract types
 4. Timing variance     = hiring earlier or later than planned (partial-period effect)
-5. Accrual timing      = 13th/14th month or bonuses booked in one month instead of spread
-6. Departures          = savings from unplanned leavers, partly offset by backfill and TFR paid out
+5. Accrual timing      = extra monthly salaries or bonuses booked in one month instead of spread
+6. Departures          = savings from unplanned leavers, partly offset by backfill and any severance paid out
 ```
 
 ### Spend category
@@ -112,14 +114,14 @@ Decompose by:
 
 Materiality decides which variances need an explanation. Base it on:
 
-1. **Size of the company**: for a company with a few hundred thousand euro of annual revenue, a fixed threshold of EUR 1,000–2,500 per line per month is usually a sensible starting point; agree it with the CEO and propose recording it in `roles/finance.md` if it is not there.
+1. **Size of the company**: for a company with a few hundred thousand of annual revenue, a fixed threshold of e.g. EUR 1,000–2,500 per line per month is usually a sensible starting point; agree it with the CEO and propose recording it in `roles/finance.md` if it is not there.
 2. **Line size**: larger lines warrant a lower percentage threshold.
 3. **Volatility**: noisy lines may need a higher threshold to avoid chasing noise.
 4. **Decision relevance**: what size of variance would change a decision? Anything that touches the cash buffer or the spending approval limit in the role card is material regardless of percentage.
 
 ### Recommended threshold framework
 
-| Comparison | Euro threshold | Percentage threshold | Trigger |
+| Comparison | Amount threshold | Percentage threshold | Trigger |
 |---|---|---|---|
 | Actual vs budget | company-specific | 10% | either exceeded |
 | Actual vs prior period | company-specific | 15% | either exceeded |
@@ -130,7 +132,7 @@ Materiality decides which variances need an explanation. Base it on:
 
 When several variances exceed thresholds, look at them in this order:
 
-1. **Largest absolute euro variance**: biggest impact on profit or cash.
+1. **Largest absolute amount variance**: biggest impact on profit or cash.
 2. **Largest percentage variance**: may point to an error or a process problem.
 3. **Unexpected direction**: opposite to trend or expectation.
 4. **New variance**: a line that was on track and now is not.
@@ -141,20 +143,20 @@ When several variances exceed thresholds, look at them in this order:
 ### Structure for each explanation
 
 ```
-[Line item]: [favourable/unfavourable] variance of EUR [amount] ([percentage]%)
+[Line item]: [favourable/unfavourable] variance of [currency] [amount] ([percentage]%)
 vs [comparison basis] for [period]
 
 Driver: [primary driver]
 [2-3 sentences explaining the business reason, with each contributing factor quantified]
 
 Outlook: [one-off / expected to continue / improving / deteriorating]
-Action: [none / monitor / ask the commercialista / ask the CEO / update forecast]
+Action: [none / monitor / ask the accountant / ask the CEO / update forecast]
 ```
 
 ### Quality checklist
 
 - [ ] **Specific**: names the actual driver, not "higher than expected".
-- [ ] **Quantified**: euro and percentage impact of each driver.
+- [ ] **Quantified**: amount and percentage impact of each driver.
 - [ ] **Causal**: explains why, not only what.
 - [ ] **Forward-looking**: says whether it will continue.
 - [ ] **Actionable**: names the follow-up or decision.
@@ -168,7 +170,7 @@ Action: [none / monitor / ask the commercialista / ask the CEO / update forecast
 - "One-off" without saying what the item was.
 - "Various small items" for a material variance (decompose further).
 - Explaining only the largest driver and ignoring offsetting items.
-- Reading an accounting entry (an accrual, a reclassification by the commercialista) as a business change. If a movement looks like a booking rather than an event, ask the commercialista before explaining it.
+- Reading an accounting entry (an accrual, a reclassification by the accountant) as a business change. If a movement looks like a booking rather than an event, ask the accountant before explaining it.
 
 ## Bridge (waterfall) method
 
@@ -239,7 +241,7 @@ Percentages can exceed 100% for single drivers when there are offsetting items.
 - **Actual vs forecast**: running management, spotting emerging problems.
 - **Forecast vs budget**: how expectations have moved since planning.
 - **Actual vs prior period**: trend; the default when there is no budget.
-- **Actual vs same period last year**: growth with seasonality removed (August and December are usually unrepresentative months in Italy).
+- **Actual vs same period last year**: growth with seasonality removed (holiday months are often unrepresentative; the country pack names them).
 
 ### Forecast accuracy
 
@@ -277,7 +279,7 @@ FINDINGS
 ...
 
 NOT CHECKED
-<missing comparison basis, periods not covered, bookings to confirm with the commercialista>
+<missing comparison basis, periods not covered, bookings to confirm with the accountant; points that depend on local rules if no country pack>
 ```
 
 Use STOP only when a variance means money should not be committed before the CEO has seen it (for example, the cash buffer in the role card is at risk). If a durable fact emerges (a materiality threshold the CEO agreed, a recurring seasonal pattern), propose adding it to `memory/knowledge/finance.md` or `roles/finance.md`; don't store it yourself.

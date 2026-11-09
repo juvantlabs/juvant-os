@@ -1,8 +1,8 @@
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/cash-flow-snapshot` at commit e050c2e (Apache-2.0). Modified for juvant-os: rebuilt on the Morvento example (receivables list, role card), Italian outflows, finance agent output shape.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/cash-flow-snapshot` at commit e050c2e (Apache-2.0). Modified for juvant-os: rebuilt on the Morvento example (receivables list, role card), recurring salary and tax outflows, finance agent output shape; country-neutral; local rules from the country pack.
 
 # Worked example — cash-flow-snapshot
 
-**Scenario:** Morvento, six-person B2B software company. Run on 9 November 2026. Sources: `samples/finance/receivables.csv`, a bank balance export from the CEO, fixed costs and an invoicing plan from the CEO, F24 and tax-advance amounts from the commercialista. No payables list. The bank, fixed-cost, tax and plan figures below are illustrative.
+**Scenario:** Morvento, six-person B2B software company. Run on 9 November 2026. Sources: `samples/finance/receivables.csv`, a bank balance export from the CEO, fixed costs and an invoicing plan from the CEO, monthly tax payment and tax-advance amounts from the external accountant. No payables list. The bank, fixed-cost, tax and plan figures below are illustrative; the tax calendar (a monthly tax payment on the 16th, a 13th month in December, an income-tax advance at end of November) is an example of what a country pack supplies.
 
 ---
 
@@ -34,18 +34,18 @@ Every client has fewer than 3 payments: default ±30% band.
 
 **Invoicing plan** (CEO): about EUR 26,000 of work invoiced at each month end, 30-day terms.
 
-**Fixed costs and taxes** (CEO and commercialista):
+**Fixed costs and taxes** (CEO and external accountant):
 
 | Date | Item | Amount |
 |---|---|---|
-| 16 Nov | F24 (October VAT, withholdings, INPS) | EUR 9,800 |
+| 16 Nov | Monthly tax payment (October VAT, withholdings, social contributions) | EUR 9,800 |
 | 27 Nov | Net salaries | EUR 16,500 |
-| 30 Nov | IRES/IRAP second advance | EUR 6,000 |
+| 30 Nov | Income-tax second advance | EUR 6,000 |
 | 1 Dec | Rent and subscriptions | EUR 3,700 |
-| 16 Dec | F24 | EUR 9,800 |
+| 16 Dec | Monthly tax payment | EUR 9,800 |
 | 27 Dec | Net salaries + 13th month | EUR 30,500 |
 | 1 Jan | Rent and subscriptions | EUR 3,700 |
-| 16 Jan | F24 (incl. withholdings on the 13th month) | EUR 12,500 |
+| 16 Jan | Monthly tax payment (incl. withholdings on the 13th month) | EUR 12,500 |
 | 27 Jan | Net salaries | EUR 16,500 |
 | 1 Feb | Rent and subscriptions | EUR 3,700 |
 
@@ -87,7 +87,7 @@ VERDICT: STOP
 FIGURES
 Cash Flow Snapshot — 9 Nov 2026 → 7 Feb 2027
 Sources: receivables list (to 6 Nov), bank export (6 Nov), fixed costs and
-invoicing plan from the CEO, F24 and tax advance from Dott. Rinaldi.
+invoicing plan from the CEO, tax payment and tax advance from the accountant.
 Opening balance: EUR 112,000 at 6 Nov 2026
 Minimum buffer: EUR 90,000
 
@@ -97,7 +97,7 @@ Upside not counted: EUR 7,320 (Studio Varenna, 2026/079 and 2026/088)
 FINDINGS
 1. [high] Buffer breach — closing cash EUR 81,130 by 9 Dec and EUR 56,430 by
    7 Feb (low band EUR 39,291), against a EUR 90,000 buffer — the 13th month
-   and the January F24 drive the drop — propose the CEO reviews planned
+   and the January tax payment drive the drop — propose the CEO reviews planned
    spending and the invoicing timing for December.
 2. [high] Studio Varenna — EUR 7,320 open, 2026/079 is 46 days late (CEO call
    due at 45 days per the role card) — propose the CEO calls this week;
@@ -109,8 +109,8 @@ FINDINGS
    to the default ±30%.
 
 NOT CHECKED
-No payables list or SDI received-invoices export: supplier payments are not in
+No payables list or received-invoices export: supplier payments are not in
 the outflows, so the forecast is optimistic by whatever suppliers are owed.
-F24 and tax-advance amounts are the commercialista's estimates; confirm before
-16 Nov. This is an aid, not financial advice.
+Tax payment and tax-advance amounts are the accountant's estimates; confirm
+before 16 Nov. This is an aid, not financial advice.
 ```

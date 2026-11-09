@@ -1,14 +1,19 @@
 # Reply drafting
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/inbox-manager` at commit e050c2e (Apache-2.0). Modified for juvant-os: voice from the company's files, drafts created in Outlook (never sent), Italian/English examples from Morvento, corrections proposed to `memory/knowledge/brand.md`.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/inbox-manager` at commit e050c2e (Apache-2.0). Modified for juvant-os: voice from the company's files, drafts created in Outlook (never sent), bilingual examples from Morvento, corrections proposed to `memory/knowledge/brand.md`; country-neutral; local rules from the country pack.
 
 Read [voice](../../kwp-shared/voice-profile.md) first. Every draft here goes out
 under the CEO's name, and voice drift between skills is what people notice
 fastest. If the company's files say nothing about voice, write plainly in a
 neutral register and say the drafts are un-voiced. Don't guess a personality.
 
-Write in the language of the thread. The examples below mix Italian and English
-the way a company like Morvento does.
+Write in the language of the thread. The examples below mix the local language
+and English the way a company like Morvento (an Italian example company) does.
+
+**Local rules.** If `.claude/country/locale.md` or `country/locale.md` exists,
+use its register, titles and greetings, and add its local filler phrases to the
+lines never to write below. If neither exists, take register from the thread and
+say the local conventions were not checked.
 
 ---
 
@@ -31,8 +36,8 @@ thread.
 
 **Don't apologise for a delay unless there was one.**
 
-**Respect register.** Tu or Lei as the CEO already used with that person in the
-thread.
+**Respect register.** Formal or informal address (where the language has both)
+as the CEO already used with that person in the thread.
 
 ---
 
@@ -119,13 +124,14 @@ Giulia
 
 Tells that someone other than the CEO wrote the message:
 
-- "I hope this email finds you well" / "Spero che questa email la trovi bene"
+- "I hope this email finds you well"
 - "Just circling back" / "Just following up" / "Touching base"
-- "Per my last email" / "Come da mia precedente"
+- "Per my last email"
 - "I wanted to reach out"
-- "Please don't hesitate to reach out" / "Non esiti a contattarmi" (unless the
-  company's files show the CEO uses it)
+- "Please don't hesitate to reach out" (unless the company's files show the CEO
+  uses it)
 - "At your earliest convenience"
+- The local-language equivalents the locale file lists
 - Any superlative or claim `memory/knowledge/brand.md` rules out
 
 If the company's files list their own never-dos, those take priority.
@@ -139,7 +145,7 @@ isn't obvious, then propose the line for `memory/knowledge/brand.md`:
 
 ```
 Proposed addition to memory/knowledge/brand.md, under Voice:
-- No "Scusa il ritardo" in routine replies unless we were actually late.
+- No "Sorry for the delay" in routine replies unless we were actually late.
 ```
 
 Don't write it yourself without a yes, and don't keep a private list.

@@ -1,4 +1,4 @@
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: firmness now comes from the late-payer step in `roles/finance.md`; the payment-history score only adjusts warmth within the step; EUR and Italian payment details.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/invoice-chase` at commit e050c2e (Apache-2.0). Modified for juvant-os: firmness now comes from the late-payer step in `roles/finance.md`; the payment-history score only adjusts warmth within the step; payment details as on the invoice; country-neutral; local rules from the country pack.
 
 # Tone Matching
 

@@ -1,9 +1,13 @@
 # Output template
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: the review closes with the reviews needed and the CEO sending it themselves (no DocuSign question); euro and VAT; Morvento examples.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/proposal-builder` at commit e050c2e (Apache-2.0). Modified for juvant-os: the review closes with the reviews needed and the CEO sending it themselves (no DocuSign question); currency and VAT stated; Morvento examples; country-neutral; local rules from the country pack.
 
 The CEO checks two things before sending: the price and the scope. Structure the
 review around that.
+
+Amounts follow [currency and locale](../../kwp-shared/currency-and-locale.md).
+The examples use Morvento's euro amounts in its locale's format, with "+ VAT"
+standing for the net-of-tax wording the locale file gives.
 
 ---
 
@@ -12,12 +16,12 @@ review around that.
 ```
 ## Proposal: <client>, <job in four words>
 
-**<total + IVA>** · <one line on how it was priced>
+**<total, net of VAT or sales tax>** · <one line on how it was priced>
 
 Based on: <comparables and rules used, with dates and amounts>
 
 ### Open assumptions
-- <assumption>: <what happens if it's wrong, in euro>
+- <assumption>: <what happens if it's wrong, in the company's currency>
 
 ### Worth knowing before you send
 - <risk, plainly>
@@ -39,10 +43,10 @@ Everything above the draft line is for the CEO alone. The client never sees it.
 ```
 ## Proposal: Ottica Lenzi, assistant for 4 shops
 
-**€ 4.875 + IVA one-off, € 588 + IVA per month** · Setup priced from the
+**€ 4.875 + VAT one-off, € 588 + VAT per month** · Setup priced from the
 Libreria Fontana job plus 2 days for web chat; licences at list price.
 
-Based on: Libreria Fontana, Jun 2026: 5 days setup, € 3.250 + IVA
+Based on: Libreria Fontana, Jun 2026: 5 days setup, € 3.250 + VAT
           (€ 650/day, our floor). List price € 49/user/month
           (memory/knowledge/product.md).
 
@@ -65,7 +69,7 @@ Based on: Libreria Fontana, Jun 2026: 5 days setup, € 3.250 + IVA
 
 ### Reviews needed
 - Legal: yes. The one-off is under € 10.000, but setup plus 12 months of
-  licences is about € 11.900 + IVA, over the manifesto's € 10.000 line.
+  licences is about € 11.900 + VAT, over the manifesto's € 10.000 line.
   The work also touches their customers' messages, so a DPA is needed.
 
 Draft: drafts/proposal-ottica-lenzi-2026-11-09.md
@@ -86,9 +90,9 @@ Show the proposal as complete except for the gap, and make the ask trivial:
 ```
 ## Proposal: Studio Varenna, integration with their CRM
 
-**€ 3.900 + IVA + integration line** · Everything priced except one line.
+**€ 3.900 + VAT + integration line** · Everything priced except one line.
 
-Line 4: CRM integration: € ______ + IVA
+Line 4: CRM integration: € ______ + VAT
 
 No comparable integration and no rule for it. Give me the team's estimate in
 days and this is ready.
@@ -103,7 +107,7 @@ Compliance leads:
 ```
 ## RFP response: Consorzio Commercianti, customer service assistant
 
-**€ 17.640 + IVA per year, plus € 4.550 + IVA setup** · 3-year term; licences
+**€ 17.640 + VAT per year, plus € 4.550 + VAT setup** · 3-year term; licences
 at list price for 30 users, setup at our day rate (7 days).
 
 ### Compliance check
@@ -112,7 +116,7 @@ at list price for 30 users, setup at our day rate (7 days).
 ⚠ They require 99,9% availability with penalties. Our product facts don't state
   an availability figure. Needs the team and legal before we answer.
 
-Due 28/11, 12:00, by PEC. Page limit 15; we're at 11.
+Due 28/11, 12:00, by certified email. Page limit 15; we're at 11.
 
 ### Worth knowing before you send
 - Penalties of € 200 per day of unavailability, uncapped. That's the main

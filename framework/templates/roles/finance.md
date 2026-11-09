@@ -17,9 +17,12 @@ character: <!-- two lines -->
 
 ## Recurring obligations and deadlines
 
-<!-- For Italy, for example: F24 (VAT, withholdings, INPS), quarterly VAT
-     settlement, e-invoices through SDI, annual filings. Who handles each:
-     usually the external accountant (commercialista). -->
+<!-- For example: monthly tax and contribution payments (VAT, withholdings,
+     social contributions), periodic VAT or sales-tax returns, e-invoicing if
+     the country has a national system, annual filings. Who handles each:
+     usually the external accountant. Exact dates and amounts as the
+     accountant gives them.
+     See .claude/country/ for your country's checklist (finance.md). -->
 
 ## Data sources
 
@@ -28,4 +31,4 @@ character: <!-- two lines -->
 
 ## People of reference
 
-<!-- Commercialista, bank contact, auditor: name and when to involve them. -->
+<!-- External accountant, bank contact, auditor: name and when to involve them. -->

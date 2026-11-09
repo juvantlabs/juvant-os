@@ -1,13 +1,13 @@
 # Output style: how briefs and documents look
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/shared/artifact-style.md` at commit e050c2e (Apache-2.0). Modified for juvant-os: output goes to chat and files in `drafts/` (markdown by default, DOCX/PDF for documents that leave the company, HTML only on request); brand comes from `memory/knowledge/brand.md`; Notion/Canva delivery and onboarding capture removed; the house palette and components are kept, shortened.
+> Adapted from anthropics/knowledge-work-plugins `small-business/shared/artifact-style.md` at commit e050c2e (Apache-2.0). Modified for juvant-os: output goes to chat and files in `drafts/` (markdown by default, DOCX/PDF for documents that leave the company, HTML only on request); brand comes from `memory/knowledge/brand.md`; Notion/Canva delivery and onboarding capture removed; the house palette and components are kept, shortened; country-neutral; local rules from the country pack.
 
 **Shared across skills.** One look, so every brief and page a skill produces
 reads as the same company's work. These are operating tools for a small company:
 legible beats flashy. A ledger, not a landing page.
 
-**Amounts and dates follow `currency-and-locale.md`** (euro, Italian separators,
-day before month).
+**Amounts and dates follow `currency-and-locale.md`** (currency, separators and
+date order from the country pack's locale file).
 
 ---
 
@@ -38,7 +38,8 @@ Nothing in `drafts/` is published, uploaded or sent by the skill.
 
 ## Markdown conventions
 
-- One `#` title with the page's job and the date: `# Business pulse, 9 novembre 2026`.
+- One `#` title with the page's job and the date, in the CEO's working language
+  and the locale's date format: e.g. `# Business pulse, 9 November 2026`.
 - Sections as `##`; no deeper than `###`.
 - Tables for anything with three or more comparable rows; numbers right-aligned.
 - Status words, not emoji, as the primary signal: **OK**, **Review**,
@@ -110,7 +111,7 @@ both work.
   a proposal template in SharePoint). Familiar beats better.
 - Otherwise: company name and logo (if in `memory/knowledge/brand.md`) in the
   header, page numbers and document number in the footer, price tables
-  right-aligned with euro formatting.
+  right-aligned with the company currency's formatting.
 
 ---
 

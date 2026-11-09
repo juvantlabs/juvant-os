@@ -4,7 +4,7 @@ description: "Review content against the company's brand voice, brand rules and 
 argument-hint: "<content to review, or a path in drafts/>"
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `marketing/skills/brand-review` at commit e050c2e (Apache-2.0). Modified for juvant-os: brand rules come from the manifesto and `memory/knowledge/brand.md` instead of local settings; output is a review (and an optional revised draft in `drafts/`), never a publish; Italian/EU compliance flags; connector placeholders removed.
+> Adapted from anthropics/knowledge-work-plugins `marketing/skills/brand-review` at commit e050c2e (Apache-2.0). Modified for juvant-os: brand rules come from the manifesto and `memory/knowledge/brand.md` instead of local settings; output is a review (and an optional revised draft in `drafts/`), never a publish; compliance flags; connector placeholders removed; country-neutral; local rules from the country pack.
 
 # Brand Review
 
@@ -47,8 +47,8 @@ Evaluate the content on each dimension:
 - Is the tone right for the content type and audience?
 - Are there shifts in voice that feel inconsistent?
 - Flag specific sentences that deviate, and say why.
-- Language: does it follow the manifesto (for example Italian with Italian
-  audiences, English otherwise)?
+- Language: does it follow the manifesto (for example the local language with
+  local audiences, English otherwise)?
 
 #### Terminology and language
 - Are the company and product names spelled exactly as `brand.md` says
@@ -67,7 +67,7 @@ Evaluate the content on each dimension:
 - Grammar and punctuation per the company's rules, if written down
 - Formatting conventions (headings, lists, emphasis)
 - Numbers and dates per [currency and locale](../kwp-shared/currency-and-locale.md)
-  (euro, Italian separators, day before month)
+  (currency, separators and date order from the country pack's locale file)
 - Acronyms defined on first use
 
 ### Without brand guidelines (generic review)
@@ -89,15 +89,21 @@ Evaluate the content on each dimension:
 
 ### Legal and compliance flags (always checked)
 
+**Local rules.** If `.claude/country/marketing.md` or `country/marketing.md`
+exists, apply its checks and use its terms (advertising, comparative claims,
+consent, consumer rules, price disclaimers). If neither exists, say which points
+depend on local law or practice and list them under NOT CHECKED (to check with
+local counsel).
+
 Whatever the guidelines, flag:
 - **Unsubstantiated claims**: superlatives ("best", "fastest", "only", "number
-  one") without evidence. Under Italian and EU consumer and advertising rules
+  one") without evidence. Under consumer and advertising rules in many countries
   these can be misleading advertising.
-- **Comparative claims**: comparisons with named competitors must be accurate,
-  verifiable and not denigrating; flag any for review.
+- **Comparative claims**: comparisons with named competitors; flag any for
+  review against the local rules on comparative advertising.
 - **Missing disclaimers**: financial claims, guarantees, "free" offers with
-  conditions, pricing without "+ IVA" where the audience is businesses and VAT
-  treatment isn't clear.
+  conditions, pricing that doesn't say whether VAT or sales tax is included where
+  the audience is businesses and the treatment isn't clear.
 - **Personal data and privacy**: customer names, quotes, logos or screenshots
   that may need written consent; anything that could expose client data (see
   [personal data](../kwp-shared/personal-data.md) and the manifesto).
@@ -122,7 +128,8 @@ voice if `brand.md` is thin.
 2. **Voice attributes**: 3 to 5, each with what it means, what it doesn't mean,
    and an example.
 3. **Audience**: who the company speaks to, what they care about, how expert
-   they are, how they expect to be addressed (tu or Lei in Italian).
+   they are, how they expect to be addressed (formal or informal, where the
+   language has both).
 4. **Messaging pillars**: 3 to 5 themes, in order, each tied to an audience need.
 5. **Tone range**: how the voice adapts by context while staying recognisable.
 6. **Style rules**: grammar, formatting and language choices.
@@ -161,7 +168,7 @@ Example:
 | Channel | Tone | Example |
 |---|---|---|
 | Blog | Informative, conversational | "Here's how it works and why it matters for a team of five." |
-| LinkedIn | Professional, concise, a point of view | "Three things we learned answering 10.000 customer emails." |
+| LinkedIn | Professional, concise, a point of view | "Three things we learned answering 10,000 customer emails." |
 | Newsletter | Personal, useful, one action | "We put together something we think you'll find useful." |
 | Sales material | Confident, specific, benefit-led | "Answers drafted in seconds, approved by your team." |
 | Help docs | Clear, patient, step by step | "If you see this error, here's how to fix it." |
@@ -188,25 +195,26 @@ confidence; in an incident, more warmth. Neither disappears.
 | Rule | Options |
 |---|---|
 | Serial comma (English) | Yes / No |
-| Headings | Sentence case / Title case (Italian: sentence case) |
+| Headings | Sentence case / Title case (per language; the locale file may say) |
 | Contractions (English) | Use / Avoid |
 | Dashes | Em dash / en dash with spaces / avoid |
 | Numbers | Spell out one to nine / always numerals |
-| Percent | `50%` / `50 per cento` |
-| Dates | Day month year (`14 marzo 2026`) |
-| Times | 24-hour (`15:00`) |
-| Address | Tu / Lei (Italian) |
+| Percent | `50%` / spelled out |
+| Dates | As the locale file says (e.g. `14 March 2026`) |
+| Times | As the locale file says (e.g. 24-hour, `15:00`) |
+| Address | Formal / informal, where the language has both |
 
-Formatting: one H1, descriptive link text (never "click here" / "clicca qui"),
+Formatting: one H1, descriptive link text (never "click here" or its local
+equivalent),
 alt text on images, bold for emphasis instead of capitals, exclamation marks
 rare, emoji only where the channel and brand allow.
 
 ### Terminology
 
 - Company and product names exactly as `brand.md` writes them.
-- Inclusive language: gender-neutral where the person is unknown (in Italian,
-  prefer neutral rewordings over forced forms when the brand file doesn't
-  specify); no ableist idioms; "simple" rather than "easy".
+- Inclusive language: gender-neutral where the person is unknown (in gendered
+  languages, follow the brand file, or the locale file's guidance when the brand
+  file doesn't specify); no ableist idioms; "simple" rather than "easy".
 - Jargon: which terms the audience knows; which acronyms to spell out.
 - Competitors: by name or generically, per `brand.md`; avoid terms a competitor
   coined.

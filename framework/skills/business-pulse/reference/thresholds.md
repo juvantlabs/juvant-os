@@ -1,13 +1,15 @@
 # Thresholds
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/business-pulse` at commit e050c2e (Apache-2.0). Modified for juvant-os: cut-offs come from `roles/finance.md` first, with defaults only where the role card is silent; payments, ads and pipeline-coverage thresholds removed; statuses as words.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/business-pulse` at commit e050c2e (Apache-2.0). Modified for juvant-os: cut-offs come from `roles/finance.md` first, with defaults only where the role card is silent; payments, ads and pipeline-coverage thresholds removed; statuses as words; country-neutral; local rules from the country pack.
 
 Status cut-offs for each section. **`roles/finance.md` wins** wherever it states a
 rule; the defaults below apply only where it's silent. When a default is used,
 the appendix says so, and suggests the CEO add the rule to `roles/finance.md` if
 they want a different one.
 
-Amounts are in euro ([currency and locale](../../kwp-shared/currency-and-locale.md)).
+Amounts are in the company's currency
+([currency and locale](../../kwp-shared/currency-and-locale.md)); the examples
+use euro.
 
 ---
 
@@ -42,9 +44,11 @@ Every invoice past the first step of the ladder is named, with its next step.
 
 Default ladder if the role card has none: Review at 31 days, Critical at 61.
 
-Italian late-payment interest (D.Lgs. 231/2002) may apply to B2B invoices; the
-pulse mentions it only as "late-payment interest may apply; check with the
-commercialista" and never computes it.
+**Local rules.** Statutory late-payment interest may apply to B2B invoices. If
+`.claude/country/legal.md` or `country/legal.md` (or `finance.md`) exists, name
+the rule it gives; the pulse mentions it only as "late-payment interest may
+apply; check with the external accountant" and never computes it. If neither
+exists, say the point depends on local law and list it under NOT CHECKED.
 
 ---
 
@@ -59,15 +63,16 @@ commercialista" and never computes it.
 ## Deadlines
 
 - **Review**: a deadline from `roles/finance.md` or the calendar within 7 days
-  with its inputs not yet ready (e.g. receipts missing for the commercialista)
+  with its inputs not yet ready (e.g. receipts missing for the external
+  accountant)
 - **Critical**: within 2 working days and not ready
 
 ---
 
 ## Watch list
 
-No numeric thresholds. Any escalation, PEC, or second unanswered client email is
-surfaced. Severity is the CEO's call.
+No numeric thresholds. Any escalation, mail with legal weight, or second
+unanswered client email is surfaced. Severity is the CEO's call.
 
 ---
 

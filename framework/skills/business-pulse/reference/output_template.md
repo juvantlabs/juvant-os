@@ -1,6 +1,6 @@
 # Output template
 
-> Adapted from anthropics/knowledge-work-plugins `small-business/skills/business-pulse` at commit e050c2e (Apache-2.0). Modified for juvant-os: sections match the juvant-os sources (bank export, receivables, proposals, deadlines, waiting on the CEO); euro and Italian formats; status words instead of colored emoji.
+> Adapted from anthropics/knowledge-work-plugins `small-business/skills/business-pulse` at commit e050c2e (Apache-2.0). Modified for juvant-os: sections match the juvant-os sources (bank export, receivables, proposals, deadlines, waiting on the CEO); status words instead of colored emoji; country-neutral; local rules from the country pack (formats from its locale file).
 
 The structure every pulse follows. Don't reorder sections. Omit a section only if
 it had no data; never leave an empty header.
@@ -11,7 +11,7 @@ always followed by the change.
 ---
 
 ```markdown
-# Business pulse, {{giorno mese anno, e.g. 9 novembre 2026}}
+# Business pulse, {{date in the locale's prose format, e.g. 9 November 2026}}
 
 **Overall: {{OK | Review | Critical}}** {{one line, e.g. "Cash above buffer; one client 46 days late needs your call."}}
 
@@ -27,7 +27,7 @@ always followed by the change.
 
 - **Balance**: € {{BALANCE}} at {{export date}} ({{▲|▼|▬}} € {{DELTA}} on the previous export)
 - **Buffer**: {{n,n}} months of fixed costs (rule: {{rule from roles/finance.md}})
-- **Next commitments**: {{F24 on the 16th, recurring costs, known payments}}
+- **Next commitments**: {{tax and contribution payments due, recurring costs, known payments}}
 
 ---
 
@@ -94,12 +94,12 @@ Not "review receivables": "Studio Varenna owes € 4.880 on invoice 2026/079,
 
 ## Formatting rules
 
-1. **Amounts**: `€ 43.200`, `€ 1,2 mln`; no unnecessary decimals; Italian
-   separators.
-2. **Percentages**: one decimal for trends (`▲ 8,3%`), integers elsewhere.
-3. **Dates**: day before month in prose (`14 marzo` / `14 March`), `14/03` in
-   tables, ISO in filenames.
-4. **Arrow spacing**: `▲ € 2.000`, not `▲€2.000`.
+1. **Amounts**: in the locale's format (e.g. `€ 43.200`, `€ 1,2 mln` in
+   Morvento's); no unnecessary decimals.
+2. **Percentages**: one decimal for trends (e.g. `▲ 8.3%`), integers elsewhere.
+3. **Dates**: the locale's order in prose and in short form in tables; ISO in
+   filenames. Never an ambiguous numeric date.
+4. **Arrow spacing**: a space after the arrow (e.g. `▲ € 2.000`, not `▲€2.000`).
 5. **Length**: one page; two at most.
 6. **Language**: the CEO's working language (per the manifesto or the
    conversation).

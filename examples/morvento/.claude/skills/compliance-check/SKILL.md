@@ -4,19 +4,19 @@ description: "Check a proposed action, product feature, campaign or initiative f
 argument-hint: "<action or initiative to check>"
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `legal/skills/compliance-check` at commit e050c2e (Apache-2.0). Modified for juvant-os: focused on GDPR and Italian rules for a small EU company, US and other-country privacy laws removed, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape.
+> Adapted from anthropics/knowledge-work-plugins `legal/skills/compliance-check` at commit e050c2e (Apache-2.0). Modified for juvant-os: focused on GDPR and local rules for a small EU company, US and other-country privacy laws removed, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape, country-neutral; local rules from the country pack.
 
 # Compliance check
 
 Check a proposed action, product feature, marketing campaign or business initiative: $ARGUMENTS
 
-**Important**: you assist with legal work; you do not give legal advice. Compliance assessments must be reviewed by a qualified professional. Rules and guidance change often; verify current requirements with authoritative sources (the Garante, the EDPB, official texts) or with the counsel named in `roles/legal.md`.
+**Important**: you assist with legal work; you do not give legal advice. Compliance assessments must be reviewed by a qualified professional. Rules and guidance change often; verify current requirements with authoritative sources (the national data protection authority, the EDPB, official texts) or with the counsel named in `roles/legal.md`.
 
 ## What you need
 
 A description of what the company plans to do. Good inputs are specific about:
 - **The action**: "send a newsletter to all trial users" beats "marketing campaign".
-- **Who and where**: business clients or consumers; Italy, EU, outside the EU.
+- **Who and where**: business clients or consumers; our own country, EU, outside the EU.
 - **The data**: what personal data, whose, from where, kept for how long, shared with whom.
 
 Examples:
@@ -27,6 +27,8 @@ Examples:
 
 Read first: `roles/legal.md` (positions, checklist, who handles data protection), `manifesto.md` (what we will and won't do), `memory/knowledge/product.md` (how the product handles data), `memory/map.md` (where our privacy notice, records of processing and DPAs live), `memory/decisions/` (earlier rulings on similar questions). If what you need isn't there, list it under NOT CHECKED; don't invent the company's practice.
 
+**Local rules.** If `.claude/country/legal.md` or `country/legal.md` exists, apply its checks and use its terms (national data protection law and authority, employee monitoring limits, retention rules). For direct marketing, consumers and advertising, do the same with `.claude/country/marketing.md` or `country/marketing.md`. If neither exists, say which points depend on local law or practice and list them under NOT CHECKED ("to check with local counsel").
+
 ## How to check
 
 1. Identify the rules that apply (below).
@@ -35,35 +37,38 @@ Read first: `roles/legal.md` (positions, checklist, who handles data protection)
 4. Say what has to happen before going ahead, and who has to approve.
 5. If the initiative raises questions of fairness, transparency to users, or use of AI on people's data, recommend the ethics reviewer as well.
 
-## Main rules for a small Italian company
+## Main rules for a small company
 
-### GDPR and the Italian Privacy Code
+### GDPR and national data protection law
 
-GDPR applies to processing of personal data of people in the EU/EEA. In Italy it is complemented by the Privacy Code (D.Lgs. 196/2003, as amended by D.Lgs. 101/2018); the supervisory authority is the Garante per la protezione dei dati personali.
+GDPR applies to processing of personal data of people in the EU/EEA. Each country complements it with national data protection law and has its own supervisory authority (the country pack names both). Outside the EU/EEA, apply the local data protection law from the country pack; if there is none, list the data protection points under NOT CHECKED.
 
 Key obligations:
 - **Lawful basis** for each processing activity (consent, contract, legal obligation, legitimate interest, etc.), documented. Legitimate interest needs a balancing test.
 - **Transparency**: a privacy notice (informativa, artt. 13–14) at or before collection.
 - **Data subject rights**: access, rectification, erasure, restriction, portability, objection; answer within one month, extendable by two further months for complex requests (art. 12(3)).
-- **DPIA** (art. 35) for processing likely to result in high risk (e.g. systematic monitoring, large-scale special categories, innovative technology such as AI on personal data). The Garante publishes a list of processing types that require one.
+- **DPIA** (art. 35) for processing likely to result in high risk (e.g. systematic monitoring, large-scale special categories, innovative technology such as AI on personal data). National supervisory authorities publish lists of processing types that require one; check the country pack.
 - **Records of processing** (art. 30). The exemption for companies under 250 employees does not apply when processing is not occasional, so most companies need them.
-- **Security** (art. 32) and **breach notification**: to the Garante within 72 hours of becoming aware (art. 33), to the people affected without undue delay if high risk (art. 34).
+- **Security** (art. 32) and **breach notification**: to the supervisory authority within 72 hours of becoming aware (art. 33), to the people affected without undue delay if high risk (art. 34).
 - **Processors**: a DPA under art. 28 with every supplier processing personal data on our behalf, and with every client for whom we process.
 - **Transfers outside the EU/EEA**: adequacy decision, SCCs or another valid mechanism (Chapter V).
 - **DPO**: required only in specific cases (core activities involving large-scale regular monitoring or special categories). Check the role card for who handles data protection.
 
-Common touchpoints: supplier DPAs, privacy by design for new features, privacy notice updates, cookie banners, direct marketing, responding to the Garante.
+Common touchpoints: supplier DPAs, privacy by design for new features, privacy notice updates, cookie banners, direct marketing, responding to the supervisory authority.
 
 ### Direct marketing
 
-- Email, SMS and automated calls to individuals generally need prior consent (art. 130 Privacy Code). The narrow exception for existing customers (similar products, email given in a sale, opt-out offered each time) needs checking case by case.
-- B2B email to named people at companies is still personal data; check the basis with counsel rather than assuming.
-- Telephone marketing: check the Registro pubblico delle opposizioni.
-- Cookies and trackers on our websites: consent for non-technical cookies, per the Garante's guidelines.
+Apply the marketing country pack (`.claude/country/marketing.md` or `country/marketing.md`). Check at least:
+- **Consent**: whether email, SMS and automated calls to individuals need prior consent, and whether there is an exception for existing customers and its conditions (to check case by case).
+- **B2B email** to named people at companies is still personal data; check the basis with counsel rather than assuming.
+- **Opt-out registers**: whether the country has a register that must be checked before telephone (or other) marketing.
+- **Cookies and trackers** on our websites: the local consent rules and the authority's guidelines.
+
+With no marketing pack, list each of these under NOT CHECKED.
 
 ### Consumers
 
-If the initiative reaches consumers (not only businesses), the Consumer Code (D.Lgs. 206/2005) applies: pre-contract information, withdrawal rights for distance contracts, unfair commercial practices. Flag it and route to counsel; our standard positions are B2B.
+If the initiative reaches consumers (not only businesses), consumer protection law applies (typically: pre-contract information, withdrawal rights for distance contracts, unfair commercial practices; the marketing country pack names the local law). Flag it and route to counsel; our standard positions are B2B.
 
 ### AI
 
@@ -71,7 +76,7 @@ If the initiative uses AI on people's data or makes decisions about people: GDPR
 
 ### Other areas to flag, not resolve
 
-Employment (monitoring of employees' devices or mail is tightly restricted in Italy), tax and e-invoicing (route to the finance reviewer and the commercialista), advertising claims, competition, sector rules of the client (health, finance, public administration). Data subjects outside the EU (UK, Switzerland, US) may bring their own laws: list them under NOT CHECKED.
+Employment (monitoring of employees' devices or mail is often tightly restricted; check the country pack), tax and e-invoicing where the country has one (route to the finance reviewer and the external accountant), advertising claims (marketing country pack), competition, sector rules of the client (health, finance, public administration). Data subjects outside the EU (UK, Switzerland, US) may bring their own laws: list them under NOT CHECKED.
 
 ## DPA review checklist (GDPR art. 28)
 
@@ -132,13 +137,13 @@ When a request arrives (usually by mail; read it through the Microsoft 365 conne
 2. **Our role**: if we are processor for a client, the request goes to the client (controller); we help as the DPA says. If we are controller, we answer.
 3. **Identity**: verify proportionately; don't ask for more documents than needed.
 4. **Deadline**: one month from receipt (art. 12(3)); extension of two further months only for complex or numerous requests, with reasons given within the first month.
-5. **Exemptions**: legal retention (accounting and tax records have mandatory retention periods; ask the commercialista), establishment or defence of legal claims, rights of others, freedom of expression for erasure.
-6. **Response**: draft it to `drafts/dsr-<date>.md` or as an Outlook draft through the connector. Include what was done, or the legal basis for refusing in whole or part, and the right to complain to the Garante. The CEO sends it; you never do.
+5. **Exemptions**: legal retention (accounting and tax records have mandatory retention periods; ask the external accountant), establishment or defence of legal claims, rights of others, freedom of expression for erasure.
+6. **Response**: draft it to `drafts/dsr-<date>.md` or as an Outlook draft through the connector. Include what was done, or the legal basis for refusing in whole or part, and the right to complain to the supervisory authority (named in the country pack). The CEO sends it; you never do.
 7. **Record**: propose a note for `memory/decisions/` (date, type, deadline, outcome). Don't keep your own log.
 
 ## Watching for changes
 
-You don't run monitoring. When a check depends on guidance that may have changed (Garante guidelines, EDPB opinions, AI Act phase-in dates, SCC updates, adequacy decisions), say so under NOT CHECKED and recommend verification with counsel. Escalate to the CEO when a change hits core activities, an authority contacts us, a deadline requires changes to how we work, or a transfer mechanism we rely on is challenged.
+You don't run monitoring. When a check depends on guidance that may have changed (national authority guidelines, EDPB opinions, AI Act phase-in dates, SCC updates, adequacy decisions), say so under NOT CHECKED and recommend verification with counsel. Escalate to the CEO when a change hits core activities, an authority contacts us, a deadline requires changes to how we work, or a transfer mechanism we rely on is challenged.
 
 ## Output
 
@@ -174,7 +179,7 @@ Then, below the three blocks:
 | Who | Why | Status |
 |---|---|---|
 | CEO | decides | pending |
-| [ethics / finance reviewer, counsel from roles/legal.md, commercialista] | [...] | pending |
+| [ethics / finance reviewer, counsel from roles/legal.md, external accountant] | [...] | pending |
 
 ### Further review recommended
 [Where counsel or a specialist should look, and why]

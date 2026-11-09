@@ -3,7 +3,7 @@ name: legal-risk-assessment
 description: "Assess and classify a legal risk with a severity-by-likelihood matrix and clear escalation rules. Use when evaluating contract or deal exposure, a dispute or threatened claim, a regulator's letter, a data incident, or when deciding whether a matter needs the outside counsel named in roles/legal.md."
 ---
 
-> Adapted from anthropics/knowledge-work-plugins `legal/skills/legal-risk-assessment` at commit e050c2e (Apache-2.0). Modified for juvant-os: sized for a small Italian company, escalation tied to roles/legal.md and the manifesto, no own risk register, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape.
+> Adapted from anthropics/knowledge-work-plugins `legal/skills/legal-risk-assessment` at commit e050c2e (Apache-2.0). Modified for juvant-os: sized for a small company, escalation tied to roles/legal.md and the manifesto, no own risk register, output fitted to the legal reviewer's VERDICT / FINDINGS / NOT CHECKED shape, country-neutral; local rules from the country pack.
 
 # Legal risk assessment
 
@@ -21,6 +21,8 @@ Read:
 
 Work from the facts you were given. Don't fill gaps with assumptions you then rely on; list them under NOT CHECKED.
 
+**Local rules.** If `.claude/country/legal.md` or `country/legal.md` exists, apply its checks and use its terms (authorities, formal court acts, corporate liability regimes, data protection specifics). If neither exists, say which points depend on local law or practice and list them under NOT CHECKED ("to check with local counsel").
+
 ## Severity × likelihood
 
 **Severity** (impact if it happens). Percentages are of the relevant contract or deal value; for a company of this size also compare to annual revenue and cash, if the finance role card or the CEO gives you those figures.
@@ -30,8 +32,8 @@ Work from the facts you were given. Don't fill gaps with assumptions you then re
 | 1 | **Negligible** | Minor inconvenience; no material financial, operational or reputational impact. |
 | 2 | **Low** | Limited impact; small exposure (< 1% of relevant value); minor disruption; no public attention. |
 | 3 | **Moderate** | Material exposure (1–5%); noticeable disruption; possible limited public attention. |
-| 4 | **High** | Substantial exposure (5–25%); significant disruption; likely public attention; possible regulatory scrutiny (e.g. the Garante). |
-| 5 | **Critical** | Major exposure (> 25%, or a threat to the company's cash position); fundamental disruption; serious reputational damage; regulatory action likely; possible personal liability of the directors (amministratori). |
+| 4 | **High** | Substantial exposure (5–25%); significant disruption; likely public attention; possible regulatory scrutiny (e.g. the data protection authority). |
+| 5 | **Critical** | Major exposure (> 25%, or a threat to the company's cash position); fundamental disruption; serious reputational damage; regulatory action likely; possible personal liability of the directors. |
 
 **Likelihood**:
 
@@ -76,7 +78,7 @@ Minor, unlikely, within normal operations, with known mitigations.
 - **Record**: propose a one-line entry for `memory/decisions/` if the CEO accepts it.
 - **No escalation.**
 
-Examples: a supplier contract with a minor deviation in a non-critical area; a routine NDA with a known counterparty under Italian law.
+Examples: a supplier contract with a minor deviation in a non-critical area; a routine NDA with a known counterparty under our own country's law.
 
 ### YELLOW: medium (5–9)
 Could happen in foreseeable circumstances; needs attention, not urgency.
@@ -94,7 +96,7 @@ Significant and with a real chance of happening.
 - **Mitigation and contingency plan**: what we do to reduce it, and what we do if it happens.
 - **Review**: at defined milestones or weekly until it drops.
 
-Examples: uncapped indemnity in a material area; a data processing activity that may breach GDPR unless restructured; a threatened claim from a significant client; an IP infringement allegation with some basis; a letter or inspection request from an authority (Garante, Agenzia delle Entrate, Guardia di Finanza, labour inspectorate).
+Examples: uncapped indemnity in a material area; a data processing activity that may breach GDPR unless restructured; a threatened claim from a significant client; an IP infringement allegation with some basis; a letter or inspection request from an authority (data protection, tax, financial police, labour inspectorate; the country pack names them).
 
 ### RED: critical (16–25)
 Severe and likely or certain.
@@ -102,10 +104,10 @@ Severe and likely or certain.
 - **Outside counsel now**: name them from the role card.
 - **Insurance**: recommend checking whether a policy (e.g. professional or cyber liability) requires notice, and its deadline.
 - **Preserve evidence**: recommend that nothing related is deleted (mail, files, logs) until counsel says otherwise.
-- **Mandatory notices**: flag any legal deadline, e.g. a personal data breach must be notified to the Garante within 72 hours of becoming aware of it, unless unlikely to result in a risk (GDPR art. 33); affected people without undue delay if high risk (art. 34). Draft the notice for the CEO if asked; never file it.
-- **Accountant**: if tax or contributions are involved, the commercialista must be told.
+- **Mandatory notices**: flag any legal deadline, e.g. under GDPR a personal data breach must be notified to the supervisory authority within 72 hours of becoming aware of it, unless unlikely to result in a risk (art. 33); affected people without undue delay if high risk (art. 34). Outside GDPR, use the local deadline from the country pack, or list it under NOT CHECKED. Draft the notice for the CEO if asked; never file it.
+- **Accountant**: if tax or contributions are involved, the external accountant must be told.
 
-Examples: a lawsuit or injunction served (atto di citazione, decreto ingiuntivo); a personal data breach; an enforcement action; a material contract breach by or against us; a credible IP claim against our core product.
+Examples: a lawsuit or injunction served (the country pack names the local formal acts); a personal data breach; an enforcement action; a material contract breach by or against us; a credible IP claim against our core product.
 
 ## Memo format
 
@@ -146,7 +148,7 @@ Use this for ORANGE and RED, or when asked for a formal assessment. If a durable
 [What to watch; events that trigger reassessment]
 
 ### 10. Next steps
-1. [Action — who (CEO, counsel, commercialista, Chief of Staff) — by when]
+1. [Action — who (CEO, counsel, external accountant, Chief of Staff) — by when]
 ```
 
 ## Risk record
@@ -160,7 +162,7 @@ Start from "People of reference" in `roles/legal.md`; the role card may set valu
 **Always**
 - Any lawsuit, injunction or formal claim by or against the company.
 - Any inquiry, inspection or request from an authority or law enforcement.
-- Any possible criminal exposure for the company or its people (including liability of the entity under D.Lgs. 231/2001).
+- Any possible criminal exposure for the company or its people (including any corporate criminal or administrative liability regime of the entity; the country pack names it).
 - Matters that need a shareholders' or board decision.
 
 **Strongly recommended**
