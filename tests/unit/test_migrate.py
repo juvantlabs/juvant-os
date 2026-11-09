@@ -159,6 +159,20 @@ class Migrate(unittest.TestCase):
         self.assertIn("Components in v1 (now projects)", report)
         self.assertIn('--shared-with "everyone (public repository)"', report)
 
+    def test_deadlines(self):
+        dl = os.path.join(self.tmp, "deadlines.json")
+        with open(dl, "w") as f:
+            f.write('[{"id": "f24", "name": "F24 | IVA", "date": "2099-05-16", "owner": "cfo", "days_notice": 14},'
+                    ' {"id": "old", "name": "Old filing", "date": "2020-01-31", "owner": "clo"}]')
+        self.assertEqual(self.run_tool("--deadlines", dl).returncode, 0)
+        with open(os.path.join(self.co, "memory", "deadlines.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("| 2099-05-16 | F24 / IVA (notice 14 days) | finance |", text)
+        self.assertIn("| 2020-01-31 | Old filing (past) | legal |", text)
+        self.run_tool("--deadlines", dl)
+        with open(os.path.join(self.co, "memory", "deadlines.md"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read().count("F24 / IVA"), 1, "rows are never duplicated")
+
     def test_dry_run_writes_nothing(self):
         before = sorted(os.listdir(os.path.join(self.co, "memory", "decisions")))
         r = self.run_tool("--dry-run")

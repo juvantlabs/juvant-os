@@ -4,7 +4,7 @@
     python3 tools/migrate-from-v1.py <v1.db> <v2-company-dir> [--dry-run]
         [--skip-category CAT ...] [--keep-all-categories] [--include-proposed]
         [--with-contact-emails] [--project <slug>=<v1-project.db> ...]
-        [--kb-by-category] [--components <components.json>]
+        [--kb-by-category] [--components <components.json>] [--deadlines <deadlines.json>]
 
 <v1.db> is a SQLite copy of the v1 company DB. For a Turso DB, make one with
     turso db shell <db-name> .dump | sqlite3 v1.db
@@ -29,6 +29,8 @@ What moves, as v2 memory files (format: memory/README.md in the v2 repo):
   is read by everyone). Their decisions and knowledge stay in their repo (ADRs,
   issues labelled juvant:decision, docs), linked from the card. Pass the
   components array saved to a file: --components /tmp/components.json
+- v1 deadlines (scripts/deadlines.json) -> rows of memory/deadlines.md (date | what |
+  who), appended to the table setup created; past dates are kept, marked done
 - agent names                         -> listed in MIGRATION-REPORT.md, for the
   role cards, not written into them
 
@@ -275,6 +277,46 @@ def component_cards(path, w, rep):
             rep.lines.append(f"  public repo: link it with the project-repo skill and --shared-with \"everyone (public repository)\"")
 
 
+def migrate_deadlines(path, w, rep):
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        sys.exit(f"migrate: can't read {path}: {e}")
+    items = data.get("deadlines", data) if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        sys.exit(f"migrate: {path} should hold a list of deadlines")
+    owners = {"cfo": "finance", "clo": "legal", "cetho": "ethics", "cos": "Chief of Staff", "ceo": "CEO"}
+    today = dt.date.today().isoformat()
+    rows = []
+    for d in items:
+        if not isinstance(d, dict) or not d.get("date"):
+            continue
+        date = day(d.get("date"))
+        what = clean(d.get("name") or d.get("id"), rep).replace("|", "/")
+        who = owners.get(str(d.get("owner", "")).lower(), clean(d.get("owner"), rep))
+        note = f" (notice {d['days_notice']} days)" if d.get("days_notice") else ""
+        done = " (past)" if date < today else ""
+        rows.append(f"| {date} | {what}{note}{done} | {who} |")
+    rel = "memory/deadlines.md"
+    full = os.path.join(w.target, rel)
+    header = "# Deadlines\n\nOne row per deadline: date | what | who. The dashboard shows the next 30 days.\n\n| Date | What | Who |\n|---|---|---|\n"
+    existing = ""
+    if os.path.exists(full):
+        with open(full, encoding="utf-8") as f:
+            existing = f.read()
+    new_rows = [r for r in sorted(rows) if r not in existing]
+    rep.lines.append(f"- Deadlines from v1: {len(rows)} ({len(new_rows)} added to {rel})")
+    if not new_rows:
+        return
+    rep.written.append(rel + " (rows appended)")
+    if w.dry:
+        return
+    text = existing if "| Date | What | Who |" in existing else (existing.rstrip() + "\n\n" if existing.strip() else "") + header
+    with open(full, "w", encoding="utf-8") as f:
+        f.write(text.rstrip("\n") + "\n" + "\n".join(new_rows) + "\n")
+
+
 def agents_and_projects(con, rep):
     t = tables(con)
     if "agents" in t:
@@ -303,6 +345,7 @@ def main():
     ap.add_argument("--keep-all-categories", action="store_true")
     ap.add_argument("--include-proposed", action="store_true")
     ap.add_argument("--with-contact-emails", action="store_true")
+    ap.add_argument("--deadlines", metavar="FILE", help="v1 scripts/deadlines.json, into memory/deadlines.md")
     ap.add_argument("--components", metavar="FILE",
                     help="v1 components array (from config.json) to turn into projects")
     ap.add_argument("--kb-by-category", action="store_true",
@@ -340,6 +383,8 @@ def main():
     project_cards(con, w, rep, [p for p, _ in pairs])
     if args.components:
         component_cards(args.components, w, rep)
+    if args.deadlines:
+        migrate_deadlines(args.deadlines, w, rep)
     for ps, pdb in pairs:
         pcon = sqlite3.connect(f"file:{os.path.abspath(pdb)}?mode=ro", uri=True)
         migrate_decisions(pcon, w, rep, args, skip, base=f"memory/projects/{ps}")
