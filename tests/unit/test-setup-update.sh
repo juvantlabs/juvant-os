@@ -88,14 +88,17 @@ g -C "$W" add -A; g -C "$W" commit -qm B; g -C "$W" tag v2.0.1; g -C "$W" push -
 A="$T/api/repos/acme/fw/releases"; mkdir -p "$A/tags"
 echo '{"tag_name": "v2.0.1", "draft": false, "prerelease": false}' > "$A/tags/v2.0.1"
 echo '{"tag_name": "v2.0.2", "draft": true}' > "$A/tags/v2.0.2"
-cp "$A/tags/v2.0.1" "$A/latest"
+# A newer pre-release and a v1 release: neither is "the latest" for update.
+echo '{"tag_name": "v2.0.3", "draft": false, "prerelease": true}' > "$A/tags/v2.0.3"
+echo '{"tag_name": "v1.9.0", "draft": false, "prerelease": false}' > "$A/tags/v1.9.0"
+g -C "$W" tag v2.0.3; g -C "$W" tag v1.9.0; g -C "$F" fetch -q "$W" 'refs/tags/*:refs/tags/*'
 export JUVANT_OS_API="file://$T/api" JUVANT_OS_RELEASE_SLUG=acme/fw
 ( cd "$U" && bash .claude/skills/update/update.sh v2.0.0 --repo "$F" >/dev/null 2>&1 ); check "a tag without a release is refused" "[[ $? == 1 ]] && ! grep -q v2.0.0 '$U/.claude/juvant-os.json'"
 ( cd "$U" && bash .claude/skills/update/update.sh v2.0.2 --repo "$F" >/dev/null 2>&1 ); check "a draft release is refused" "[[ $? == 1 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh --from "$W/framework" >/dev/null 2>&1 ); check "--from outside setup is refused" "[[ $? == 2 ]]"
-( cd "$U" && JUVANT_OS_RELEASE_SLUG=acme/none bash .claude/skills/update/update.sh --repo "$F" 2>&1 | grep -q 'no published release' ); check "no releases: nothing to update" "[[ $? == 0 ]]"
+( cd "$U" && JUVANT_OS_RELEASE_SLUG=acme/none bash .claude/skills/update/update.sh --repo "$F" 2>&1 | grep -q 'no published v2 release' ); check "no releases: nothing to update" "[[ $? == 0 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh --repo "$F" >/dev/null 2>&1 ); rc=$?
-check "update with no tag installs the latest release" "[[ $rc == 0 ]]"
+check "update with no tag installs the latest stable v2 release" "[[ $rc == 0 ]] && grep -q '\"version\": \"v2.0.1\"' '$U/.claude/juvant-os.json'"
 check "hook updated" "grep -q 'CONTEXT_CAP = 9400' '$U/.claude/hooks/juvant_hooks.py'"
 check "removed skill removed" "[[ ! -e '$U/.claude/skills/decision/SKILL.md' ]]"
 check "new skill installed" "[[ -f '$U/.claude/skills/brief/SKILL.md' ]]"
