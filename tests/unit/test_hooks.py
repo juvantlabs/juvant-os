@@ -313,7 +313,9 @@ class ClaudeDirProtection(HookCase):
                   'python3 .claude/hooks/juvant_hooks.py log-outcome "pack (legal, locale); setup done; verify"; git add memory && git commit -m "x; y"',
                   'cd /tmp/x && python3 .claude/hooks/juvant_hooks.py log-outcome "a & b | c"',
                   "python3 .claude/dashboard/build.py", "python3 .claude/dashboard/build.py --agents-json /tmp/agents.json",
-                  "claude agents --json > /tmp/agents.json && python3 .claude/dashboard/build.py --agents-json /tmp/agents.json"):
+                  "claude agents --json > /tmp/agents.json && python3 .claude/dashboard/build.py --agents-json /tmp/agents.json",
+                  "python3 .claude/skills/bugfix/bugfix.py prepare",
+                  "python3 .claude/skills/bugfix/bugfix.py check /tmp/juvant-os-fix-x/juvant-os --body /tmp/pr.md"):
             with self.subTest(c=c):
                 self.assertEqual(self.decision("Bash", {"command": c}), "allow")
 
@@ -350,6 +352,42 @@ class SharedRepo(HookCase):
         os.remove(os.path.join(self.repo, ".claude", "juvant-os-project.json"))
         self.assertEqual(self.bash("git push origin main"), "allow")
         self.assertEqual(self.bash("gh pr merge 1"), "allow")
+
+
+class FrameworkUpstream(HookCase):
+    """Publishing to the public juvant-os repository asks the CEO (bugfix skill)."""
+    def clone(self, url):
+        d = tempfile.mkdtemp(prefix="jv2-clone-")
+        self.addCleanup(shutil.rmtree, d, True)
+        subprocess.run(["git", "init", "-q", d], check=True)
+        subprocess.run(["git", "-C", d, "remote", "add", "origin", url], check=True)
+        return d
+
+    def bash(self, command, cwd):
+        rc, out, _ = self.run_hook("limits", {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd})
+        return out.get("hookSpecificOutput", {}).get("permissionDecision") or ("deny" if rc == 2 else "allow")
+
+    def test_publishing_to_juvant_os_asks(self):
+        up = self.clone("https://github.com/juvantlabs/juvant-os.git")
+        fork = self.clone("git@github.com:someone/juvant-os.git")
+        for cmd, cwd in (("gh pr create --draft --label adopter-fix --title x --body-file b.md", up),
+                         ("git push -u origin fix/x", up), ("git push origin fix/x", fork),
+                         ("gh repo fork --remote", up), ("gh issue create -R juvantlabs/juvant-os -t x -b y", self.repo),
+                         (f"cd {up} && gh pr create --draft -t x -b y", self.repo),
+                         (f"git -C {up} push origin fix/x", self.repo),
+                         ("gh api -X POST repos/juvantlabs/juvant-os/security-advisories/reports -f summary=x", self.repo)):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.bash(cmd, cwd), "ask")
+
+    def test_other_repos_and_reads_untouched(self):
+        other = self.clone("https://github.com/acme/website.git")
+        pm = self.clone("https://github.com/juvantlabs/juvant-os-pm.git")
+        up = self.clone("https://github.com/juvantlabs/juvant-os.git")
+        for cmd, cwd in (("gh pr create --draft -t x -b y", other), ("git push origin fix/x", other),
+                         ("gh issue create -t x -b y", pm), ("gh pr list --label adopter-fix", up),
+                         ("git log --oneline -3", up), ("gh pr view 12 -R juvantlabs/juvant-os", self.repo)):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.bash(cmd, cwd), "allow")
 
 
 class OtherRepoProtection(HookCase):

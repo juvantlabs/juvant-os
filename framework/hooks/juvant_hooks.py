@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 import time
 
@@ -234,6 +235,10 @@ def cmd_limits():
                      "is outbound: work on a branch, open a draft PR (gh pr create --draft), and the CEO merges.")
         if PRIVATE_REGISTRY in command and re.search(r"(>|\btee\b|\bsed\b|\bmv\b|\bcp\b|\brm\b|\bpython3?\b)", command):
             ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
+        why = framework_upstream_publish(command, str(ev.get("cwd") or ROOT))
+        if why:
+            ask(f"juvant-os hard limit 1 (outbound): {why}. The public juvant-os repository is read by everyone: "
+                "the CEO checks the diff and the text first (bugfix skill).")
         if bash_writes_claude_dir(command):
             ask("juvant-os hard limit (protect-claude-dir): this command may change .claude/, where the hard limits, "
                 "agents and settings live. The CEO confirms; framework files change through the update skill.")
@@ -244,6 +249,9 @@ def cmd_limits():
 # ── .claude/ protection (the hard limits must not edit themselves) ───────────
 READ_ONLY_VERBS = {"cat", "less", "head", "tail", "ls", "grep", "rg", "wc", "diff", "file", "stat", "sha256sum", "shasum"}
 GIT_READ = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commit"}
+# Framework scripts that never write under .claude/: the dashboard writes
+# state/dashboard.html (hourly scheduled task), bugfix works in a temp clone.
+OUTSIDE_WRITERS = (".claude/dashboard/build.py", ".claude/skills/bugfix/bugfix.py")
 SANCTIONED = re.compile(r"^(bash|sh)\s+(\./)?\.claude/skills/update/update\.sh(\s|$)")
 
 
@@ -298,9 +306,9 @@ def bash_writes_claude_dir(command):
             continue
         if verb in ("python3", "python") and len(words) > 1 and words[1].endswith(".claude/hooks/juvant_hooks.py"):
             continue
-        if (verb in ("python3", "python") and len(words) > 1 and words[1].endswith(".claude/dashboard/build.py")
+        if (verb in ("python3", "python") and len(words) > 1 and words[1].endswith(OUTSIDE_WRITERS)
                 and not any(".claude" in w for w in words[2:])):
-            continue  # the dashboard writes state/dashboard.html; it must run unattended in scheduled tasks
+            continue  # framework scripts that write outside .claude/ (they must run unattended)
         return True
     return False
 
@@ -419,6 +427,53 @@ def shared_repo_violation(command, who):
                 return f"merging a pull request in a repository shared with {who}"
             if words[2] == "create" and "--draft" not in words and "-d" not in words:
                 return f"opening a non-draft pull request in a repository shared with {who}"
+    return None
+
+
+UPSTREAM_RE = re.compile(r"(github\.com[/:]|^|\s)[\w.-]+/juvant-os(\.git)?/?(\s|$)")
+
+
+def repo_is_juvant_os(path):
+    """True if the git checkout at path has a remote named after juvant-os (upstream or a fork)."""
+    try:
+        out = subprocess.run(["git", "-C", path, "remote", "-v"], capture_output=True, text=True, timeout=5).stdout
+    except Exception:  # noqa: BLE001
+        return False
+    return any(UPSTREAM_RE.search(line.split("\t", 1)[-1].split(" ")[0]) for line in out.splitlines() if "\t" in line)
+
+
+def framework_upstream_publish(command, cwd):
+    """Reason string if the command publishes to the juvant-os repository (PR, issue, push,
+    fork, security report); else None. Follows `cd` inside the command."""
+    if "gh" not in command and "git" not in command:
+        return None
+    segments = shell_segments(command)
+    if segments is None:
+        return None
+    here = cwd
+    for words in segments:
+        if not words:
+            continue
+        verb = os.path.basename(words[0])
+        if verb == "cd" and len(words) > 1:
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
+            continue
+        if verb == "git" and len(words) > 1 and "-C" in words[:-1]:
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(words[words.index("-C") + 1])))
+        action = None
+        if verb == "gh" and len(words) >= 3 and (words[1], words[2]) in (("pr", "create"), ("issue", "create"), ("repo", "fork"), ("release", "create")):
+            action = f"gh {words[1]} {words[2]}"
+        elif verb == "gh" and len(words) >= 2 and words[1] == "api" and any("security-advisories" in w for w in words):
+            action = "a security report"
+        elif verb == "git" and "push" in words[1:4]:
+            action = "git push"
+        if not action:
+            continue
+        named = [w for i, w in enumerate(words) if i and words[i - 1] in ("-R", "--repo")]
+        if any(re.search(r"(^|/)juvant-os$", n) for n in named) or any("/juvant-os/" in w for w in words if "repos/" in w):
+            return f"{action} to the juvant-os repository"
+        if not named and repo_is_juvant_os(here):
+            return f"{action} from a juvant-os checkout"
     return None
 
 

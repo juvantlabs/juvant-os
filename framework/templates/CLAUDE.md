@@ -42,7 +42,7 @@ Enforced by hooks, the same in every session:
 3. No secrets in files, memory, commands or chat.
 4. Destructive changes (deleting, moving, overwriting documents or mail; rewriting history) ask the CEO first.
 
-If a hook denies something, don't look for another way: tell the CEO what you wanted to do and why.
+If a hook denies something, don't look for another way: tell the CEO what you wanted to do and why. If the hook, or any other framework file under `.claude/`, is what's wrong, propose a fix upstream with the `bugfix` skill. Never patch `.claude/` locally.
 
 ## Memory
 

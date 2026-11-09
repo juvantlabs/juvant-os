@@ -19,6 +19,8 @@ hooks/limits.json
 skills/LICENSE-knowledge-work-plugins
 skills/THIRD_PARTY.md
 skills/brand-review/SKILL.md
+skills/bugfix/SKILL.md
+skills/bugfix/bugfix.py
 skills/business-pulse/SKILL.md
 skills/business-pulse/reference/data_sources.md
 skills/business-pulse/reference/gotchas.md
