@@ -73,28 +73,28 @@ class McpLimits(HookCase):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(P_CLOUD + tool), "allow")
         for tool in ("mcp__m365-graph__list_events", "mcp__m365-graph__search_events",
-                     "mcp__m365-graph__get_event", "mcp__aruba__list_invoices", "mcp__bank__get_transactions"):
+                     "mcp__m365-graph__get_event", "mcp__einvoice__list_invoices", "mcp__bank__get_transactions"):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(tool), "allow")
 
     def test_money_denied(self):
         for tool in ("mcp__bank__create_payment", "mcp__bank__transfer", "mcp__bank__wire_funds",
-                     "mcp__stripe__refund", "mcp__aruba__send_invoice", "mcp__aruba__create_invoice",
+                     "mcp__stripe__refund", "mcp__einvoice__send_invoice", "mcp__einvoice__create_invoice",
                      "mcp__x__create_sales_invoice", "mcp__x__invoice_issue", "mcp__x__pay"):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(tool), "deny")
 
     def test_money_reads_allowed(self):
-        for tool in ("mcp__finom__get_payments", "mcp__finom__list_transfers", "mcp__finom__get_payment_details",
-                     "mcp__finom__list_invoices", "mcp__finom__get_transactions", "mcp__finom__list_payouts",
-                     "mcp__Finom__search_transactions", "mcp__finom__get_balance"):
+        for tool in ("mcp__bank__get_payments", "mcp__bank__list_transfers", "mcp__bank__get_payment_details",
+                     "mcp__bank__list_invoices", "mcp__bank__get_transactions", "mcp__bank__list_payouts",
+                     "mcp__Bank__search_transactions", "mcp__bank__get_balance"):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(tool), "allow")
 
     def test_money_actions_denied(self):
-        for tool in ("mcp__finom__create_payment", "mcp__finom__initiate_transfer", "mcp__finom__payment_create",
-                     "mcp__finom__approve_payout", "mcp__finom__pay", "mcp__finom__refund", "mcp__finom__schedule_transfer",
-                     "mcp__finom__send_invoice", "mcp__finom__issue_invoice", "mcp__finom__transfer_execute"):
+        for tool in ("mcp__bank__create_payment", "mcp__bank__initiate_transfer", "mcp__bank__payment_create",
+                     "mcp__bank__approve_payout", "mcp__bank__pay", "mcp__bank__refund", "mcp__bank__schedule_transfer",
+                     "mcp__bank__send_invoice", "mcp__bank__issue_invoice", "mcp__bank__transfer_execute"):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(tool), "deny")
 
