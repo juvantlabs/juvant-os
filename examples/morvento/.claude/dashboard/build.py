@@ -220,6 +220,12 @@ th{font-weight:600;color:var(--muted);font-size:13px}
 .pill.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
 .empty{color:var(--muted)}
 .tablewrap{overflow-x:auto}
+nav{position:sticky;top:0;z-index:1;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -16px;padding:8px 16px;display:flex;flex-wrap:wrap;gap:6px}
+nav a{color:var(--accent);text-decoration:none;font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}
+nav a:hover,nav a:focus-visible{border-color:var(--accent);outline:none}
+section{scroll-margin-top:56px}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 svg text{fill:var(--muted);font:11px var(--body)}
 svg .bar{fill:var(--accent)}
 svg .grid{stroke:var(--line)}
@@ -287,15 +293,16 @@ def build(root, today, agents_json=None):
 <style>{CSS}</style></head>
 <body><main>
 <header><h1>{esc(name)}</h1><span class="asof">Read-only · built {esc(now)} from the company repo</span></header>
-<section class="{'attention' if need else ''}"><h2>Waiting for you · {need}</h2>{ul(w_items, "Nothing is waiting for you.")}</section>
+<nav aria-label="Sections"><a href="#waiting">Waiting for you ({need})</a><a href="#agents">Agents</a><a href="#sessions">Collaborator sessions</a><a href="#decisions">Decisions</a><a href="#deadlines">Deadlines</a><a href="#activity">Activity</a></nav>
+<section id="waiting" class="{'attention' if need else ''}"><h2>Waiting for you · {need}</h2>{ul(w_items, "Nothing is waiting for you.")}</section>
 <div class="grid">
-<section><h2>Agents</h2><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Last active</th><th>7 days</th><th>Last outcome</th></tr></thead><tbody>{ag_rows}</tbody></table></div>
+<section id="agents"><h2>Agents</h2><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Last active</th><th>7 days</th><th>Last outcome</th></tr></thead><tbody>{ag_rows}</tbody></table></div>
 <p class="src">Other collaborators used: {other_line}</p></section>
-<section><h2>Collaborator sessions</h2>{('<div class="tablewrap"><table><thead><tr><th>Session</th><th>Started</th><th>State</th><th>Last report</th></tr></thead><tbody>' + co_rows + '</tbody></table></div>') if collabs else '<p class="empty">No collaborator sessions.</p>'}</section>
-<section><h2>Latest decisions</h2>{ul(dec_items, "No decisions recorded yet.")}</section>
-<section><h2>Deadlines · next {DEADLINE_DAYS} days</h2>{ul(dl_items, "No deadlines in memory/deadlines.md for the next 30 days.")}</section>
+<section id="sessions"><h2>Collaborator sessions</h2>{('<div class="tablewrap"><table><thead><tr><th>Session</th><th>Started</th><th>State</th><th>Last report</th></tr></thead><tbody>' + co_rows + '</tbody></table></div>') if collabs else '<p class="empty">No collaborator sessions.</p>'}</section>
+<section id="decisions"><h2>Latest decisions</h2>{ul(dec_items, "No decisions recorded yet.")}</section>
+<section id="deadlines"><h2>Deadlines · next {DEADLINE_DAYS} days</h2>{ul(dl_items, "No deadlines in memory/deadlines.md for the next 30 days.")}</section>
 </div>
-<section><h2>Sessions per day · last {ACTIVITY_DAYS} days</h2>{chart(series)}</section>
+<section id="activity"><h2>Sessions per day · last {ACTIVITY_DAYS} days</h2>{chart(series)}</section>
 </main></body></html>
 """
 

@@ -84,6 +84,12 @@ class Dashboard(unittest.TestCase):
         self.assertNotIn("<script>alert", p)
         self.assertIn("&lt;script&gt;", p)
 
+    def test_menu_links_every_section(self):
+        p = self.page()
+        for anchor in ("waiting", "agents", "sessions", "decisions", "deadlines", "activity"):
+            self.assertIn(f'href="#{anchor}"', p)
+            self.assertIn(f'id="{anchor}"', p)
+
     def test_no_external_scripts(self):
         p = self.page()
         self.assertNotIn("<script", p)
