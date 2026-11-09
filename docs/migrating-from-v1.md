@@ -6,9 +6,11 @@ Work in this order. Nothing here writes to the v1 instance or its databases.
 
 ## 1. Create the v2 company repo
 
-From a clone of juvant-os at a v2 tag:
+From a clean clone of juvant-os at an official release (setup refuses a branch, `main`, a tag without a published release, or local changes; releases: https://github.com/juvantlabs/juvant-os/releases):
 
 ```
+git clone --branch <release-tag> https://github.com/juvantlabs/juvant-os.git /tmp/juvant-os
+cd /tmp/juvant-os
 bash setup.sh ~/Projects/<company>-v2 --company "<Company>" --country <code> --language <language>
 ```
 

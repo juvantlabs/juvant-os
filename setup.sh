@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# setup.sh — create a juvant-os v2 company repo. Run it from a clone of
-# juvant-os at a v2 tag:
+# setup.sh — create a juvant-os v2 company repo. Run it from a clean clone of
+# juvant-os checked out at an official GitHub release (never a branch or main):
+#
+#   git clone --branch <release-tag> https://github.com/juvantlabs/juvant-os.git
 #
 #   bash setup.sh <company-dir> [--company NAME] [--ceo NAME] [--cos NAME]
 #                 [--language LANG] [--legal NAME] [--finance NAME] [--ethics NAME]
@@ -42,7 +44,26 @@ if [[ "${1:-}" == "--project-repo" ]]; then
   exec bash "$CD/.claude/skills/project-repo/project-repo.sh" install "$PR" --project "$SLUG"
 fi
 
-[[ $# -ge 1 && "$1" != -* ]] || { sed -n '2,20p' "$0" >&2; exit 2; }
+[[ $# -ge 1 && "$1" != -* ]] || { sed -n '2,22p' "$0" >&2; exit 2; }
+
+# Only an official release installs: HEAD must be exactly a release tag of the
+# upstream repo (same commit), the framework unmodified, and the release published
+# on GitHub. JUVANT_OS_DEV=1 skips this for the framework's own tests.
+if [[ "${JUVANT_OS_DEV:-}" != 1 ]]; then
+  REPO_URL="${JUVANT_OS_REPO:-https://github.com/juvantlabs/juvant-os.git}"
+  refuse() { echo "setup: $*" >&2; echo "setup: clone an official release: git clone --branch <release-tag> $REPO_URL (releases: https://github.com/juvantlabs/juvant-os/releases)" >&2; exit 1; }
+  TAG="$(git -C "$HERE" describe --exact-match --tags HEAD 2>/dev/null)" || refuse "this checkout is not at a release tag"
+  [[ -z "$(git -C "$HERE" status --porcelain -- framework setup.sh 2>/dev/null)" ]] || refuse "framework/ or setup.sh has local changes"
+  HEAD_SHA="$(git -C "$HERE" rev-parse HEAD)"
+  UP_SHA="$(git ls-remote --tags "$REPO_URL" "refs/tags/$TAG" "refs/tags/$TAG^{}" 2>/dev/null | awk '{print $1}' | tail -1)"
+  [[ -n "$UP_SHA" && "$UP_SHA" == "$HEAD_SHA" ]] || refuse "$TAG here is not the same commit as $TAG upstream"
+  SLUG="${JUVANT_OS_RELEASE_SLUG:-$(sed -nE 's#^(https://|git@)github\.com[/:]([^/]+/[^/]+)$#\2#p' <<< "${REPO_URL%.git}")}"
+  curl -fsSL "${JUVANT_OS_API:-https://api.github.com}/repos/$SLUG/releases/tags/$TAG" 2>/dev/null | python3 -c '
+import json, sys
+try: r = json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if not r.get("draft") and r.get("tag_name") == sys.argv[1] else 1)' "$TAG" || refuse "$TAG is not a published release"
+fi
 TARGET="$1"; shift
 declare -a SUBS=(); COUNTRY=""
 while [[ $# -gt 0 ]]; do

@@ -2,6 +2,7 @@
 # setup.sh and the update script: fresh install, refusals, placeholders, and an
 # update between two tags of a local framework repo that changes only FILES paths.
 set -uo pipefail
+export JUVANT_OS_DEV=1  # setup from this working copy, not a release
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PASS=0; FAIL=0
 ok() { echo "  ok   $1"; PASS=$((PASS+1)); }
@@ -114,6 +115,22 @@ check "update keeps the recorded country pack" "grep -q '\"country\": \"it\"' '$
 check "nothing committed" "[[ \$(g -C '$U' log --oneline | wc -l | tr -d ' ') == 2 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh v9.9.9 --repo "$F" >/dev/null 2>&1 ); check "unknown tag fails" "[[ $? != 0 ]]"
 mkdir -p "$U/.juvant"; ( cd "$U" && bash .claude/skills/update/update.sh v2.0.1 --repo "$F" >/dev/null 2>&1 ); check "update refuses on a v1 instance" "[[ $? == 1 ]]"
+
+echo "== setup only from an official release"
+R="$T/rel"; mkdir -p "$R"; cp -R "$ROOT/framework" "$ROOT/setup.sh" "$R/"
+g -C "$R" init -q; g -C "$R" add -A; g -C "$R" commit -qm r0; g -C "$R" tag v2.0.0
+echo "# later" >> "$R/framework/README.md"; g -C "$R" commit -qam r1; g -C "$R" tag v2.0.1
+echo "# unreleased" >> "$R/framework/README.md"; g -C "$R" commit -qam r2
+g clone -q --bare "$R" "$T/rel.git"
+rs() { # <checkout-ref> <company-dir> [modify]
+  local w="$T/relclone-$2"; g clone -q "$T/rel.git" "$w" && g -C "$w" checkout -q "$1"
+  [[ -n "${3:-}" ]] && echo "# local" >> "$w/framework/README.md"
+  JUVANT_OS_DEV="" JUVANT_OS_REPO="$T/rel.git" bash "$w/setup.sh" "$T/$2" >/dev/null 2>&1
+}
+rs v2.0.1 rel-ok; check "setup from a published release works" "[[ \$? == 0 && -f '$T/rel-ok/.claude/hooks/juvant_hooks.py' ]]"
+rs main rel-main; check "setup from main is refused" "[[ \$? == 1 && ! -e '$T/rel-main/CLAUDE.md' ]]"
+rs v2.0.0 rel-tag; check "setup from a tag without a release is refused" "[[ \$? == 1 && ! -e '$T/rel-tag/CLAUDE.md' ]]"
+rs v2.0.1 rel-dirty modify; check "setup with local framework changes is refused" "[[ \$? == 1 && ! -e '$T/rel-dirty/CLAUDE.md' ]]"
 
 echo "test-setup-update: $PASS passed, $FAIL failed"
 [[ "$FAIL" == 0 ]]

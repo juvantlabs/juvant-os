@@ -13,6 +13,7 @@
 # Uses the logged-in Claude Code account, or ANTHROPIC_API_KEY in CI. Costs a
 # few dollars per run. Exit 0 only if every check passes.
 set -uo pipefail
+export JUVANT_OS_DEV=1  # setup from this working copy, not a release
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 KEEP=0; MODEL=""
 while [[ $# -gt 0 ]]; do
