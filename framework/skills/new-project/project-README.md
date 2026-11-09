@@ -17,9 +17,23 @@ tags: [project]
 
 <!-- Who works on it, inside and outside the company, and their role. -->
 
-## Where things live
+## Repositories and audience
 
-<!-- Code repositories, document libraries, boards, environments. Never credentials. -->
+<!-- One line per repository or document library, and who can read it.
+     Mark the ones shared outside the company: writing there is outbound.
+| Repository / library | What | Read by |
+|---|---|---|
+| github.com/org/project-code | code | company only |
+| github.com/org/project-pm | PRDs, ADRs, designs | company and <partner> (shared) |
+-->
+
+## Documents: language and audience
+
+<!-- e.g. "PRDs in Italian for the co-founders; ADRs, designs and plans in English." -->
+
+## Where else things live
+
+<!-- Boards, environments, document libraries not listed above. Never credentials. -->
 
 ## Status
 

@@ -289,6 +289,40 @@ class ClaudeDirProtection(HookCase):
                 self.assertEqual(self.decision("Bash", {"command": c}), "allow")
 
 
+class SharedRepo(HookCase):
+    def setUp(self):
+        super().setUp()
+        os.makedirs(os.path.join(self.repo, ".claude"))
+        with open(os.path.join(self.repo, ".claude", "juvant-os-project.json"), "w") as f:
+            json.dump({"project": "dog", "company_repo": "/x", "shared_with": "the co-founders"}, f)
+        subprocess.run(["git", "init", "-q", "-b", "main", self.repo], check=True)
+
+    def branch(self, name):
+        subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b", name], check=True)
+
+    def bash(self, c):
+        return self.decision("Bash", {"command": c})
+
+    def test_default_branch_push_denied(self):
+        for c in ("git push", "git push origin main", "git push origin HEAD:main", "git push -u origin master",
+                  "git push origin refs/heads/main", "gh pr merge 12 --squash", "gh pr create --title x --body y"):
+            with self.subTest(c=c):
+                self.assertEqual(self.bash(c), "deny")
+
+    def test_branch_work_allowed(self):
+        self.branch("feat/prd-update")
+        for c in ("git push", "git push -u origin feat/prd-update", "git push origin HEAD",
+                  "gh pr create --draft --title x --body y", "gh pr view 3", "git commit -m x"):
+            with self.subTest(c=c):
+                self.assertEqual(self.bash(c), "allow")
+        self.assertEqual(self.bash("git push origin HEAD:main"), "deny")
+
+    def test_not_shared_no_rule(self):
+        os.remove(os.path.join(self.repo, ".claude", "juvant-os-project.json"))
+        self.assertEqual(self.bash("git push origin main"), "allow")
+        self.assertEqual(self.bash("gh pr merge 1"), "allow")
+
+
 class LogOutcome(HookCase):
     def run_cli(self, *args):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)

@@ -215,6 +215,12 @@ def cmd_limits():
         for rule in cfg["bash"]["ask"]:
             if rule["re"].search(command):
                 ask(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
+        who = shared_with()
+        if who:
+            why = shared_repo_violation(command, who)
+            if why:
+                deny(f"juvant-os hard limit (shared-repo): {why}. Writing where people outside the company read "
+                     "is outbound: work on a branch, open a draft PR (gh pr create --draft), and the CEO merges.")
         if bash_writes_claude_dir(command):
             ask("juvant-os hard limit (protect-claude-dir): this command may change .claude/, where the hard limits, "
                 "agents and settings live. The CEO confirms; framework files change through the update skill.")
@@ -269,6 +275,51 @@ def bash_writes_claude_dir(command):
             continue
         return True
     return False
+
+
+# ── repositories shared outside the company ──────────────────────────────────
+def shared_with():
+    try:
+        with open(os.path.join(ROOT, ".claude", "juvant-os-project.json"), encoding="utf-8") as f:
+            return str(json.load(f).get("shared_with") or "").strip()
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def current_branch():
+    try:
+        import subprocess
+        out = subprocess.run(["git", "-C", ROOT, "symbolic-ref", "--short", "-q", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+DEFAULT_BRANCHES = {"main", "master", "trunk", "develop"}
+
+
+def shared_repo_violation(command, who):
+    """Reason string if the command publishes to a shared repo's default branch,
+    merges a PR, or opens a non-draft PR; else None."""
+    segments = shell_segments(command)
+    if segments is None:
+        return None
+    for words in segments:
+        if len(words) >= 2 and os.path.basename(words[0]) == "git" and "push" in words[1:3]:
+            i = words.index("push")
+            args = [w for w in words[i + 1:] if not w.startswith("-")]
+            targets = [a.split(":")[-1].replace("refs/heads/", "").lstrip("+") for a in args[1:]]
+            if any(t in DEFAULT_BRANCHES or t == "HEAD" and current_branch() in DEFAULT_BRANCHES for t in targets):
+                return f"pushing to the default branch of a repository shared with {who}"
+            if not targets and current_branch() in DEFAULT_BRANCHES:
+                return f"pushing the default branch of a repository shared with {who}"
+        if len(words) >= 3 and os.path.basename(words[0]) == "gh" and words[1] == "pr":
+            if words[2] == "merge":
+                return f"merging a pull request in a repository shared with {who}"
+            if words[2] == "create" and "--draft" not in words and "-d" not in words:
+                return f"opening a non-draft pull request in a repository shared with {who}"
+    return None
 
 
 # ── context injection and activity ───────────────────────────────────────────

@@ -48,7 +48,8 @@ If a hook denies something, don't look for another way: tell the CEO what you wa
 
 Morvento's memory is in this repo, under `memory/` (format in `memory/README.md`). You get a digest at session start: the map, recent decisions, what waits for the CEO.
 
-- **Projects** have their own memory in `memory/projects/<slug>/` (card in `README.md`). When the CEO works on a project, read its card, recent decisions and last journal entry before anything else, and record its decisions and facts there.
+- **Long documents** (ADRs, policies, standards, evaluations) live in `docs/`; a decision that rests on one links to it.
+- **Projects** have their own memory in `memory/projects/<slug>/` (card in `README.md`). A project's documents (PRDs, ADRs, designs) live in its own repositories, listed in the card with who reads them. **Memory never goes into a repository shared outside the company**: write there as for an external reader, on a branch with a draft PR the CEO merges. When the CEO works on a project, read its card, recent decisions and last journal entry before anything else, and record its decisions and facts there.
 - **Recall:** start from the digest, then search: `grep -ril "<word>" memory/`. Say which file a fact comes from. If it isn't in memory, say it isn't recorded; don't fill the gap from general knowledge.
 - **Record:** a decision as soon as the CEO takes it (`decision` skill); a fact that will matter later (`knowledge` skill); the day's work at the end (`wrap-up`).
 - Never put secrets in memory, nor personal data the company doesn't need.

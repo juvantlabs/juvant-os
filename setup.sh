@@ -13,7 +13,8 @@
 # Refuses on a juvant-os v1 instance, on an existing v2 install, and on any
 # template file that already exists. Nothing is committed.
 #
-#   bash setup.sh --project-repo <code-repo> --company-dir <company-repo> --project <slug>
+#   bash setup.sh --project-repo <repo> --company-dir <company-repo> --project <slug>
+#                 [--shared-with "<who>"]   the repo is read by people outside the company
 #
 # Gives a project's code repository the hard limits: the framework in .claude/,
 # the settings, a copy of the company manifesto, and .claude/CLAUDE.md pointing
@@ -23,11 +24,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 FW="$HERE/framework"
 
 if [[ "${1:-}" == "--project-repo" ]]; then
-  PR=""; CD=""; SLUG=""
+  PR=""; CD=""; SLUG=""; SHARED=""
   while [[ $# -gt 0 ]]; do
     [[ $# -ge 2 ]] || { echo "setup: $1 needs a value" >&2; exit 2; }
     case "$1" in
-      --project-repo) PR="$2" ;; --company-dir) CD="$2" ;; --project) SLUG="$2" ;;
+      --project-repo) PR="$2" ;; --company-dir) CD="$2" ;; --project) SLUG="$2" ;; --shared-with) SHARED="$2" ;;
       *) echo "setup: unknown option $1" >&2; exit 2 ;;
     esac
     shift 2
@@ -56,10 +57,11 @@ This repository holds the code of project \`$SLUG\`. The company's rules apply h
 
 - **Memory** for this project lives in the company repo, in \`memory/projects/$SLUG/\` (card, decisions, knowledge, journal), not here. If the company repo is checked out next to this one, read the card before starting and propose decisions and facts for it; otherwise list them at the end of the session for the Chief of Staff to record.
 - **Hard limits** are the same as in the company repo and enforced by the same hooks: outbound is draft-only, no payments or invoice issuing, no secrets in files or commands, destructive changes ask the CEO.
+$( [[ -n "$SHARED" ]] && printf -- '- **This repository is shared with %s.** Everything written here is read by them: write as for an external reader, never copy the company'"'"'s memory, internal notes or opinions about partners here. Work on a branch and open a draft PR; the CEO merges. The hooks enforce it.\n' "$SHARED" )
 - **The manifesto here is a copy.** When it changes in the company repo, refresh it: \`cp <company-repo>/manifesto.md .claude/company-manifesto.md\`.
 EOF
-  printf '{\n  "project": "%s",\n  "company_repo": "%s"\n}\n' "$SLUG" "$CD" > "$PR/.claude/juvant-os-project.json"
-  echo "setup: project repo $PR set up for project '$SLUG' of ${COMPANY:-the company}. Nothing is committed."
+  printf '{\n  "project": "%s",\n  "company_repo": "%s",\n  "shared_with": "%s"\n}\n' "$SLUG" "$CD" "$(printf '%s' "$SHARED" | tr -d '\042\134')" > "$PR/.claude/juvant-os-project.json"
+  echo "setup: project repo $PR set up for project '$SLUG' of ${COMPANY:-the company}$( [[ -n "$SHARED" ]] && printf ', shared with %s: pushes to the default branch and PR merges are blocked' "$SHARED" ). Nothing is committed."
   exit 0
 fi
 
@@ -119,7 +121,8 @@ for rel in ("CLAUDE.md", "manifesto.md", "roles/legal.md", "roles/finance.md", "
 PY
 fi
 
-mkdir -p "$TARGET/memory/decisions" "$TARGET/memory/knowledge" "$TARGET/memory/journal" "$TARGET/state"
+mkdir -p "$TARGET/memory/decisions" "$TARGET/memory/knowledge" "$TARGET/memory/journal" "$TARGET/state" "$TARGET/docs"
+[[ -e "$TARGET/docs/README.md" ]] || printf '# Documents\n\nLong documents of the company: ADRs, policies, standards, evaluations. Decisions in memory/decisions/ link to them.\n' > "$TARGET/docs/README.md"
 [[ -e "$TARGET/memory/README.md" ]] || cp "$FW/templates/memory-README.md" "$TARGET/memory/README.md"
 [[ -e "$TARGET/memory/map.md" ]] || printf '# Where things live\n\nNever put secrets here.\n\n| What | Where |\n|---|---|\n' > "$TARGET/memory/map.md"
 for d in decisions knowledge journal; do [[ -e "$TARGET/memory/$d/.gitkeep" ]] || : > "$TARGET/memory/$d/.gitkeep"; done

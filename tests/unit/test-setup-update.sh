@@ -48,6 +48,12 @@ check "hooks and settings installed" "[[ -f '$PRJ/.claude/hooks/juvant_hooks.py'
 check "company manifesto copied" "cmp -s '$C/manifesto.md' '$PRJ/.claude/company-manifesto.md'"
 check "project CLAUDE.md points to the project memory" "grep -q 'memory/projects/helix/' '$PRJ/.claude/CLAUDE.md' && grep -q '@company-manifesto.md' '$PRJ/.claude/CLAUDE.md'"
 check "own README untouched" "[[ \$(cat '$PRJ/README.md') == '# Helix' ]]"
+SH="$T/helix-pm"; mkdir -p "$SH"
+bash "$ROOT/setup.sh" --project-repo "$SH" --company-dir "$C" --project helix --shared-with 'the co-founders "A&B"' >/dev/null 2>&1
+check "shared repo recorded" "grep -q '\"shared_with\": \"the co-founders A&B\"' '$SH/.claude/juvant-os-project.json'"
+check "shared repo CLAUDE.md warns the reader is external" "grep -q 'This repository is shared with' '$SH/.claude/CLAUDE.md'"
+check "unshared repo has no shared warning" "! grep -q 'shared with' '$PRJ/.claude/CLAUDE.md'"
+check "company repo gets docs/" "[[ -f '$C/docs/README.md' ]]"
 bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project helix >/dev/null 2>&1; check "second project setup refused" "[[ \$? == 1 ]]"
 bash "$ROOT/setup.sh" --project-repo "$T/plain" --company-dir "$T/plain" --project x >/dev/null 2>&1; check "non-company dir refused" "[[ \$? != 0 ]]"
 bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project 'Bad Slug' >/dev/null 2>&1; check "bad slug refused" "[[ \$? == 2 ]]"

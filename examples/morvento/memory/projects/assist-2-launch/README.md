@@ -18,10 +18,16 @@ Launch version 2.0 (shared inbox, three languages, monthly topics report) to new
 - Paolo Neri: customer success, tells existing clients
 - Giulia Ferrandi: owner, approves the launch date and the campaign
 
-## Where things live
+## Repositories and audience
 
-- Code: GitHub, morvento/assist (fictional)
-- Launch materials: SharePoint, library "Lancio 2.0"
+| Repository / library | What | Read by |
+|---|---|---|
+| github.com/morvento/assist (fictional) | code | Morvento only |
+| SharePoint, library "Lancio 2.0" | launch materials | Morvento and the agency (shared) |
+
+## Documents: language and audience
+
+Launch materials in Italian for clients; technical notes in English.
 
 ## Status
 

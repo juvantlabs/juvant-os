@@ -15,6 +15,7 @@ The example company used throughout is Morvento, a fictional Italian B2B softwar
 |---|---|
 | `framework/` | What `setup` and `update` copy into a company repo |
 | `examples/morvento/` | The fictional reference company |
+| `tools/`, `docs/migrating-from-v1.md` | Moving a v1 company to v2 |
 | `tests/` | Lint, the `framework/FILES` check, unit tests (`bash tests/run.sh`) |
 
 ## License

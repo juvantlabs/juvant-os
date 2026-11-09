@@ -10,6 +10,7 @@ Everything the company should remember, as plain files in this repo. Git keeps t
 | `knowledge/` | topic: a client, a supplier, the product, the brand, a procedure | the `knowledge` skill |
 | `journal/` | day | the `wrap-up` skill |
 | `map.md` | — | where things live, who people are |
+| `../docs/` (repo root) | long document: an ADR, a policy, a standard, an evaluation | anyone, with the CEO; decisions link to them |
 | `projects/<slug>/` | project | the `new-project` skill: a `README.md` card plus its own `decisions/`, `knowledge/`, `journal/` |
 
 ## decisions/`YYYY-MM-DD-<slug>.md`
