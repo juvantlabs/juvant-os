@@ -362,6 +362,51 @@ class SharedRepo(HookCase):
         self.assertEqual(self.bash("gh pr merge 1"), "allow")
 
 
+class SharedRepoFromElsewhere(HookCase):
+    """The session runs in the company repo; the shared project repo is elsewhere (advisory fix)."""
+    def setUp(self):
+        super().setUp()
+        subprocess.run(["git", "init", "-q", "-b", "main", self.repo], check=True)  # company repo, internal
+        self.shared = tempfile.mkdtemp(prefix="jv2-shared-")
+        self.addCleanup(shutil.rmtree, self.shared, True)
+        subprocess.run(["git", "init", "-q", "-b", "main", self.shared], check=True)
+        subprocess.run(["git", "-C", self.shared, "remote", "add", "origin", "https://github.com/acme/dog-docs.git"], check=True)
+        os.makedirs(os.path.join(self.shared, ".claude"))
+        with open(os.path.join(self.shared, ".claude", "juvant-os-project.json"), "w") as f:
+            json.dump({"project": "dog", "shared_with": "the partners"}, f)
+        os.makedirs(os.path.join(self.shared, "docs"))
+
+    def bash(self, c, cwd=None):
+        rc, out, _ = self.run_hook("limits", {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": cwd or self.repo})
+        return out.get("hookSpecificOutput", {}).get("permissionDecision") or ("deny" if rc == 2 else "allow")
+
+    def test_bypasses_closed(self):
+        sh = self.shared
+        for c, cwd in ((f"git -C {sh} push origin main", None), (f"cd {sh} && gh pr merge 1", None),
+                       (f"cd {sh} && git push", None), (f"git --git-dir={sh}/.git push origin main", None),
+                       (f"git -C {sh}/docs push origin HEAD:main", None), (f"git -C {sh} -c core.x=y push origin main", None),
+                       (f"git -C {sh} push --all origin", None),
+                       ("git push origin main", sh), ("git -C . push origin main", sh), ("gh pr merge 3", sh),
+                       ("gh pr create --title x --body y", sh), ("gh pr merge 3 -R acme/dog-docs", sh)):
+            with self.subTest(c=c, cwd=cwd):
+                self.assertEqual(self.bash(c, cwd), "deny")
+
+    def test_branch_work_and_internal_repos_allowed(self):
+        sh = self.shared
+        subprocess.run(["git", "-C", sh, "checkout", "-q", "-b", "fix/x"], check=True)
+        for c, cwd in ((f"git -C {sh} push -u origin fix/x", None), (f"cd {sh} && gh pr create --draft -t x -b y", None),
+                       ("git push origin main", None), (f"git -C {sh} log --oneline", None),
+                       ("gh pr create --draft -R acme/elsewhere -t x -b y", None)):
+            with self.subTest(c=c, cwd=cwd):
+                self.assertEqual(self.bash(c, cwd), "allow")
+
+    def test_unresolved_remote_merge_asks(self):
+        for c in ("gh pr merge 3 -R acme/elsewhere", "gh pr merge 3 --repo=acme/elsewhere",
+                  "gh pr create -R acme/elsewhere -t x -b y"):
+            with self.subTest(c=c):
+                self.assertEqual(self.bash(c), "ask")
+
+
 class FrameworkUpstream(HookCase):
     """Publishing to the public juvant-os repository asks the CEO (bugfix skill)."""
     def clone(self, url):
