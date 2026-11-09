@@ -298,6 +298,9 @@ def bash_writes_claude_dir(command):
             continue
         if verb in ("python3", "python") and len(words) > 1 and words[1].endswith(".claude/hooks/juvant_hooks.py"):
             continue
+        if (verb in ("python3", "python") and len(words) > 1 and words[1].endswith(".claude/dashboard/build.py")
+                and not any(".claude" in w for w in words[2:])):
+            continue  # the dashboard writes state/dashboard.html; it must run unattended in scheduled tasks
         return True
     return False
 
