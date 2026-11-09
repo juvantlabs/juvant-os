@@ -269,14 +269,17 @@ class ClaudeDirProtection(HookCase):
                   "cp /tmp/x .claude/settings.json", "rm .claude/hooks/juvant_hooks.py",
                   "python3 -c 'open(\".claude/hooks/limits.json\",\"w\")'", "git checkout -- .claude",
                   "bash .claude/skills/update/update.sh --from /tmp/evil", "bash .claude/skills/update/update.sh v2 --repo /tmp/x.git",
-                  "tee -a .claude/settings.json < /dev/null"):
+                  "tee -a .claude/settings.json < /dev/null", "echo x>.claude/hooks/limits.json",
+                  "echo 'a; b' >> .claude/settings.json", "printf x | tee .claude/x", "echo \"unbalanced > .claude/x"):
             with self.subTest(c=c):
                 self.assertEqual(self.decision("Bash", {"command": c}), "ask")
 
     def test_bash_reads_and_sanctioned_allowed(self):
         for c in ("cat .claude/juvant-os.json", "ls -la .claude", "git diff --stat .claude", "git add .claude",
                   "grep -r limits .claude/hooks", "find .claude -name '*.md'", "bash .claude/skills/update/update.sh v2.0.1",
-                  "python3 .claude/hooks/juvant_hooks.py log-outcome 'done'", "echo hi && cat .claude/settings.json"):
+                  "python3 .claude/hooks/juvant_hooks.py log-outcome 'done'", "echo hi && cat .claude/settings.json",
+                  'python3 .claude/hooks/juvant_hooks.py log-outcome "pack (legal, locale); setup done; verify"; git add memory && git commit -m "x; y"',
+                  'cd /tmp/x && python3 .claude/hooks/juvant_hooks.py log-outcome "a & b | c"'):
             with self.subTest(c=c):
                 self.assertEqual(self.decision("Bash", {"command": c}), "allow")
 

@@ -121,15 +121,36 @@ def texts_to_scan(tool, inp):
     return []
 
 
+def shell_segments(command):
+    """Split a command into simple commands (lists of words) on ; & | and newlines
+    outside quotes, keeping redirection operators as words. None if it can't be
+    parsed (unbalanced quotes): callers treat that as unsafe."""
+    try:
+        lex = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=";&|<>")
+        lex.whitespace_split = True
+        segments, cur = [], []
+        for tok in lex:
+            if tok and set(tok) <= set(";&|"):
+                if cur:
+                    segments.append(cur)
+                cur = []
+            else:
+                cur.append(tok)
+        if cur:
+            segments.append(cur)
+        return segments
+    except ValueError:
+        return None
+
+
 def rm_outside_repo(cfg, command):
     """True if a recursive rm targets something outside the repo and temp dirs."""
     root = os.path.realpath(ROOT)
     temps = tuple(cfg["bash"]["temp_dirs"])
-    for segment in re.split(r"[;&|\n]+", command):
-        try:
-            words = shlex.split(segment)
-        except ValueError:
-            words = segment.split()
+    segments = shell_segments(command)
+    if segments is None:
+        segments = [s.split() for s in re.split(r"[;&|\n]+", command)]
+    for words in segments:
         while words and (words[0] in ("sudo", "env", "command", "builtin") or "=" in words[0]):
             words = words[1:]
         if not words or os.path.basename(words[0]) != "rm":
@@ -219,17 +240,19 @@ def bash_writes_claude_dir(command):
     """True if a Bash command may write under .claude/ outside the sanctioned update script."""
     if ".claude" not in command:
         return False
-    for segment in re.split(r"[;&|\n]+", command):
-        seg = segment.strip()
+    segments = shell_segments(command)
+    if segments is None:
+        return True
+    for words in segments:
+        seg = " ".join(words)
         if ".claude" not in seg:
             continue
         if SANCTIONED.match(seg) and not re.search(r"--(from|repo|target)\b", seg):
             continue  # update from a published tag only; a local source could carry anything
-        if re.search(r">>?\s*\S*\.claude", seg):
-            return True
-        try:
-            words = shlex.split(seg)
-        except ValueError:
+        for i, w in enumerate(words[:-1]):
+            if w in (">", ">>", ">|") and ".claude" in words[i + 1]:
+                return True
+        if any(re.match(r"^\d*>>?\S*\.claude", w) for w in words):
             return True
         while words and "=" in words[0] and not words[0].startswith(("-", "/", ".")):
             words = words[1:]
