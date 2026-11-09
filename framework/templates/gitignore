@@ -3,3 +3,4 @@
 .env.*
 __pycache__/
 .claude/settings.local.json
+state/dashboard.html

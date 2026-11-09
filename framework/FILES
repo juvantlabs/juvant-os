@@ -13,7 +13,7 @@ countries/it/finance.md
 countries/it/legal.md
 countries/it/locale.md
 countries/it/marketing.md
-dashboard/.gitkeep
+dashboard/build.py
 hooks/juvant_hooks.py
 hooks/limits.json
 skills/LICENSE-knowledge-work-plugins
@@ -32,6 +32,7 @@ skills/competitive-brief/SKILL.md
 skills/compliance-check/SKILL.md
 skills/content-creation/SKILL.md
 skills/country-pack/SKILL.md
+skills/dashboard/SKILL.md
 skills/decision/SKILL.md
 skills/financial-statements/SKILL.md
 skills/inbox-manager/SKILL.md
