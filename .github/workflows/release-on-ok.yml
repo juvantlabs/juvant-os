@@ -1,0 +1,75 @@
+name: release-on-ok
+
+# Publishes a juvant-os v2 release when a maintainer comments exactly
+# `/release ok` on a "Release proposal: <version>" issue (opened by the
+# adopter-fix review routine; docs/maintainers/adopter-fix-routine.md on v2).
+# Deterministic: it publishes only the version and base sha written in the
+# proposal, only if the commenter is in .github/adopter-fix-trusted on the base
+# branch, and only if the base branch still points at that sha.
+# It lives on the default branch because GitHub runs issue_comment workflows
+# from there.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: release-on-ok
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event.issue.pull_request == null &&
+      startsWith(github.event.issue.title, 'Release proposal:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Publish the approved release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          COMMENT: ${{ github.event.comment.body }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          set -euo pipefail
+          # Only an exact "/release ok" counts.
+          if [ "$(printf '%s' "$COMMENT" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" != "/release ok" ]; then
+            echo "Not a release approval."; exit 0
+          fi
+          say() { gh issue comment "$ISSUE" -R "$REPO" --body "$1" >/dev/null; }
+          read -r VERSION BASE SHA < <(python3 -c 'import os, re; b = os.environ["BODY"]; v = re.search(r"^\*\*Proposed version:\*\* .([^`]+).", b, re.M); m = re.search(r"^\*\*Base:\*\* .([A-Za-z0-9._-]+). at .([0-9a-f]{40}).", b, re.M); print(v.group(1) if v else "-", m.group(1) if m else "-", m.group(2) if m else "-")')
+          if ! [[ "$VERSION" =~ ^v2\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || [ "$BASE" = - ] || [ "$SHA" = - ]; then
+            say "release-on-ok: the proposal doesn't state a valid version and base sha. Nothing published."; exit 1
+          fi
+          git fetch -q origin "$BASE" --tags
+          if ! git show "origin/$BASE:.github/adopter-fix-trusted" | grep -v '^#' | grep -qxF "$COMMENTER"; then
+            say "release-on-ok: @$COMMENTER is not in .github/adopter-fix-trusted on $BASE. Nothing published."; exit 1
+          fi
+          if [ "$(git rev-parse "origin/$BASE")" != "$SHA" ]; then
+            say "release-on-ok: $BASE has moved since the proposal (now $(git rev-parse --short "origin/$BASE"), proposed ${SHA:0:7}). Nothing published: the routine updates the proposal on its next run, then approve again."; exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            say "release-on-ok: tag $VERSION already exists. Nothing published."; exit 1
+          fi
+          printf '%s' "$BODY" | python3 -c 'import sys; b = sys.stdin.read().replace("\r", ""); s = b.split("## Proposed release notes", 1)[1].split("\n---\n", 1)[0].strip(); open("notes.md", "w").write(s + "\n")'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "juvant-os $VERSION" "$SHA"
+          git push -q origin "refs/tags/$VERSION"
+          if [[ "$VERSION" == *-rc.* ]]; then
+            gh release create "$VERSION" -R "$REPO" --verify-tag --prerelease --latest=false --title "$VERSION" --notes-file notes.md
+          else
+            gh release create "$VERSION" -R "$REPO" --verify-tag --title "$VERSION" --notes-file notes.md
+          fi
+          say "Published: https://github.com/$REPO/releases/tag/$VERSION (tag at ${SHA:0:7}, approved by @$COMMENTER)."
+          gh issue close "$ISSUE" -R "$REPO" >/dev/null
+          echo "Released $VERSION"
