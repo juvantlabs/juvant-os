@@ -3,7 +3,7 @@
 
     python3 tools/migrate-from-v1.py <v1.db> <v2-company-dir> [--dry-run]
         [--skip-category CAT ...] [--keep-all-categories] [--include-proposed]
-        [--with-contact-emails]
+        [--with-contact-emails] [--project <slug>=<v1-project.db> ...]
 
 <v1.db> is a SQLite copy of the v1 company DB. For a Turso DB, make one with
     turso db shell <db-name> .dump | sqlite3 v1.db
@@ -17,8 +17,11 @@ What moves, as v2 memory files (format: memory/README.md in the v2 repo):
 - knowledge_base rows                 -> memory/knowledge/<slug>.md, one per row
 - counterparties with contacts and history -> memory/knowledge/<type>-<slug>.md
   (contact names and roles; emails only with --with-contact-emails)
-- agent names and projects            -> listed in MIGRATION-REPORT.md, for the
-  role cards and memory/map.md, not written into them
+- every v1 project                    -> memory/projects/<slug>/README.md, a card
+  from the projects table (name, status, maturity); with --project, that project
+  DB's decisions and knowledge go to memory/projects/<slug>/decisions|knowledge/
+- agent names                         -> listed in MIGRATION-REPORT.md, for the
+  role cards, not written into them
 
 What doesn't move: audit logs, messages, queues, manifests, sessions, tokens.
 Secret-shaped text is replaced with "[redacted]" and counted in the report.
@@ -122,7 +125,7 @@ class Writer:
         return rel
 
 
-def migrate_decisions(con, w, rep, args, skip):
+def migrate_decisions(con, w, rep, args, skip, base="memory"):
     if "decisions" not in tables(con):
         rep.lines.append("- No `decisions` table.")
         return
@@ -150,11 +153,11 @@ def migrate_decisions(con, w, rep, args, skip):
                 f"## Decision\n{title}\n\n## Alternatives considered\n(not recorded in v1)\n\n"
                 f"## Consequences\n{('Executed by ' + clean(d.get('executed_by'), rep) + ' on ' + day(d.get('executed_at'))) if d.get('executed_at') else '(see v1 history)'}\n"
                 + (f"\nv1 reference: {clean(d.get('source_ref'), rep)}\n" if d.get("source_ref") else ""))
-        w.write(f"memory/decisions/{date}-{slug(title)}-v1-{d.get('id')}.md", body)
-    rep.lines.append("- v1 decisions by category: " + ", ".join(f"{k} {v}" for k, v in sorted(by_cat.items())))
+        w.write(f"{base}/decisions/{date}-{slug(title)}-v1-{d.get('id')}.md", body)
+    rep.lines.append(f"- v1 decisions by category ({base}): " + ", ".join(f"{k} {v}" for k, v in sorted(by_cat.items())))
 
 
-def migrate_knowledge(con, w, rep):
+def migrate_knowledge(con, w, rep, base="memory"):
     if "knowledge_base" not in tables(con):
         rep.lines.append("- No `knowledge_base` table.")
         return
@@ -166,7 +169,7 @@ def migrate_knowledge(con, w, rep):
         sources = [f"juvant-os v1 knowledge_base#{k.get('id')}"] + ([clean(k["source_ref"], rep)] if k.get("source_ref") else [])
         body = (f"---\nupdated: {day(k.get('created_at'))}\ntags: {yaml_list(tags)}\nsources: {yaml_list(sources)}\n---\n\n"
                 f"# {title}\n\n{clean(k.get('content'), rep)}\n")
-        w.write(f"memory/knowledge/{slug(title)}.md", body)
+        w.write(f"{base}/knowledge/{slug(title)}.md", body)
 
 
 def migrate_counterparties(con, w, rep, with_emails):
@@ -200,6 +203,28 @@ def migrate_counterparties(con, w, rep, with_emails):
         w.write(f"memory/knowledge/{kind}-{slug(name, 4)}.md", "".join(lines))
 
 
+def project_cards(con, w, rep, project_slugs):
+    """One card per v1 project (and per --project slug not in the table)."""
+    t = tables(con)
+    known = {}
+    if "projects" in t:
+        for p in rows(con, "projects"):
+            known[slug(p.get("id") or p.get("name"), 8)] = p
+    for s_ in project_slugs:
+        known.setdefault(s_, {"id": s_, "name": s_})
+    for s_, p in sorted(known.items()):
+        status = {"active": "active"}.get(str(p.get("status") or "active").lower(), "paused")
+        body = (f"---\nstatus: {status}\nstarted: {day(p.get('created_at'))}\ntags: [project]\n"
+                f"source: juvant-os v1 projects/{p.get('id')}\n---\n\n# {clean(p.get('name'), rep) or s_}\n\n"
+                f"## Goal\n\n<!-- to fill in -->\n\n## People\n\n<!-- to fill in -->\n\n## Where things live\n\n<!-- to fill in: code repositories, documents -->\n\n"
+                f"## Status\n\n- Migrated from juvant-os v1 (maturity: {p.get('maturity_status') or 'n/a'}).\n")
+        rel = f"memory/projects/{s_}/README.md"
+        if os.path.exists(os.path.join(w.target, rel)):
+            rep.skip("project card already present")
+            continue
+        w.write(rel, body)
+
+
 def agents_and_projects(con, rep):
     t = tables(con)
     if "agents" in t:
@@ -214,7 +239,7 @@ def agents_and_projects(con, rep):
         ps = rows(con, "projects")
         if ps:
             rep.lines.append("\n## Projects in v1\n")
-            rep.lines.append("Add them to memory/map.md (repos, where their documents live). Their DBs are not migrated here.\n")
+            rep.lines.append("Each has a card in memory/projects/<slug>/README.md to complete (goal, people, repos). Project DBs are migrated only when passed with --project.\n")
             for p in ps:
                 rep.lines.append(f"- {p.get('name')} (`{p.get('id')}`, {p.get('status')}, {p.get('maturity_status')})")
 
@@ -228,6 +253,8 @@ def main():
     ap.add_argument("--keep-all-categories", action="store_true")
     ap.add_argument("--include-proposed", action="store_true")
     ap.add_argument("--with-contact-emails", action="store_true")
+    ap.add_argument("--project", action="append", default=[], metavar="SLUG=DB",
+                    help="a v1 project DB to migrate into memory/projects/<slug>/")
     args = ap.parse_args()
 
     target = os.path.abspath(args.target)
@@ -246,6 +273,21 @@ def main():
     migrate_decisions(con, w, rep, args, skip)
     migrate_knowledge(con, w, rep)
     migrate_counterparties(con, w, rep, args.with_contact_emails)
+    pairs = []
+    for spec in args.project:
+        if "=" not in spec:
+            sys.exit(f"migrate: --project needs <slug>=<db>, got {spec}")
+        ps, pdb = spec.split("=", 1)
+        if not re.match(r"^[a-z0-9][a-z0-9-]{0,60}$", ps):
+            sys.exit(f"migrate: bad project slug '{ps}'")
+        if not os.path.isfile(pdb):
+            sys.exit(f"migrate: {pdb} not found")
+        pairs.append((ps, pdb))
+    project_cards(con, w, rep, [p for p, _ in pairs])
+    for ps, pdb in pairs:
+        pcon = sqlite3.connect(f"file:{os.path.abspath(pdb)}?mode=ro", uri=True)
+        migrate_decisions(pcon, w, rep, args, skip, base=f"memory/projects/{ps}")
+        migrate_knowledge(pcon, w, rep, base=f"memory/projects/{ps}")
     agents_and_projects(con, rep)
 
     summary = [f"# Migration from juvant-os v1 ({dt.date.today().isoformat()})\n",

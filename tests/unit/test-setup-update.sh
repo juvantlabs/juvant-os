@@ -40,6 +40,18 @@ check "unknown country: recorded, no pack" "grep -q '\"country\": \"de\"' '$N/.c
 check "no --country: no pack" "[[ ! -d '$C/.claude/country' ]] && grep -q '\"country\": \"\"' '$C/.claude/juvant-os.json'"
 bash "$ROOT/setup.sh" "$T/badcc" --country 'it;rm' >/dev/null 2>&1; check "bad country code refused" "[[ \$? != 0 ]]"
 
+echo "== project code repo"
+PRJ="$T/helix-code"; mkdir -p "$PRJ"; echo "# Helix" > "$PRJ/README.md"
+bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project helix >/dev/null 2>&1; rc=$?
+check "project repo setup exits 0" "[[ $rc == 0 ]]"
+check "hooks and settings installed" "[[ -f '$PRJ/.claude/hooks/juvant_hooks.py' && -f '$PRJ/.claude/settings.json' ]]"
+check "company manifesto copied" "cmp -s '$C/manifesto.md' '$PRJ/.claude/company-manifesto.md'"
+check "project CLAUDE.md points to the project memory" "grep -q 'memory/projects/helix/' '$PRJ/.claude/CLAUDE.md' && grep -q '@company-manifesto.md' '$PRJ/.claude/CLAUDE.md'"
+check "own README untouched" "[[ \$(cat '$PRJ/README.md') == '# Helix' ]]"
+bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project helix >/dev/null 2>&1; check "second project setup refused" "[[ \$? == 1 ]]"
+bash "$ROOT/setup.sh" --project-repo "$T/plain" --company-dir "$T/plain" --project x >/dev/null 2>&1; check "non-company dir refused" "[[ \$? != 0 ]]"
+bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project 'Bad Slug' >/dev/null 2>&1; check "bad slug refused" "[[ \$? == 2 ]]"
+
 echo "== update between two tags"
 F="$T/fw.git"; W="$T/fw"
 mkdir -p "$W"; cp -R "$ROOT/framework" "$W/framework"

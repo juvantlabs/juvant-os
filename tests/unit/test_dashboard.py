@@ -73,6 +73,17 @@ class Dashboard(unittest.TestCase):
         self.assertIn("Draft ready", p)
         self.assertIn("see agent view", p)
 
+    def test_projects(self):
+        self.write("memory/projects/launch/README.md", "---\nstatus: active\n---\n\n# Assist 2.0 launch\n\n## Status\n\n<!-- c -->\n- Posts drafted, waiting for the date\n")
+        self.write("memory/projects/launch/decisions/2026-11-02-date.md", "---\ndate: 2026-11-02\nstatus: active\n---\n# Launch on 15 January\n")
+        self.write("memory/projects/old/README.md", "---\nstatus: closed\n---\n\n# Old site\n")
+        p = self.page()
+        self.assertIn("Assist 2.0 launch", p)
+        self.assertIn("Posts drafted, waiting for the date", p)
+        self.assertIn("2026-11-02 Launch on 15 January", p)
+        self.assertLess(p.index("Assist 2.0 launch"), p.index("Old site"), "active before closed")
+        self.assertIn("No projects in memory/projects/.", build.build(tempfile.mkdtemp(), TODAY))
+
     def test_live_states(self):
         self.write("state/briefs/social-campaign.md", "2026-11-09")
         self.write("agents.json", json.dumps([{"name": "social-campaign", "state": "needs input"}]))
@@ -86,7 +97,7 @@ class Dashboard(unittest.TestCase):
 
     def test_menu_links_every_section(self):
         p = self.page()
-        for anchor in ("waiting", "agents", "sessions", "decisions", "deadlines", "activity"):
+        for anchor in ("waiting", "agents", "sessions", "projects", "decisions", "deadlines", "activity"):
             self.assertIn(f'href="#{anchor}"', p)
             self.assertIn(f'id="{anchor}"', p)
 

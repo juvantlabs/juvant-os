@@ -293,7 +293,7 @@ def cmd_subagent_start():
     ev = read_event()
     activity("subagent_start", ev)
     parts = []
-    manifesto = read_text("manifesto.md")
+    manifesto = read_text("manifesto.md") or read_text(os.path.join(".claude", "company-manifesto.md"))
     parts.append("# Company manifesto\n\n" + manifesto if manifesto
                  else "# Company manifesto\n\n(manifesto.md is missing from the company repo: tell the CEO.)")
     agent = str(ev.get("agent_type", ""))
@@ -347,6 +347,31 @@ def memory_digest():
             break
     if rows:
         parts.append("## Recent decisions (active)\n\n" + "\n".join(rows))
+    prow = []
+    pdir = os.path.join(ROOT, "memory", "projects")
+    try:
+        slugs = sorted(n for n in os.listdir(pdir) if os.path.isdir(os.path.join(pdir, n)))
+    except OSError:
+        slugs = []
+    for slug in slugs:
+        card = read_text(os.path.join("memory", "projects", slug, "README.md")) or ""
+        status = frontmatter(card).get("status", "active")
+        if status == "closed":
+            continue
+        name = next((l[2:].strip() for l in card.splitlines() if l.startswith("# ")), slug)
+        latest = ""
+        try:
+            ds = sorted((n for n in os.listdir(os.path.join(pdir, slug, "decisions")) if n.endswith(".md")), reverse=True)
+        except OSError:
+            ds = []
+        if ds:
+            dt_ = read_text(os.path.join("memory", "projects", slug, "decisions", ds[0])) or ""
+            latest = "; latest decision: " + next((l[2:].strip() for l in dt_.splitlines() if l.startswith("# ")), ds[0][:-3])
+        prow.append(f"- {name} ({status}) — memory/projects/{slug}/{latest}")
+        if len(prow) == 10:
+            break
+    if prow:
+        parts.append("## Projects\n\n" + "\n".join(prow))
     jdir = os.path.join(ROOT, "memory", "journal")
     try:
         days = sorted((n for n in os.listdir(jdir) if re.match(r"\d{4}-\d{2}-\d{2}\.md$", n)), reverse=True)

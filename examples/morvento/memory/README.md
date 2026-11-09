@@ -10,6 +10,7 @@ Everything the company should remember, as plain files in this repo. Git keeps t
 | `knowledge/` | topic: a client, a supplier, the product, the brand, a procedure | the `knowledge` skill |
 | `journal/` | day | the `wrap-up` skill |
 | `map.md` | — | where things live, who people are |
+| `projects/<slug>/` | project | the `new-project` skill: a `README.md` card plus its own `decisions/`, `knowledge/`, `journal/` |
 
 ## decisions/`YYYY-MM-DD-<slug>.md`
 
@@ -51,6 +52,10 @@ Facts change: update the line, keep the source and date. If a fact was a decisio
 ## journal/`YYYY-MM-DD.md`
 
 One section per session: done, decided, waiting for the CEO, open.
+
+## projects/`<slug>`/
+
+One folder per project, same formats as above, plus `README.md`: the project card (frontmatter `status: active | paused | closed`; goal, people, where things live, status). A decision or fact about one project goes in its folder; one that applies to the company goes in the company's.
 
 ## map.md
 

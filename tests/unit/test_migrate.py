@@ -91,6 +91,37 @@ class Migrate(unittest.TestCase):
         self.assertNotIn("libsql://x", report)
         self.assertIn("Secret-shaped text redacted: 1", report)
 
+    def test_projects(self):
+        pdb = os.path.join(self.tmp, "hx.db")
+        con = sqlite3.connect(pdb)
+        con.executescript("""
+        CREATE TABLE decisions (id INTEGER PRIMARY KEY, agent TEXT, title TEXT, category TEXT, rationale TEXT,
+          source_ref TEXT, status TEXT, scope TEXT, approved_by TEXT, approved_at TEXT, executed_by TEXT,
+          executed_at TEXT, created_at TEXT);
+        CREATE TABLE knowledge_base (id INTEGER PRIMARY KEY, category TEXT, title TEXT, content TEXT,
+          source_project TEXT, tags TEXT, source_ref TEXT, created_at TEXT);
+        """)
+        con.execute("INSERT INTO decisions (title, category, status, approved_by, approved_at, scope) VALUES ('Use Postgres for Helix', 'architecture', 'approved', 'CEO', '2026-10-05', 'project')")
+        con.execute("INSERT INTO knowledge_base (category, title, content, created_at) VALUES ('runbook', 'Helix deploy steps', 'Build, test, deploy.', '2026-10-06')")
+        con.commit(); con.close()
+        r = self.run_tool("--project", f"hx={pdb}")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        card, _ = self.read("memory/projects/hx/README.md")
+        self.assertIn("# Helix", card)
+        self.assertIn("status: active", card)
+        pdec, files = self.read("memory/projects/hx/decisions/*.md")
+        self.assertIn("Use Postgres for Helix", pdec)
+        pkb, _ = self.read("memory/projects/hx/knowledge/*.md")
+        self.assertIn("Helix deploy steps", pkb)
+        cdec, _ = self.read("memory/decisions/*-v1-*.md")
+        self.assertNotIn("Postgres", cdec, "project decisions stay in the project folder")
+        self.assertNotEqual(self.run_tool("--project", "Bad Slug=x").returncode, 0)
+
+    def test_project_cards_without_project_db(self):
+        self.assertEqual(self.run_tool().returncode, 0)
+        card, _ = self.read("memory/projects/hx/README.md")
+        self.assertIn("# Helix", card)
+
     def test_options(self):
         r = self.run_tool("--keep-all-categories", "--include-proposed", "--with-contact-emails")
         self.assertEqual(r.returncode, 0, r.stderr)

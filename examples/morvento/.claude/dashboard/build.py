@@ -163,6 +163,26 @@ def collaborators(root, acts, live):
     return sorted(out, key=lambda x: x["started"], reverse=True)
 
 
+def projects(root):
+    out = []
+    for slug in sorted(n for n in listdir(root, "memory/projects", r"[^.].*") if os.path.isdir(os.path.join(root, "memory", "projects", n))):
+        card = read(root, f"memory/projects/{slug}/README.md")
+        fm = frontmatter(card)
+        status = fm.get("status", "active")
+        m = re.search(r"^## Status\s*\n(.*?)(?=^## |\Z)", card, re.S | re.M)
+        note = ""
+        if m:
+            note = next((l.strip(" -") for l in m.group(1).splitlines() if l.strip() and not l.strip().startswith("<!--")), "")
+        ds = list(reversed(listdir(root, f"memory/projects/{slug}/decisions", r"\d{4}-\d{2}-\d{2}-.*\.md$")))
+        latest = ("", "")
+        if ds:
+            t = read(root, f"memory/projects/{slug}/decisions/{ds[0]}")
+            latest = (frontmatter(t).get("date", ds[0][:10]), first_heading(t, ds[0][:-3]))
+        out.append({"slug": slug, "name": first_heading(card, slug), "status": status, "note": note, "latest": latest})
+    order = {"active": 0, "paused": 1, "closed": 2}
+    return sorted(out, key=lambda p: (order.get(p["status"], 3), p["name"].lower()))
+
+
 def per_day(acts, today):
     days = [today - dt.timedelta(days=i) for i in range(ACTIVITY_DAYS - 1, -1, -1)]
     counts = {d: 0 for d in days}
@@ -260,6 +280,7 @@ def build(root, today, agents_json=None):
     dedicated, others = agents(root, acts, today)
     collabs = collaborators(root, acts, live_states(agents_json))
     series = per_day(acts, today)
+    projs = projects(root)
     name = company_name(root)
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -282,6 +303,13 @@ def build(root, today, agents_json=None):
         f'<tr><td><strong>{esc(c["name"])}</strong></td><td>{esc(c["started"] or "—")}</td>'
         f'<td>{state_pill(c)}</td><td>{esc(plain(c["outcome"]) or "—")}</td></tr>' for c in collabs)
 
+    def proj_row(p):
+        pill = "pill warn" if p["status"] == "paused" else "pill"
+        latest = f'{esc(p["latest"][0])} {esc(p["latest"][1])}' if p["latest"][1] else "—"
+        return (f'<tr><td><strong>{esc(p["name"])}</strong><br><span class="src">memory/projects/{esc(p["slug"])}/</span></td>'
+                f'<td><span class="{pill}">{esc(p["status"])}</span></td><td>{esc(p["note"]) or "—"}</td><td>{latest}</td></tr>')
+
+    proj_rows = "".join(proj_row(p) for p in projs)
     dec_items = [f'<li><strong>{esc(d)}</strong> {esc(t)} <span class="src">{esc(by)} · {esc(src)}</span></li>' for d, t, by, src in decs]
     dl_items = [f'<li><strong>{d.strftime("%d %b")}</strong> {esc(w)} <span class="src">{esc(o)}</span></li>' for d, w, o in dls]
 
@@ -293,12 +321,13 @@ def build(root, today, agents_json=None):
 <style>{CSS}</style></head>
 <body><main>
 <header><h1>{esc(name)}</h1><span class="asof">Read-only · built {esc(now)} from the company repo</span></header>
-<nav aria-label="Sections"><a href="#waiting">Waiting for you ({need})</a><a href="#agents">Agents</a><a href="#sessions">Collaborator sessions</a><a href="#decisions">Decisions</a><a href="#deadlines">Deadlines</a><a href="#activity">Activity</a></nav>
+<nav aria-label="Sections"><a href="#waiting">Waiting for you ({need})</a><a href="#agents">Agents</a><a href="#sessions">Collaborator sessions</a><a href="#projects">Projects</a><a href="#decisions">Decisions</a><a href="#deadlines">Deadlines</a><a href="#activity">Activity</a></nav>
 <section id="waiting" class="{'attention' if need else ''}"><h2>Waiting for you · {need}</h2>{ul(w_items, "Nothing is waiting for you.")}</section>
 <div class="grid">
 <section id="agents"><h2>Agents</h2><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Last active</th><th>7 days</th><th>Last outcome</th></tr></thead><tbody>{ag_rows}</tbody></table></div>
 <p class="src">Other collaborators used: {other_line}</p></section>
 <section id="sessions"><h2>Collaborator sessions</h2>{('<div class="tablewrap"><table><thead><tr><th>Session</th><th>Started</th><th>State</th><th>Last report</th></tr></thead><tbody>' + co_rows + '</tbody></table></div>') if collabs else '<p class="empty">No collaborator sessions.</p>'}</section>
+<section id="projects"><h2>Projects</h2>{('<div class="tablewrap"><table><thead><tr><th>Project</th><th>Status</th><th>Where it stands</th><th>Latest decision</th></tr></thead><tbody>' + proj_rows + '</tbody></table></div>') if projs else '<p class="empty">No projects in memory/projects/.</p>'}</section>
 <section id="decisions"><h2>Latest decisions</h2>{ul(dec_items, "No decisions recorded yet.")}</section>
 <section id="deadlines"><h2>Deadlines · next {DEADLINE_DAYS} days</h2>{ul(dl_items, "No deadlines in memory/deadlines.md for the next 30 days.")}</section>
 </div>

@@ -5,7 +5,7 @@ description: "Close a work session: journal entry, open items, what waits for th
 
 # Wrap up the session
 
-1. **Journal.** Append a section to `memory/journal/<YYYY-MM-DD>.md` (create the file if needed):
+1. **Journal.** Append a section to `memory/journal/<YYYY-MM-DD>.md` (create the file if needed). If the session was about one project, write it in `memory/projects/<slug>/journal/<YYYY-MM-DD>.md` instead and update the Status section of the project's `README.md`:
 
 ```
 ## <HH:MM> — <one-line summary of the session>

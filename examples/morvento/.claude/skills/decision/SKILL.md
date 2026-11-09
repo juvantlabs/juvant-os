@@ -7,9 +7,10 @@ description: "Record a decision the CEO has taken in memory/decisions/. Use righ
 
 Only decisions the CEO took. A recommendation, an agent's verdict or an open question is not a decision: if you're not sure the CEO decided, ask.
 
-1. Pick a short slug (3–6 words, lowercase, hyphens) and today's date.
-2. Check `memory/decisions/` for an earlier decision on the same topic. If this one replaces it, say so in both files (`supersedes:` here, `status: superseded` there).
-3. Write `memory/decisions/<YYYY-MM-DD>-<slug>.md`:
+1. **Company or project?** A decision about one project goes in `memory/projects/<slug>/decisions/`; everything else in `memory/decisions/`. Ask the CEO if it isn't clear.
+2. Pick a short slug (3–6 words, lowercase, hyphens) and today's date.
+3. Check the same `decisions/` folder for an earlier decision on the same topic. If this one replaces it, say so in both files (`supersedes:` here, `status: superseded` there).
+4. Write `<decisions folder>/<YYYY-MM-DD>-<slug>.md`:
 
 ```
 ---
@@ -35,6 +36,6 @@ supersedes: <file, if any>
 <What changes now, who does what, and any deadline.>
 ```
 
-4. Tell the CEO the file name. Commit with the rest of the session's work at wrap-up, or now if the CEO asks.
+5. Tell the CEO the file name. Commit with the rest of the session's work at wrap-up, or now if the CEO asks.
 
 Never put secrets or personal data beyond what the decision needs.

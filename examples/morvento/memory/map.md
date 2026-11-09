@@ -9,6 +9,7 @@ Fictional example. Never put secrets here.
 | Brand rules and product facts | `memory/knowledge/` |
 | Decisions | `memory/decisions/` |
 | Code | GitHub organisation "morvento" (fictional) |
+| Projects | `memory/projects/` (e.g. assist-2-launch) |
 
 ## People
 

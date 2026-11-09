@@ -196,6 +196,11 @@ class ContextAndActivity(HookCase):
         self.assertIn("We say no to vague contracts.", ctx)
         self.assertNotIn("name: Ada", ctx)
 
+    def test_project_repo_uses_company_manifesto_copy(self):
+        self.write(".claude/company-manifesto.md", "Company rules from the copy.")
+        _, out, _ = self.run_hook("subagent-start", {"agent_type": "general-purpose"})
+        self.assertIn("Company rules from the copy.", out["hookSpecificOutput"]["additionalContext"])
+
     def test_missing_manifesto_is_said(self):
         _, out, _ = self.run_hook("subagent-start", {"agent_type": "general-purpose"})
         self.assertIn("manifesto.md is missing", out["hookSpecificOutput"]["additionalContext"])
@@ -327,6 +332,16 @@ class MemoryDigest(HookCase):
         self.assertNotIn("Old price", c)
         self.assertIn("approve the packet", c)
         self.assertNotIn("older", c)
+
+    def test_projects_listed(self):
+        self.write("memory/projects/launch/README.md", "---\nstatus: active\n---\n\n# Assist 2.0 launch\n")
+        self.write("memory/projects/launch/decisions/2026-11-01-x.md", "---\nstatus: active\n---\n\n# Launch in January\n")
+        self.write("memory/projects/old/README.md", "---\nstatus: closed\n---\n\n# Old site\n")
+        self.write("memory/projects/paused/README.md", "---\nstatus: paused\n---\n\n# Paused thing\n")
+        c = self.ctx()
+        self.assertIn("Assist 2.0 launch (active) — memory/projects/launch/; latest decision: Launch in January", c)
+        self.assertIn("Paused thing (paused)", c)
+        self.assertNotIn("Old site", c)
 
     def test_recent_decisions_capped_newest_first(self):
         for i in range(1, 13):
