@@ -14,11 +14,10 @@
 # template file that already exists. Nothing is committed.
 #
 #   bash setup.sh --project-repo <repo> --company-dir <company-repo> --project <slug>
-#                 [--shared-with "<who>"]   the repo is read by people outside the company
+#                 [--shared-with "<who>"]
 #
-# Gives a project's code repository the hard limits: the framework in .claude/,
-# the settings, a copy of the company manifesto, and .claude/CLAUDE.md pointing
-# to the project's memory in the company repo (memory/projects/<slug>/).
+# The same as asking the Chief of Staff to link a repository to a project (the
+# project-repo skill, which this calls): useful in scripts and migrations.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FW="$HERE/framework"
@@ -35,34 +34,12 @@ if [[ "${1:-}" == "--project-repo" ]]; then
   done
   [[ -n "$PR" && -n "$CD" && -n "$SLUG" ]] || { echo "setup: --project-repo needs --company-dir and --project" >&2; exit 2; }
   [[ "$SLUG" =~ ^[a-z0-9][a-z0-9-]{0,60}$ ]] || { echo "setup: bad project slug '$SLUG'" >&2; exit 2; }
-  [[ -d "$PR" ]] || { echo "setup: $PR doesn't exist" >&2; exit 1; }
-  PR="$(cd "$PR" && pwd)"; CD="$(cd "$CD" && pwd)"
-  [[ -f "$CD/.claude/juvant-os.json" && -f "$CD/manifesto.md" ]] || { echo "setup: $CD is not a juvant-os v2 company repo" >&2; exit 1; }
-  [[ -d "$PR/.juvant" ]] && { echo "setup: $PR is a juvant-os v1 repo (.juvant/ exists)" >&2; exit 1; }
-  for f in .claude/juvant-os.json .claude/settings.json .claude/CLAUDE.md; do
-    [[ -e "$PR/$f" ]] && { echo "setup: $PR/$f already exists. Move it away first (or merge by hand); setup never overwrites." >&2; exit 1; }
-  done
-  COMPANY="$(sed -n 's/^# \(.*\) manifesto$/\1/p' "$CD/manifesto.md" | head -1)"
-  mkdir -p "$PR/.claude"
-  bash "$FW/skills/update/update.sh" --from "$FW" --target "$PR" >/dev/null
-  cp "$FW/templates/settings.json" "$PR/.claude/settings.json"
-  cp "$CD/manifesto.md" "$PR/.claude/company-manifesto.md"
-  [[ -d "$CD/memory/projects/$SLUG" ]] || echo "setup: note: $CD/memory/projects/$SLUG doesn't exist yet; create it with the new-project skill in the company repo."
-  cat > "$PR/.claude/CLAUDE.md" <<EOF
-# Project $SLUG of ${COMPANY:-the company}
-
-This repository holds the code of project \`$SLUG\`. The company's rules apply here:
-
-@company-manifesto.md
-
-- **Memory** for this project lives in the company repo, in \`memory/projects/$SLUG/\` (card, decisions, knowledge, journal), not here. If the company repo is checked out next to this one, read the card before starting and propose decisions and facts for it; otherwise list them at the end of the session for the Chief of Staff to record.
-- **Hard limits** are the same as in the company repo and enforced by the same hooks: outbound is draft-only, no payments or invoice issuing, no secrets in files or commands, destructive changes ask the CEO.
-$( [[ -n "$SHARED" ]] && printf -- '- **This repository is shared with %s.** Everything written here is read by them: write as for an external reader, never copy the company'"'"'s memory, internal notes or opinions about partners here. Work on a branch and open a draft PR; the CEO merges. The hooks enforce it.\n' "$SHARED" )
-- **The manifesto here is a copy.** When it changes in the company repo, refresh it: \`cp <company-repo>/manifesto.md .claude/company-manifesto.md\`.
-EOF
-  printf '{\n  "project": "%s",\n  "company_repo": "%s",\n  "shared_with": "%s"\n}\n' "$SLUG" "$CD" "$(printf '%s' "$SHARED" | tr -d '\042\134')" > "$PR/.claude/juvant-os-project.json"
-  echo "setup: project repo $PR set up for project '$SLUG' of ${COMPANY:-the company}$( [[ -n "$SHARED" ]] && printf ', shared with %s: pushes to the default branch and PR merges are blocked' "$SHARED" ). Nothing is committed."
-  exit 0
+  [[ -f "$CD/.claude/skills/project-repo/project-repo.sh" ]] || { echo "setup: $CD is not a juvant-os v2 company repo" >&2; exit 1; }
+  # One implementation: the company's own project-repo skill (the CoS runs the same one).
+  if [[ -n "$SHARED" ]]; then
+    exec bash "$CD/.claude/skills/project-repo/project-repo.sh" install "$PR" --project "$SLUG" --shared-with "$SHARED"
+  fi
+  exec bash "$CD/.claude/skills/project-repo/project-repo.sh" install "$PR" --project "$SLUG"
 fi
 
 [[ $# -ge 1 && "$1" != -* ]] || { sed -n '2,20p' "$0" >&2; exit 2; }

@@ -323,6 +323,61 @@ class SharedRepo(HookCase):
         self.assertEqual(self.bash("gh pr merge 1"), "allow")
 
 
+class OtherRepoProtection(HookCase):
+    def test_project_repo_framework_files_ask(self):
+        other = tempfile.mkdtemp(prefix="jv2-other-")
+        self.addCleanup(shutil.rmtree, other, True)
+        os.makedirs(os.path.join(other, ".claude"))
+        open(os.path.join(other, ".claude", "juvant-os-project.json"), "w").write("{}")
+        for f in ("juvant-os-project.json", "CLAUDE.md", "hooks/limits.json"):
+            with self.subTest(f=f):
+                self.assertEqual(self.decision("Write", {"file_path": os.path.join(other, ".claude", f), "content": "x"}), "ask")
+        plain = tempfile.mkdtemp(prefix="jv2-plain-")
+        self.addCleanup(shutil.rmtree, plain, True)
+        os.makedirs(os.path.join(plain, ".claude"))
+        self.assertEqual(self.decision("Write", {"file_path": os.path.join(plain, ".claude", "x.md"), "content": "x"}), "allow",
+                         "a .claude/ without juvant-os is not ours to guard")
+
+
+class GithubSharingCheck(HookCase):
+    def fake_gh(self, count):
+        p = os.path.join(self.repo, "fake-gh.sh")
+        with open(p, "w") as f:
+            f.write(f"#!/bin/sh\necho {count}\n")
+        os.chmod(p, 0o755)
+        return p
+
+    def ctx(self, gh):
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo, JUVANT_GH=gh)
+        p = subprocess.run([sys.executable, SCRIPT, "session-start"], input=json.dumps({"session_id": "s"}),
+                           capture_output=True, text=True, env=env, timeout=20)
+        return json.loads(p.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    def setUp(self):
+        super().setUp()
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        subprocess.run(["git", "-C", self.repo, "remote", "add", "origin", "git@github.com:acme/dog-pm.git"], check=True)
+
+    def test_unmarked_project_repo_with_outside_collaborators_warns(self):
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "juvant-os-project.json"), "w") as f:
+            json.dump({"project": "dog", "shared_with": ""}, f)
+        self.assertIn("2 outside collaborator(s) on acme/dog-pm", self.ctx(self.fake_gh(2)))
+
+    def test_marked_shared_is_quiet(self):
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "juvant-os-project.json"), "w") as f:
+            json.dump({"project": "dog", "shared_with": "the co-founders"}, f)
+        self.assertNotIn("outside collaborator", self.ctx(self.fake_gh(2)))
+
+    def test_company_repo_with_outside_collaborators_warns(self):
+        self.assertIn("on the company repo acme/dog-pm", self.ctx(self.fake_gh(1)))
+
+    def test_cached_for_a_day_and_silent_without_gh(self):
+        self.assertNotIn("outside collaborator", self.ctx("/nonexistent/gh"))
+        self.assertNotIn("outside collaborator", self.ctx(self.fake_gh(3)), "cached result reused")
+
+
 class LogOutcome(HookCase):
     def run_cli(self, *args):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)

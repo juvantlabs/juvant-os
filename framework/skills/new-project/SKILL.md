@@ -11,7 +11,7 @@ A project's memory lives in `memory/projects/<slug>/`, apart from the company's 
 2. Create `memory/projects/<slug>/README.md` from `.claude/skills/new-project/project-README.md`, filling the name, today's date and what the CEO has told you of the goal, people and where things live. Leave unknown sections with their comment.
 3. Create `decisions/`, `knowledge/` and `journal/` inside it (an empty `.gitkeep` in each).
 4. Add the project to `memory/map.md` (one line: name, folder, code repo if any).
-5. Fill **Repositories and audience** in the card: each repository and who reads it. For each repository the project owns, offer to give it the hard limits and the manifesto: from a clone of juvant-os, `bash setup.sh --project-repo <repo> --company-dir <this repo> --project <slug>`, adding `--shared-with "<who>"` when people outside the company read it. In a shared repo, work goes on a branch and a draft PR that the CEO merges.
+5. Fill **Repositories and audience** in the card: each repository and who reads it. For each repository the project owns, offer to link it with the `project-repo` skill (hard limits and manifesto in that repository; `--shared-with` when people outside the company read it).
 6. Record the start with the `decision` skill, in the project's `decisions/`.
 
 When a project ends: set `status: closed` in its card, write a last journal entry, and record the decision. The folder stays for the history.

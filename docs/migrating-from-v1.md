@@ -49,12 +49,7 @@ Copy them with their history if you want it (`git subtree` or `git filter-repo`)
 
 ## 4. Keep each project's own repositories
 
-A project's documents and code stay where they are. For each repository a project owns:
-
-```
-bash setup.sh --project-repo <repo> --company-dir ~/Projects/<company>-v2 --project <slug> \
-    [--shared-with "<who reads it outside the company>"]
-```
+A project's documents and code stay where they are. For each repository a project owns, tell the Chief of Staff in the company repo: "link `<repo>` to project `<slug>`; it's read by `<who>`" (the `project-repo` skill; you confirm the write). Later changes the same way: "`<repo>` is now shared with …", "`<repo>` is internal again". In scripts, `bash setup.sh --project-repo <repo> --company-dir <company-repo> --project <slug> [--shared-with "<who>"]` does the same.
 
 - Use `--shared-with` for any repository read by partners, clients or co-founders outside the company. In it, pushing to the default branch and merging pull requests are blocked: work goes on a branch with a draft pull request, and the CEO merges. Internal memory never goes there.
 - List every repository and who reads it in the project card (`memory/projects/<slug>/README.md`, "Repositories and audience"), and the language rules of its documents.

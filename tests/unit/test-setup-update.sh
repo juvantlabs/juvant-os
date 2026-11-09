@@ -50,10 +50,19 @@ check "project CLAUDE.md points to the project memory" "grep -q 'memory/projects
 check "own README untouched" "[[ \$(cat '$PRJ/README.md') == '# Helix' ]]"
 SH="$T/helix-pm"; mkdir -p "$SH"
 bash "$ROOT/setup.sh" --project-repo "$SH" --company-dir "$C" --project helix --shared-with 'the co-founders "A&B"' >/dev/null 2>&1
-check "shared repo recorded" "grep -q '\"shared_with\": \"the co-founders A&B\"' '$SH/.claude/juvant-os-project.json'"
+check "shared repo recorded (quotes kept as valid JSON)" "python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))[\"shared_with\"] == \"the co-founders \\\"A&B\\\"\"' '$SH/.claude/juvant-os-project.json'"
 check "shared repo CLAUDE.md warns the reader is external" "grep -q 'This repository is shared with' '$SH/.claude/CLAUDE.md'"
 check "unshared repo has no shared warning" "! grep -q 'shared with' '$PRJ/.claude/CLAUDE.md'"
 check "company repo gets docs/" "[[ -f '$C/docs/README.md' ]]"
+PRS="$C/.claude/skills/project-repo/project-repo.sh"
+bash "$PRS" sharing "$PRJ" "the auditors" >/dev/null
+check "sharing on: record and notice" "grep -q '\"shared_with\": \"the auditors\"' '$PRJ/.claude/juvant-os-project.json' && grep -q 'shared with the auditors' '$PRJ/.claude/CLAUDE.md'"
+bash "$PRS" sharing "$PRJ" "the auditors and the bank" >/dev/null
+check "sharing changed: one notice only" "[[ \$(grep -c 'This repository is shared with' '$PRJ/.claude/CLAUDE.md') == 1 ]] && grep -q 'the auditors and the bank' '$PRJ/.claude/CLAUDE.md'"
+bash "$PRS" sharing "$PRJ" none >/dev/null
+check "sharing off: record empty, notice gone" "grep -q '\"shared_with\": \"\"' '$PRJ/.claude/juvant-os-project.json' && ! grep -q 'This repository is shared with' '$PRJ/.claude/CLAUDE.md'"
+bash "$PRS" sharing "$T/plain" "x" >/dev/null 2>&1; check "sharing on a repo without setup refused" "[[ \$? != 0 ]]"
+bash "$PRS" install "$C" --project x >/dev/null 2>&1; check "install into the company repo itself refused" "[[ \$? != 0 ]]"
 bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project helix >/dev/null 2>&1; check "second project setup refused" "[[ \$? == 1 ]]"
 bash "$ROOT/setup.sh" --project-repo "$T/plain" --company-dir "$T/plain" --project x >/dev/null 2>&1; check "non-company dir refused" "[[ \$? != 0 ]]"
 bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project 'Bad Slug' >/dev/null 2>&1; check "bad slug refused" "[[ \$? == 2 ]]"

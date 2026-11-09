@@ -234,12 +234,24 @@ GIT_READ = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commit
 SANCTIONED = re.compile(r"^(bash|sh)\s+(\./)?\.claude/skills/update/update\.sh(\s|$)")
 
 
+FRAMEWORK_MARKERS = ("juvant-os.json", "juvant-os-project.json")
+
+
 def in_claude_dir(path):
+    """True for this repo's .claude/, and for the .claude/ of any repo juvant-os is
+    installed in (a project repo next door): its hooks and sharing record too."""
     if not path:
         return False
     full = os.path.realpath(path if os.path.isabs(path) else os.path.join(ROOT, path))
     base = os.path.realpath(os.path.join(ROOT, ".claude"))
-    return full == base or full.startswith(base + os.sep)
+    if full == base or full.startswith(base + os.sep):
+        return True
+    d = os.path.dirname(full)
+    while d and d != os.path.dirname(d):
+        if os.path.basename(d) == ".claude":
+            return any(os.path.exists(os.path.join(d, m)) for m in FRAMEWORK_MARKERS)
+        d = os.path.dirname(d)
+    return False
 
 
 def bash_writes_claude_dir(command):
@@ -439,6 +451,50 @@ def memory_digest():
     return text if len(text) <= DIGEST_CAP else text[:DIGEST_CAP] + "\n[…truncated]"
 
 
+SHARING_CACHE_HOURS = 24
+
+
+def github_sharing_note():
+    """Warn when GitHub shows outside collaborators on a repo not marked shared,
+    or on the company repo. Cached for a day; silent when gh or the repo is unavailable."""
+    cache = os.path.join(STATE, "sharing-check.json")
+    try:
+        with open(cache, encoding="utf-8") as f:
+            c = json.load(f)
+        if time.time() - float(c.get("checked", 0)) < SHARING_CACHE_HOURS * 3600:
+            return c.get("note", "")
+    except (OSError, ValueError, TypeError):
+        pass
+    note = ""
+    try:
+        import subprocess
+        url = subprocess.run(["git", "-C", ROOT, "remote", "get-url", "origin"], capture_output=True,
+                             text=True, timeout=5).stdout.strip()
+        m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
+        if m:
+            gh = os.environ.get("JUVANT_GH", "gh")
+            r = subprocess.run([gh, "api", f"repos/{m.group(1)}/{m.group(2)}/collaborators?affiliation=outside",
+                                "--jq", "length"], capture_output=True, text=True, timeout=8)
+            n = int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip().isdigit() else 0
+            project = os.path.exists(os.path.join(ROOT, ".claude", "juvant-os-project.json"))
+            if n and not project:
+                note = (f"Tell the CEO: GitHub shows {n} outside collaborator(s) on the company repo "
+                        f"{m.group(1)}/{m.group(2)}. Company memory is for the company only: check who has access.")
+            elif n and not shared_with():
+                note = (f"Tell the CEO: GitHub shows {n} outside collaborator(s) on {m.group(1)}/{m.group(2)}, "
+                        "but this repository isn't marked as shared. If they read it, mark it with the "
+                        "project-repo skill (sharing) from the company repo.")
+    except Exception:  # noqa: BLE001 — a warning only, never in the way
+        note = ""
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump({"checked": time.time(), "note": note}, f)
+    except OSError:
+        pass
+    return note
+
+
 def cmd_session_start():
     ev = read_event()
     activity("session_start", ev, source=ev.get("source", ""))
@@ -472,6 +528,9 @@ def cmd_session_start():
     except OSError:
         pass
     prefixes.discard("")
+    sharing = github_sharing_note()
+    if sharing:
+        lines.append(sharing)
     if not ROLE_ID.match(agent):
         digest = memory_digest()
         if digest:
