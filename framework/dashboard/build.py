@@ -92,11 +92,15 @@ def waiting(root):
     items = []
     days = listdir(root, "memory/journal", r"\d{4}-\d{2}-\d{2}\.md$")
     if days:
+        # Each wrap-up writes the whole current list, so only the last
+        # "Waiting for the CEO" line of the latest journal is current; earlier
+        # ones are stale (same rule as the session-start hook).
         latest = days[-1]
-        for line in read(root, "memory/journal/" + latest).splitlines():
-            m = re.match(r"^\s*-\s*Waiting for the CEO:\s*(.+)$", line, re.I)
-            if m and m.group(1).strip().lower() not in ("none", "nothing", "-"):
-                items.append((m.group(1).strip(), "memory/journal/" + latest))
+        found = [m.group(1).strip() for m in (
+            re.match(r"^\s*-\s*Waiting for the CEO:\s*(.+)$", line, re.I)
+            for line in read(root, "memory/journal/" + latest).splitlines()) if m]
+        if found and found[-1].lower() not in ("none", "nothing", "-"):
+            items.append((found[-1], "memory/journal/" + latest))
     drafts = []
     for n in listdir(root, "drafts", r".*"):
         p = os.path.join(root, "drafts", n)

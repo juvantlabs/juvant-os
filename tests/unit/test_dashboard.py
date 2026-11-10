@@ -39,7 +39,7 @@ class Dashboard(unittest.TestCase):
         self.write("manifesto.md", "# Acme manifesto\n")
         self.write("roles/legal.md", "name: Ada\n")
         self.write("roles/finance.md", "name: {{FINANCE_NAME}}\n")
-        self.write("memory/journal/2026-11-08.md", "- Waiting for the CEO: sign off the offer\n- Waiting for the CEO: none\n")
+        self.write("memory/journal/2026-11-08.md", "- Waiting for the CEO: none\n- Waiting for the CEO: sign off the offer\n")
         self.write("memory/decisions/2026-11-01-a.md", "---\ndate: 2026-11-01\nstatus: active\ndecided_by: Bo\n---\n# Keep prices\n")
         self.write("memory/decisions/2026-10-01-b.md", "---\ndate: 2026-10-01\nstatus: superseded\n---\n# Old prices\n")
         self.write("memory/deadlines.md", "| Date | What | Who |\n|---|---|---|\n| 2026-11-16 | VAT payment | Acct |\n| 2027-03-01 | Far away | X |\n| 2026-11-01 | Past | X |\n")
@@ -72,6 +72,24 @@ class Dashboard(unittest.TestCase):
         self.assertIn("social-campaign", p)
         self.assertIn("Draft ready", p)
         self.assertIn("see agent view", p)
+
+    def test_waiting_shows_only_the_latest_list(self):
+        self.write("memory/journal/2026-11-07.md", "- Waiting for the CEO: older day item\n")
+        self.write("memory/journal/2026-11-08.md",
+                   "## 10:00\n- Waiting for the CEO: stale morning list\n"
+                   "## 18:00\n- Waiting for the CEO: current evening list\n")
+        p = self.page()
+        self.assertIn("current evening list", p)
+        self.assertNotIn("stale morning list", p, "an earlier list of the same day is superseded")
+        self.assertNotIn("older day item", p)
+        self.assertIn("Waiting for you · 1", p)
+
+    def test_waiting_cleared_by_a_later_none(self):
+        self.write("memory/journal/2026-11-08.md",
+                   "- Waiting for the CEO: sign the offer\n- Waiting for the CEO: none\n")
+        p = self.page()
+        self.assertNotIn("sign the offer", p)
+        self.assertIn("Nothing is waiting for you.", p)
 
     def test_projects(self):
         self.write("memory/projects/launch/README.md", "---\nstatus: active\n---\n\n# Assist 2.0 launch\n\n## Status\n\n<!-- c -->\n- Posts drafted, waiting for the date\n")
