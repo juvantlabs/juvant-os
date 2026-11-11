@@ -99,9 +99,61 @@ def ask(reason):
     sys.exit(0)
 
 
+COMPANY_CONFIG = os.path.join(ROOT, ".claude", "limits-company.json")
+# What a company file may add to: never exemptions (mcp.create, draft or private-publish rules).
+COMPANY_LISTS = {("known_prefixes",), ("mcp", "deny"), ("mcp", "ask"), ("bash", "deny"), ("bash", "ask"), ("secrets",)}
+
+
+def merge_company(cfg, path=None):
+    """Append the company's own additions (.claude/limits-company.json) to the framework rules.
+    The file is the company's: update never touches it, and writing it asks the CEO. It can only
+    add. Anything else in it is an error, so the hard limits fail closed until it's fixed."""
+    path = path or COMPANY_CONFIG
+    if not os.path.exists(path):
+        return cfg
+    try:
+        with open(path, encoding="utf-8") as f:
+            extra = json.load(f)
+    except (OSError, ValueError) as e:
+        raise ValueError(f"{path} is unreadable ({e})")
+    if not isinstance(extra, dict):
+        raise ValueError(f"{path}: expected a JSON object")
+    for key, val in extra.items():
+        if key.startswith("_") or key == "version":
+            continue
+        if key == "known_prefixes":
+            if not isinstance(val, list) or not all(isinstance(x, str) and x.startswith("mcp__") and x.endswith("__") for x in val):
+                raise ValueError(f"{path}: known_prefixes must be a list of 'mcp__<server>__' strings")
+            cfg["known_prefixes"] = list(cfg["known_prefixes"]) + [x for x in val if x not in cfg["known_prefixes"]]
+            continue
+        if key == "secrets":
+            sub = {"": val}
+        elif key in ("mcp", "bash") and isinstance(val, dict):
+            sub = val
+        else:
+            raise ValueError(f"{path}: '{key}' can't be set by the company (only known_prefixes, mcp.deny, mcp.ask, "
+                             "bash.deny, bash.ask, secrets)")
+        for sk, rules in sub.items():
+            if sk.startswith("_"):
+                continue
+            where = (key,) if key == "secrets" else (key, sk)
+            if where not in COMPANY_LISTS:
+                raise ValueError(f"{path}: '{'.'.join(where)}' can't be set by the company: it can only add "
+                                 "rules that deny or ask, never exemptions")
+            if not isinstance(rules, list):
+                raise ValueError(f"{path}: '{'.'.join(where)}' must be a list of rules")
+            for r in rules:
+                if not isinstance(r, dict) or not r.get("id") or not r.get("pattern") or "input" in r:
+                    raise ValueError(f"{path}: every rule in '{'.'.join(where)}' needs an id and a pattern (no input conditions)")
+                r = dict(r, id="company:" + str(r["id"]), why=str(r.get("why") or "a company rule (.claude/limits-company.json)"))
+                (cfg["secrets"] if key == "secrets" else cfg[key][sk]).append(r)
+    return cfg
+
+
 def load_config():
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
+    merge_company(cfg)
     # Compile now: a bad pattern must fail closed, not at match time.
     for rule in (cfg["mcp"]["deny"] + cfg["mcp"].get("create", []) + cfg["mcp"]["ask"]
                  + cfg["bash"]["deny"] + cfg["bash"]["ask"] + cfg["secrets"]):
@@ -225,7 +277,8 @@ def cmd_limits():
     try:
         cfg = load_config()
     except (OSError, ValueError, KeyError, TypeError, re.error) as e:
-        deny(f"juvant-os hard limits: config unreadable ({CONFIG}: {e}). Every checked tool is blocked until it is restored (run `update`).")
+        deny(f"juvant-os hard limits: config unreadable ({e}). Every checked tool is blocked until it is fixed: "
+             f"run `update` for {CONFIG}, or correct .claude/limits-company.json with the CEO.")
 
     for rule in cfg["secrets"]:
         for text in texts_to_scan(tool, inp):
@@ -410,38 +463,6 @@ def bash_writes_claude_dir(command, cwd=None):
             continue
         if (verb in ("python3", "python") and len(core) > 1 and core[1].endswith(OUTSIDE_WRITERS)
                 and not any(protected_claude_path(w, here) for w in core[2:])):
-            continue  # framework scripts that write outside .claude/ (they must run unattended)
-        return True
-    return False
-    segments = shell_segments(command)
-    if segments is None:
-        return True
-    for words in segments:
-        seg = " ".join(words)
-        if ".claude" not in seg:
-            continue
-        if SANCTIONED.match(seg) and not re.search(r"--(from|repo|target)\b", seg):
-            continue  # update from a published tag only; a local source could carry anything
-        for i, w in enumerate(words[:-1]):
-            if w in (">", ">>", ">|") and ".claude" in words[i + 1]:
-                return True
-        if any(re.match(r"^\d*>>?\S*\.claude", w) for w in words):
-            return True
-        while words and "=" in words[0] and not words[0].startswith(("-", "/", ".")):
-            words = words[1:]
-        if not words:
-            continue
-        verb = os.path.basename(words[0])
-        if verb in READ_ONLY_VERBS:
-            continue
-        if verb == "git" and len(words) > 1 and words[1] in GIT_READ:
-            continue
-        if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in words):
-            continue
-        if verb in ("python3", "python") and len(words) > 1 and words[1].endswith(".claude/hooks/juvant_hooks.py"):
-            continue
-        if (verb in ("python3", "python") and len(words) > 1 and words[1].endswith(OUTSIDE_WRITERS)
-                and not any(".claude" in w for w in words[2:])):
             continue  # framework scripts that write outside .claude/ (they must run unattended)
         return True
     return False
@@ -1158,7 +1179,8 @@ def cmd_session_start():
                      "no secrets in files or commands; overwriting, deleting or moving asks the CEO (creating doesn't).")
     except (OSError, ValueError, KeyError, TypeError, re.error) as e:
         lines.append(f"WARNING: juvant-os hard limits config is unreadable ({e}). Checked tools are blocked. "
-                     "Tell the CEO and restore it with `update`.")
+                     "Tell the CEO first thing: `update` restores the framework file; a mistake in "
+                     ".claude/limits-company.json is fixed there, with the CEO.")
     prefixes = set()
     try:
         with open(FINDINGS, encoding="utf-8") as f:
@@ -1183,8 +1205,9 @@ def cmd_session_start():
             lines.append(digest)
     if prefixes:
         lines.append("Tell the CEO: limited tools were called under MCP prefixes the permission rules don't list ("
-                     + ", ".join(sorted(prefixes)) + "). The hook blocked them; add the prefixes to "
-                     "`known_prefixes` and to the permission denies in .claude/settings.json.")
+                     + ", ".join(sorted(prefixes)) + "). The hook still applied the hard limits by tool name. If the "
+                     "server is the company's own, add its prefix to `known_prefixes` in .claude/limits-company.json, and "
+                     "its outbound tools to the permission denies in .claude/settings.json (both ask the CEO).")
     reg = registration_warning()
     if reg:
         lines.append(reg + " Tell the CEO first thing.")

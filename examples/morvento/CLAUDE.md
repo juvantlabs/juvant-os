@@ -46,6 +46,8 @@ Enforced by hooks, the same in every session:
 3. No secrets in files, memory, commands or chat.
 4. Overwriting, deleting or moving documents or mail, and rewriting history, ask the CEO first. Creating doesn't: when you upload, set the conflict behaviour to `fail` (or `rename`), and never `replace` without the CEO.
 
+The company's own additions to the hard limits (the prefix of an MCP server it runs itself, a stricter rule) go in `.claude/limits-company.json`: it can only add, `update` never touches it, and every change asks the CEO.
+
 If a hook denies something, don't look for another way: tell the CEO what you wanted to do and why.
 
 ## Memory
