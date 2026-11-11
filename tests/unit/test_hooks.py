@@ -193,6 +193,15 @@ class McpLimits(HookCase):
         self.assertNotIn("mcp__claude-artifacts__", out["hookSpecificOutput"]["additionalContext"])
 
 
+    def test_every_deny_and_ask_is_logged(self):
+        self.decision(P_LOCAL + "outlook_send_mail")
+        self.decision(P_LOCAL + "sharepoint_delete_item", {"driveId": "D"})
+        self.decision(P_LOCAL + "outlook_create_draft")
+        rows = [r for r in self.state("activity.jsonl") if r["event"].startswith("limits_")]
+        self.assertEqual([(r["event"], r["tool"]) for r in rows],
+                         [("limits_deny", P_LOCAL + "outlook_send_mail"), ("limits_ask", P_LOCAL + "sharepoint_delete_item")])
+        self.assertIn("delete-move", rows[1]["reason"])
+
 class BashAndSecrets(HookCase):
     def bash(self, command):
         return self.decision("Bash", {"command": command})
@@ -317,6 +326,13 @@ class ContextAndActivity(HookCase):
         self.assertLessEqual(len(rows[2]["outcome"]), 160)
         self.assertNotIn("\n", rows[2]["outcome"])
 
+    def test_helper_subagents_log_no_outcome(self):
+        self.run_hook("subagent-stop", {"session_id": "s", "agent_id": "a1", "last_assistant_message": "sì, l'ho vista e approvata"})
+        self.run_hook("subagent-stop", {"session_id": "s", "agent_id": "a2", "agent_type": "legal",
+                                        "last_assistant_message": "VERDICT: OK"})
+        rows = [r for r in self.state("activity.jsonl") if r["event"] == "subagent_stop"]
+        self.assertEqual([r.get("outcome") for r in rows], [None, "VERDICT: OK"])
+
     def test_session_as_dedicated_agent(self):
         self.write("roles/finance.md", "name: Greta\nMinimum cash buffer: 90000")
         _, out, _ = self.run_hook("session-start", {"session_id": "s", "agent_type": "finance"})
@@ -381,6 +397,33 @@ class ClaudeDirProtection(HookCase):
             with self.subTest(c=c):
                 self.assertEqual(self.decision("Bash", {"command": c}), "allow")
 
+
+    def test_claude_code_scratch_and_cd_are_not_writes(self):
+        jobs = os.path.expanduser("~/.claude/jobs/78ffa8cc/tmp/it")
+        real = (f"cd {jobs}; sed 's/<[^>]*>//g' dl2.html | tr -s ' \\n' ' ' > /tmp/dl2.txt; "
+                'LC_ALL=C grep -o "1[0-9]\\. [^.]\\{0,80\\}221" /tmp/dl2.txt | head -5')
+        for c in (real, f"cd {jobs} && curl -s -o dl.html https://example.org/x", f"mkdir -p {jobs}/out",
+                  "cd .claude && ls", "cd .claude; cat settings.json", "cd /tmp && echo x > .claude-notes.txt",
+                  "cd /tmp/other-repo && echo x > .claude/settings.json"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "allow")
+
+    def test_writes_after_cd_into_claude_still_ask(self):
+        for c in ("cd .claude && echo x > settings.json", "cd .claude/hooks; rm limits.json",
+                  "pushd .claude >/dev/null && sed -i '' s/a/b/ settings.json", f"cd {self.repo} && echo x > .claude/x",
+                  "cd $HOME/.claude && echo x > settings.json", "echo x > ~/.claude/settings.json",
+                  "cp /tmp/s.json ~/.claude/settings.json", "cd ~/.claude && echo x > settings.json"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "ask")
+
+    def test_relative_paths_follow_the_event_cwd(self):
+        ev = {"tool_name": "Bash", "tool_input": {"command": "echo x > settings.json"},
+              "cwd": os.path.join(self.repo, ".claude")}
+        rc, out, _ = self.run_hook("limits", ev)
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "ask")
+        ev["cwd"] = os.path.expanduser("~/.claude/jobs/x/tmp")
+        rc, out, _ = self.run_hook("limits", ev)
+        self.assertEqual((rc, out), (0, {}))
 
 class SharedRepo(HookCase):
     def setUp(self):
@@ -685,14 +728,15 @@ class LongTask(HookCase):
         self.assertEqual(self.call(UP, self.up(), session="bg", agent="legal"), "allow", "the session's own main agent")
 
     def test_not_active_unless_the_ceo_confirmed_and_nothing_changed(self):
-        self.assertEqual(self.call("Write", {"file_path": AUTH, "content": self.auth_text()}), "ask")
+        text = self.auth_text()  # once: its expiry is computed from the clock
+        self.assertEqual(self.call("Write", {"file_path": AUTH, "content": text}), "ask")
         self.assertEqual(self.call(UP, self.up()), "ask", "declined: the file was never written")
-        full = self.approve()
+        full = self.approve(text)
         with open(full, "a", encoding="utf-8") as f:
             f.write("max: 999\n")
         self.assertEqual(self.call(UP, self.up()), "ask", "changed after approval")
         with open(full, "w", encoding="utf-8") as f:
-            f.write(self.auth_text())
+            f.write(text)
         self.assertEqual(self.call(UP, self.up()), "allow", "same content as approved")
 
     def test_expiry_status_scope_and_max_must_be_valid(self):
@@ -732,6 +776,19 @@ class LongTask(HookCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.call("Bash", {"command": cmd}), "ask")
         self.assertEqual(self.call("Bash", {"command": f"cat {AUTH}"}), "allow")
+
+    def test_reads_of_protected_files_are_not_writes(self):
+        self.approve()
+        for c in ("cat state/authorizations.json", "cat state/authorizations.json | python3 -m json.tool",
+                  "jq . state/authorizations.json", f"grep -n max {AUTH} | head -3", f"cat {AUTH} | python3 -c 'import sys'",
+                  "git diff memory/authorizations/", "cat memory/private.md | python3 -c 'import sys'"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "allow")
+        for c, want in (("cat state/authorizations.json > /tmp/x; python3 -c \"open('state/authorizations.json','w')\"", "deny"),
+                        ("cat /tmp/x > state/authorizations.json", "deny"), (f"cat /tmp/x | tee {AUTH}", "ask"),
+                        ("cat memory/private.md | tee memory/private.md", "ask")):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), want)
 
     def test_an_approved_edit_counts(self):
         full = self.approve()

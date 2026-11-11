@@ -59,7 +59,7 @@ Set aside when in doubt: <what the CEO wants to see first>.
 - `actions`: the hard-limit rule ids that would otherwise ask (`overwrite`, `delete-move`). Nothing else can be authorized.
 - `scope_<argument>`: the tool arguments that must have exactly this value, comma-separated if several are allowed. At least one is required: an authorization says where, or it covers nothing. Use the ids the tools take (drive, folder, mailbox folder), not names.
 - `tools` (optional): narrows it to tool names matching this pattern.
-- `max`: how many authorized actions at most. Past it, the next one asks again.
+- `max`: how many authorized calls at most. Past it, the next one asks again. Count calls, not files: some servers take two calls for one action (with m365-graph a delete is a preview that returns a token, then the confirmation with that token).
 - `expires`: UTC. It never counts for more than 24 hours after the CEO approved it.
 - `agents` (optional): the subagents of this session it also covers. The session itself is always covered; other sessions never are.
 
