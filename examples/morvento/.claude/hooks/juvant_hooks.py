@@ -277,12 +277,12 @@ def cmd_limits():
                  "is outbound: work on a branch, open a draft PR (gh pr create --draft), and the CEO merges.")
         elif decision == "ask":
             ask(f"juvant-os hard limit (shared-repo): {why}.")
-        if AUTH_STATE_REL in command and re.search(AUTH_BASH_WRITE, command):
+        if AUTH_STATE_REL in command and bash_may_write(command, AUTH_STATE_REL):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
-        if AUTH_DIR in command and re.search(AUTH_BASH_WRITE, command) and not CLOSE_AUTH.match(command):
+        if AUTH_DIR in command and bash_may_write(command, AUTH_DIR) and not CLOSE_AUTH.match(command):
             ask(f"juvant-os long task: this command may write in {AUTH_DIR}/. Authorizations are written with Write, "
                 "and the CEO confirms them; close one with `python3 .claude/hooks/juvant_hooks.py close-authorization <file>`.")
-        if PRIVATE_REGISTRY in command and re.search(r"(>|\btee\b|\bsed\b|\bmv\b|\bcp\b|\brm\b|\bpython3?\b)", command):
+        if PRIVATE_REGISTRY in command and bash_may_write(command, PRIVATE_REGISTRY):
             ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
         why = framework_upstream_publish(command, str(ev.get("cwd") or ROOT))
         if why:
@@ -522,9 +522,38 @@ AUTH_STATE_REL = "state/authorizations.json"
 AUTH_STATE = os.path.join(ROOT, AUTH_STATE_REL)
 AUTH_DEFAULT_HOURS = 12
 AUTH_MAX_HOURS = 24
-AUTH_BASH_WRITE = (r"(>|\btee\b|\bsed\b|\bmv\b|\bcp\b|\brm\b|\bln\b|\btouch\b|\bpython3?\b|\bperl\b|\bruby\b|\bnode\b"
-                   r"|\bgit\s+(checkout|restore|apply|am|stash|reset|mv|rm|switch|merge|pull|cherry-pick)\b)")
 CLOSE_AUTH = re.compile(r"^\s*python3?\s+(\./)?\.claude/hooks/juvant_hooks\.py\s+close-authorization\s+[^;&|<>`$()]+$")
+
+
+def bash_may_write(command, needle):
+    """True if some part of a Bash command that names `needle` may write to it: a redirect
+    into it, or a command other than a known read (cat, grep, git diff…). A read piped into
+    something else (cat x | python3 -m json.tool) is a read. Unparseable: assume it writes."""
+    segments = shell_segments(command)
+    if segments is None:
+        return True
+    for words in segments:
+        if not any(needle in w for w in words):
+            continue
+        for i, w in enumerate(words):
+            if w in (">", ">>", ">|") and i + 1 < len(words) and needle in words[i + 1]:
+                return True
+            if re.match(r"^\d*>>?\|?\S", w) and needle in w:
+                return True
+        core = list(words)
+        while core and "=" in core[0] and not core[0].startswith(("-", "/", ".")):
+            core = core[1:]
+        if not core:
+            continue
+        verb = os.path.basename(core[0])
+        if verb in READ_ONLY_VERBS or verb == "jq":
+            continue
+        if verb == "git" and len(core) > 1 and core[1] in GIT_READ:
+            continue
+        if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in core):
+            continue
+        return True
+    return False
 
 
 def is_authorization_path(p):

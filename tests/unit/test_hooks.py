@@ -761,6 +761,19 @@ class LongTask(HookCase):
                 self.assertEqual(self.call("Bash", {"command": cmd}), "ask")
         self.assertEqual(self.call("Bash", {"command": f"cat {AUTH}"}), "allow")
 
+    def test_reads_of_protected_files_are_not_writes(self):
+        self.approve()
+        for c in ("cat state/authorizations.json", "cat state/authorizations.json | python3 -m json.tool",
+                  "jq . state/authorizations.json", f"grep -n max {AUTH} | head -3", f"cat {AUTH} | python3 -c 'import sys'",
+                  "git diff memory/authorizations/", "cat memory/private.md | python3 -c 'import sys'"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "allow")
+        for c, want in (("cat state/authorizations.json > /tmp/x; python3 -c \"open('state/authorizations.json','w')\"", "deny"),
+                        ("cat /tmp/x > state/authorizations.json", "deny"), (f"cat /tmp/x | tee {AUTH}", "ask"),
+                        ("cat memory/private.md | tee memory/private.md", "ask")):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), want)
+
     def test_an_approved_edit_counts(self):
         full = self.approve()
         self.assertEqual(self.call("Edit", {"file_path": AUTH, "old_string": "max: 3", "new_string": "max: 5"}), "ask")
