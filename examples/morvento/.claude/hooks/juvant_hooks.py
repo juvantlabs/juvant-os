@@ -319,8 +319,16 @@ def cmd_limits():
             if prefix not in cfg["known_prefixes"]:
                 append_jsonl(FINDINGS, {"ts": now(), "kind": "unlisted-prefix", "prefix": prefix,
                                         "tool": tool, "decision": decision, "rule": rule["id"]})
-            if decision == "ask" and use_authorization(rule, tool, inp, ev):
-                return  # inside a long-task authorization the CEO approved for this session
+            if decision == "ask":
+                auth = use_authorization(rule, tool, inp, ev)
+                if auth and auth[0] == "allow":
+                    return  # inside a long-task authorization the CEO approved for this session
+                if auth and auth[0] == "past":
+                    # A confirmation here helps nobody: unattended nobody answers, attended a hurried
+                    # click lets through what the authorization meant to exclude (FEAT-091).
+                    deny(f"juvant-os long task: {tool} is past the authorization {auth[1]}: {auth[2]}. "
+                         "Don't retry: set it aside for the CEO (your log and 'Waiting for the CEO'). Doing more "
+                         "needs a new authorization, approved by the CEO.")
             reason = f"juvant-os hard limit ({rule['id']}): {tool} — {rule['why']}."
             deny(reason) if decision == "deny" else ask(reason)
         return
@@ -341,7 +349,7 @@ def cmd_limits():
             ask(f"juvant-os hard limit (shared-repo): {why}.")
         if AUTH_STATE_REL in command and bash_may_write(command, AUTH_STATE_REL):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
-        if AUTH_DIR in command and bash_may_write(command, AUTH_DIR) and not CLOSE_AUTH.match(command):
+        if AUTH_DIR in command and bash_may_write(command, AUTH_DIR) and not is_close_command(command):
             ask(f"juvant-os long task: this command may write in {AUTH_DIR}/. Authorizations are written with Write, "
                 "and the CEO confirms them; close one with `python3 .claude/hooks/juvant_hooks.py close-authorization <file>`.")
         if PRIVATE_REGISTRY in command and bash_may_write(command, PRIVATE_REGISTRY):
@@ -552,7 +560,27 @@ AUTH_STATE_REL = "state/authorizations.json"
 AUTH_STATE = os.path.join(ROOT, AUTH_STATE_REL)
 AUTH_DEFAULT_HOURS = 12
 AUTH_MAX_HOURS = 24
-CLOSE_AUTH = re.compile(r"^\s*python3?\s+(\./)?\.claude/hooks/juvant_hooks\.py\s+close-authorization\s+[^;&|<>`$()]+$")
+def is_close_command(command):
+    """True for `[cd <dir> &&] python3 .claude/hooks/juvant_hooks.py close-authorization <file> [reason]`:
+    closing never needs the CEO. Each part is checked; anything else in the command, a redirect or a
+    command substitution makes it an ordinary command."""
+    if "`" in command or "$(" in command or "${" in command:
+        return False
+    segments = shell_segments(command)
+    if not segments:
+        return False
+    closes = 0
+    for words in segments:
+        if any(w in (">", ">>", ">|", "<", "<<", "<<<") or re.match(r"^\d*[<>]", w) for w in words):
+            return False
+        if words[0] == "cd" and len(words) <= 2:
+            continue
+        if (len(words) >= 4 and os.path.basename(words[0]) in ("python3", "python")
+                and words[1].endswith(".claude/hooks/juvant_hooks.py") and words[2] == "close-authorization"):
+            closes += 1
+            continue
+        return False
+    return closes > 0
 
 
 def bash_may_write(command, needle):
@@ -690,7 +718,9 @@ def scope_matches(fm, inp):
 
 
 def use_authorization(rule, tool, inp, ev):
-    """The authorization file that covers this would-be `ask`, counted and logged; None if none does."""
+    """("allow", file) if an open authorization of this session covers this would-be `ask` (counted
+    and logged); ("past", file, why) if one would cover it except that its max is used up or it has
+    expired; None otherwise."""
     session = str(ev.get("session_id", ""))
     if not session:
         return None
@@ -707,6 +737,7 @@ def use_authorization(rule, tool, inp, ev):
         sub = ""  # the session's own main agent, not a subagent
     name = tool.rsplit("__", 1)[-1].lower()
     t = time.time()
+    past = None
     for key, rec in st.items():
         if not isinstance(rec, dict) or rec.get("session") != session or rec.get("closed"):
             continue
@@ -718,7 +749,7 @@ def use_authorization(rule, tool, inp, ev):
             continue
         recorded = float(rec.get("recorded") or 0)
         expires = parse_ts(fm["expires"]) if fm.get("expires") else recorded + AUTH_DEFAULT_HOURS * 3600
-        if expires is None or t > min(expires, recorded + AUTH_MAX_HOURS * 3600):
+        if expires is None:
             continue
         if fm.get("tools"):
             try:
@@ -731,10 +762,14 @@ def use_authorization(rule, tool, inp, ev):
         if not scope_matches(fm, inp):
             continue
         try:
-            cap = int(fm.get("max", "0"))
-        except ValueError:
+            cap = int(fm["max"])  # required: without it the authorization covers nothing
+        except (KeyError, ValueError):
+            continue
+        if t > min(expires, recorded + AUTH_MAX_HOURS * 3600):
+            past = past or (key, "it has expired")
             continue
         if int(rec.get("used", 0)) >= cap:
+            past = past or (key, f"its max of {cap} is used up")
             continue
         rec["used"] = int(rec.get("used", 0)) + 1
         try:
@@ -742,8 +777,8 @@ def use_authorization(rule, tool, inp, ev):
         except OSError:
             return None  # can't count it: don't allow it
         activity("authorized", ev, tool=tool, rule=rule["id"], authorization=key, count=rec["used"])
-        return key
-    return None
+        return ("allow", key)
+    return ("past",) + past if past else None
 
 
 def cmd_close_authorization():
@@ -769,7 +804,8 @@ def cmd_close_authorization():
     raw = raw.rstrip("\n") + f"\n\nClosed {now()}" + (f": {reason}" if reason else "") + ".\n"
     with open(path, "w", encoding="utf-8") as f:
         f.write(raw)
-    activity("authorization_closed", {}, authorization=auth_key(path), reason=reason)
+    activity("authorization_closed", {"session_id": rec.get("session", "") if isinstance(rec, dict) else ""},
+             authorization=auth_key(path), reason=reason)
     print(f"closed {auth_key(path)}")
 
 

@@ -740,7 +740,7 @@ class LongTask(HookCase):
         self.assertEqual([(r["rule"], r["count"], r["authorization"]) for r in rows],
                          [("overwrite", 1, AUTH), ("overwrite", 2, AUTH)])
         self.assertEqual(self.call(UP, self.up()), "allow")
-        self.assertEqual(self.call(UP, self.up()), "ask", "past max: asks again")
+        self.assertEqual(self.call(UP, self.up()), "deny", "past max: denied, set aside for the CEO")
 
     def test_only_the_session_that_approved_it(self):
         self.approve()
@@ -788,7 +788,9 @@ class LongTask(HookCase):
 
     def test_expiry_status_scope_and_max_must_be_valid(self):
         past = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60))
-        for over in ({"expires": past}, {"expires": "soon"}, {"status": "closed"}, {"scope_driveId": None,
+        self.approve(self.auth_text(expires=past))
+        self.assertEqual(self.call(UP, self.up()), "deny", "expired but still open: denied")
+        for over in ({"expires": "soon"}, {"status": "closed"}, {"scope_driveId": None,
                      "scope_parentItemId": None}, {"max": "lots"}, {"max": None}, {"tools": "("}):
             with self.subTest(over=over):
                 self.approve(self.auth_text(**over))
@@ -802,7 +804,7 @@ class LongTask(HookCase):
         st = json.load(open(path))
         st[AUTH]["recorded"] -= 25 * 3600
         json.dump(st, open(path, "w"))
-        self.assertEqual(self.call(UP, self.up()), "ask")
+        self.assertEqual(self.call(UP, self.up()), "deny", "past 24 hours: expired")
 
     def test_default_expiry_is_12_hours(self):
         self.approve(self.auth_text(expires=None))
@@ -811,7 +813,7 @@ class LongTask(HookCase):
         st = json.load(open(path))
         st[AUTH]["recorded"] -= 13 * 3600
         json.dump(st, open(path, "w"))
-        self.assertEqual(self.call(UP, self.up()), "ask")
+        self.assertEqual(self.call(UP, self.up()), "deny", "expired while still open")
 
     def test_writing_and_protecting_authorizations(self):
         self.approve()
@@ -845,6 +847,35 @@ class LongTask(HookCase):
         self.assertEqual(self.call(g_move, {"drive_id": "DRIVE1", "item_id": "x", "parent_id": "FOLDER1"}), "allow",
                          "the same rule with the exact key goes through")
 
+    def test_past_the_limit_denies_only_what_the_authorization_would_cover(self):
+        self.approve(self.auth_text(max="1"))
+        self.assertEqual(self.call(UP, self.up()), "allow")
+        rc_deny = self.call(UP, self.up())
+        self.assertEqual(rc_deny, "deny")
+        rows = [r for r in self.state("activity.jsonl") if r["event"] == "limits_deny"]
+        self.assertIn("past the authorization", rows[-1]["reason"])
+        self.assertEqual(self.call(UP, self.up(drive_id="DRIVE2")), "ask", "out of scope: asks as usual")
+        self.assertEqual(self.call(DEL, {"driveId": "DRIVE1", "parentItemId": "FOLDER1"}), "ask", "action not listed")
+        self.assertEqual(self.call(UP, self.up(), session="other"), "ask", "another session")
+        self.assertEqual(self.call(UP, self.up(), agent="legal"), "ask", "a subagent it doesn't name")
+        self.assertEqual(self.call(SEND, {"driveId": "DRIVE1"}), "deny", "deny-level unchanged")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)
+        subprocess.run([sys.executable, SCRIPT, "close-authorization", AUTH, "done"], env=env, capture_output=True, timeout=20)
+        self.assertEqual(self.call(UP, self.up()), "ask", "closed: back to asking")
+        closed = [r for r in self.state("activity.jsonl") if r["event"] == "authorization_closed"]
+        self.assertEqual(closed[-1]["session"], "s1", "the close is logged with its session")
+
+    def test_close_command_variants(self):
+        self.approve()
+        base = f"python3 .claude/hooks/juvant_hooks.py close-authorization {AUTH}"
+        for c in (base + ' "done (3 files; 1 set aside)"', f"cd {self.repo} && {base} 'ok'", f"cd /tmp; {base} done"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "allow")
+        for c in (base + " done && rm -rf memory", base + ' "$(rm -rf memory)"', base + " done > memory/x",
+                  f"echo x >> {AUTH}; {base} done", base + " `id`"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "ask")
+
     def test_reads_of_protected_files_are_not_writes(self):
         self.approve()
         for c in ("cat state/authorizations.json", "cat state/authorizations.json | python3 -m json.tool",
@@ -865,7 +896,7 @@ class LongTask(HookCase):
         open(full, "w", encoding="utf-8").write(text)
         for _ in range(5):
             self.assertEqual(self.call(UP, self.up()), "allow")
-        self.assertEqual(self.call(UP, self.up()), "ask")
+        self.assertEqual(self.call(UP, self.up()), "deny")
 
     def test_close(self):
         self.approve()
