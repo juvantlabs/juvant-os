@@ -202,6 +202,53 @@ class McpLimits(HookCase):
                          [("limits_deny", P_LOCAL + "outlook_send_mail"), ("limits_ask", P_LOCAL + "sharepoint_delete_item")])
         self.assertIn("delete-move", rows[1]["reason"])
 
+
+class CompanyLimits(HookCase):
+    def company(self, data):
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "limits-company.json"), "w", encoding="utf-8") as f:
+            f.write(data if isinstance(data, str) else json.dumps(data))
+
+    def test_own_prefix_silences_the_warning(self):
+        self.decision("mcp__acme-erp__delete_order")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s"})
+        self.assertIn("mcp__acme-erp__", out["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("limits-company.json", out["hookSpecificOutput"]["additionalContext"])
+        self.company({"known_prefixes": ["mcp__acme-erp__"]})
+        _, out, _ = self.run_hook("session-start", {"session_id": "s"})
+        self.assertNotIn("mcp__acme-erp__", out["hookSpecificOutput"]["additionalContext"])
+        before = len(self.state("limits-findings.jsonl"))
+        self.assertEqual(self.decision("mcp__acme-erp__delete_order"), "ask", "the hard limits still apply")
+        self.assertEqual(len(self.state("limits-findings.jsonl")), before, "no new finding")
+
+    def test_company_rules_add(self):
+        self.company({"mcp": {"deny": [{"id": "no-orders", "pattern": "(^|_)close_order$", "why": "orders are closed in the ERP"}],
+                              "ask": [{"id": "export", "pattern": "export"}]},
+                      "bash": {"deny": [{"id": "no-prod", "pattern": "\\bpsql\\b.*prod"}]},
+                      "secrets": [{"id": "acme-key", "pattern": "ACME-[0-9]{12}"}]})
+        self.assertEqual(self.decision("mcp__acme-erp__close_order"), "deny")
+        self.assertEqual(self.decision("mcp__acme-erp__export_csv"), "ask")
+        self.assertEqual(self.decision("Bash", {"command": "psql -h prod-db"}), "deny")
+        self.assertEqual(self.decision("Write", {"file_path": "x.md", "content": "key ACME-123456789012"}), "deny")
+        self.assertEqual(self.decision(P_LOCAL + "outlook_send_mail"), "deny", "framework rules still there")
+        self.assertEqual(self.decision("mcp__acme-erp__list_orders"), "allow")
+
+    def test_framework_rules_cannot_be_removed_or_exempted(self):
+        self.company({"mcp": {"deny": []}})
+        self.assertEqual(self.decision(P_LOCAL + "outlook_send_mail"), "deny", "an empty list removes nothing")
+        for bad in ({"mcp": {"create": [{"id": "x", "pattern": "delete"}]}}, {"mcp": {"draft_allow": "send"}},
+                    {"mcp": {"ask": [{"id": "x", "pattern": "send", "input": {"key": "k", "allow": "x"}}]}},
+                    {"known_prefixes": ["acme"]}, {"bash": {"rm_outside_repo": "allow"}}, {"anything": 1},
+                    {"mcp": {"deny": [{"id": "x", "pattern": "("}]}}, "{broken", "[]"):
+            with self.subTest(bad=bad):
+                self.company(bad)
+                self.assertEqual(self.decision(P_LOCAL + "outlook_create_draft"), "deny", "fails closed")
+                _, out, _ = self.run_hook("session-start", {"session_id": "s"})
+                self.assertIn("unreadable", out["hookSpecificOutput"]["additionalContext"])
+
+    def test_writing_the_company_file_asks(self):
+        self.assertEqual(self.decision("Write", {"file_path": ".claude/limits-company.json", "content": "{}"}), "ask")
+
 class BashAndSecrets(HookCase):
     def bash(self, command):
         return self.decision("Bash", {"command": command})
