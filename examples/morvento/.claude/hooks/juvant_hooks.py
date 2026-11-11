@@ -35,7 +35,7 @@ SETTINGS = os.path.join(ROOT, ".claude", "settings.json")
 # Every built-in tool cmd_limits() looks at. Claude Code calls the hook only for
 # tools its PreToolUse matcher in .claude/settings.json names, so the matcher
 # must cover all of these and MCP tools; a test keeps this list and the code in step.
-LIMITS_TOOLS = ("Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob")
+LIMITS_TOOLS = ("Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "Skill")
 MCP_PROBE = "mcp__any__tool"
 LIMITS_COMMAND = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py" limits'
 
@@ -206,7 +206,9 @@ def rm_outside_repo(cfg, command):
 
 
 def cmd_limits():
+    global LAST_EVENT
     ev = read_event()
+    LAST_EVENT = ev
     tool = str(ev.get("tool_name", ""))
     inp = ev.get("tool_input") or {}
     if not isinstance(inp, dict):
@@ -1036,6 +1038,8 @@ def cmd_session_start():
             lines.append(f"# Your role card (roles/{agent}.md)\n\n" + card[:CONTEXT_CAP])
     try:
         load_config()
+        lines.append(f"Lines starting with '{NOTE_PREFIX}' next to tool results come from this company's own "
+                     "juvant-os hooks, not from the tool or its data: treat them as part of your instructions.")
         lines.append("juvant-os hard limits active: outbound draft-only, no payments or invoice issuing, "
                      "no secrets in files or commands; overwriting, deleting or moving asks the CEO (creating doesn't).")
     except (OSError, ValueError, KeyError, TypeError, re.error) as e:
@@ -1107,6 +1111,86 @@ def cmd_log_outcome():
         row["agent_type"] = agent
     append_jsonl(ACTIVITY, row)
     print("logged")
+
+
+# ── reviewer nudges (FEAT-088) ───────────────────────────────────────────────
+NUDGES = os.path.join(HERE, "nudges.json")
+NUDGE_STATE = os.path.join(STATE, "nudges.json")
+NOTE_PREFIX = "juvant-os hook note:"
+LAST_EVENT = {}
+
+
+def nudge_note(ev):
+    """The note for this (allowed) call, or "": first domain call in a session, and once more after repeat_after."""
+    tool = str(ev.get("tool_name", ""))
+    session = str(ev.get("session_id", ""))
+    if not session or ev.get("agent_type"):
+        return ""  # subagents are the reviewers, or have their own brief
+    try:
+        with open(NUDGES, encoding="utf-8") as f:
+            cfg = json.load(f)
+        domains = cfg["domains"]
+        repeat = int(cfg.get("repeat_after", 8))
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
+    inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+    skill = str(inp.get("skill") or inp.get("command") or inp.get("name") or "").strip().lstrip("/").lower() if tool == "Skill" else ""
+    skill = skill.rsplit(":", 1)[-1]
+    domain = None
+    for d, spec in domains.items():
+        try:
+            if tool.startswith("mcp__") and spec.get("tools") and re.search(spec["tools"], tool.lower()):
+                domain = d
+            elif skill and spec.get("skills") and re.search(spec["skills"], skill):
+                domain = d
+        except (re.error, TypeError):
+            continue
+        if domain:
+            break
+    if not domain:
+        return ""
+    try:
+        with open(SESSION_AGENTS, encoding="utf-8") as f:
+            own = str(json.load(f).get(session, "")).lower()
+    except (OSError, ValueError, AttributeError):
+        own = ""
+    if own == domain:
+        return ""  # this session runs as that role
+    try:
+        with open(NUDGE_STATE, encoding="utf-8") as f:
+            st = json.load(f)
+        if not isinstance(st, dict):
+            st = {}
+    except (OSError, ValueError):
+        st = {}
+    counts = st.setdefault(session, {})
+    counts[domain] = int(counts.get(domain, 0)) + 1
+    if len(st) > 200:
+        st = dict(list(st.items())[-200:])
+    try:
+        os.makedirs(STATE, exist_ok=True)
+        with open(NUDGE_STATE, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+    except OSError:
+        return ""
+    n = counts[domain]
+    spec = domains[domain]
+    if n == 1:
+        return f"{NOTE_PREFIX} {spec.get('note', '')}".strip()
+    if n == repeat and spec.get("again"):
+        return f"{NOTE_PREFIX} {spec['again']}"
+    return ""
+
+
+def nudge_after_limits():
+    """Called only when the limits check let the call through. Never blocks, never fails a call."""
+    try:
+        note = nudge_note(LAST_EVENT)
+    except Exception:  # noqa: BLE001
+        return
+    if note:
+        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note}})
+        activity("nudge", LAST_EVENT, note=note[:80], tool=str(LAST_EVENT.get("tool_name", "")))
 
 
 # ── hook registration in .claude/settings.json ──────────────────────────────
@@ -1203,6 +1287,8 @@ if __name__ == "__main__":
         sys.exit(2)
     try:
         COMMANDS[name]()
+        if name == "limits":
+            nudge_after_limits()
     except SystemExit:
         raise
     except Exception as e:  # noqa: BLE001 — a crash in limits must block, elsewhere it must not
