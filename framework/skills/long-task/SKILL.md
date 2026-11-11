@@ -62,8 +62,8 @@ Set aside when in doubt: <what the CEO wants to see first>.
   - **One folder for moves and deletes** (m365-graph 0.8.0 or later): pass `expected_parent_id` with the folder's id on every `delete_file` (both calls) and `move_file`. The server refuses if the item isn't really in that folder, so the scope above holds. Without it, the call isn't covered and asks.
   - **The claude.ai Microsoft 365 connector** has no such argument, so moves and deletes there can only be scoped to a drive, or to a list of item ids (`scope_itemId: id1, id2`). Keep `max` small.
 - `tools` (optional): narrows it to tool names matching this pattern.
-- `max`: how many authorized calls at most. Past it, the next one asks again. Count calls, not files: some servers take two calls for one action (with m365-graph a delete is a preview that returns a token, then the confirmation with that token).
-- `expires`: UTC. It never counts for more than 24 hours after the CEO approved it.
+- `max`: how many authorized calls at most. Past it, a call the authorization would otherwise cover is **denied**, not asked: set the item aside and carry on. Count calls, not files: some servers take two calls for one action (with m365-graph a delete is a preview that returns a token, then the confirmation with that token).
+- `expires`: UTC. It never counts for more than 24 hours after the CEO approved it. Past it, calls it would cover are denied too, until it's closed.
 - `agents` (optional): the subagents of this session it also covers. The session itself is always covered; other sessions never are.
 
 The hooks count each use and log it. Any change to the file after the CEO approved it ends it; a new version needs the CEO again.
