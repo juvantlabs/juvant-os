@@ -92,11 +92,15 @@ def waiting(root):
     items = []
     days = listdir(root, "memory/journal", r"\d{4}-\d{2}-\d{2}\.md$")
     if days:
+        # Each wrap-up writes the whole current list, so only the last
+        # "Waiting for the CEO" line of the latest journal is current; earlier
+        # ones are stale (same rule as the session-start hook).
         latest = days[-1]
-        for line in read(root, "memory/journal/" + latest).splitlines():
-            m = re.match(r"^\s*-\s*Waiting for the CEO:\s*(.+)$", line, re.I)
-            if m and m.group(1).strip().lower() not in ("none", "nothing", "-"):
-                items.append((m.group(1).strip(), "memory/journal/" + latest))
+        found = [m.group(1).strip() for m in (
+            re.match(r"^\s*-\s*Waiting for the CEO:\s*(.+)$", line, re.I)
+            for line in read(root, "memory/journal/" + latest).splitlines()) if m]
+        if found and found[-1].lower() not in ("none", "nothing", "-"):
+            items.append((found[-1], "memory/journal/" + latest))
     drafts = []
     for n in listdir(root, "drafts", r".*"):
         p = os.path.join(root, "drafts", n)
@@ -207,69 +211,203 @@ def live_states(path):
 
 
 # ── page ─────────────────────────────────────────────────────────────────────
+# Light by default (the page is content-heavy), dark with the system setting.
+# One dark header band; the violet-to-cyan gradient appears only in the header
+# hairline, the activity bars and the sparkline. No scripts.
 CSS = """
 :root{
-  /* Layout: one column of panels, summary first; two columns from 900px. */
-  --bg:#f4f6f5; --panel:#ffffff; --ink:#1d2421; --muted:#5d6a64; --line:#d9e0dc; --accent:#1f6f5c;
-  --warn:#9a5b00; --warn-bg:#fff3df; --crit:#a3261f; --ok:#2f6d3a;
-  --display:"IBM Plex Sans Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif;
+  --bg:#f4f6fb; --panel:#ffffff; --ink:#0d1117; --ink-2:#1f2937; --muted:#5f6878; --line:rgba(13,17,23,.08);
+  --line-2:rgba(13,17,23,.14); --accent:#7c3aed; --accent-soft:rgba(124,58,237,.08); --link:#6d28d9;
+  --warn:#9a4a00; --warn-bg:#fdf0dc; --warn-line:rgba(154,74,0,.22); --shadow:0 1px 2px rgba(8,11,20,.06),0 4px 14px rgba(8,11,20,.05);
+  --head:#080b14; --head-ink:#e8eefa; --head-muted:#94a3b8;
+  --violet:#a855f7; --cyan:#22d3ee;
+  --display:"DM Serif Display",Georgia,"Times New Roman",serif;
+  --body:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --ease:cubic-bezier(.16,1,.3,1);
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#121614; --panel:#1a201d; --ink:#e4ebe7; --muted:#9aa8a1; --line:#2c3531; --accent:#5cc2a4;
-  --warn:#f0b35a; --warn-bg:#2d2414; --crit:#f0837b; --ok:#86c98f; color-scheme:dark}}
+  --bg:#080b14; --panel:#121827; --ink:#e8eefa; --ink-2:#cbd5e1; --muted:#94a3b8; --line:rgba(232,238,250,.08);
+  --line-2:rgba(232,238,250,.14); --accent:#b67cf9; --accent-soft:rgba(168,85,247,.12); --link:#22d3ee;
+  --warn:#f5b45a; --warn-bg:rgba(245,180,90,.1); --warn-line:rgba(245,180,90,.28); --shadow:none; color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#121614; --panel:#1a201d; --ink:#e4ebe7; --muted:#9aa8a1; --line:#2c3531; --accent:#5cc2a4;
-  --warn:#f0b35a; --warn-bg:#2d2414; --crit:#f0837b; --ok:#86c98f; color-scheme:dark}
+  --bg:#080b14; --panel:#121827; --ink:#e8eefa; --ink-2:#cbd5e1; --muted:#94a3b8; --line:rgba(232,238,250,.08);
+  --line-2:rgba(232,238,250,.14); --accent:#b67cf9; --accent-soft:rgba(168,85,247,.12); --link:#22d3ee;
+  --warn:#f5b45a; --warn-bg:rgba(245,180,90,.1); --warn-line:rgba(245,180,90,.28); --shadow:none; color-scheme:dark}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--body)}
-main{max-width:1100px;margin:0 auto;padding:24px 16px 48px;display:grid;gap:16px}
-header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px}
-h1{font:600 28px/1.15 var(--display);margin:0;text-wrap:balance}
-h2{font:600 15px/1.2 var(--display);letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
-.asof{color:var(--muted);font-size:13px}
-.grid{display:grid;gap:16px}
-@media (min-width:900px){.grid{grid-template-columns:1fr 1fr}}
-section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0}
-section.attention{border-left:4px solid var(--warn)}
-ul{margin:0;padding-left:18px} li{margin:4px 0}
-.src{color:var(--muted);font-size:12px;word-break:break-all}
-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
-td,th{text-align:left;padding:6px 8px 6px 0;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-weight:600;color:var(--muted);font-size:13px}
-.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);color:var(--muted)}
-.pill.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
-.empty{color:var(--muted)}
-.tablewrap{overflow-x:auto}
-nav{position:sticky;top:0;z-index:1;background:var(--bg);border-bottom:1px solid var(--line);margin:0 -16px;padding:8px 16px;display:flex;flex-wrap:wrap;gap:6px}
-nav a{color:var(--accent);text-decoration:none;font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}
-nav a:hover,nav a:focus-visible{border-color:var(--accent);outline:none}
-section{scroll-margin-top:56px}
 html{scroll-behavior:smooth}
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--body);-webkit-font-smoothing:antialiased}
+a{color:var(--link)}
+:focus-visible{outline:2px solid var(--violet);outline-offset:2px;border-radius:4px}
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+
+/* Header band */
+.top{background:var(--head);color:var(--head-ink);position:relative;padding:48px 0 112px;
+  background-image:radial-gradient(rgba(168,85,247,.16) 1px,transparent 1.2px),radial-gradient(rgba(34,211,238,.10) 1px,transparent 1.2px);
+  background-size:28px 28px,44px 44px;background-position:0 0,14px 20px}
+.top .wrap{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px}
+.eyebrow{font:600 11px/1 var(--body);letter-spacing:.3em;text-transform:uppercase;color:var(--head-muted);margin:0 0 12px}
+h1{font:400 clamp(34px,4.6vw,52px)/1.08 var(--display);letter-spacing:-.01em;margin:0;text-wrap:balance}
+.asof{color:var(--head-muted);font-size:13px;text-align:right}
+.asof strong{color:var(--head-ink);font-weight:500;display:block;font-size:15px}
+
+/* Summary tiles: overlap the band */
+.tiles{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));margin-top:-52px;position:relative}
+.tile{display:block;text-decoration:none;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:22px 24px;box-shadow:var(--shadow);transition:border-color .16s var(--ease),transform .16s var(--ease)}
+.tile:hover{border-color:var(--line-2);transform:translateY(-1px)}
+.tile .k{font:600 11px/1 var(--body);letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font:400 44px/1 var(--display);margin:12px 0 6px;font-variant-numeric:lining-nums tabular-nums}
+.tile .s{font-size:13px;color:var(--muted);min-height:1.5em}
+.tile.hot{border-color:var(--warn-line)}
+.tile.hot .v{color:var(--warn)}
+.tile .spark{display:block;margin-top:4px}
+
+/* Section nav */
+nav{position:sticky;top:0;z-index:2;background:var(--bg);margin-top:44px}
+nav::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:linear-gradient(90deg,rgba(168,85,247,.45),rgba(34,211,238,.45))}
+nav .wrap{display:flex;gap:4px;overflow-x:auto;padding-top:10px;padding-bottom:10px;scrollbar-width:none}
+nav a{flex:none;color:var(--ink-2);text-decoration:none;font-size:13px;font-weight:500;padding:6px 12px;border-radius:999px}
+nav a:hover{background:var(--accent-soft);color:var(--accent)}
+nav a .n{display:inline-block;min-width:18px;margin-left:6px;padding:0 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:12px;text-align:center}
+
+/* Panels */
+main{display:grid;gap:20px;align-items:start;grid-template-columns:minmax(0,1fr)}
+@media (min-width:1000px){main{grid-template-columns:repeat(12,minmax(0,1fr))}
+  .c7{grid-column:span 7}.c5{grid-column:span 5}.c6{grid-column:span 6}.c12{grid-column:span 12}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 24px;min-width:0;box-shadow:var(--shadow);scroll-margin-top:64px}
+.sh{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 14px;flex-wrap:wrap}
+h2{font:400 22px/1.2 var(--display);margin:0;letter-spacing:-.005em}
+.meta{font-size:12px;color:var(--muted)}
+section.attention{border-color:var(--warn-line)}
+.empty{color:var(--muted);margin:4px 0;padding:18px;border:1px dashed var(--line-2);border-radius:8px;text-align:center;font-size:14px}
+.src{font:12px/1.4 var(--mono);color:var(--muted);word-break:break-all}
+.pill{display:inline-block;white-space:nowrap;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid var(--line-2);color:var(--muted)}
+.pill.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.pill.on{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+ul.rows{list-style:none;margin:0;padding:0}
+ul.rows>li{padding:12px 0;border-top:1px solid var(--line)}
+ul.rows>li:first-child{border-top:0;padding-top:2px}
+
+/* Waiting */
+.wait li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:12px}
+.wait .dot{width:12px;height:12px;margin-top:6px;border-radius:50%;border:2px solid var(--accent)}
+.wait .t{font-size:16px;color:var(--ink)}
+
+/* Deadlines */
+.dl li{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:14px;align-items:center}
+.date{text-align:center;border:1px solid var(--line-2);border-radius:8px;padding:5px 0 6px;line-height:1}
+.date b{display:block;font:400 22px/1 var(--display)}
+.date i{display:block;font:600 10px/1 var(--body);font-style:normal;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+.dl .soon .date{border-color:var(--warn-line);background:var(--warn-bg)}
+.dl .soon .date b{color:var(--warn)}
+.who{font-size:13px;color:var(--muted)}
+
+/* Agents */
+.agents{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr))}
+.agent{border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.agent .hd{display:flex;align-items:center;gap:12px}
+.mono-av{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font:400 18px/1 var(--display);
+  color:var(--accent);background:var(--accent-soft);border:1px solid var(--line)}
+.agent .nm strong{display:block;font-size:16px;font-weight:600}
+.agent .nm span{font:12px var(--mono);color:var(--muted)}
+.agent .st{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.agent .st b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.agent blockquote{margin:0;padding:10px 12px;border-radius:8px;background:var(--bg);font-size:14px;color:var(--ink-2);
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.agent blockquote.none{color:var(--muted)}
+.others{margin:14px 0 0;font-size:13px;color:var(--muted)}
+
+/* Projects, sessions, decisions */
+.proj li .row1,.sess li .row1{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.proj li strong,.sess li strong{font-size:15px;font-weight:600}
+.note{margin:4px 0 2px;color:var(--ink-2)}
+.latest{font-size:13px;color:var(--muted)}
+.latest em{font-style:normal;font-weight:600;letter-spacing:.12em;text-transform:uppercase;font-size:10px;margin-right:6px}
+.dec li{display:grid;grid-template-columns:86px minmax(0,1fr);gap:12px}
+.dec .d{font:12px/1.9 var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.dec .t{font-weight:500}
+.by{font-size:12px;color:var(--muted)}
+
+/* Chart */
 svg text{fill:var(--muted);font:11px var(--body)}
-svg .bar{fill:var(--accent)}
-svg .grid{stroke:var(--line)}
+svg .gl{stroke:var(--line-2);stroke-dasharray:2 3}
+svg .base{stroke:var(--line-2)}
+svg .wk{fill:var(--accent-soft);opacity:.55}
+svg .zero{fill:var(--line-2)}
+svg text.today{fill:var(--ink);font-weight:600}
+.chartnote{margin:8px 0 0;font-size:13px;color:var(--muted)}
+.chartwrap{overflow-x:auto}
+main.wrap{padding-top:36px;padding-bottom:28px}
+footer{color:var(--muted);font-size:12px}
+footer.wrap{padding-bottom:48px}
+footer code{font-family:var(--mono)}
+@media (max-width:640px){.wrap{padding:0 16px}.dec li{grid-template-columns:minmax(0,1fr);gap:0}.sh .meta{display:none}section{padding:18px}.top{padding:32px 0 96px}.asof{text-align:left}.tile .v{font-size:36px}}
 """
 
+GRAD = ('<linearGradient id="{id}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="{w}" y2="0">'
+        '<stop offset="0" stop-color="#a855f7"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>')
 
-def ul(items, empty):
-    return "<ul>" + "".join(items) + "</ul>" if items else f'<p class="empty">{esc(empty)}</p>'
+
+def rel_day(d, today):
+    n = (d - today).days
+    return "today" if n == 0 else "tomorrow" if n == 1 else f"in {n} days"
 
 
-def chart(series):
-    w, h, pad = 560, 120, 24
+def short_ts(s):
+    try:
+        t = dt.datetime.fromisoformat(s)
+        return f"{t.day} {t.strftime('%b %H:%M')}"
+    except ValueError:
+        return s
+
+
+def empty(msg):
+    return f'<p class="empty">{esc(msg)}</p>'
+
+
+def chart(series, today):
+    w, h, pad_l, pad_b, top_pad = 640, 190, 28, 26, 14
     top = max([c for _, c in series] + [1])
-    bw = (w - pad) / len(series)
-    bars, labels = [], []
+    plot_h = h - pad_b - top_pad
+    bw = (w - pad_l) / len(series)
+    base = h - pad_b
+    out = [f"<defs>{GRAD.format(id='bars', w=w)}</defs>"]
     for i, (d, c) in enumerate(series):
-        bh = (h - 30) * c / top
-        x = pad + i * bw + 2
-        bars.append(f'<rect class="bar" x="{x:.1f}" y="{h - 18 - bh:.1f}" width="{bw - 4:.1f}" height="{bh:.1f}"><title>{d.isoformat()}: {c}</title></rect>')
-        if i % 2 == 0 or i == len(series) - 1:
-            labels.append(f'<text x="{x + (bw - 4) / 2:.1f}" y="{h - 4}" text-anchor="middle">{d.day}/{d.month}</text>')
-    grid = f'<line class="grid" x1="{pad}" x2="{w}" y1="{h - 18}" y2="{h - 18}"/><text x="0" y="{12 + 0}">{top}</text>'
-    return (f'<div class="tablewrap"><svg viewBox="0 0 {w} {h}" width="100%" role="img" '
-            f'aria-label="Sessions per day, last {len(series)} days">{grid}{"".join(bars)}{"".join(labels)}</svg></div>')
+        x = pad_l + i * bw
+        if d.weekday() >= 5:
+            out.append(f'<rect class="wk" x="{x:.1f}" y="{top_pad}" width="{bw:.1f}" height="{plot_h}"/>')
+    for v in sorted({top, (top + 1) // 2} - {0}):
+        y = base - plot_h * v / top
+        out.append(f'<line class="gl" x1="{pad_l}" x2="{w}" y1="{y:.1f}" y2="{y:.1f}"/><text x="{pad_l - 8}" y="{y + 4:.1f}" text-anchor="end">{v}</text>')
+    out.append(f'<line class="base" x1="{pad_l}" x2="{w}" y1="{base}" y2="{base}"/>')
+    for i, (d, c) in enumerate(series):
+        x = pad_l + i * bw + bw * 0.18
+        bwi = bw * 0.64
+        tip = f"<title>{d.strftime('%a')} {d.isoformat()}: {c} session{'s' if c != 1 else ''}</title>"
+        if c:
+            bh = max(plot_h * c / top, 3)
+            out.append(f'<rect x="{x:.1f}" y="{base - bh:.1f}" width="{bwi:.1f}" height="{bh:.1f}" rx="3" fill="url(#bars)">{tip}</rect>')
+        else:
+            out.append(f'<rect class="zero" x="{x:.1f}" y="{base - 2}" width="{bwi:.1f}" height="2" rx="1">{tip}</rect>')
+        is_today = d == today
+        if is_today or i % 2 == (len(series) - 1) % 2:
+            label = "Today" if is_today else f"{d.day} {d.strftime('%b')}"
+            cls = ' class="today"' if is_today else ""
+            out.append(f'<text{cls} x="{x + bwi / 2:.1f}" y="{h - 6}" text-anchor="middle">{label}</text>')
+    return (f'<div class="chartwrap"><svg viewBox="0 0 {w} {h}" width="100%" role="img" '
+            f'aria-label="Sessions per day, last {len(series)} days">{"".join(out)}</svg></div>')
+
+
+def sparkline(series):
+    w, h = 180, 28
+    top = max([c for _, c in series] + [1])
+    step = w / max(len(series) - 1, 1)
+    pts = " ".join(f"{i * step:.1f},{h - 3 - (h - 6) * c / top:.1f}" for i, (_, c) in enumerate(series))
+    return (f'<svg class="spark" viewBox="0 0 {w} {h}" width="100%" height="{h}" aria-hidden="true" preserveAspectRatio="none">'
+            f'<defs>{GRAD.format(id="spk", w=w)}</defs><polyline points="{pts}" fill="none" stroke="url(#spk)" '
+            f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>')
 
 
 def build(root, today, agents_json=None):
@@ -282,16 +420,42 @@ def build(root, today, agents_json=None):
     series = per_day(acts, today)
     projs = projects(root)
     name = company_name(root)
-    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    now = dt.datetime.now()
 
-    w_items = [f'<li>{esc(t)} <span class="src">{esc(s)}</span></li>' for t, s in wait_items]
-    w_items += [f'<li>Draft to review: {esc(n)} <span class="src">drafts/{esc(n)} · {d.isoformat()}</span></li>' for n, d in drafts[:10]]
+    # Waiting: the journal line is the whole current list, usually several
+    # items separated by "; " -- show and count each one.
+    w_items = []
+    for t, src in wait_items:
+        parts = [p.strip() for p in t.split("; ") if p.strip()] or [t]
+        for p in parts:
+            w_items.append(f'<li><span class="dot"></span><div><div class="t">{esc(p)}</div><div class="src">{esc(src)}</div></div></li>')
+    w_items += [f'<li><span class="dot"></span><div><div class="t">Draft to review: {esc(n)}</div>'
+                f'<div class="src">drafts/{esc(n)} · {d.isoformat()}</div></div></li>' for n, d in drafts[:10]]
     need = len(w_items)
+    waiting_html = f'<ul class="rows wait">{"".join(w_items)}</ul>' if w_items else empty("Nothing is waiting for you.")
 
-    ag_rows = "".join(
-        f'<tr><td><strong>{esc(a["name"] or a["role"])}</strong><br><span class="src">{esc(a["role"])}</span></td>'
-        f'<td>{esc(a["last"] or "—")}</td><td>{a["week"]}</td><td>{esc(plain(a["outcome"]) or "—")}</td></tr>'
-        for a in dedicated)
+    def dl_row(d, what, who):
+        soon = (d - today).days <= 7
+        pill = '<span class="pill warn">' if soon else '<span class="pill">'
+        who_html = f'<div class="who">{esc(who)}</div>' if who else ""
+        return (f'<li class="{"soon" if soon else ""}"><div class="date"><b>{d.day}</b><i>{d.strftime("%b")}</i></div>'
+                f'<div><div>{esc(what)}</div>{who_html}</div>{pill}{rel_day(d, today)}</span></li>')
+
+    dl_html = (f'<ul class="rows dl">{"".join(dl_row(*r) for r in dls)}</ul>' if dls
+               else empty(f"No deadlines in memory/deadlines.md for the next {DEADLINE_DAYS} days."))
+    soon_n = sum(1 for d, _, _ in dls if (d - today).days <= 7)
+
+    def agent_card(a):
+        label = a["name"] or a["role"]
+        out = plain(a["outcome"])
+        status = (f'<span class="pill on">{a["week"]} session{"s" if a["week"] != 1 else ""} this week</span>' if a["week"]
+                  else '<span class="pill">Quiet this week</span>')
+        quote = (f'<blockquote title="{esc(out)}">{esc(out)}</blockquote>' if out
+                 else '<blockquote class="none">No outcome recorded yet.</blockquote>')
+        return (f'<div class="agent"><div class="hd"><span class="mono-av" aria-hidden="true">{esc(label[:1].upper())}</span>'
+                f'<div class="nm"><strong>{esc(label)}</strong><span>{esc(a["role"])}</span></div></div>'
+                f'<div class="st"><span>Last active <b>{esc(short_ts(a["last"]) if a["last"] else "—")}</b></span>{status}</div>{quote}</div>')
+
     other_line = ", ".join(f"{esc(t)} ({c})" for t, c in others[:8]) or "none recorded"
 
     def state_pill(c):
@@ -299,40 +463,72 @@ def build(root, today, agents_json=None):
             return '<span class="pill warn">' + esc(c["state"]) + "</span>"
         return '<span class="pill">see agent view</span>'
 
-    co_rows = "".join(
-        f'<tr><td><strong>{esc(c["name"])}</strong></td><td>{esc(c["started"] or "—")}</td>'
-        f'<td>{state_pill(c)}</td><td>{esc(plain(c["outcome"]) or "—")}</td></tr>' for c in collabs)
+    sess_html = (('<ul class="rows sess">' + "".join(
+        f'<li><div class="row1"><strong>{esc(c["name"])}</strong>{state_pill(c)}</div>'
+        f'<div class="note">{esc(plain(c["outcome"]) or "No report yet.")}</div>'
+        f'<div class="latest">Started {esc(c["started"] or "—")}</div></li>' for c in collabs) + "</ul>")
+        if collabs else empty("No collaborator sessions."))
 
     def proj_row(p):
-        pill = "pill warn" if p["status"] == "paused" else "pill"
-        latest = f'{esc(p["latest"][0])} {esc(p["latest"][1])}' if p["latest"][1] else "—"
-        return (f'<tr><td><strong>{esc(p["name"])}</strong><br><span class="src">memory/projects/{esc(p["slug"])}/</span></td>'
-                f'<td><span class="{pill}">{esc(p["status"])}</span></td><td>{esc(p["note"]) or "—"}</td><td>{latest}</td></tr>')
+        pill = {"paused": "pill warn", "active": "pill on"}.get(p["status"], "pill")
+        latest = (f'<div class="latest"><em>Latest decision</em>{esc(p["latest"][0])} {esc(p["latest"][1])}</div>'
+                  if p["latest"][1] else "")
+        note = f'<div class="note">{esc(p["note"])}</div>' if p["note"] else ""
+        return (f'<li><div class="row1"><strong>{esc(p["name"])}</strong><span class="{pill}">{esc(p["status"])}</span></div>'
+                f'{note}{latest}<div class="src">memory/projects/{esc(p["slug"])}/</div></li>')
 
-    proj_rows = "".join(proj_row(p) for p in projs)
-    dec_items = [f'<li><strong>{esc(d)}</strong> {esc(t)} <span class="src">{esc(by)} · {esc(src)}</span></li>' for d, t, by, src in decs]
-    dl_items = [f'<li><strong>{d.strftime("%d %b")}</strong> {esc(w)} <span class="src">{esc(o)}</span></li>' for d, w, o in dls]
+    proj_html = (f'<ul class="rows proj">{"".join(proj_row(p) for p in projs)}</ul>' if projs
+                 else empty("No projects in memory/projects/."))
+    active_n = sum(1 for p in projs if p["status"] == "active")
+
+    def dec_row(d, t, by, src):
+        by_html = f'<div class="by">by {esc(by)}</div>' if by else ""
+        return (f'<li><span class="d">{esc(d)}</span><div><div class="t">{esc(t)}</div>'
+                f'{by_html}<div class="src">{esc(src)}</div></div></li>')
+
+    dec_html = (f'<ul class="rows dec">{"".join(dec_row(*x) for x in decs)}</ul>' if decs
+                else empty("No decisions recorded yet."))
+
+    week = sum(c for _, c in series[-7:])
+    total = sum(c for _, c in series)
+    next_dl = f"Next: {dls[0][0].day} {dls[0][0].strftime('%b')} · {rel_day(dls[0][0], today)}" if dls else "Nothing due"
+    tiles = (
+        f'<a class="tile{" hot" if need else ""}" href="#waiting"><div class="k">Waiting for you</div><div class="v">{need}</div>'
+        f'<div class="s">{"Decisions and drafts to review" if need else "All clear"}</div></a>'
+        f'<a class="tile{" hot" if soon_n else ""}" href="#deadlines"><div class="k">Deadlines · {DEADLINE_DAYS} days</div>'
+        f'<div class="v">{len(dls)}</div><div class="s">{esc(next_dl)}</div></a>'
+        f'<a class="tile" href="#activity"><div class="k">Sessions · 7 days</div><div class="v">{week}</div>{sparkline(series)}</a>'
+        f'<a class="tile" href="#projects"><div class="k">Active projects</div><div class="v">{active_n}</div>'
+        f'<div class="s">{len(projs)} in memory/projects/</div></a>')
+
+    navs = (("waiting", "Waiting for you", need), ("deadlines", "Deadlines", len(dls)), ("agents", "Agents", None),
+            ("projects", "Projects", None), ("sessions", "Collaborator sessions", None),
+            ("decisions", "Decisions", None), ("activity", "Activity", None))
+    nav = "".join(f'<a href="#{a}">{l}' + (f'<span class="n">{n}</span>' if n else "") + "</a>" for a, l, n in navs)
 
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(name)} dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 <style>{CSS}</style></head>
-<body><main>
-<header><h1>{esc(name)}</h1><span class="asof">Read-only · built {esc(now)} from the company repo</span></header>
-<nav aria-label="Sections"><a href="#waiting">Waiting for you ({need})</a><a href="#agents">Agents</a><a href="#sessions">Collaborator sessions</a><a href="#projects">Projects</a><a href="#decisions">Decisions</a><a href="#deadlines">Deadlines</a><a href="#activity">Activity</a></nav>
-<section id="waiting" class="{'attention' if need else ''}"><h2>Waiting for you · {need}</h2>{ul(w_items, "Nothing is waiting for you.")}</section>
-<div class="grid">
-<section id="agents"><h2>Agents</h2><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Last active</th><th>7 days</th><th>Last outcome</th></tr></thead><tbody>{ag_rows}</tbody></table></div>
-<p class="src">Other collaborators used: {other_line}</p></section>
-<section id="sessions"><h2>Collaborator sessions</h2>{('<div class="tablewrap"><table><thead><tr><th>Session</th><th>Started</th><th>State</th><th>Last report</th></tr></thead><tbody>' + co_rows + '</tbody></table></div>') if collabs else '<p class="empty">No collaborator sessions.</p>'}</section>
-<section id="projects"><h2>Projects</h2>{('<div class="tablewrap"><table><thead><tr><th>Project</th><th>Status</th><th>Where it stands</th><th>Latest decision</th></tr></thead><tbody>' + proj_rows + '</tbody></table></div>') if projs else '<p class="empty">No projects in memory/projects/.</p>'}</section>
-<section id="decisions"><h2>Latest decisions</h2>{ul(dec_items, "No decisions recorded yet.")}</section>
-<section id="deadlines"><h2>Deadlines · next {DEADLINE_DAYS} days</h2>{ul(dl_items, "No deadlines in memory/deadlines.md for the next 30 days.")}</section>
-</div>
-<section id="activity"><h2>Sessions per day · last {ACTIVITY_DAYS} days</h2>{chart(series)}</section>
-</main></body></html>
+<body>
+<header class="top"><div class="wrap"><div><p class="eyebrow">Company dashboard</p><h1>{esc(name)}</h1></div>
+<div class="asof"><strong>{today.strftime("%A %d %B %Y").replace(" 0", " ")}</strong>Read-only · built {esc(now.strftime("%H:%M"))} from the company repo</div></div></header>
+<div class="wrap"><div class="tiles">{tiles}</div></div>
+<nav aria-label="Sections"><div class="wrap">{nav}</div></nav>
+<main class="wrap">
+<section id="waiting" class="c7{' attention' if need else ''}"><div class="sh"><h2>Waiting for you · {need}</h2><span class="meta">Latest journal and drafts/</span></div>{waiting_html}</section>
+<section id="deadlines" class="c5"><div class="sh"><h2>Deadlines · next {DEADLINE_DAYS} days</h2><span class="meta">memory/deadlines.md</span></div>{dl_html}</section>
+<section id="agents" class="c12"><div class="sh"><h2>Agents</h2><span class="meta">Dedicated roles · last {ACTIVITY_DAYS} days of activity</span></div>
+<div class="agents">{"".join(agent_card(a) for a in dedicated)}</div><p class="others">Other collaborators used: {other_line}</p></section>
+<section id="projects" class="c7"><div class="sh"><h2>Projects</h2><span class="meta">{active_n} active</span></div>{proj_html}</section>
+<section id="sessions" class="c5"><div class="sh"><h2>Collaborator sessions</h2><span class="meta">state/briefs/</span></div>{sess_html}</section>
+<section id="decisions" class="c5"><div class="sh"><h2>Latest decisions</h2><span class="meta">Active only · last {RECENT_DECISIONS}</span></div>{dec_html}</section>
+<section id="activity" class="c7"><div class="sh"><h2>Sessions per day · last {ACTIVITY_DAYS} days</h2><span class="meta">{total} total · weekends shaded</span></div>{chart(series, today)}{'' if total else '<p class="chartnote">No sessions recorded in the last ' + str(ACTIVITY_DAYS) + ' days.</p>'}</section>
+</main>
+<footer class="wrap">Built by <code>.claude/dashboard/build.py</code> from the files in the company repo. To change something here, change the file it comes from.</footer>
+</body></html>
 """
 
 
