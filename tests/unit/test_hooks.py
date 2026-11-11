@@ -717,7 +717,10 @@ class Settings(unittest.TestCase):
             self.assertIn(prefix + "outlook_send_mail", deny)
         with open(os.path.join(HOOKS, "limits.json"), encoding="utf-8") as f:
             known = json.load(f)["known_prefixes"]
-        self.assertEqual(sorted({d[: d.rindex("__") + 2] for d in deny}), sorted(known))
+        denied = {d[: d.rindex("__") + 2] for d in deny}
+        self.assertEqual(denied - set(known), set(), "a prefix with permission denies must be in known_prefixes")
+        self.assertEqual(set(known) - denied, {"mcp__m365-mail__"},
+                         "a known prefix without permission denies must be a server with no outbound tools")
 
     def test_matcher_covers_every_checked_tool(self):
         # Claude Code calls the hook only for tools the matcher names: the unit tests

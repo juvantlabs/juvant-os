@@ -64,11 +64,13 @@
       }
     ]
   },
+  "_known_prefixes": "Servers whose tool names the hard limits were checked against. Each one's outbound tools are also denied in the settings template's permission rules, as a second layer; a server with no outbound tools (m365-mail: drafts, moves and deletes only) has nothing to deny there.",
   "known_prefixes": [
     "mcp__claude_ai_Microsoft_365__",
     "mcp__Microsoft_365__",
     "mcp__claude-artifacts__",
-    "mcp__m365-graph__"
+    "mcp__m365-graph__",
+    "mcp__m365-mail__"
   ],
   "bash": {
     "deny": [
