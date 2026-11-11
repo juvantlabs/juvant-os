@@ -673,14 +673,18 @@ def parse_ts(s):
 
 
 def scope_matches(fm, inp):
-    """Every scope_<key> in the authorization must be among the tool's arguments with an allowed value."""
+    """Every scope_<key> in the authorization must be among the tool's arguments with an allowed
+    value. Keys compare without case or punctuation (driveId = drive_id), exactly: `parent_id` is
+    not `target_parent_id`. `scope_a|b: X` names one thing that tools call differently (the folder
+    is `parent_item_id` for an upload, `expected_parent_id` for a delete): one of them must be given."""
     scopes = {k[len("scope_"):]: split_list(v.replace(",", " ")) for k, v in fm.items() if k.startswith("scope_")}
     if not scopes:
         return False  # an authorization says where, or it covers nothing
+    norm = lambda x: re.sub(r"[^a-z0-9]", "", str(x).lower())  # noqa: E731
     for key, allowed in scopes.items():
-        want = re.sub(r"[^a-z0-9]", "", key.lower())
-        vals = [v for k, v in inp.items() if want and re.sub(r"[^a-z0-9]", "", str(k).lower()).endswith(want)]
-        if not vals or not all(isinstance(v, str) and v.strip() in allowed for v in vals):
+        names = {norm(n) for n in key.split("|") if norm(n)}
+        vals = [v for k, v in inp.items() if norm(k) in names]
+        if not names or not vals or not all(isinstance(v, str) and v.strip() in allowed for v in vals):
             return False
     return True
 
