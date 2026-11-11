@@ -2,3 +2,6 @@
 .env
 .env.*
 __pycache__/
+
+# v1 batch-test results (local only) never belong in v2
+tests/fixtures/
