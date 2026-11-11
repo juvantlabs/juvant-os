@@ -193,6 +193,15 @@ class McpLimits(HookCase):
         self.assertNotIn("mcp__claude-artifacts__", out["hookSpecificOutput"]["additionalContext"])
 
 
+    def test_every_deny_and_ask_is_logged(self):
+        self.decision(P_LOCAL + "outlook_send_mail")
+        self.decision(P_LOCAL + "sharepoint_delete_item", {"driveId": "D"})
+        self.decision(P_LOCAL + "outlook_create_draft")
+        rows = [r for r in self.state("activity.jsonl") if r["event"].startswith("limits_")]
+        self.assertEqual([(r["event"], r["tool"]) for r in rows],
+                         [("limits_deny", P_LOCAL + "outlook_send_mail"), ("limits_ask", P_LOCAL + "sharepoint_delete_item")])
+        self.assertIn("delete-move", rows[1]["reason"])
+
 class BashAndSecrets(HookCase):
     def bash(self, command):
         return self.decision("Bash", {"command": command})
@@ -316,6 +325,13 @@ class ContextAndActivity(HookCase):
         self.assertEqual(rows[2]["agent_type"], "finance")
         self.assertLessEqual(len(rows[2]["outcome"]), 160)
         self.assertNotIn("\n", rows[2]["outcome"])
+
+    def test_helper_subagents_log_no_outcome(self):
+        self.run_hook("subagent-stop", {"session_id": "s", "agent_id": "a1", "last_assistant_message": "sì, l'ho vista e approvata"})
+        self.run_hook("subagent-stop", {"session_id": "s", "agent_id": "a2", "agent_type": "legal",
+                                        "last_assistant_message": "VERDICT: OK"})
+        rows = [r for r in self.state("activity.jsonl") if r["event"] == "subagent_stop"]
+        self.assertEqual([r.get("outcome") for r in rows], [None, "VERDICT: OK"])
 
     def test_session_as_dedicated_agent(self):
         self.write("roles/finance.md", "name: Greta\nMinimum cash buffer: 90000")

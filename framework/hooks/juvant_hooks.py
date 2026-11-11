@@ -73,7 +73,15 @@ def emit(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
 
+def log_decision(decision, reason):
+    """Every limits deny or ask goes to the activity log: who, which tool, which rule. Best effort."""
+    ev = globals().get("LAST_EVENT") or {}
+    if ev.get("tool_name"):
+        activity("limits_" + decision, ev, tool=str(ev.get("tool_name")), reason=one_line(reason, 200))
+
+
 def deny(reason):
+    log_decision("deny", reason)
     # stderr + exit 2 is what Claude Code treats as a block; the JSON is the
     # documented form. Both, so either reading of the contract denies.
     emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
@@ -84,6 +92,7 @@ def deny(reason):
 
 
 def ask(reason):
+    log_decision("ask", reason)
     emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                  "permissionDecision": "ask",
                                  "permissionDecisionReason": reason}})
@@ -1194,7 +1203,10 @@ def cmd_session_start():
 
 def cmd_subagent_stop():
     ev = read_event()
-    activity("subagent_stop", ev, outcome=one_line(ev.get("last_assistant_message", ""), OUTCOME_CAP))
+    # Claude Code's own helper subagents (reply suggestions, summaries) have no agent_type:
+    # their last message is not an outcome of the company's work.
+    outcome = one_line(ev.get("last_assistant_message", ""), OUTCOME_CAP) if ev.get("agent_type") else ""
+    activity("subagent_stop", ev, outcome=outcome)
 
 
 def cmd_stop():
