@@ -1070,6 +1070,20 @@ class Settings(unittest.TestCase):
         self.assertEqual(named - set(hooks.LIMITS_TOOLS), set(), "a tool the code checks is missing from LIMITS_TOOLS")
 
 
+    def test_no_unreachable_code(self):
+        # A statement right after return/raise/continue/break in the same block never runs.
+        import ast
+        for path in (SCRIPT, os.path.join(ROOT, "framework", "dashboard", "build.py")):
+            tree = ast.parse(open(path, encoding="utf-8").read())
+            for node in ast.walk(tree):
+                for field in ("body", "orelse", "finalbody"):
+                    block = getattr(node, field, None)
+                    if not isinstance(block, list):
+                        continue
+                    for i, stmt in enumerate(block[:-1]):
+                        if isinstance(stmt, (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+                            self.fail(f"{os.path.basename(path)}:{block[i + 1].lineno}: unreachable after line {stmt.lineno}")
+
 def load_hooks_module():
     spec = importlib.util.spec_from_file_location("juvant_hooks", SCRIPT)
     mod = importlib.util.module_from_spec(spec)

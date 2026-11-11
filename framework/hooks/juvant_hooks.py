@@ -466,38 +466,6 @@ def bash_writes_claude_dir(command, cwd=None):
             continue  # framework scripts that write outside .claude/ (they must run unattended)
         return True
     return False
-    segments = shell_segments(command)
-    if segments is None:
-        return True
-    for words in segments:
-        seg = " ".join(words)
-        if ".claude" not in seg:
-            continue
-        if SANCTIONED.match(seg) and not re.search(r"--(from|repo|target)\b", seg):
-            continue  # update from a published tag only; a local source could carry anything
-        for i, w in enumerate(words[:-1]):
-            if w in (">", ">>", ">|") and ".claude" in words[i + 1]:
-                return True
-        if any(re.match(r"^\d*>>?\S*\.claude", w) for w in words):
-            return True
-        while words and "=" in words[0] and not words[0].startswith(("-", "/", ".")):
-            words = words[1:]
-        if not words:
-            continue
-        verb = os.path.basename(words[0])
-        if verb in READ_ONLY_VERBS:
-            continue
-        if verb == "git" and len(words) > 1 and words[1] in GIT_READ:
-            continue
-        if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in words):
-            continue
-        if verb in ("python3", "python") and len(words) > 1 and words[1].endswith(".claude/hooks/juvant_hooks.py"):
-            continue
-        if (verb in ("python3", "python") and len(words) > 1 and words[1].endswith(OUTSIDE_WRITERS)
-                and not any(".claude" in w for w in words[2:])):
-            continue  # framework scripts that write outside .claude/ (they must run unattended)
-        return True
-    return False
 
 
 # ── private files (memory/private.md) ───────────────────────────────────────
