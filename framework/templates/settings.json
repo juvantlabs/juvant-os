@@ -39,7 +39,7 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py\" limits"
           }
         ],
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*"
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|mcp__.*"
       }
     ],
     "SessionStart": [

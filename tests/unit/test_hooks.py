@@ -1,6 +1,8 @@
 """Unit tests for framework/hooks/juvant_hooks.py. Run: python3 -m unittest discover -s tests/unit"""
+import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -652,7 +654,7 @@ class Settings(unittest.TestCase):
         with open(os.path.join(ROOT, "framework", "templates", "settings.json"), encoding="utf-8") as f:
             s = json.load(f)
         pre = s["hooks"]["PreToolUse"][0]
-        for name in ("Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "mcp__"):
+        for name in ("Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "mcp__"):
             self.assertIn(name, pre["matcher"])
         self.assertIn("juvant_hooks.py\" limits", pre["hooks"][0]["command"])
         for event, sub in (("SessionStart", "session-start"), ("SubagentStart", "subagent-start"),
@@ -665,6 +667,107 @@ class Settings(unittest.TestCase):
         with open(os.path.join(HOOKS, "limits.json"), encoding="utf-8") as f:
             known = json.load(f)["known_prefixes"]
         self.assertEqual(sorted({d[: d.rindex("__") + 2] for d in deny}), sorted(known))
+
+    def test_matcher_covers_every_checked_tool(self):
+        # Claude Code calls the hook only for tools the matcher names: the unit tests
+        # above call it directly, so they can't notice a tool the matcher misses.
+        hooks = load_hooks_module()
+        with open(os.path.join(ROOT, "framework", "templates", "settings.json"), encoding="utf-8") as f:
+            self.assertEqual(hooks.registration_gaps(json.load(f)), [])
+        with open(SCRIPT, encoding="utf-8") as f:
+            src = f.read()
+        named = set()
+        for group in re.findall(r"\btool (?:==|in) (\([^)]*\)|\"[A-Za-z]+\")", src):
+            named.update(re.findall(r"\"([A-Z][A-Za-z]+)\"", group))
+        self.assertTrue({"Read", "Grep", "Glob", "Bash", "Write"} <= named, named)
+        self.assertEqual(named - set(hooks.LIMITS_TOOLS), set(), "a tool the code checks is missing from LIMITS_TOOLS")
+
+
+def load_hooks_module():
+    spec = importlib.util.spec_from_file_location("juvant_hooks", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+OLD_MATCHER = "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*"
+
+
+class Registration(HookCase):
+    def write_settings(self, matcher=OLD_MATCHER, extra=None):
+        with open(os.path.join(ROOT, "framework", "templates", "settings.json"), encoding="utf-8") as f:
+            s = json.load(f)
+        if matcher is None:
+            s["hooks"]["PreToolUse"] = []
+        else:
+            s["hooks"]["PreToolUse"][0]["matcher"] = matcher
+        if extra:
+            s["hooks"]["PreToolUse"].append(extra)
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "settings.json"), "w", encoding="utf-8") as f:
+            json.dump(s, f, indent=2)
+        return s
+
+    def settings(self):
+        with open(os.path.join(self.repo, ".claude", "settings.json"), encoding="utf-8") as f:
+            return json.load(f)
+
+    def fix(self):
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)
+        return subprocess.run([sys.executable, SCRIPT, "fix-registration"], capture_output=True, text=True, env=env, timeout=20)
+
+    def test_session_start_warns_when_tools_are_not_registered(self):
+        self.write_settings()
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        self.assertIn("Read, Grep, Glob", out.get("systemMessage", ""), "the CEO sees it on screen")
+        self.assertIn("aren't checked", out["hookSpecificOutput"]["additionalContext"])
+
+    def test_no_warning_with_the_template(self):
+        self.write_settings(matcher="Bash|Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|mcp__.*")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        self.assertNotIn("aren't checked", json.dumps(out))
+
+    def test_fix_adds_missing_tools_and_keeps_the_rest(self):
+        other = {"matcher": "WebFetch", "hooks": [{"type": "command", "command": "echo mine"}]}
+        self.write_settings(matcher=OLD_MATCHER + "|WebSearch", extra=other)
+        p = self.fix()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("Read, Grep, Glob", p.stdout)
+        s = self.settings()
+        hooks = load_hooks_module()
+        self.assertEqual(hooks.registration_gaps(s), [])
+        self.assertIn("WebSearch", s["hooks"]["PreToolUse"][0]["matcher"], "the company's own additions stay")
+        self.assertIn(other, s["hooks"]["PreToolUse"], "other hooks untouched")
+        self.assertIn(P_LOCAL + "outlook_send_mail", s["permissions"]["deny"])
+        before = open(os.path.join(self.repo, ".claude", "settings.json"), encoding="utf-8").read()
+        p = self.fix()
+        self.assertEqual((p.returncode, p.stdout), (0, ""), "a second run changes nothing")
+        self.assertEqual(open(os.path.join(self.repo, ".claude", "settings.json"), encoding="utf-8").read(), before)
+
+    def test_fix_warns_but_does_not_rewrite_a_removed_registration(self):
+        s = self.write_settings(matcher=None)
+        p = self.fix()
+        self.assertEqual(p.returncode, 0, "update goes on")
+        self.assertIn("doesn't register the hard-limits hook", p.stderr)
+        self.assertEqual(self.settings(), s, "the company's settings stay as they are")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        self.assertIn("aren't checked", out.get("systemMessage", ""), "the CEO still sees it every session")
+
+    def test_fix_without_or_with_broken_settings(self):
+        self.assertEqual(self.fix().returncode, 0, "no settings: nothing to do")
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        open(os.path.join(self.repo, ".claude", "settings.json"), "w").write("{not json")
+        p = self.fix()
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("unreadable", p.stderr)
+
+    def test_matcher_rules(self):
+        hooks = load_hooks_module()
+        for m, tool, want in (("", "Read", True), ("*", "Read", True), ("Read", "Read", True),
+                              ("Bash|Write", "Read", False), ("mcp__.*", "mcp__x__y", True),
+                              ("Rea", "Read", False), ("(", "Read", False)):
+            with self.subTest(m=m, tool=tool):
+                self.assertEqual(hooks.matcher_covers(m, tool), want)
 
 
 if __name__ == "__main__":

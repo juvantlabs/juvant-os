@@ -7,6 +7,8 @@
     subagent-stop   SubagentStop: activity.
     stop            Stop: activity.
     log-outcome     called by the wrap-up skill: [--agent TYPE] "one line".
+    fix-registration  called by update.sh: register `limits` in .claude/settings.json
+                    for every tool it checks (adds what's missing, keeps the rest).
 
 Reads the event JSON on stdin. Paths are relative to $CLAUDE_PROJECT_DIR (the
 company repo); the config sits next to this file. Standard library only.
@@ -28,6 +30,13 @@ FINDINGS = os.path.join(STATE, "limits-findings.jsonl")
 CONTEXT_CAP = 9500
 OUTCOME_CAP = 160
 ROLE_ID = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
+SETTINGS = os.path.join(ROOT, ".claude", "settings.json")
+# Every built-in tool cmd_limits() looks at. Claude Code calls the hook only for
+# tools its PreToolUse matcher in .claude/settings.json names, so the matcher
+# must cover all of these and MCP tools; a test keeps this list and the code in step.
+LIMITS_TOOLS = ("Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob")
+MCP_PROBE = "mcp__any__tool"
+LIMITS_COMMAND = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/juvant_hooks.py" limits'
 
 
 # ── small helpers ────────────────────────────────────────────────────────────
@@ -820,11 +829,16 @@ def cmd_session_start():
         lines.append("Tell the CEO: limited tools were called under MCP prefixes the permission rules don't list ("
                      + ", ".join(sorted(prefixes)) + "). The hook blocked them; add the prefixes to "
                      "`known_prefixes` and to the permission denies in .claude/settings.json.")
+    reg = registration_warning()
+    if reg:
+        lines.append(reg + " Tell the CEO first thing.")
     out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(lines)}}
+    if reg:
+        out["systemMessage"] = reg
     if not ROLE_ID.match(agent) and ev.get("source") in ("startup", "resume", "clear", None):
         banner = waiting_banner()
         if banner:
-            out["systemMessage"] = banner
+            out["systemMessage"] = (reg + "\n\n" + banner) if reg else banner
             lines.append("The CEO already sees the 'Waiting for the CEO' list on screen. When they first write, "
                          "start from it: what's still open, and what you recommend doing first.")
             out["hookSpecificOutput"]["additionalContext"] = "\n".join(lines)
@@ -857,7 +871,84 @@ def cmd_log_outcome():
     print("logged")
 
 
+# ── hook registration in .claude/settings.json ──────────────────────────────
+def matcher_covers(matcher, tool):
+    """Claude Code's matcher rule: empty or "*" matches every tool, otherwise a regex
+    matched against the whole tool name."""
+    m = str(matcher or "").strip()
+    if m in ("", "*"):
+        return True
+    try:
+        return re.fullmatch(m, tool) is not None
+    except re.error:
+        return False
+
+
+def limits_entries(settings):
+    """The PreToolUse entries that run `juvant_hooks.py ... limits`."""
+    pre = ((settings.get("hooks") or {}).get("PreToolUse") or []) if isinstance(settings, dict) else []
+    return [e for e in pre if isinstance(e, dict) and any(
+        isinstance(h, dict) and "juvant_hooks.py" in str(h.get("command", ""))
+        and re.search(r"\slimits\s*$", str(h.get("command", ""))) for h in (e.get("hooks") or []))]
+
+
+def registration_gaps(settings):
+    """Checked tools (and "mcp__*") that no `limits` entry's matcher covers."""
+    entries = limits_entries(settings)
+    probes = list(LIMITS_TOOLS) + [MCP_PROBE]
+    gaps = [t for t in probes if not any(matcher_covers(e.get("matcher"), t) for e in entries)]
+    return ["mcp__*" if t == MCP_PROBE else t for t in gaps]
+
+
+def load_settings():
+    with open(SETTINGS, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def registration_warning():
+    """A line for the CEO if the limits hook doesn't see every checked tool; "" otherwise."""
+    try:
+        gaps = registration_gaps(load_settings())
+    except (OSError, ValueError):
+        return ""
+    if not gaps:
+        return ""
+    return ("WARNING: juvant-os hard limits aren't checked on " + ", ".join(gaps) + ": .claude/settings.json "
+            "doesn't register the limits hook for them. Run the update skill, which fixes the registration, "
+            "or ask the Chief of Staff to.")
+
+
+def cmd_fix_registration():
+    try:
+        settings = load_settings()
+    except FileNotFoundError:
+        print("fix-registration: no .claude/settings.json, nothing to fix")
+        return
+    except (OSError, ValueError) as e:
+        sys.stderr.write(f"fix-registration: .claude/settings.json is unreadable ({e}); fix it by hand\n")
+        sys.exit(1)
+    gaps = registration_gaps(settings)
+    if not gaps:
+        return
+    entries = limits_entries(settings)
+    if not entries:
+        # Removing the hook is the company's own (out-of-spec) choice: say so loudly, don't rewrite it.
+        sys.stderr.write("fix-registration: WARNING: .claude/settings.json doesn't register the hard-limits hook at "
+                         f"all, so no hard limit is checked. The template registers `{LIMITS_COMMAND}` under "
+                         "PreToolUse: restore it with the CEO.\n")
+        return
+    names = [("mcp__.*" if g == "mcp__*" else g) for g in gaps]
+    e = entries[0]
+    old = str(e.get("matcher") or "").strip()
+    e["matcher"] = "|".join([old] + names) if old else "|".join(names)
+    with open(SETTINGS, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print("fix-registration: the hard-limits hook in .claude/settings.json now also checks " + ", ".join(gaps))
+
+
 COMMANDS = {
+    "fix-registration": cmd_fix_registration,
     "limits": cmd_limits,
     "session-start": cmd_session_start,
     "subagent-start": cmd_subagent_start,
