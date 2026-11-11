@@ -14,4 +14,6 @@ juvant-os installs **only official GitHub releases** (`https://github.com/juvant
 5. Commit only with the CEO's ok: `git add .claude && git commit -m "Update juvant-os to <tag>"`.
 6. If the release notes ask for changes to the company's own files (for example a new permission rule in `.claude/settings.json`), propose them as a separate change. Writes to `.claude/` ask the CEO.
 
+Running the script again when the latest release is already installed still runs its final steps (such as the hard-limits hook registration): use it if a session-start warning asks for it.
+
 If the script refuses because `.juvant/` exists, this is a juvant-os v1 instance: stop and tell the CEO.

@@ -8,11 +8,17 @@
 #             --repo <github-url>       default: $JUVANT_OS_REPO or the public repo
 #             --country <code>          install that country pack (e.g. it); default:
 #                                       the country already recorded, if any
+#   update.sh --post-install            only the steps after installing (the update
+#                                       runs the newly installed copy with it)
 #
 # Only official releases install: never a branch, never main. No published
 # release newer than the installed one means there is nothing to update.
 # (--from <framework-dir> exists only for setup.sh and the tests, which set
 # JUVANT_OS_SETUP=1.)
+#
+# An update is always run by the copy already installed (see the { } block
+# below), so steps that come after copying run in the newly installed copy:
+# a release's new steps then run with that release's code.
 #
 # Copies every path in framework/FILES except templates/ into .claude/, removes
 # framework files that the new version no longer ships, installs the company's
@@ -27,14 +33,15 @@ set -euo pipefail
 {
 
 REPO_URL="${JUVANT_OS_REPO:-https://github.com/juvantlabs/juvant-os.git}"
-FROM=""; TAG=""; TARGET=""; COUNTRY=""
+FROM=""; TAG=""; TARGET=""; COUNTRY=""; POST=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --from) FROM="$2"; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
     --repo) REPO_URL="$2"; shift 2 ;;
     --country) COUNTRY="$2"; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    --post-install) POST=1; shift ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     -*) echo "update: unknown option $1" >&2; exit 2 ;;
     *) TAG="$1"; shift ;;
   esac
@@ -47,6 +54,21 @@ TARGET="$(cd "$TARGET" && pwd)"
 
 if [[ -d "$TARGET/.juvant" ]]; then
   echo "update: $TARGET is a juvant-os v1 instance (.juvant/ exists). v2 doesn't install over v1: migrate first." >&2; exit 1
+fi
+
+# Steps after the framework files are in place. They also run on "already
+# installed", so a missed step can always be caught up by running update again.
+post_install() {
+  # The hard limits only see the tools their hook is registered for.
+  if [[ -f "$TARGET/.claude/settings.json" && -f "$TARGET/.claude/hooks/juvant_hooks.py" ]]; then
+    CLAUDE_PROJECT_DIR="$TARGET" python3 "$TARGET/.claude/hooks/juvant_hooks.py" fix-registration \
+      || echo "update: WARNING: couldn't check the hard-limits hook registration in .claude/settings.json. Ask the Chief of Staff to check it." >&2
+  fi
+  return 0
+}
+if [[ -n "$POST" ]]; then
+  post_install
+  exit 0
 fi
 
 TMP=""
@@ -83,7 +105,7 @@ print("\n".join(t for _, t in sorted(v, reverse=True)[:20]))'); do
     [[ -n "$TAG" ]] || { echo "update: $SLUG has no published v2 release: nothing to update."; exit 0; }
   fi
   if [[ -z "$COUNTRY" && -f "$TARGET/.claude/juvant-os.json" ]] && grep -q "\"version\": \"$TAG\"" "$TARGET/.claude/juvant-os.json"; then
-    echo "update: juvant-os $TAG is already installed: nothing to update."; exit 0
+    echo "update: juvant-os $TAG is already installed: nothing to update."; post_install; exit 0
   fi
   TMP="$(mktemp -d)"
   git clone -q --depth 1 --branch "$TAG" "$REPO_URL" "$TMP/src" 2>/dev/null \
@@ -143,10 +165,12 @@ if [[ -n "$COUNTRY" ]]; then
   fi
 fi
 
-# The hard limits only see the tools their hook is registered for.
-if [[ -f "$TARGET/.claude/settings.json" ]]; then
-  CLAUDE_PROJECT_DIR="$TARGET" python3 "$TARGET/.claude/hooks/juvant_hooks.py" fix-registration \
-    || echo "update: WARNING: couldn't check the hard-limits hook registration in .claude/settings.json. Ask the Chief of Staff to check it." >&2
+# Post-install steps run in the copy just installed (it may know steps this one doesn't).
+if [[ -f "$TARGET/.claude/skills/update/update.sh" ]]; then
+  bash "$TARGET/.claude/skills/update/update.sh" --post-install --target "$TARGET" \
+    || echo "update: WARNING: the post-install steps failed. Run update again, or ask the Chief of Staff to." >&2
+else
+  post_install
 fi
 
 mkdir -p "$TARGET/.claude/juvant-os"

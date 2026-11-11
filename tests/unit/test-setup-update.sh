@@ -87,6 +87,12 @@ echo "changed template" >> "$W/framework/templates/CLAUDE.md"
 python3 - "$W/framework/skills/update/update.sh" <<'PY'
 import sys; p=sys.argv[1]; s=open(p).read().split("\n", 2); open(p,"w").write("\n".join(s[:2] + ["# padding line %d" % i for i in range(80)] + s[2:]))
 PY
+# Version B also has a post-install step the installed copy doesn't know: it must still run.
+python3 - "$W/framework/skills/update/update.sh" <<'PY'
+import sys; p=sys.argv[1]; s=open(p).read()
+a = "post_install() {\n"
+assert a in s; open(p,"w").write(s.replace(a, a + '  echo "update: post-install step only the new copy has"\n', 1))
+PY
 sed -i.bak -e 's#^skills/decision/SKILL.md$#skills/brief/SKILL.md#' "$W/framework/FILES"; rm "$W/framework/FILES.bak"
 g -C "$W" add -A; g -C "$W" commit -qm B; g -C "$W" tag v2.0.1; g -C "$W" push -q "$F" main --tags 2>/dev/null || g -C "$F" fetch -q "$W" 'refs/tags/*:refs/tags/*'
 # Fake GitHub releases API (file://): v2.0.1 is a published release, v2.0.0 is only a tag, v2.0.2 is a draft.
@@ -102,8 +108,9 @@ export JUVANT_OS_API="file://$T/api" JUVANT_OS_RELEASE_SLUG=acme/fw
 ( cd "$U" && bash .claude/skills/update/update.sh v2.0.2 --repo "$F" >/dev/null 2>&1 ); check "a draft release is refused" "[[ $? == 1 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh --from "$W/framework" >/dev/null 2>&1 ); check "--from outside setup is refused" "[[ $? == 2 ]]"
 ( cd "$U" && JUVANT_OS_RELEASE_SLUG=acme/none bash .claude/skills/update/update.sh --repo "$F" 2>&1 | grep -q 'no published v2 release' ); check "no releases: nothing to update" "[[ $? == 0 ]]"
-( cd "$U" && bash .claude/skills/update/update.sh --repo "$F" >/dev/null 2>&1 ); rc=$?
+( cd "$U" && bash .claude/skills/update/update.sh --repo "$F" > "$T/up1.out" 2>&1 ); rc=$?
 check "update with no tag installs the latest stable v2 release" "[[ $rc == 0 ]] && grep -q '\"version\": \"v2.0.1\"' '$U/.claude/juvant-os.json'"
+check "post-install steps run in the newly installed copy" "grep -q 'post-install step only the new copy has' '$T/up1.out'"
 check "hook updated" "grep -q 'CONTEXT_CAP = 9400' '$U/.claude/hooks/juvant_hooks.py'"
 check "removed skill removed" "[[ ! -e '$U/.claude/skills/decision/SKILL.md' ]]"
 check "new skill installed" "[[ -f '$U/.claude/skills/brief/SKILL.md' ]]"
@@ -114,7 +121,9 @@ check "only framework paths changed (got: ${changed:-none})" "[[ -z '$changed' ]
 check "company CLAUDE.md untouched" "grep -q 'custom company line' '$U/CLAUDE.md' && ! grep -q 'changed template' '$U/CLAUDE.md'"
 check "company settings untouched" "[[ \$(cat '$U/.claude/settings.json') == '{\"mine\":true}' ]]"
 check "role card untouched" "[[ \$(cat '$U/roles/legal.md') == 'x' ]]"
-out=$(cd "$U" && bash .claude/skills/update/update.sh --repo "$F" 2>&1); check "latest already installed: nothing to update" "[[ $? == 0 ]] && grep -q 'already installed' <<< '$out'"
+( cd "$U" && bash .claude/skills/update/update.sh --repo "$F" > "$T/up2.out" 2>&1 ); rc=$?
+check "latest already installed: nothing to update" "[[ $rc == 0 ]] && grep -q 'already installed' '$T/up2.out'"
+check "already installed: post-install steps still run" "grep -q 'post-install step only the new copy has' '$T/up2.out' && grep -q 'register the hard-limits hook at all' '$T/up2.out'"
 ( cd "$K" && g init -q && JUVANT_OS_SETUP=1 bash .claude/skills/update/update.sh --from "$ROOT/framework" >/dev/null 2>&1 )
 check "update keeps the recorded country pack" "grep -q '\"country\": \"it\"' '$K/.claude/juvant-os.json' && [[ -f '$K/.claude/country/legal.md' ]]"
 # An instance installed before Read/Grep/Glob were registered: update repairs the matcher only.

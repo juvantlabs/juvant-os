@@ -1236,8 +1236,9 @@ def registration_warning():
     if not gaps:
         return ""
     return ("WARNING: juvant-os hard limits aren't checked on " + ", ".join(gaps) + ": .claude/settings.json "
-            "doesn't register the limits hook for them. Run the update skill, which fixes the registration, "
-            "or ask the Chief of Staff to.")
+            "doesn't register the limits hook for them. Fix: run `bash .claude/skills/update/update.sh` (it repairs "
+            "the registration even when nothing is new), or from the company repo "
+            "`CLAUDE_PROJECT_DIR=$PWD python3 .claude/hooks/juvant_hooks.py fix-registration`; then commit and start a new session.")
 
 
 def cmd_fix_registration():
