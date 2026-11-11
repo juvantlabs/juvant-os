@@ -7,6 +7,7 @@
     subagent-stop   SubagentStop: activity.
     stop            Stop: activity.
     log-outcome     called by the wrap-up skill: [--agent TYPE] "one line".
+    close-authorization  called by the long-task skill: <file> [reason].
     fix-registration  called by update.sh: register `limits` in .claude/settings.json
                     for every tool it checks (adds what's missing, keeps the rest).
 
@@ -230,6 +231,18 @@ def cmd_limits():
     if tool in ("Write", "Edit", "MultiEdit") and fp_ and norm_path(fp_) == norm_path(PRIVATE_REGISTRY):
         ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
 
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        target = str(inp.get("file_path") or inp.get("notebook_path") or "")
+        if target and norm_path(target) == norm_path(AUTH_STATE):
+            deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
+        if is_authorization_path(target):
+            if tool == "NotebookEdit":
+                deny("juvant-os: write long-task authorizations with Write.")
+            record_pending_authorization(ev, tool, inp, target)
+            ask("juvant-os long task: this writes an authorization for an unattended task. Read what it allows "
+                "(actions, where, how many, until when, which agents). Confirming activates it for this session only; "
+                "declining leaves nothing active.")
+
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit") and in_claude_dir(
             str(inp.get("file_path") or inp.get("notebook_path") or "")):
         ask("juvant-os hard limit (protect-claude-dir): this changes .claude/, where the hard limits, agents and "
@@ -242,6 +255,8 @@ def cmd_limits():
             if prefix not in cfg["known_prefixes"]:
                 append_jsonl(FINDINGS, {"ts": now(), "kind": "unlisted-prefix", "prefix": prefix,
                                         "tool": tool, "decision": decision, "rule": rule["id"]})
+            if decision == "ask" and use_authorization(rule, tool, inp, ev):
+                return  # inside a long-task authorization the CEO approved for this session
             reason = f"juvant-os hard limit ({rule['id']}): {tool} — {rule['why']}."
             deny(reason) if decision == "deny" else ask(reason)
         return
@@ -260,6 +275,11 @@ def cmd_limits():
                  "is outbound: work on a branch, open a draft PR (gh pr create --draft), and the CEO merges.")
         elif decision == "ask":
             ask(f"juvant-os hard limit (shared-repo): {why}.")
+        if AUTH_STATE_REL in command and re.search(AUTH_BASH_WRITE, command):
+            deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
+        if AUTH_DIR in command and re.search(AUTH_BASH_WRITE, command) and not CLOSE_AUTH.match(command):
+            ask(f"juvant-os long task: this command may write in {AUTH_DIR}/. Authorizations are written with Write, "
+                "and the CEO confirms them; close one with `python3 .claude/hooks/juvant_hooks.py close-authorization <file>`.")
         if PRIVATE_REGISTRY in command and re.search(r"(>|\btee\b|\bsed\b|\bmv\b|\bcp\b|\brm\b|\bpython3?\b)", command):
             ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
         why = framework_upstream_publish(command, str(ev.get("cwd") or ROOT))
@@ -410,6 +430,206 @@ def private_violation(tool, inp, who):
         elif tool.startswith("mcp__") and match in blob:
             return raw
     return None
+
+
+# ── long-task authorizations (memory/authorizations/) ────────────────────────
+# A long task runs unattended under an authorization the CEO approved when it
+# started. Writing one asks the CEO; at that moment the hook records the session
+# and a hash of the content about to be written. An authorization counts only
+# while the file still has that exact content, for that session (and the
+# subagents it names), before it expires, within its scope and its maximum, and
+# only for actions that would otherwise ask. Denies are never affected.
+AUTH_DIR = "memory/authorizations"
+AUTH_STATE_REL = "state/authorizations.json"
+AUTH_STATE = os.path.join(ROOT, AUTH_STATE_REL)
+AUTH_DEFAULT_HOURS = 12
+AUTH_MAX_HOURS = 24
+AUTH_BASH_WRITE = (r"(>|\btee\b|\bsed\b|\bmv\b|\bcp\b|\brm\b|\bln\b|\btouch\b|\bpython3?\b|\bperl\b|\bruby\b|\bnode\b"
+                   r"|\bgit\s+(checkout|restore|apply|am|stash|reset|mv|rm|switch|merge|pull|cherry-pick)\b)")
+CLOSE_AUTH = re.compile(r"^\s*python3?\s+(\./)?\.claude/hooks/juvant_hooks\.py\s+close-authorization\s+[^;&|<>`$()]+$")
+
+
+def is_authorization_path(p):
+    if not p:
+        return False
+    full, base = norm_path(p), norm_path(AUTH_DIR)
+    return full.startswith(base + os.sep) and full.endswith(".md")
+
+
+def read_raw(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def sha256(text):
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def content_after(tool, inp, path):
+    """The file's content once this Write/Edit/MultiEdit runs; None if it can't be worked out."""
+    if tool == "Write":
+        return str(inp.get("content", ""))
+    text = read_raw(path)
+    if text is None:
+        return None
+    edits = [inp] if tool == "Edit" else [e for e in inp.get("edits", []) if isinstance(e, dict)]
+    for e in edits:
+        old, new = str(e.get("old_string", "")), str(e.get("new_string", ""))
+        if not old or old not in text:
+            return None
+        text = text.replace(old, new) if e.get("replace_all") else text.replace(old, new, 1)
+    return text
+
+
+def load_auth_state():
+    try:
+        with open(AUTH_STATE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_auth_state(d):
+    os.makedirs(os.path.dirname(AUTH_STATE), exist_ok=True)
+    tmp = AUTH_STATE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, indent=1)
+    os.replace(tmp, AUTH_STATE)
+
+
+def auth_key(path):
+    return os.path.relpath(norm_path(path), os.path.realpath(ROOT))
+
+
+def record_pending_authorization(ev, tool, inp, path):
+    content = content_after(tool, inp, norm_path(path))
+    if content is None:
+        return  # nothing recorded: whatever gets written won't count
+    st = load_auth_state()
+    st[auth_key(path)] = {"session": str(ev.get("session_id", "")), "hash": sha256(content),
+                          "recorded": time.time(), "used": 0}
+    try:
+        save_auth_state(st)
+    except OSError:
+        pass
+
+
+def split_list(s):
+    return [x.strip() for x in re.split(r"[,\s]+", str(s or "")) if x.strip()]
+
+
+def parse_ts(s):
+    """Epoch seconds from an ISO timestamp (Z or offset; no offset = UTC); None if unparseable."""
+    import datetime as dt
+    try:
+        t = dt.datetime.fromisoformat(str(s).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=dt.timezone.utc)
+    return t.timestamp()
+
+
+def scope_matches(fm, inp):
+    """Every scope_<key> in the authorization must be among the tool's arguments with an allowed value."""
+    scopes = {k[len("scope_"):]: split_list(v.replace(",", " ")) for k, v in fm.items() if k.startswith("scope_")}
+    if not scopes:
+        return False  # an authorization says where, or it covers nothing
+    for key, allowed in scopes.items():
+        want = re.sub(r"[^a-z0-9]", "", key.lower())
+        vals = [v for k, v in inp.items() if want and re.sub(r"[^a-z0-9]", "", str(k).lower()).endswith(want)]
+        if not vals or not all(isinstance(v, str) and v.strip() in allowed for v in vals):
+            return False
+    return True
+
+
+def use_authorization(rule, tool, inp, ev):
+    """The authorization file that covers this would-be `ask`, counted and logged; None if none does."""
+    session = str(ev.get("session_id", ""))
+    if not session:
+        return None
+    st = load_auth_state()
+    if not st:
+        return None
+    sub = str(ev.get("agent_type") or "").lower()
+    try:
+        with open(SESSION_AGENTS, encoding="utf-8") as f:
+            own = str(json.load(f).get(session, "")).lower()
+    except (OSError, ValueError, AttributeError):
+        own = ""
+    if sub == own:
+        sub = ""  # the session's own main agent, not a subagent
+    name = tool.rsplit("__", 1)[-1].lower()
+    t = time.time()
+    for key, rec in st.items():
+        if not isinstance(rec, dict) or rec.get("session") != session or rec.get("closed"):
+            continue
+        raw = read_raw(os.path.join(ROOT, key))
+        if raw is None or sha256(raw) != rec.get("hash"):
+            continue
+        fm = frontmatter(raw)
+        if fm.get("status", "").lower() != "active" or rule["id"] not in split_list(fm.get("actions")):
+            continue
+        recorded = float(rec.get("recorded") or 0)
+        expires = parse_ts(fm["expires"]) if fm.get("expires") else recorded + AUTH_DEFAULT_HOURS * 3600
+        if expires is None or t > min(expires, recorded + AUTH_MAX_HOURS * 3600):
+            continue
+        if fm.get("tools"):
+            try:
+                if not re.search(fm["tools"], name):
+                    continue
+            except re.error:
+                continue
+        if sub and sub not in [a.lower() for a in split_list(fm.get("agents"))]:
+            continue
+        if not scope_matches(fm, inp):
+            continue
+        try:
+            cap = int(fm.get("max", "0"))
+        except ValueError:
+            continue
+        if int(rec.get("used", 0)) >= cap:
+            continue
+        rec["used"] = int(rec.get("used", 0)) + 1
+        try:
+            save_auth_state(st)
+        except OSError:
+            return None  # can't count it: don't allow it
+        activity("authorized", ev, tool=tool, rule=rule["id"], authorization=key, count=rec["used"])
+        return key
+    return None
+
+
+def cmd_close_authorization():
+    args = sys.argv[2:]
+    if not args or not is_authorization_path(args[0]):
+        sys.stderr.write(f"usage: juvant_hooks.py close-authorization {AUTH_DIR}/<file>.md [reason]\n")
+        sys.exit(2)
+    path = norm_path(args[0])
+    raw = read_raw(path)
+    if raw is None:
+        sys.stderr.write(f"close-authorization: {args[0]} not found\n")
+        sys.exit(1)
+    st = load_auth_state()
+    rec = st.get(auth_key(path))
+    if isinstance(rec, dict):
+        rec["closed"] = time.time()
+        save_auth_state(st)
+    if re.search(r"^status:.*$", raw, re.M):
+        raw = re.sub(r"^status:.*$", "status: closed", raw, count=1, flags=re.M)
+    elif raw.startswith("---\n"):
+        raw = "---\nstatus: closed\n" + raw[4:]
+    reason = one_line(" ".join(args[1:]), 200)
+    raw = raw.rstrip("\n") + f"\n\nClosed {now()}" + (f": {reason}" if reason else "") + ".\n"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(raw)
+    activity("authorization_closed", {}, authorization=auth_key(path), reason=reason)
+    print(f"closed {auth_key(path)}")
 
 
 # ── repositories shared outside the company ──────────────────────────────────
@@ -966,6 +1186,7 @@ def cmd_fix_registration():
 
 
 COMMANDS = {
+    "close-authorization": cmd_close_authorization,
     "fix-registration": cmd_fix_registration,
     "limits": cmd_limits,
     "session-start": cmd_session_start,
