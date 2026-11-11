@@ -777,6 +777,27 @@ class LongTask(HookCase):
                 self.assertEqual(self.call("Bash", {"command": cmd}), "ask")
         self.assertEqual(self.call("Bash", {"command": f"cat {AUTH}"}), "allow")
 
+    def test_folder_scope_across_upload_move_and_delete(self):
+        g_del, g_move = "mcp__m365-graph__m365-graph_delete_file", "mcp__m365-graph__m365-graph_move_file"
+        self.approve(self.auth_text(**{"actions": "overwrite, delete-move", "scope_parentItemId": None, "max": "9",
+                                       "scope_parent_item_id|expected_parent_id": "FOLDER1"}))
+        self.assertEqual(self.call(UP, self.up()), "allow", "upload: parent_item_id")
+        self.assertEqual(self.call(g_del, {"drive_id": "DRIVE1", "item_id": "x", "expected_parent_id": "FOLDER1"}), "allow")
+        self.assertEqual(self.call(g_move, {"drive_id": "DRIVE1", "item_id": "x", "target_parent_id": "SUB",
+                                            "expected_parent_id": "FOLDER1"}), "allow")
+        self.assertEqual(self.call(g_del, {"drive_id": "DRIVE1", "item_id": "x"}), "ask", "no folder guard")
+        self.assertEqual(self.call(g_del, {"drive_id": "DRIVE1", "item_id": "x", "expected_parent_id": "OTHER"}), "ask")
+        self.assertEqual(self.call(g_move, {"drive_id": "DRIVE1", "item_id": "x", "target_parent_id": "FOLDER1"}), "ask",
+                         "the destination is not where the item is")
+
+    def test_scope_keys_match_exactly(self):
+        self.approve(self.auth_text(**{"actions": "delete-move", "scope_parentItemId": None, "scope_parent_id": "FOLDER1"}))
+        g_move = "mcp__m365-graph__m365-graph_move_file"
+        self.assertEqual(self.call(g_move, {"drive_id": "DRIVE1", "item_id": "x", "target_parent_id": "FOLDER1"}), "ask",
+                         "parent_id is not target_parent_id")
+        self.assertEqual(self.call(g_move, {"drive_id": "DRIVE1", "item_id": "x", "parent_id": "FOLDER1"}), "allow",
+                         "the same rule with the exact key goes through")
+
     def test_reads_of_protected_files_are_not_writes(self):
         self.approve()
         for c in ("cat state/authorizations.json", "cat state/authorizations.json | python3 -m json.tool",

@@ -43,8 +43,8 @@ Then tell the CEO: "open *<name>* (`←`, then `Enter`) and confirm the authoriz
 ---
 status: active
 actions: overwrite, delete-move
-scope_driveId: <exact id>
-scope_parentItemId: <exact id>
+scope_drive_id: <exact id>
+scope_parent_item_id|expected_parent_id: <exact folder id>
 tools: upload|update_file
 max: 200
 expires: 2026-11-12T08:00:00Z
@@ -57,7 +57,10 @@ Set aside when in doubt: <what the CEO wants to see first>.
 ```
 
 - `actions`: the hard-limit rule ids that would otherwise ask (`overwrite`, `delete-move`). Nothing else can be authorized.
-- `scope_<argument>`: the tool arguments that must have exactly this value, comma-separated if several are allowed. At least one is required: an authorization says where, or it covers nothing. Use the ids the tools take (drive, folder, mailbox folder), not names.
+- `scope_<argument>`: the tool arguments that must have exactly this value, comma-separated if several are allowed. At least one is required: an authorization says where, or it covers nothing. Use the ids the tools take (drive, folder, mailbox folder), not names. Argument names compare exactly, ignoring case and punctuation (`driveId` = `drive_id`, but `parent_id` is not `target_parent_id`).
+  - `scope_a|b`: one thing that tools name differently. The folder is `parent_item_id` for an upload and `expected_parent_id` for a delete or move. The call must carry one of them, with an allowed value.
+  - **One folder for moves and deletes** (m365-graph 0.8.0 or later): pass `expected_parent_id` with the folder's id on every `delete_file` (both calls) and `move_file`. The server refuses if the item isn't really in that folder, so the scope above holds. Without it, the call isn't covered and asks.
+  - **The claude.ai Microsoft 365 connector** has no such argument, so moves and deletes there can only be scoped to a drive, or to a list of item ids (`scope_itemId: id1, id2`). Keep `max` small.
 - `tools` (optional): narrows it to tool names matching this pattern.
 - `max`: how many authorized calls at most. Past it, the next one asks again. Count calls, not files: some servers take two calls for one action (with m365-graph a delete is a preview that returns a token, then the confirmation with that token).
 - `expires`: UTC. It never counts for more than 24 hours after the CEO approved it.
