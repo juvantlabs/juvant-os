@@ -114,15 +114,66 @@ class McpLimits(HookCase):
 
     def test_destructive_asks(self):
         for tool in ("sharepoint_delete_item", "sharepoint_move_item", "sharepoint_rename_item",
-                     "sharepoint_upload_file", "sharepoint_update_file", "sharepoint_copy_item",
-                     "sharepoint_create_folder", "outlook_batch_delete_messages", "outlook_trash_thread",
+                     "sharepoint_upload_file", "sharepoint_update_file",
+                     "outlook_batch_delete_messages", "outlook_trash_thread",
                      "outlook_delete_draft", "outlook_delete_event"):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(P_CLOUD + tool), "ask")
         for tool in ("mcp__m365-graph__delete_file", "mcp__m365-graph__move_file",
+                     "mcp__m365-graph__m365-graph_delete_file", "mcp__m365-graph__m365-graph_upload_file",
                      "mcp__m365-mail__delete_message", "mcp__m365-mail__move_message"):
             with self.subTest(tool=tool):
                 self.assertEqual(self.decision(tool), "ask")
+
+    def test_three_classes_create_overwrite_delete(self):
+        up_local, up_graph = P_LOCAL + "sharepoint_upload_file", "mcp__m365-graph__m365-graph_upload_file"
+        cases = [
+            # create: allowed
+            (up_local, {"conflictBehavior": "fail"}, "allow"),
+            (up_local, {"conflictBehavior": "rename"}, "allow"),
+            (up_graph, {"conflict_behavior": "fail"}, "allow"),
+            (up_graph, {"conflict_behavior": " Rename "}, "allow"),
+            (P_CLOUD + "sharepoint_create_folder", {}, "allow"),
+            (P_CLOUD + "sharepoint_create_folder", {"conflictBehavior": "rename"}, "allow"),
+            ("mcp__m365-graph__m365-graph_create_folder", {"conflict_behavior": "fail"}, "allow"),
+            (P_CLOUD + "sharepoint_copy_item", {"newName": "x.pdf"}, "allow"),
+            ("mcp__m365-graph__m365-graph_copy_file", {}, "allow"),
+            # overwrite: asks
+            (up_local, {}, "ask"),
+            (up_local, {"conflictBehavior": "replace"}, "ask"),
+            (up_graph, {"conflict_behavior": "replace"}, "ask"),
+            (up_graph, {"conflict_behavior": ["fail"]}, "ask"),
+            (up_graph, {"conflict_behavior": "fail", "conflictBehavior": "replace"}, "ask"),
+            (P_CLOUD + "sharepoint_create_folder", {"conflictBehavior": "replace"}, "ask"),
+            (P_CLOUD + "sharepoint_copy_item", {"conflictBehavior": "replace"}, "ask"),
+            (P_CLOUD + "sharepoint_update_file", {"content": "x"}, "ask"),
+            ("mcp__x__overwrite_document", {}, "ask"),
+            # delete or move: asks, whatever the arguments
+            (P_CLOUD + "sharepoint_delete_item", {"conflictBehavior": "fail"}, "ask"),
+            (P_CLOUD + "sharepoint_move_item", {}, "ask"),
+            ("mcp__m365-graph__m365-graph_move_file", {"new_name": "y"}, "ask"),
+            # deny wins over create
+            ("mcp__x__upload_and_send", {"conflictBehavior": "fail"}, "deny"),
+        ]
+        for tool, inp, want in cases:
+            with self.subTest(tool=tool, inp=inp):
+                self.assertEqual(self.decision(tool, inp), want)
+
+    def test_create_rule_without_input_condition(self):
+        cfg_dir = tempfile.mkdtemp(prefix="jv2-cfg-")
+        self.addCleanup(shutil.rmtree, cfg_dir, True)
+        shutil.copy(SCRIPT, cfg_dir)
+        with open(os.path.join(HOOKS, "limits.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["mcp"]["create"] = [{"id": "c", "pattern": "^make_thing$", "why": "x"}]
+        with open(os.path.join(cfg_dir, "limits.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        script = os.path.join(cfg_dir, "juvant_hooks.py")
+        self.assertEqual(self.decision("mcp__x__make_thing", {}, script), "allow")
+        cfg["mcp"]["create"][0]["input"] = {"key": "@@", "allow": "x"}
+        with open(os.path.join(cfg_dir, "limits.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        self.assertEqual(self.decision("mcp__x__make_thing", {}, script), "deny", "a bad rule fails closed")
 
     def test_unlisted_prefix_recorded(self):
         self.decision("mcp__Office365__outlook_send_mail")

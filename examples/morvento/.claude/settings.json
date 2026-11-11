@@ -26,6 +26,10 @@
       "mcp__Microsoft_365__teams_send_channel_message",
       "mcp__Microsoft_365__teams_reply_channel_message",
       "mcp__Microsoft_365__teams_create_chat",
+      "mcp__m365-graph__m365-graph_create_event",
+      "mcp__m365-graph__m365-graph_update_event",
+      "mcp__m365-graph__m365-graph_cancel_event",
+      "mcp__m365-graph__m365-graph_decline_event",
       "mcp__claude-artifacts__reply_comment",
       "mcp__claude-artifacts__reply_shared_comment"
     ]

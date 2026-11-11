@@ -93,8 +93,15 @@ def load_config():
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
     # Compile now: a bad pattern must fail closed, not at match time.
-    for rule in cfg["mcp"]["deny"] + cfg["mcp"]["ask"] + cfg["bash"]["deny"] + cfg["bash"]["ask"] + cfg["secrets"]:
+    for rule in (cfg["mcp"]["deny"] + cfg["mcp"].get("create", []) + cfg["mcp"]["ask"]
+                 + cfg["bash"]["deny"] + cfg["bash"]["ask"] + cfg["secrets"]):
         rule["re"] = re.compile(rule["pattern"])
+        cond = rule.get("input")
+        if cond is not None:
+            cond["allow_re"] = re.compile(cond["allow"])
+            cond["key_norm"] = re.sub(r"[^a-z0-9]", "", str(cond["key"]).lower())
+            if not cond["key_norm"]:
+                raise ValueError(f"rule {rule['id']}: empty input key")
     cfg["mcp"]["draft_allow_re"] = re.compile(cfg["mcp"]["draft_allow"])
     cfg["mcp"]["draft_never_re"] = re.compile(cfg["mcp"]["draft_never"])
     cfg["mcp"]["private_publish_re"] = re.compile(cfg["mcp"].get("private_publish", "(?!)"))
@@ -102,7 +109,15 @@ def load_config():
 
 
 # ── limits ───────────────────────────────────────────────────────────────────
-def mcp_decision(cfg, tool):
+def input_matches(cond, inp):
+    """True if the tool's arguments satisfy a rule's "input" condition (top-level keys only)."""
+    vals = [v for k, v in (inp or {}).items() if re.sub(r"[^a-z0-9]", "", str(k).lower()).endswith(cond["key_norm"])]
+    if not vals:
+        return bool(cond.get("when_missing"))
+    return all(isinstance(v, str) and cond["allow_re"].fullmatch(v.strip().lower()) for v in vals)
+
+
+def mcp_decision(cfg, tool, inp=None):
     """(decision, rule) for an mcp__ tool; decision in {None, 'deny', 'ask'}."""
     name = tool.rsplit("__", 1)[-1].lower()
     m = cfg["mcp"]
@@ -113,6 +128,9 @@ def mcp_decision(cfg, tool):
             continue
         if rule["re"].search(name):
             return "deny", rule
+    for rule in m.get("create", []):  # creating can't lose anything (hard limit 4, three classes)
+        if rule["re"].search(name) and (rule.get("input") is None or input_matches(rule["input"], inp)):
+            return None, rule
     for rule in m["ask"]:
         if rule["re"].search(name):
             return "ask", rule
@@ -218,7 +236,7 @@ def cmd_limits():
             "settings live. The CEO confirms; framework files change through the update skill.")
 
     if tool.startswith("mcp__"):
-        decision, rule = mcp_decision(cfg, tool)
+        decision, rule = mcp_decision(cfg, tool, inp)
         if decision:
             prefix = tool[: len(tool) - len(tool.rsplit("__", 1)[-1])]
             if prefix not in cfg["known_prefixes"]:
@@ -799,7 +817,7 @@ def cmd_session_start():
     try:
         load_config()
         lines.append("juvant-os hard limits active: outbound draft-only, no payments or invoice issuing, "
-                     "no secrets in files or commands, destructive changes ask the CEO.")
+                     "no secrets in files or commands; overwriting, deleting or moving asks the CEO (creating doesn't).")
     except (OSError, ValueError, KeyError, TypeError, re.error) as e:
         lines.append(f"WARNING: juvant-os hard limits config is unreadable ({e}). Checked tools are blocked. "
                      "Tell the CEO and restore it with `update`.")
