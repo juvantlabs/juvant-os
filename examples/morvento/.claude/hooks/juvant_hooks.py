@@ -366,7 +366,28 @@ def cmd_limits():
 
 
 # ── .claude/ protection (the hard limits must not edit themselves) ───────────
-READ_ONLY_VERBS = {"cat", "less", "head", "tail", "ls", "grep", "rg", "wc", "diff", "file", "stat", "sha256sum", "shasum"}
+READ_ONLY_VERBS = {"cat", "less", "more", "head", "tail", "ls", "grep", "egrep", "fgrep", "rg", "wc", "diff", "cmp",
+                   "file", "stat", "sha256sum", "shasum", "md5", "md5sum", "cut", "tr", "uniq", "nl", "column", "tree",
+                   "du", "basename", "dirname", "realpath", "readlink", "jq", "yq", "od", "xxd", "hexdump", "strings",
+                   "bat", "echo", "printf", "test", "[", "true", "pwd", "which", "type"}
+# sed, awk and sort read unless told to write: in-place or output flags, or write/exec commands in a script.
+SED_WRITES = re.compile(r"(^|[;{}\s/])[wWe]\s+\S")
+
+
+def is_read_only(core):
+    """True if this simple command (verb first) only reads. Redirects are checked separately."""
+    if not core:
+        return True
+    verb, args = os.path.basename(core[0]), core[1:]
+    if verb in READ_ONLY_VERBS:
+        return True
+    if verb in ("sed", "gsed"):
+        return not any(re.match(r"^-[a-zA-Z]*i", a) or a.startswith("--in-place") or SED_WRITES.search(a) for a in args)
+    if verb in ("awk", "gawk", "mawk"):
+        return not any((">" in a or "system" in a or "|" in a) for a in args)
+    if verb == "sort":
+        return not any(a == "-o" or a.startswith(("-o", "--output")) for a in args)
+    return False
 GIT_READ = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commit"}
 # Framework scripts that never write under .claude/: the dashboard writes
 # state/dashboard.html (hourly scheduled task), bugfix works in a temp clone.
@@ -403,9 +424,11 @@ CLAUDE_HOME_SCRATCH = ("jobs", "shell-snapshots", "todos", "tmp", "paste-cache",
 def protected_claude_path(word, here):
     """True if this word names a path in a .claude that the hard limits protect: this
     repo's, one where juvant-os is installed, or the user's ~/.claude (not its scratch areas)."""
-    if ".claude" not in word:
-        return False
     w = word
+    if ".claude" not in w:
+        # A relative path counts only when the command is already inside a .claude folder.
+        if not here or ".claude" not in here or os.path.isabs(os.path.expanduser(w)) or not w.strip():
+            return False
     if "=" in w and not w.startswith(("/", ".", "~")):
         w = w.split("=", 1)[1]  # --out=.claude/x
     w = re.sub(r"^\d*>>?\|?", "", w)  # 2>.claude/x
@@ -461,7 +484,7 @@ def bash_writes_claude_dir(command, cwd=None):
                 return True
         if any(re.match(r"^\d*>>?", w) and protected_claude_path(w, here) for w in words):
             return True
-        if verb in READ_ONLY_VERBS:
+        if is_read_only(core):
             continue
         if verb == "git" and len(core) > 1 and core[1] in GIT_READ:
             continue
@@ -604,7 +627,7 @@ def bash_may_write(command, needle):
         if not core:
             continue
         verb = os.path.basename(core[0])
-        if verb in READ_ONLY_VERBS or verb == "jq":
+        if is_read_only(core):
             continue
         if verb == "git" and len(core) > 1 and core[1] in GIT_READ:
             continue
