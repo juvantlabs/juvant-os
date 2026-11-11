@@ -455,6 +455,25 @@ class ClaudeDirProtection(HookCase):
             with self.subTest(c=c):
                 self.assertEqual(self.decision("Bash", {"command": c}), "allow")
 
+    def test_common_reads_of_claude_files_pass(self):
+        for c in ('cat .claude/skills/new-project/project-README.md; ls memory/decisions | tail -3; '
+                  'sed -n 1,40p .claude/skills/decision/SKILL.md; grep -n "Projects\\|projects/" memory/map.md | head',
+                  "sed -n '/^## /p' .claude/skills/wrap-up/SKILL.md", "awk '{print $1}' .claude/hooks/limits.json",
+                  "sort .claude/juvant-os/FILES | uniq -c", "cut -d: -f1 .claude/juvant-os/FILES | tr a-z A-Z",
+                  "jq .known_prefixes .claude/hooks/limits.json", "nl .claude/skills/update/SKILL.md | head -20",
+                  "du -sh .claude", "tree .claude/skills | head", "echo .claude/settings.json"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "allow")
+
+    def test_writing_forms_of_read_tools_still_ask(self):
+        for c in ("sed -i '' s/a/b/ .claude/settings.json", "sed -ni 's/a/b/p' .claude/settings.json",
+                  "sed --in-place s/a/b/ .claude/settings.json", "sed -n 'w .claude/x' memory/a.md",
+                  "sed 's/a/b/w .claude/x' memory/a.md", "awk '{print > \".claude/x\"}' memory/a.md",
+                  "awk 'BEGIN{system(\"rm .claude/x\")}'", "sort -o .claude/juvant-os/FILES memory/a.md",
+                  "echo x > .claude/settings.json", "printf x >> .claude/settings.json"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "ask")
+
     def test_writes_after_cd_into_claude_still_ask(self):
         for c in ("cd .claude && echo x > settings.json", "cd .claude/hooks; rm limits.json",
                   "pushd .claude >/dev/null && sed -i '' s/a/b/ settings.json", f"cd {self.repo} && echo x > .claude/x",
