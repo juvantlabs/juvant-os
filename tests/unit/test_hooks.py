@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -601,6 +602,162 @@ class PrivateFiles(HookCase):
     def test_no_registry_no_rule(self):
         os.remove(os.path.join(self.repo, "memory", "private.md"))
         self.assertEqual(self.as_agent("finance", "Read", {"file_path": "docs/legal/settlement.md"}), "allow")
+
+
+UP = "mcp__m365-graph__m365-graph_upload_file"
+DEL = P_LOCAL + "sharepoint_delete_item"
+SEND = P_LOCAL + "outlook_send_mail"
+AUTH = "memory/authorizations/2026-11-11-invoices.md"
+
+
+class LongTask(HookCase):
+    def auth_text(self, **over):
+        fm = {"status": "active", "actions": "overwrite", "scope_driveId": "DRIVE1",
+              "scope_parentItemId": "FOLDER1, FOLDER2", "max": "3",
+              "expires": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 3600)), "agents": "finance"}
+        fm.update(over)
+        body = "".join(f"{k}: {v}\n" for k, v in fm.items() if v is not None)
+        return f"---\n{body}---\n# invoices\n\nGoal: file invoices.\n"
+
+    def call(self, tool, inp, session="s1", agent=None):
+        ev = {"tool_name": tool, "tool_input": inp, "session_id": session}
+        if agent:
+            ev["agent_type"] = agent
+        rc, out, _ = self.run_hook("limits", ev)
+        d = out.get("hookSpecificOutput", {}).get("permissionDecision")
+        return "deny" if rc == 2 else (d or "allow")
+
+    def approve(self, text=None, session="s1", path=AUTH):
+        """The agent writes the authorization (the hook asks); the CEO confirms, so the file gets written."""
+        text = text or self.auth_text()
+        self.assertEqual(self.call("Write", {"file_path": path, "content": text}, session), "ask")
+        full = os.path.join(self.repo, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(text)
+        return full
+
+    def up(self, **inp):
+        base = {"drive_id": "DRIVE1", "parent_item_id": "FOLDER1", "conflict_behavior": "replace"}
+        base.update(inp)
+        return {k: v for k, v in base.items() if v is not None}
+
+    def test_inside_the_authorization_allowed_counted_and_logged(self):
+        self.approve()
+        self.assertEqual(self.call(UP, self.up()), "allow")
+        self.assertEqual(self.call(UP, self.up(parent_item_id="FOLDER2")), "allow")
+        rows = [r for r in self.state("activity.jsonl") if r["event"] == "authorized"]
+        self.assertEqual([(r["rule"], r["count"], r["authorization"]) for r in rows],
+                         [("overwrite", 1, AUTH), ("overwrite", 2, AUTH)])
+        self.assertEqual(self.call(UP, self.up()), "allow")
+        self.assertEqual(self.call(UP, self.up()), "ask", "past max: asks again")
+
+    def test_only_the_session_that_approved_it(self):
+        self.approve()
+        self.assertEqual(self.call(UP, self.up(), session="other"), "ask")
+        self.assertEqual(self.call(UP, self.up(), session=""), "ask")
+
+    def test_scope_action_and_tools(self):
+        self.approve(self.auth_text(tools="upload"))
+        self.assertEqual(self.call(UP, self.up(drive_id="DRIVE2")), "ask", "other drive")
+        self.assertEqual(self.call(UP, self.up(parent_item_id=None)), "ask", "scope argument missing")
+        self.assertEqual(self.call(UP, self.up(parent_item_id="FOLDER1X")), "ask", "exact values only")
+        self.assertEqual(self.call(DEL, {"driveId": "DRIVE1", "parentItemId": "FOLDER1"}), "ask", "delete-move not authorized")
+        self.assertEqual(self.call(P_LOCAL + "sharepoint_update_file", {"driveId": "DRIVE1", "parentItemId": "FOLDER1"}), "ask",
+                         "tools narrows to uploads")
+        self.assertEqual(self.call(UP, self.up()), "allow")
+
+    def test_delete_move_when_listed(self):
+        self.approve(self.auth_text(actions="overwrite, delete-move"))
+        self.assertEqual(self.call(DEL, {"driveId": "DRIVE1", "parentItemId": "FOLDER2"}), "allow")
+
+    def test_denies_are_never_authorized(self):
+        self.approve(self.auth_text(actions="overwrite, delete-move, outbound, money"))
+        self.assertEqual(self.call(SEND, {"driveId": "DRIVE1", "parentItemId": "FOLDER1"}), "deny")
+        self.assertEqual(self.call("mcp__bank__create_payment", {"driveId": "DRIVE1", "parentItemId": "FOLDER1"}), "deny")
+
+    def test_subagents_only_if_named(self):
+        self.approve()
+        self.assertEqual(self.call(UP, self.up(), agent="finance"), "allow")
+        self.assertEqual(self.call(UP, self.up(), agent="legal"), "ask")
+        self.run_hook("session-start", {"session_id": "bg", "agent_type": "legal"})
+        self.approve(session="bg", path="memory/authorizations/2026-11-11-bg.md")
+        self.assertEqual(self.call(UP, self.up(), session="bg", agent="legal"), "allow", "the session's own main agent")
+
+    def test_not_active_unless_the_ceo_confirmed_and_nothing_changed(self):
+        self.assertEqual(self.call("Write", {"file_path": AUTH, "content": self.auth_text()}), "ask")
+        self.assertEqual(self.call(UP, self.up()), "ask", "declined: the file was never written")
+        full = self.approve()
+        with open(full, "a", encoding="utf-8") as f:
+            f.write("max: 999\n")
+        self.assertEqual(self.call(UP, self.up()), "ask", "changed after approval")
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(self.auth_text())
+        self.assertEqual(self.call(UP, self.up()), "allow", "same content as approved")
+
+    def test_expiry_status_scope_and_max_must_be_valid(self):
+        past = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60))
+        for over in ({"expires": past}, {"expires": "soon"}, {"status": "closed"}, {"scope_driveId": None,
+                     "scope_parentItemId": None}, {"max": "lots"}, {"max": None}, {"tools": "("}):
+            with self.subTest(over=over):
+                self.approve(self.auth_text(**over))
+                self.assertEqual(self.call(UP, self.up()), "ask")
+
+    def test_never_more_than_24_hours_after_approval(self):
+        far = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 7 * 86400))
+        self.approve(self.auth_text(expires=far))
+        self.assertEqual(self.call(UP, self.up()), "allow")
+        path = os.path.join(self.repo, "state", "authorizations.json")
+        st = json.load(open(path))
+        st[AUTH]["recorded"] -= 25 * 3600
+        json.dump(st, open(path, "w"))
+        self.assertEqual(self.call(UP, self.up()), "ask")
+
+    def test_default_expiry_is_12_hours(self):
+        self.approve(self.auth_text(expires=None))
+        self.assertEqual(self.call(UP, self.up()), "allow")
+        path = os.path.join(self.repo, "state", "authorizations.json")
+        st = json.load(open(path))
+        st[AUTH]["recorded"] -= 13 * 3600
+        json.dump(st, open(path, "w"))
+        self.assertEqual(self.call(UP, self.up()), "ask")
+
+    def test_writing_and_protecting_authorizations(self):
+        self.approve()
+        self.assertEqual(self.call("Edit", {"file_path": AUTH, "old_string": "max: 3", "new_string": "max: 9"}), "ask")
+        self.assertEqual(self.call("Write", {"file_path": "state/authorizations.json", "content": "{}"}), "deny")
+        self.assertEqual(self.call("Bash", {"command": "echo x >> state/authorizations.json"}), "deny")
+        for cmd in (f"echo 'max: 9' >> {AUTH}", f"cp /tmp/x.md {AUTH}", f"git checkout other -- {AUTH}",
+                    f"python3 -c 'open(\"{AUTH}\",\"w\")'"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.call("Bash", {"command": cmd}), "ask")
+        self.assertEqual(self.call("Bash", {"command": f"cat {AUTH}"}), "allow")
+
+    def test_an_approved_edit_counts(self):
+        full = self.approve()
+        self.assertEqual(self.call("Edit", {"file_path": AUTH, "old_string": "max: 3", "new_string": "max: 5"}), "ask")
+        text = open(full, encoding="utf-8").read().replace("max: 3", "max: 5")
+        open(full, "w", encoding="utf-8").write(text)
+        for _ in range(5):
+            self.assertEqual(self.call(UP, self.up()), "allow")
+        self.assertEqual(self.call(UP, self.up()), "ask")
+
+    def test_close(self):
+        self.approve()
+        cmd = f'python3 .claude/hooks/juvant_hooks.py close-authorization {AUTH} "filed 42 invoices"'
+        self.assertEqual(self.call("Bash", {"command": cmd}), "allow", "closing never asks")
+        self.assertEqual(self.call("Bash", {"command": cmd + " ; rm -rf memory"}), "ask")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)
+        p = subprocess.run([sys.executable, SCRIPT, "close-authorization", AUTH, "filed 42 invoices"],
+                           capture_output=True, text=True, env=env, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        text = open(os.path.join(self.repo, AUTH), encoding="utf-8").read()
+        self.assertIn("status: closed", text)
+        self.assertIn("filed 42 invoices", text)
+        self.assertEqual(self.call(UP, self.up()), "ask")
+        p = subprocess.run([sys.executable, SCRIPT, "close-authorization", "memory/decisions/x.md"],
+                           capture_output=True, text=True, env=env, timeout=20)
+        self.assertEqual(p.returncode, 2, "only authorization files")
 
 
 class LogOutcome(HookCase):

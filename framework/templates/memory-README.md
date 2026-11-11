@@ -73,6 +73,10 @@ Files marked **private**: one row each, readable only by the agents listed (`cos
 
 The hooks block anyone else from opening the file (reading, editing, Bash, the Microsoft 365 connector by its address). A broad search can still show a line of it in its results. Changing this file asks the CEO. Mark files, never whole folders or libraries.
 
+## authorizations/`YYYY-MM-DD-<name>.md`
+
+Long-task authorizations (`long-task` skill): what an unattended task may do that would otherwise ask the CEO — which actions, where, how many, until when, which subagents. Writing one asks the CEO, and that confirmation activates it for that session only. Any later change ends it. The task closes it when done (`status: closed`, with the outcome). Money, outbound, secrets and shared-repo merges can never be authorized.
+
 ## map.md
 
 Where documents, systems and accounts live (never their credentials), and the people the company works with and their role.
