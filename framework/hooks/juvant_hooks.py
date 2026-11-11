@@ -302,6 +302,15 @@ def cmd_limits():
         if is_authorization_path(target):
             if tool == "NotebookEdit":
                 deny("juvant-os: write long-task authorizations with Write.")
+            if target.endswith(SESSION_SETTINGS_SUFFIX):
+                content = content_after(tool, inp, norm_path(target))
+                why = session_settings_problem(content) if content is not None else "its content can't be worked out"
+                if why:
+                    deny(f"juvant-os long task: session permissions {target}: {why}.")
+                record_pending_authorization(ev, tool, inp, target)
+                ask("juvant-os long task: these are Claude Code permissions for one unattended session: the commands it "
+                    "may run without asking, and the targets it may treat as trusted. Read them. Confirming lets a "
+                    "collaborator session start with them (claude --settings); they end with that session.")
             record_pending_authorization(ev, tool, inp, target)
             ask("juvant-os long task: this writes an authorization for an unattended task. Read what it allows "
                 "(actions, where, how many, until when, which agents). Confirming activates it for this session only; "
@@ -349,6 +358,9 @@ def cmd_limits():
             ask(f"juvant-os hard limit (shared-repo): {why}.")
         if AUTH_STATE_REL in command and bash_may_write(command, AUTH_STATE_REL):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
+        launch = claude_launch_problem(command, str(ev.get("cwd") or ROOT))
+        if launch:
+            (deny if launch[0] == "deny" else ask)(f"juvant-os: {launch[1]}.")
         if AUTH_DIR in command and bash_may_write(command, AUTH_DIR) and not is_close_command(command):
             ask(f"juvant-os long task: this command may write in {AUTH_DIR}/. Authorizations are written with Write, "
                 "and the CEO confirms them; close one with `python3 .claude/hooks/juvant_hooks.py close-authorization <file>`.")
@@ -633,6 +645,9 @@ def bash_may_write(command, needle):
             continue
         if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in core):
             continue
+        if verb == "claude" and all((i > 0 and core[i - 1] == "--settings") or w.startswith("--settings=")
+                                    for i, w in enumerate(core) if needle in w):
+            continue  # a session started with these settings reads the file (claude_launch_problem checks it)
         return True
     return False
 
@@ -641,7 +656,107 @@ def is_authorization_path(p):
     if not p:
         return False
     full, base = norm_path(p), norm_path(AUTH_DIR)
-    return full.startswith(base + os.sep) and full.endswith(".md")
+    return full.startswith(base + os.sep) and (full.endswith(".md") or full.endswith(SESSION_SETTINGS_SUFFIX))
+
+
+# ── session permissions (FEAT-092) ───────────────────────────────────────────
+# A long task that Claude Code's own permission system would stop (auto mode
+# blocks IaC applies, repo creation, deploys…) gets narrow Claude Code rules for
+# its session only: memory/authorizations/<name>.settings.json, approved by the
+# CEO like the authorization, passed with `claude --settings <file>`. The hooks
+# validate what such a file may hold, and allow a launch with --settings only
+# for an approved, unchanged one. Money, outbound and secrets stay denied by the
+# hooks whatever Claude Code's permissions say.
+SESSION_SETTINGS_SUFFIX = ".settings.json"
+INTERPRETERS = {"python", "python3", "node", "bash", "sh", "zsh", "fish", "ruby", "perl", "php", "pwsh", "eval", "env",
+                "xargs", "sudo", "su", "exec", "nohup", "time", "watch", "osascript", "deno", "bun", "npx", "uvx"}
+CLAUDE_UNSAFE_FLAGS = {"--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--bare",
+                       "--safe-mode", "--restricted", "--setting-sources"}
+
+
+def session_settings_problem(text):
+    """Why this session-settings file isn't acceptable, or None. Only narrow additions are allowed."""
+    try:
+        d = json.loads(text)
+    except ValueError as e:
+        return f"not valid JSON ({e})"
+    if not isinstance(d, dict):
+        return "expected a JSON object"
+    for key in d:
+        if key not in ("permissions", "autoMode") and not key.startswith("_"):
+            return f"'{key}' can't be set here: only permissions.allow, permissions.deny and autoMode.environment"
+    perms = d.get("permissions", {})
+    if not isinstance(perms, dict):
+        return "permissions must be an object"
+    for key in perms:
+        if key not in ("allow", "deny"):
+            return f"permissions.{key} can't be set here (no defaultMode, no ask, no additionalDirectories)"
+    for rule in perms.get("allow", []):
+        m = re.fullmatch(r"Bash\((.+)\)", str(rule).strip())
+        if not m:
+            return f"allow rule {rule!r}: only Bash(<command> …) rules are allowed"
+        body = m.group(1).strip()
+        words = body.replace(":*", "").split()
+        if len(words) < 2 or any(c in body for c in "|;&`$<>") or "*" in body.replace(":*", "") or body.endswith(" *"):
+            return f"allow rule {rule!r}: pin the command and its subcommand, with no wildcards, pipes or chaining"
+        if os.path.basename(words[0]) in INTERPRETERS or os.path.basename(words[0]) == "claude":
+            return f"allow rule {rule!r}: interpreters and wrappers can't be allowed, they run anything"
+    am = d.get("autoMode", {})
+    if not isinstance(am, dict):
+        return "autoMode must be an object"
+    for key, val in am.items():
+        if key != "environment":
+            return f"autoMode.{key} can't be set here: only autoMode.environment (describe the task's trusted targets)"
+        if not isinstance(val, list) or "$defaults" not in val:
+            return "autoMode.environment must be a list that starts with \"$defaults\" (keep the built-in rules)"
+    return None
+
+
+def approved_session_settings(path):
+    """True if path is a session-settings file the CEO approved and nobody changed since (≤ 24 h)."""
+    if not path.endswith(SESSION_SETTINGS_SUFFIX) or not is_authorization_path(path):
+        return False
+    rec = load_auth_state().get(auth_key(path))
+    raw = read_raw(norm_path(path))
+    if not isinstance(rec, dict) or rec.get("closed") or raw is None or sha256(raw) != rec.get("hash"):
+        return False
+    if time.time() > float(rec.get("recorded") or 0) + AUTH_MAX_HOURS * 3600:
+        return False
+    return session_settings_problem(raw) is None
+
+
+def claude_launch_problem(command, cwd):
+    """("deny"|"ask", why) for a `claude` launch that drops the hooks or permissions, or uses
+    settings the CEO hasn't approved; None otherwise."""
+    if "claude" not in command:
+        return None
+    segments = shell_segments(command)
+    if segments is None:
+        return None
+    here = cwd or ROOT
+    for words in segments:
+        if not words:
+            continue
+        if words[0] == "cd" and len(words) > 1:
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
+            continue
+        if os.path.basename(words[0]) != "claude":
+            continue
+        flags = {w.split("=", 1)[0] for w in words if w.startswith("--")}
+        bad = sorted(flags & CLAUDE_UNSAFE_FLAGS)
+        if bad:
+            return "deny", f"starting a session with {', '.join(bad)} would drop the hard limits or the permission checks"
+        for i, w in enumerate(words):
+            mode = words[i + 1] if w == "--permission-mode" and i + 1 < len(words) else (w.split("=", 1)[1] if w.startswith("--permission-mode=") else "")
+            if mode == "bypassPermissions":
+                return "deny", "starting a session with --permission-mode bypassPermissions would drop the permission checks"
+            val = words[i + 1] if w == "--settings" and i + 1 < len(words) else (w.split("=", 1)[1] if w.startswith("--settings=") else None)
+            if val is not None:
+                path = os.path.normpath(os.path.join(here, os.path.expanduser(val)))
+                if val.lstrip().startswith("{") or not approved_session_settings(path):
+                    return "ask", (f"this starts a session with settings ({val}) that the CEO hasn't approved as a long-task "
+                                   f"session-permissions file ({AUTH_DIR}/<name>{SESSION_SETTINGS_SUFFIX}, written and confirmed first)")
+    return None
 
 
 def read_raw(path):
