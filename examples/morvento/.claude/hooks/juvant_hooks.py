@@ -288,7 +288,7 @@ def cmd_limits():
         if why:
             ask(f"juvant-os hard limit 1 (outbound): {why}. The public juvant-os repository is read by everyone: "
                 "the CEO checks the diff and the text first (bugfix skill).")
-        if bash_writes_claude_dir(command):
+        if bash_writes_claude_dir(command, str(ev.get("cwd") or ROOT)):
             ask("juvant-os hard limit (protect-claude-dir): this command may change .claude/, where the hard limits, "
                 "agents and settings live. The CEO confirms; framework files change through the update skill.")
         if cfg["bash"].get("rm_outside_repo") == "ask" and rm_outside_repo(cfg, command):
@@ -324,10 +324,86 @@ def in_claude_dir(path):
     return False
 
 
-def bash_writes_claude_dir(command):
-    """True if a Bash command may write under .claude/ outside the sanctioned update script."""
-    if ".claude" not in command:
+# Claude Code's own working areas under ~/.claude (job scratch folders and the
+# like): agents download and process files there. The rest of ~/.claude, user
+# settings included, stays protected.
+CLAUDE_HOME_SCRATCH = ("jobs", "shell-snapshots", "todos", "tmp", "paste-cache", "file-history", "statsig")
+
+
+def protected_claude_path(word, here):
+    """True if this word names a path in a .claude that the hard limits protect: this
+    repo's, one where juvant-os is installed, or the user's ~/.claude (not its scratch areas)."""
+    if ".claude" not in word:
         return False
+    w = word
+    if "=" in w and not w.startswith(("/", ".", "~")):
+        w = w.split("=", 1)[1]  # --out=.claude/x
+    w = re.sub(r"^\d*>>?\|?", "", w)  # 2>.claude/x
+    if not w or "$" in w or "`" in w:
+        return ".claude" in w  # can't resolve it: assume the worst
+    # The path may sit inside a bigger word: python3 -c 'open(".claude/x", "w")'.
+    candidates = re.findall(r"~?[\w./@+-]*\.claude(?:/[\w./@+-]*)?", w) or [w]
+    home = os.path.realpath(os.path.expanduser("~/.claude"))
+    for c in candidates:
+        c = os.path.expanduser(c)
+        full = os.path.realpath(c if os.path.isabs(c) else os.path.join(here or ROOT, c))
+        if in_claude_dir(full):
+            return True
+        if (full == home or full.startswith(home + os.sep)) and \
+                os.path.relpath(full, home).split(os.sep)[0] not in CLAUDE_HOME_SCRATCH:
+            return True
+    return False
+
+
+def bash_writes_claude_dir(command, cwd=None):
+    """True if a Bash command may write under a protected .claude/ outside the sanctioned
+    update script. Follows `cd`: a relative write after moving into .claude/ counts."""
+    if ".claude" not in command and not (cwd and protected_claude_path(os.path.join(cwd, "."), "/")):
+        return False
+    segments = shell_segments(command)
+    if segments is None:
+        return True
+    here = cwd or ROOT
+    for words in segments:
+        seg = " ".join(words)
+        core = list(words)
+        while core and "=" in core[0] and not core[0].startswith(("-", "/", ".")):
+            core = core[1:]
+        if not core:
+            continue
+        verb = os.path.basename(core[0])
+        if verb in ("cd", "pushd"):
+            target = core[1] if len(core) > 1 else "~"
+            if "$" in target or "`" in target or target == "-":
+                if ".claude" in target:
+                    return True  # moving somewhere we can't resolve, towards a .claude
+                here = None
+            else:
+                here = os.path.normpath(os.path.join(here or ROOT, os.path.expanduser(target)))
+            continue
+        inside = bool(here) and protected_claude_path(os.path.join(here, "."), "/")
+        if not inside and not any(protected_claude_path(w, here) for w in words if ".claude" in w):
+            continue
+        if SANCTIONED.match(seg) and not re.search(r"--(from|repo|target)\b", seg):
+            continue  # update from a published tag only; a local source could carry anything
+        for i, w in enumerate(words[:-1]):
+            if w in (">", ">>", ">|") and protected_claude_path(words[i + 1], here):
+                return True
+        if any(re.match(r"^\d*>>?", w) and protected_claude_path(w, here) for w in words):
+            return True
+        if verb in READ_ONLY_VERBS:
+            continue
+        if verb == "git" and len(core) > 1 and core[1] in GIT_READ:
+            continue
+        if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in core):
+            continue
+        if verb in ("python3", "python") and len(core) > 1 and core[1].endswith(".claude/hooks/juvant_hooks.py"):
+            continue
+        if (verb in ("python3", "python") and len(core) > 1 and core[1].endswith(OUTSIDE_WRITERS)
+                and not any(protected_claude_path(w, here) for w in core[2:])):
+            continue  # framework scripts that write outside .claude/ (they must run unattended)
+        return True
+    return False
     segments = shell_segments(command)
     if segments is None:
         return True
