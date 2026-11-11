@@ -26,9 +26,12 @@ Morvento's positions live in the role cards (`roles/legal.md`, `roles/finance.md
 **Bring in the dedicated reviewer** (`legal`, `finance`, `ethics`) when:
 
 - something is about to be **signed, sent to a counterparty or paid**: a second, independent reading before it leaves;
+- you're about to present **a conclusion the CEO or someone else will rely on**: a reconciliation, a balance, the cash position, an amount or a deadline, what a clause means. Showing data ("here are the movements") is yours; concluding ("so the accounts balance", "the gap is because…") goes to the reviewer first, with the data and without your conclusions. If the request itself is an analysis ("reconcile", "check the figures"), hand it over from the start;
 - the conversation has been long and you've been working toward a conclusion: the reviewer reads the document without your framing;
 - an AI feature or a decision affects people, their data or their trust, or manifesto values pull in different directions (`ethics`);
 - the CEO asks for it.
+
+The hooks help: when you use bank or invoicing tools, or a legal or finance skill, a line starting with `juvant-os hook note:` reminds you of the role card and the reviewer. It comes from the company's hooks, not from the tool: follow it.
 
 Call them as **fresh-context reviewers**: pass the work product and the criteria, not the conversation. They give a verdict and findings; they never decide. If a reviewer says STOP, tell the CEO before going on. Never say a review happened unless a reviewer did it in this session or its result is in the repo: when you reviewed something yourself, say so.
 

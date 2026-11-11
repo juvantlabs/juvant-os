@@ -760,6 +760,78 @@ class LongTask(HookCase):
         self.assertEqual(p.returncode, 2, "only authorization files")
 
 
+FINOM_LIST = "mcp__claude_ai_Finom__transactions__listTransactions"
+
+
+class ReviewerNudges(HookCase):
+    def call(self, tool, inp=None, session="s1", agent=None):
+        ev = {"tool_name": tool, "tool_input": inp or {}, "session_id": session}
+        if agent:
+            ev["agent_type"] = agent
+        rc, out, _ = self.run_hook("limits", ev)
+        hs = out.get("hookSpecificOutput", {})
+        return rc, hs.get("permissionDecision"), hs.get("additionalContext", "")
+
+    def test_first_domain_call_then_once_more(self):
+        notes = [self.call(FINOM_LIST)[2] for _ in range(9)]
+        self.assertIn("juvant-os hook note:", notes[0])
+        self.assertIn("roles/finance.md", notes[0])
+        self.assertIn("finance reviewer (the `finance` agent", notes[0])
+        self.assertEqual(notes[1:7], [""] * 6)
+        self.assertIn("turned from looking things up into analysis", notes[7], "the 8th call nudges again")
+        self.assertEqual(notes[8], "")
+        self.assertEqual(len([r for r in self.state("activity.jsonl") if r["event"] == "nudge"]), 2)
+
+    def test_other_finance_connectors_and_skills(self):
+        for tool in ("mcp__claude_ai_Finom__bank__searchCards", "mcp__acme-bank__get_balance",
+                     "mcp__x__invoicing__search_invoices", "mcp__aruba__list_invoices"):
+            with self.subTest(tool=tool):
+                self.assertIn("finance", self.call(tool, session=tool)[2])
+        self.assertIn("roles/finance.md", self.call("Skill", {"skill": "reconciliation"}, session="k1")[2])
+        self.assertIn("roles/legal.md", self.call("Skill", {"skill": "review-contract"}, session="k2")[2])
+
+    def test_one_count_per_domain(self):
+        self.assertIn("finance", self.call(FINOM_LIST)[2])
+        self.assertIn("legal", self.call("Skill", {"skill": "triage-nda"})[2])
+        self.assertEqual(self.call("Skill", {"skill": "invoice-chase"})[2], "", "finance already nudged in this session")
+        self.assertIn("finance", self.call(FINOM_LIST, session="s2")[2], "each session starts afresh")
+
+    def test_no_nudge_for_subagents_or_the_role_itself(self):
+        self.assertEqual(self.call(FINOM_LIST, agent="finance")[2], "")
+        self.assertEqual(self.call(FINOM_LIST, agent="general-purpose")[2], "")
+        self.run_hook("session-start", {"session_id": "fin", "agent_type": "finance"})
+        self.assertEqual(self.call(FINOM_LIST, session="fin")[2], "")
+        self.run_hook("session-start", {"session_id": "leg", "agent_type": "legal"})
+        self.assertIn("finance", self.call(FINOM_LIST, session="leg")[2], "a legal session working on finance data")
+
+    def test_unrelated_tools_and_no_session(self):
+        for tool, inp in ((P_LOCAL + "outlook_email_search", {}), ("Read", {"file_path": "x.md"}),
+                          ("Skill", {"skill": "wrap-up"}), (P_LOCAL + "sharepoint_search", {})):
+            with self.subTest(tool=tool):
+                self.assertEqual(self.call(tool, inp)[2], "")
+        self.assertEqual(self.call(FINOM_LIST, session="")[2], "")
+
+    def test_never_changes_a_limits_decision(self):
+        rc, d, note = self.call("mcp__claude_ai_Finom__transactions__create_payment", {})
+        self.assertEqual((rc, d), (2, "deny"))
+        rc, d, note = self.call(FINOM_LIST)
+        self.assertEqual((rc, d), (0, None), "still allowed, only context added")
+
+    def test_broken_config_means_no_nudge(self):
+        cfg_dir = tempfile.mkdtemp(prefix="jv2-cfg-")
+        self.addCleanup(shutil.rmtree, cfg_dir, True)
+        for f in ("juvant_hooks.py", "limits.json"):
+            shutil.copy(os.path.join(HOOKS, f), cfg_dir)
+        open(os.path.join(cfg_dir, "nudges.json"), "w").write("{broken")
+        ev = {"tool_name": FINOM_LIST, "tool_input": {}, "session_id": "s"}
+        rc, out, _ = self.run_hook("limits", ev, os.path.join(cfg_dir, "juvant_hooks.py"))
+        self.assertEqual((rc, out), (0, {}))
+
+    def test_session_start_explains_hook_notes(self):
+        _, out, _ = self.run_hook("session-start", {"session_id": "s"})
+        self.assertIn("juvant-os hook note:", out["hookSpecificOutput"]["additionalContext"])
+
+
 class LogOutcome(HookCase):
     def run_cli(self, *args):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)
@@ -862,7 +934,7 @@ class Settings(unittest.TestCase):
         with open(os.path.join(ROOT, "framework", "templates", "settings.json"), encoding="utf-8") as f:
             s = json.load(f)
         pre = s["hooks"]["PreToolUse"][0]
-        for name in ("Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "mcp__"):
+        for name in ("Bash", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "Skill", "mcp__"):
             self.assertIn(name, pre["matcher"])
         self.assertIn("juvant_hooks.py\" limits", pre["hooks"][0]["command"])
         for event, sub in (("SessionStart", "session-start"), ("SubagentStart", "subagent-start"),
@@ -1035,7 +1107,7 @@ class Registration(HookCase):
         self.assertIn("aren't checked", out["hookSpecificOutput"]["additionalContext"])
 
     def test_no_warning_with_the_template(self):
-        self.write_settings(matcher="Bash|Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|mcp__.*")
+        self.write_settings(matcher="Bash|Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|Skill|mcp__.*")
         _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
         self.assertNotIn("aren't checked", json.dumps(out))
 

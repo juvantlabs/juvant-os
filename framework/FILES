@@ -16,6 +16,7 @@ countries/it/marketing.md
 dashboard/build.py
 hooks/juvant_hooks.py
 hooks/limits.json
+hooks/nudges.json
 skills/LICENSE-knowledge-work-plugins
 skills/THIRD_PARTY.md
 skills/brand-review/SKILL.md
