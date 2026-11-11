@@ -18,8 +18,9 @@
 # framework files that the new version no longer ships, installs the company's
 # country pack (framework/countries/<code>/ into .claude/country/), and records
 # version and country in .claude/juvant-os.json. The company's own files (CLAUDE.md, manifesto.md,
-# roles/, memory/, state/, .claude/settings.json) are never touched. Nothing is
-# committed: review `git status` and commit.
+# roles/, memory/, state/) are never touched. In .claude/settings.json only the
+# hard-limits hook registration is checked: tools it must see are added to its
+# matcher (a registration removed altogether is only reported), nothing else changes. Nothing is committed: review `git status` and commit.
 set -euo pipefail
 # The whole script sits in one { } block: bash parses it all before running, so
 # installing a new version of this very file mid-run cannot derail it.
@@ -140,6 +141,12 @@ if [[ -n "$COUNTRY" ]]; then
     for f in "$FW/countries/$COUNTRY/"*.md; do [[ "$(basename "$f")" == _* ]] || cp "$f" "$TARGET/.claude/country/"; done
     PACK="framework"
   fi
+fi
+
+# The hard limits only see the tools their hook is registered for.
+if [[ -f "$TARGET/.claude/settings.json" ]]; then
+  CLAUDE_PROJECT_DIR="$TARGET" python3 "$TARGET/.claude/hooks/juvant_hooks.py" fix-registration \
+    || echo "update: WARNING: couldn't check the hard-limits hook registration in .claude/settings.json. Ask the Chief of Staff to check it." >&2
 fi
 
 mkdir -p "$TARGET/.claude/juvant-os"

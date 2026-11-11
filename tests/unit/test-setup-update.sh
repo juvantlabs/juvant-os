@@ -117,6 +117,11 @@ check "role card untouched" "[[ \$(cat '$U/roles/legal.md') == 'x' ]]"
 out=$(cd "$U" && bash .claude/skills/update/update.sh --repo "$F" 2>&1); check "latest already installed: nothing to update" "[[ $? == 0 ]] && grep -q 'already installed' <<< '$out'"
 ( cd "$K" && g init -q && JUVANT_OS_SETUP=1 bash .claude/skills/update/update.sh --from "$ROOT/framework" >/dev/null 2>&1 )
 check "update keeps the recorded country pack" "grep -q '\"country\": \"it\"' '$K/.claude/juvant-os.json' && [[ -f '$K/.claude/country/legal.md' ]]"
+# An instance installed before Read/Grep/Glob were registered: update repairs the matcher only.
+sed -i.bak 's/"matcher": "Bash|Read|Write|Edit|MultiEdit|NotebookEdit|Grep|Glob|mcp__\.\*"/"matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*"/' "$K/.claude/settings.json" && rm -f "$K/.claude/settings.json.bak"
+out=$(cd "$K" && JUVANT_OS_SETUP=1 bash .claude/skills/update/update.sh --from "$ROOT/framework" 2>&1)
+check "update registers the hard-limits hook for every checked tool" "grep -q '\"matcher\": \"Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.\*|Read|Grep|Glob\"' '$K/.claude/settings.json' && grep -q 'now also checks Read, Grep, Glob' <<< '$out'"
+check "the rest of the company settings is kept" "diff <(sed 's/\"matcher\": \"[^\"]*\"//' '$K/.claude/settings.json') <(sed 's/\"matcher\": \"[^\"]*\"//' '$ROOT/framework/templates/settings.json') >/dev/null"
 check "nothing committed" "[[ \$(g -C '$U' log --oneline | wc -l | tr -d ' ') == 2 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh v9.9.9 --repo "$F" >/dev/null 2>&1 ); check "unknown tag fails" "[[ $? != 0 ]]"
 mkdir -p "$U/.juvant"; ( cd "$U" && bash .claude/skills/update/update.sh v2.0.1 --repo "$F" >/dev/null 2>&1 ); check "update refuses on a v1 instance" "[[ $? == 1 ]]"
