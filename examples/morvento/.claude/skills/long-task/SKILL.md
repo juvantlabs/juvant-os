@@ -68,6 +68,37 @@ Set aside when in doubt: <what the CEO wants to see first>.
 
 The hooks count each use and log it. Any change to the file after the CEO approved it ends it; a new version needs the CEO again.
 
+## 3b. Session permissions (when Claude Code itself would stop the task)
+
+An authorization covers the juvant-os hard limits. Claude Code has its own permission system, and in auto mode its classifier stops some actions unless the CEO is there to name them: applying infrastructure (`az deployment … create`, `terraform apply`), creating repositories, deploys. If the task needs those, give its session **session permissions**: Claude Code rules that exist only for that session.
+
+1. **Draft** `memory/authorizations/<YYYY-MM-DD>-<name>.settings.json` and show it to the CEO with the plan:
+
+```
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh repo create <org>/<repo> --private:*)",
+      "Bash(az group create --subscription <id> --name <rg>:*)",
+      "Bash(az deployment group create --subscription <id> --resource-group <rg>:*)"
+    ],
+    "deny": ["Bash(az group delete:*)"]
+  },
+  "autoMode": {
+    "environment": ["$defaults", "Cloud: Azure subscription <id>, resource group <rg>, a dev sandbox for <name>"]
+  }
+}
+```
+
+   - **Pin every allow rule**: the command, its subcommand and the arguments that fix the target (org, subscription, resource group). No wildcards, pipes or interpreters (`python3`, `bash`, `npx`…): the hooks refuse the file.
+   - **`autoMode.environment` describes the trusted targets** in plain words, and must start with `"$defaults"`. Nothing else under `autoMode`.
+   - **Prefer a dedicated cloud scope with a budget**, and an identity that can act only there, over the CEO's own login.
+2. **Write it** with Write, from your own session, before starting the collaborator. The hook asks the CEO, and that confirmation is the approval.
+3. **Start the collaborator with it:** add `--settings memory/authorizations/<file>.settings.json` to the `start-collaborator` command. The hooks allow that launch only for an approved, unchanged file. The permissions end with the session.
+4. **In the brief, give the exact command forms** from the allow rules, and say to run each one **on its own**: no `;`, `&&`, pipes, `cd` or redirects around it. A chained line doesn't match a rule and goes back to the classifier.
+
+Session permissions never cover money, outbound or secrets: the hooks deny those whatever Claude Code allows. Starting a session with `--dangerously-skip-permissions`, `bypassPermissions`, `--bare`, `--safe-mode`, `--restricted` or `--setting-sources` is always denied.
+
 ## 4. Work (collaborator session)
 
 Before each action that uses the authorization, ask yourself whether it makes sense for the goal. Is it really what the task is about (an invoice, not a payslip)? Is it a duplicate? Is it unusual in size, sender, date or name? Would it overwrite something that looks newer or edited by a person?

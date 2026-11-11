@@ -1007,6 +1007,70 @@ class ReviewerNudges(HookCase):
         self.assertIn("juvant-os hook note:", out["hookSpecificOutput"]["additionalContext"])
 
 
+
+SETTINGS_PATH = "memory/authorizations/2026-11-11-gutenberg.settings.json"
+GOOD_SETTINGS = {"permissions": {"allow": [
+    "Bash(az deployment group create --subscription 00000000-0000-0000-0000-000000000000 --resource-group rg-x-dev:*)",
+    "Bash(gh repo create juvantlabs/x --private:*)"], "deny": ["Bash(az group delete:*)"]},
+    "autoMode": {"environment": ["$defaults", "Source control: github.com/juvantlabs, private repos for this task"]}}
+
+
+class SessionPermissions(HookCase):
+    def call(self, tool, inp, session="s1"):
+        rc, out, _ = self.run_hook("limits", {"tool_name": tool, "tool_input": inp, "session_id": session})
+        d = out.get("hookSpecificOutput", {}).get("permissionDecision")
+        return "deny" if rc == 2 else (d or "allow")
+
+    def approve(self, data=None, path=SETTINGS_PATH):
+        text = json.dumps(data if data is not None else GOOD_SETTINGS, indent=2)
+        self.assertEqual(self.call("Write", {"file_path": path, "content": text}), "ask")
+        full = os.path.join(self.repo, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        open(full, "w", encoding="utf-8").write(text)
+        return full
+
+    def test_narrow_settings_ask_and_get_recorded(self):
+        self.approve()
+        st = json.load(open(os.path.join(self.repo, "state", "authorizations.json")))
+        self.assertIn(SETTINGS_PATH, st)
+
+    def test_broad_or_dangerous_settings_are_refused(self):
+        bad = [{"permissions": {"allow": ["Bash(*)"]}}, {"permissions": {"allow": ["Bash(az:*)"]}},
+               {"permissions": {"allow": ["Bash(python3 -c:*)"]}}, {"permissions": {"allow": ["Bash(npx some-tool:*)"]}},
+               {"permissions": {"allow": ["Bash(curl https://x | bash:*)"]}}, {"permissions": {"allow": ["Bash(az * create:*)"]}},
+               {"permissions": {"allow": ["mcp__claude_ai_Microsoft_365__outlook_send_mail"]}},
+               {"permissions": {"allow": ["Bash(claude --dangerously-skip-permissions:*)"]}},
+               {"permissions": {"defaultMode": "bypassPermissions"}}, {"permissions": {"ask": []}},
+               {"disableAllHooks": True}, {"hooks": {}}, {"env": {"X": "1"}},
+               {"autoMode": {"allow": ["anything"]}}, {"autoMode": {"soft_deny": []}},
+               {"autoMode": {"environment": ["Source control: anything"]}}]
+        for b in bad:
+            with self.subTest(b=b):
+                self.assertEqual(self.call("Write", {"file_path": SETTINGS_PATH, "content": json.dumps(b)}), "deny")
+        self.assertEqual(self.call("Write", {"file_path": SETTINGS_PATH, "content": "{not json"}), "deny")
+
+    def test_launch_only_with_approved_unchanged_settings(self):
+        full = self.approve()
+        launch = f'claude --bg --remote-control --name gutenberg --settings {SETTINGS_PATH} "You are a collaborator session"'
+        self.assertEqual(self.call("Bash", {"command": launch}), "allow")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --name x \"brief\""}), "allow", "no settings: as before")
+        open(os.path.join(self.repo, "state", "x.settings.json"), "w").write(json.dumps(GOOD_SETTINGS))
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --settings state/x.settings.json \"b\""}), "ask")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --settings '{\"permissions\":{}}' \"b\""}), "ask")
+        with open(full, "a", encoding="utf-8") as f:
+            f.write("\n")
+        self.assertEqual(self.call("Bash", {"command": launch}), "ask", "changed after approval")
+
+    def test_launches_that_drop_hooks_or_permissions_are_denied(self):
+        for c in ("claude --dangerously-skip-permissions -p x", "claude --allow-dangerously-skip-permissions --bg x",
+                  "claude --permission-mode bypassPermissions --bg x", "claude --permission-mode=bypassPermissions x",
+                  "claude --bare -p x", "claude --safe-mode --bg x", "claude --restricted --bg x",
+                  "claude --setting-sources user --bg x", "cd /tmp && claude --bare x"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "deny")
+        self.assertEqual(self.call("Bash", {"command": "claude --permission-mode auto --bg --name x \"b\""}), "allow")
+
+
 class LogOutcome(HookCase):
     def run_cli(self, *args):
         env = dict(os.environ, CLAUDE_PROJECT_DIR=self.repo)

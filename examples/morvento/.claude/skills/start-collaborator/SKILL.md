@@ -39,6 +39,7 @@ When the deliverable is saved, and again after any change the CEO asks for here,
 4. **Start it** (one Bash command):
    `claude --bg --remote-control --name <name> [--agent <id>] "You are a collaborator session named <name>, not the Chief of Staff. Read state/briefs/<name>.md and do the work it describes."`
    `--remote-control` makes the session reachable from the Claude app and claude.ai/code too, under the same name.
+   For a long task with session permissions (`long-task` skill), add `--settings memory/authorizations/<file>.settings.json`: only a file the CEO approved is accepted.
    If it fails with `Workspace not trusted`, tell the CEO to run `claude` once in this repo and accept the trust prompt, then retry.
 5. **Follow it.** The collaborator messages you by name when its work is ready (the brief's Reporting section): name-based messages reach you even after the CEO presses `←` and your session moves to the background. Don't use `notify_when_idle`: it is tied to the process that asked, and that process changes when your session is backgrounded. Whenever the CEO comes back to you while a collaborator is running, also check it with `ListAgents` and say what finished.
 6. **Tell the CEO** in one line: the name, what it's doing, and how to reach it ("press `←`, then `Enter` on *<name>*").

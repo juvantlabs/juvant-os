@@ -75,7 +75,7 @@ The hooks block anyone else from opening the file (reading, editing, Bash, the M
 
 ## authorizations/`YYYY-MM-DD-<name>.md`
 
-Long-task authorizations (`long-task` skill): what an unattended task may do that would otherwise ask the CEO — which actions, where, how many, until when, which subagents. Writing one asks the CEO, and that confirmation activates it for that session only. Any later change ends it. The task closes it when done (`status: closed`, with the outcome). Money, outbound, secrets and shared-repo merges can never be authorized.
+Long-task authorizations (`long-task` skill): what an unattended task may do that would otherwise ask the CEO — which actions, where, how many, until when, which subagents. Writing one asks the CEO, and that confirmation activates it for that session only. Any later change ends it. The task closes it when done (`status: closed`, with the outcome). Money, outbound, secrets and shared-repo merges can never be authorized. A `<name>.settings.json` next to it holds Claude Code permissions for that one session (narrow allow rules, trusted targets); it's approved the same way and passed with `claude --settings`.
 
 ## map.md
 
