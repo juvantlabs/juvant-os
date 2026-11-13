@@ -1187,18 +1187,20 @@ def frontmatter(text):
 
 
 def waiting_for_ceo():
-    """(day, ["- Waiting for the CEO: …"]) from the latest journal's last session section
-    (each wrap-up writes the current list, so earlier ones are stale); (None, []) if none."""
+    """(day, ["- Waiting for the CEO: …"]): the last such line of the most recent journal that has
+    one. Each wrap-up writes the whole current list, so earlier lines are stale; a newer journal
+    without the line (notes written outside a wrap-up) doesn't hide it. (None, []) if none."""
     jdir = os.path.join(ROOT, "memory", "journal")
     try:
         days = sorted((n for n in os.listdir(jdir) if re.match(r"\d{4}-\d{2}-\d{2}\.md$", n)), reverse=True)
     except OSError:
         return None, []
-    if not days:
-        return None, []
-    text = read_text(os.path.join("memory", "journal", days[0])) or ""
-    found = [l.strip() for l in text.splitlines() if re.match(r"^\s*-\s*Waiting for the CEO", l, re.I)]
-    return days[0], found[-1:]
+    for day in days[:60]:
+        text = read_text(os.path.join("memory", "journal", day)) or ""
+        found = [l.strip() for l in text.splitlines() if re.match(r"^\s*-\s*Waiting for the CEO", l, re.I)]
+        if found:
+            return day, found[-1:]
+    return None, []
 
 
 WAITING_SHOW_CAP = 1200

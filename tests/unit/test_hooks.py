@@ -1154,6 +1154,21 @@ class MemoryDigest(HookCase):
         _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
         self.assertNotIn("systemMessage", out)
 
+    def test_a_newer_journal_without_the_line_does_not_hide_the_list(self):
+        self.write("memory/journal/2026-11-11.md", "## 18:00\n- Waiting for the CEO: approve the offer; sign the NDA\n")
+        self.write("memory/journal/2026-11-13.md", "- juvant-os updated to rc.12\n")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        msg = out.get("systemMessage", "")
+        self.assertIn("approve the offer", msg)
+        self.assertIn("memory/journal/2026-11-11.md", msg)
+
+    def test_a_newer_none_still_clears_the_list(self):
+        self.write("memory/journal/2026-11-11.md", "- Waiting for the CEO: approve the offer\n")
+        self.write("memory/journal/2026-11-12.md", "- Waiting for the CEO: none\n")
+        self.write("memory/journal/2026-11-13.md", "- a note\n")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        self.assertNotIn("systemMessage", out)
+
     def test_digest_capped(self):
         self.write("memory/map.md", "m" * 20000)
         c = self.ctx()
