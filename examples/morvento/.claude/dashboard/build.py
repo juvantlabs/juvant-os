@@ -88,19 +88,54 @@ def activity(root):
     return rows
 
 
+WAITING_LINE = re.compile(r"^(\s*)-\s*Waiting for the CEO\s*:?\s*(.*)$", re.I)
+JOURNAL_FIELD = re.compile(r"^\s*-\s*(Done|Decided|Open|Waiting for the CEO|Notes|Next)\s*:", re.I)
+
+
+def parse_waiting(text):
+    """Items of the last "Waiting for the CEO" in a journal; None if there is none. One line
+    (split on "; ") or the label alone with a bulleted list under it (sub-bullets join their item)."""
+    lines = text.splitlines()
+    idx = next((i for i in range(len(lines) - 1, -1, -1) if WAITING_LINE.match(lines[i])), None)
+    if idx is None:
+        return None
+    base, rest = WAITING_LINE.match(lines[idx]).groups()
+    if rest.strip():
+        if rest.strip().lower() in ("none", "nothing", "-"):
+            return []
+        return [p.strip() for p in rest.split("; ") if p.strip()]
+    items, top = [], None
+    for line in lines[idx + 1:]:
+        if line.lstrip().startswith("#") or (JOURNAL_FIELD.match(line) and len(line) - len(line.lstrip()) <= len(base)):
+            break
+        if not line.strip():
+            continue
+        m = re.match(r"^(\s*)[-*]\s+(.*)$", line)
+        if not m:
+            if items:
+                items[-1] += " " + line.strip()
+            continue
+        ind, item = len(m.group(1)), m.group(2).strip()
+        if top is None or ind <= top:
+            top = ind if top is None else top
+            items.append(item)
+        else:
+            prev = items[-1].rstrip(" ;,")
+            items[-1] = prev + (" " if prev.endswith(":") else "; ") + item
+    return items
+
+
 def waiting(root):
     items = []
     days = listdir(root, "memory/journal", r"\d{4}-\d{2}-\d{2}\.md$")
-    if days:
-        # Each wrap-up writes the whole current list, so only the last
-        # "Waiting for the CEO" line of the latest journal is current; earlier
-        # ones are stale (same rule as the session-start hook).
-        latest = days[-1]
-        found = [m.group(1).strip() for m in (
-            re.match(r"^\s*-\s*Waiting for the CEO:\s*(.+)$", line, re.I)
-            for line in read(root, "memory/journal/" + latest).splitlines()) if m]
-        if found and found[-1].lower() not in ("none", "nothing", "-"):
-            items.append((found[-1], "memory/journal/" + latest))
+    # The last "Waiting for the CEO" of the most recent journal that has one (each wrap-up writes
+    # the whole current list; a newer journal without it doesn't hide it). Same rule as the
+    # session-start hook. One line is split on "; ", a bulleted list gives one item per bullet.
+    for day in reversed(days[-60:]):
+        found = parse_waiting(read(root, "memory/journal/" + day))
+        if found is not None:
+            items = [(t, "memory/journal/" + day) for t in found]
+            break
     drafts = []
     for n in listdir(root, "drafts", r".*"):
         p = os.path.join(root, "drafts", n)
@@ -422,13 +457,9 @@ def build(root, today, agents_json=None):
     name = company_name(root)
     now = dt.datetime.now()
 
-    # Waiting: the journal line is the whole current list, usually several
-    # items separated by "; " -- show and count each one.
-    w_items = []
-    for t, src in wait_items:
-        parts = [p.strip() for p in t.split("; ") if p.strip()] or [t]
-        for p in parts:
-            w_items.append(f'<li><span class="dot"></span><div><div class="t">{esc(p)}</div><div class="src">{esc(src)}</div></div></li>')
+    # Waiting: one row per item (waiting() already split the journal's list).
+    w_items = [f'<li><span class="dot"></span><div><div class="t">{esc(t)}</div><div class="src">{esc(src)}</div></div></li>'
+               for t, src in wait_items]
     w_items += [f'<li><span class="dot"></span><div><div class="t">Draft to review: {esc(n)}</div>'
                 f'<div class="src">drafts/{esc(n)} · {d.isoformat()}</div></div></li>' for n, d in drafts[:10]]
     need = len(w_items)
