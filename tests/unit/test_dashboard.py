@@ -98,6 +98,15 @@ class Dashboard(unittest.TestCase):
         self.assertIn("sign the offer", p)
         self.assertIn("Waiting for you · 1", p)
 
+    def test_waiting_as_a_bulleted_list(self):
+        self.write("memory/journal/2026-11-07.md", "- Waiting for the CEO: stale\n")
+        self.write("memory/journal/2026-11-08.md",
+                   "- Waiting for the CEO:\n- sign the offer\n- Gutenberg:\n  - DPIA questions\n  - interviews\n- Open: x\n")
+        p = self.page()
+        self.assertIn("Waiting for you · 2", p)
+        self.assertIn("Gutenberg: DPIA questions; interviews", p)
+        self.assertNotIn("stale", p)
+
     def test_projects(self):
         self.write("memory/projects/launch/README.md", "---\nstatus: active\n---\n\n# Assist 2.0 launch\n\n## Status\n\n<!-- c -->\n- Posts drafted, waiting for the date\n")
         self.write("memory/projects/launch/decisions/2026-11-02-date.md", "---\ndate: 2026-11-02\nstatus: active\n---\n# Launch on 15 January\n")

@@ -1186,20 +1186,55 @@ def frontmatter(text):
     return out
 
 
+WAITING_LINE = re.compile(r"^(\s*)-\s*Waiting for the CEO\s*:?\s*(.*)$", re.I)
+JOURNAL_FIELD = re.compile(r"^\s*-\s*(Done|Decided|Open|Waiting for the CEO|Notes|Next)\s*:", re.I)
+
+
+def parse_waiting(text):
+    """The items of the last "Waiting for the CEO" in a journal, or None if it has none. Two forms:
+    one line (`- Waiting for the CEO: a; b`) or the label alone with a bulleted list under it, up
+    to the next field (`- Open:`…) or heading. Sub-bullets join their item. An empty list is []."""
+    lines = text.splitlines()
+    idx = next((i for i in range(len(lines) - 1, -1, -1) if WAITING_LINE.match(lines[i])), None)
+    if idx is None:
+        return None
+    base, rest = WAITING_LINE.match(lines[idx]).groups()
+    if rest.strip():
+        return [] if re.match(r"^(see|nothing|none|-)\b", rest.strip(), re.I) else [rest.strip()]
+    items, top = [], None
+    for line in lines[idx + 1:]:
+        if line.lstrip().startswith("#") or (JOURNAL_FIELD.match(line) and len(line) - len(line.lstrip()) <= len(base)):
+            break
+        if not line.strip():
+            continue
+        m = re.match(r"^(\s*)[-*]\s+(.*)$", line)
+        if not m:
+            if items:
+                items[-1] += " " + line.strip()  # a wrapped line
+            continue
+        ind, item = len(m.group(1)), m.group(2).strip()
+        if top is None or ind <= top:
+            top = ind if top is None else top
+            items.append(item)
+        else:
+            prev = items[-1].rstrip(" ;,")
+            items[-1] = prev + (" " if prev.endswith(":") else "; ") + item
+    return items
+
+
 def waiting_for_ceo():
-    """(day, ["- Waiting for the CEO: …"]): the last such line of the most recent journal that has
-    one. Each wrap-up writes the whole current list, so earlier lines are stale; a newer journal
-    without the line (notes written outside a wrap-up) doesn't hide it. (None, []) if none."""
+    """(day, items) from the last "Waiting for the CEO" of the most recent journal that has one.
+    Each wrap-up writes the whole current list, so earlier ones are stale; a newer journal without
+    it (notes written outside a wrap-up) doesn't hide it. (None, []) if none."""
     jdir = os.path.join(ROOT, "memory", "journal")
     try:
         days = sorted((n for n in os.listdir(jdir) if re.match(r"\d{4}-\d{2}-\d{2}\.md$", n)), reverse=True)
     except OSError:
         return None, []
     for day in days[:60]:
-        text = read_text(os.path.join("memory", "journal", day)) or ""
-        found = [l.strip() for l in text.splitlines() if re.match(r"^\s*-\s*Waiting for the CEO", l, re.I)]
-        if found:
-            return day, found[-1:]
+        items = parse_waiting(read_text(os.path.join("memory", "journal", day)) or "")
+        if items is not None:
+            return day, items
     return None, []
 
 
@@ -1208,9 +1243,7 @@ WAITING_SHOW_CAP = 1200
 
 def waiting_banner():
     """What the CEO sees on screen at session start: the agent can't speak first."""
-    day, waiting = waiting_for_ceo()
-    items = [re.sub(r"^\s*-\s*Waiting for the CEO\s*:?\s*", "", l, flags=re.I) for l in waiting]
-    items = [i for i in items if i and not re.match(r"^(see|nothing|none)\b", i, re.I)]
+    day, items = waiting_for_ceo()
     if not items:
         return ""
     text = f"Waiting for you (memory/journal/{day}):\n" + "\n".join("• " + i for i in items)
@@ -1270,7 +1303,7 @@ def memory_digest():
         parts.append("## Projects\n\n" + "\n".join(prow))
     day, waiting = waiting_for_ceo()
     if waiting:
-        parts.append(f"## Waiting for the CEO (memory/journal/{day})\n\n" + "\n".join(waiting))
+        parts.append(f"## Waiting for the CEO (memory/journal/{day})\n\n" + "\n".join("- " + i for i in waiting))
     if not parts:
         return ""
     text = "# Company memory digest\n\nFrom the files in memory/. Search memory/ for anything else; if a fact isn't there, say it isn't recorded.\n\n" + "\n\n".join(parts)

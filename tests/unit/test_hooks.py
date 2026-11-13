@@ -1169,6 +1169,28 @@ class MemoryDigest(HookCase):
         _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
         self.assertNotIn("systemMessage", out)
 
+    def test_label_with_a_bulleted_list_under_it(self):
+        self.write("memory/journal/2026-11-12.md", "- Waiting for the CEO: stale list from yesterday\n")
+        self.write("memory/journal/2026-11-13.md",
+                   "## 22:00 — wrap-up\n\n- Done: a\n- Waiting for the CEO:\n"
+                   "- First thing next session: talk about Gutenberg:\n  - a marketplace;\n  - B2B partnerships.\n"
+                   "- Gutenberg pre-launch items in gutenberg-pm#54\n"
+                   "- Hardys: governance doc still says Claude\n- Open: nothing else\n")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        msg = out.get("systemMessage", "")
+        self.assertIn("memory/journal/2026-11-13.md", msg)
+        self.assertNotIn("stale list", msg)
+        self.assertIn("• First thing next session: talk about Gutenberg: a marketplace; B2B partnerships.", msg)
+        self.assertIn("• Hardys: governance doc still says Claude", msg, "a 'Label:' item is not a journal field")
+        self.assertNotIn("nothing else", msg, "the list ends at the next field")
+        self.assertEqual(msg.count("• "), 3)
+
+    def test_an_empty_waiting_label_stops_the_search(self):
+        self.write("memory/journal/2026-11-12.md", "- Waiting for the CEO: stale list\n")
+        self.write("memory/journal/2026-11-13.md", "- Waiting for the CEO:\n- Open: x\n")
+        _, out, _ = self.run_hook("session-start", {"session_id": "s", "source": "startup"})
+        self.assertNotIn("systemMessage", out)
+
     def test_digest_capped(self):
         self.write("memory/map.md", "m" * 20000)
         c = self.ctx()
