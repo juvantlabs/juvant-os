@@ -14,6 +14,8 @@
 Reads the event JSON on stdin. Paths are relative to $CLAUDE_PROJECT_DIR (the
 company repo); the config sits next to this file. Standard library only.
 """
+import fnmatch
+import glob
 import json
 import os
 import re
@@ -287,8 +289,18 @@ def cmd_limits():
                      "Secrets never go in the repo, memory or chat: the CEO stores them from their own terminal.")
 
     who = agent_identity(ev)
-    row = private_violation(tool, inp, who)
-    if row:
+    try:
+        hit = private_violation(tool, inp, who, os.path.realpath(str(ev.get("cwd") or ROOT)))
+    except (OSError, ValueError, TypeError, IndexError, KeyError, RecursionError, re.error) as e:
+        # A check that fails must not let the call through, nor skip the limits below.
+        deny(f"juvant-os private files: this call couldn't be checked ({type(e).__name__}). Write it more simply.")
+    if hit:
+        row, name = hit
+        if name:
+            deny(f"juvant-os private file: this call could show `{name}`, marked private in {PRIVATE_REGISTRY}, and `{who}` "
+                 f"isn't among the readers ({row}). Nothing else is blocked: repeat it without that file (Grep: glob "
+                 f"`!{name}`; grep: `--exclude={name}`; rg: `-g '!{name}'`; git: `-- . ':(exclude)<its path>'`), in a narrower "
+                 "folder, or listing file names only (`grep -l`).")
         deny(f"juvant-os private file: this file is marked private in {PRIVATE_REGISTRY} and `{who}` isn't among "
              f"the readers ({row}). Ask the CEO, or someone listed, to pass on what you need.")
     fp_ = str(inp.get("file_path") or "")
@@ -559,36 +571,468 @@ def norm_path(p):
     return os.path.realpath(p if os.path.isabs(p) else os.path.join(ROOT, p))
 
 
-def private_violation(tool, inp, who):
-    """The registry row that this call would break, or None."""
-    entries = private_entries()
-    if not entries:
+def private_rows(who):
+    """[(absolute path or None, match, raw)] of the registry rows `who` isn't a reader of; None for URLs and ids."""
+    out = []
+    for match, allowed, raw in private_entries():
+        if who not in allowed:
+            is_url = "://" in match or not ("/" in match or "." in os.path.basename(match))
+            out.append((None if is_url else norm_path(match), match, raw))
+    return out
+
+
+def brace_expand(word):
+    m = re.search(r"\{([^{}]*,[^{}]*)\}", word)
+    if not m:
+        return [word]
+    out = []
+    for alt in m.group(1).split(",")[:20]:
+        out += brace_expand(word[:m.start()] + alt + word[m.end():])
+        if len(out) > 200:
+            break
+    return out
+
+
+def glob_component(pattern, name):
+    try:
+        return fnmatch.fnmatchcase(name, re.sub(r"\[\^", "[!", pattern))
+    except re.error:
+        return True
+
+
+def glob_parts(pats, names):
+    """Match path components; `**` stands for any number of them."""
+    if not pats:
+        return not names
+    if pats[0] == "**":
+        return any(glob_parts(pats[1:], names[i:]) for i in range(len(names) + 1))
+    return bool(names) and glob_component(pats[0], names[0]) and glob_parts(pats[1:], names[1:])
+
+
+def path_relation(word, here, target):
+    """"file" if this word (wildcards included) names the target, "dir" if a folder above it, else ""."""
+    best = ""
+    for w in brace_expand(word)[:200]:
+        w = os.path.expanduser(w)
+        full = os.path.normpath(w if os.path.isabs(w) else os.path.join(here, w))
+        parts = full.split(os.sep)
+        fixed = next((i for i, p in enumerate(parts) if re.search(r"[*?\[]", p)), len(parts))
+        # Names are compared without case: macOS file systems usually ignore it.
+        base = os.path.realpath(os.sep.join(parts[:fixed]) or os.sep)
+        pats = [p.casefold() for p in base.split(os.sep) if p] + [p.casefold() for p in parts[fixed:]]
+        names = [p.casefold() for p in target.split(os.sep) if p]
+        if glob_parts(pats, names):
+            return "file"
+        if any(glob_parts(pats, names[:i]) for i in range(len(names))):
+            best = "dir"
+    return best
+
+
+RG_TYPES = {"py": (".py",), "js": (".js", ".jsx", ".mjs", ".cjs"), "ts": (".ts", ".tsx"), "json": (".json",),
+            "sh": (".sh", ".bash"), "yaml": (".yml", ".yaml"), "html": (".html", ".htm"), "css": (".css",)}
+
+
+def globs_select(globs, target, base):
+    """True if ripgrep-style globs (`!` excludes, the last match wins) leave the target in the search."""
+    globs = [g for g in globs if g]
+    if not globs:
+        return True
+    rel = os.path.relpath(target, base).casefold().split(os.sep)
+    selected = all(g.startswith("!") for g in globs)
+    for g in globs:
+        neg, body = g.startswith("!"), g.lstrip("!").casefold()
+        for b in brace_expand(body):
+            b = b.strip("/")
+            hit = glob_parts(b.split("/"), rel) if "/" in b else glob_component(b, rel[-1])
+            if neg:  # excluding a folder excludes what is in it
+                hit = hit or any(glob_parts(b.split("/"), rel[:i]) for i in range(1, len(rel)))
+            if hit:
+                selected = not neg
+    return selected
+
+
+# Commands that show names or sizes, not content, or that only write.
+NAME_ONLY = {"ls", "stat", "wc", "du", "basename", "dirname", "realpath", "readlink", "test", "[", "echo", "printf",
+             "tree", "touch", "mkdir", "cd", "pushd", "rmdir", "rm", "chmod", "chown"}
+WRAPPERS = {"sudo", "env", "command", "builtin", "time", "nice", "nohup", "exec", "then", "do", "else", "if", "while", "!", "{"}
+WHILE_READ = re.compile(r"\bwhile\s+(IFS=\S*\s+)?read\b")
+SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+GREP_VERBS = {"grep", "egrep", "fgrep", "ggrep", "zgrep", "rg", "ag", "ack"}
+GREP_ARG_SHORT = "efABCmdDgtT"
+GREP_ARG_LONG = {"--regexp", "--file", "--after-context", "--before-context", "--context", "--max-count", "--glob",
+                 "--iglob", "--type", "--type-not", "--include", "--exclude", "--exclude-dir", "--color", "--colour"}
+REV = re.compile(r"^[A-Za-z0-9_@][\w./^~@{}-]*$")
+
+
+def piped_segments(command):
+    """[(words, reads a pipe)], or None if the command can't be parsed."""
+    try:
+        lex = shlex.shlex(command.replace("\\\n", " ").replace("\n", " ; "), posix=True, punctuation_chars=";&|<>")
+        lex.whitespace_split = True
+        lex.commenters = ""
+        out, cur, piped = [], [], False
+        for tok in lex:
+            if tok and set(tok) <= set(";&|"):
+                if cur:
+                    out.append((cur, piped))
+                cur, piped = [], tok in ("|", "|&")
+            else:
+                cur.append(tok)
+        if cur:
+            out.append((cur, piped))
+        return out
+    except ValueError:
         return None
+
+
+def grep_args(args):
+    """(short flags, long flags, [(option, value)], positionals) of a grep-like command."""
+    short, long_, opts, pos, i = "", [], [], [], 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            pos += args[i + 1:]
+            break
+        if a.startswith("--"):
+            name, eq, val = a.partition("=")
+            long_.append(name)
+            if not eq and name in GREP_ARG_LONG and not name.startswith("--colo") and i + 1 < len(args):
+                i += 1
+                val = args[i]
+            opts.append((name, val))
+        elif a.startswith("-") and len(a) > 1:
+            for k, ch in enumerate(a[1:], 1):
+                short += ch
+                if ch in GREP_ARG_SHORT:
+                    val = a[k + 1:]
+                    if not val and i + 1 < len(args):
+                        i += 1
+                        val = args[i]
+                    opts.append(("-" + ch, val))
+                    break
+        else:
+            pos.append(a)
+        i += 1
+    return short, long_, opts, pos
+
+
+def grep_shows(verb, args, here, target, piped, names_fed):
+    """True if this grep/rg can print lines of the target."""
+    short, long_, opts, pos = grep_args(args)
+    if not any(o in ("-e", "-f", "--regexp", "--file") for o, _ in opts) and "--files" not in long_:
+        pos = pos[1:]
+    recursive = verb in ("rg", "ag", "ack") or "r" in short or "R" in short or \
+        any(o in ("--recursive", "--dereference-recursive") for o in long_) or ("-d", "recurse") in opts
+    quiet = (set(short) & set("lLcq") if verb != "rg" else set(short) & set("lcq")) or \
+        set(long_) & {"--files-with-matches", "--files-without-match", "--count", "--quiet", "--silent", "--files"}
+    rel = [path_relation(p, here, target) for p in pos]
+    if quiet and not names_fed:
+        return False
+    if "file" in rel:
+        return True
+    if not recursive or ("dir" not in rel and (pos or piped or not path_relation(".", here, target))):
+        return False
+    name = os.path.basename(target).casefold()
+    if verb in ("rg", "ag", "ack"):
+        return globs_select([v for o, v in opts if o in ("-g", "--glob", "--iglob")], target, here)
+    inc = [v.casefold() for o, v in opts if o == "--include"]
+    if inc and not any(glob_component(b, name) for v in inc for b in brace_expand(v)):
+        return False
+    if any(o == "--exclude" and glob_component(v.casefold(), name) for o, v in opts):
+        return False
+    above = [p.casefold() for p in os.path.dirname(target).split(os.sep) if p]
+    return not any(o == "--exclude-dir" and any(glob_component(v.strip("/").casefold(), p) for p in above) for o, v in opts)
+
+
+def git_out(here, *args):
+    try:
+        p = subprocess.run(["git", "-C", here, "--no-optional-locks", *args], capture_output=True, text=True, timeout=5)
+        return p.stdout.strip() if p.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def git_shows(args, here, target, names_fed):
+    """True if this git command can print content of the target."""
+    while args and args[0].startswith("-"):
+        if args[0] == "-C" and len(args) > 1:
+            here = os.path.normpath(os.path.join(here, os.path.expanduser(args[1])))
+        args = args[2:] if args[0] in ("-C", "-c") else args[1:]
+    if not args:
+        return False
+    sub, rest = args[0], args[1:]
+    if sub not in ("grep", "log", "show", "diff", "stash", "archive", "blame", "cat-file", "reflog", "whatchanged",
+                   "format-patch"):
+        return False
+    top = git_out(here, "rev-parse", "--show-toplevel")
+    if not top:
+        return False
+    top = os.path.realpath(top)
+    inside = target.casefold().startswith(top.casefold() + os.sep)
+    if not inside:
+        return False
+    for w in rest:  # <rev>:<path>
+        if ":" in w and not w.startswith((":", "-")):
+            p = w.split(":", 1)[1]
+            if p and path_relation(p, here if p.startswith("./") or p.startswith("../") else top, target) == "file":
+                return True
+    paths, dash = [], "--" in rest
+    if dash:
+        k = rest.index("--")
+        rest, paths = rest[:k], rest[k + 1:]
+    flags = [w for w in rest if w.startswith("-")]
+    plain = [w for w in rest if not w.startswith("-")]
+    magic = [w for w in plain if w.startswith(":")]
+    plain = [w for w in plain if not w.startswith(":")]
+    if sub == "grep" and not any(f.startswith("-e") for f in flags):
+        plain = plain[1:]
+    if not dash:
+        onpaths = [w for w in plain if path_relation(w, here, target)]
+        paths, plain = onpaths, [w for w in plain if w not in onpaths]
+    for w in paths + magic:
+        m = re.match(r"^:(?:!|\^|\(exclude\))(/?)(.*)$", w)
+        if m and path_relation(m.group(2) or ".", top if m.group(1) else here, target):
+            return False
+    wanted = [w for w in paths if not w.startswith((":!", ":^", ":(exclude)"))]
+    if wanted and not any(w.startswith(":") or path_relation(w, here, target) for w in wanted):
+        return False
+    if sub in ("blame", "cat-file"):
+        return any(path_relation(w, here, target) == "file" for w in wanted)
+    spec = ":(top,literal,icase)" + os.path.relpath(target, top)
+    # Anything git itself can't confirm counts as shown.
+    tracked = git_out(top, "log", "--all", "-1", "--format=%h", "--", spec) != "" or git_out(top, "ls-files", "--", spec) != ""
+    if sub == "grep":
+        names = any(f in ("--files-with-matches", "--name-only", "--count", "-q", "--quiet", "-c", "-l", "-L")
+                    or re.match(r"^-[a-zA-Z]*[lLcq]", f) for f in flags)
+        return (tracked or any(f in ("--untracked", "--no-index") for f in flags)) and (names_fed or not names)
+    if not tracked:
+        return False
+    if sub == "archive":
+        return True
+    patch = any(f in ("-p", "-u", "--patch", "--patch-with-stat", "-c", "--cc") or f.startswith(("-U", "--unified", "-G", "-L"))
+                for f in flags if not (f.startswith("-G")))
+    if any(f in ("--name-only", "--name-status", "--stat", "--shortstat", "--numstat", "--dirstat", "--summary", "--quiet",
+                 "-s", "--no-patch") or f.startswith("--stat=") for f in flags) and not patch:
+        return False
+    if sub in ("log", "reflog") and not patch:
+        return False
+    if sub == "stash":
+        return bool(plain) and plain[0] == "show" and patch
+    if sub == "diff":
+        revs = [w for w in plain if w]
+        if not all(REV.match(w) for w in revs):
+            return True
+        cached = [f for f in flags if f in ("--cached", "--staged")]
+        out = git_out(top, "diff", "--no-ext-diff", "--name-only", *cached, *revs, "--", spec)
+        return out != ""
+    if sub == "show":
+        revs = plain or ["HEAD"]
+        if not all(REV.match(w) for w in revs):
+            return any(not REV.match(w) and ":" not in w for w in revs)
+        return git_out(top, "show", "--no-ext-diff", "--name-only", "--format=", *revs, "--", spec) != ""
+    return True
+
+
+def find_shows(args, here, target, names_fed):
+    roots = []
+    for a in args:
+        if a.startswith(("-", "(", "!")):
+            break
+        roots.append(a)
+    if not any(path_relation(r, here, target) for r in (roots or ["."])):
+        return False
+    runs = [i for i, a in enumerate(args) if a in ("-exec", "-execdir", "-ok", "-okdir")]
+    if not names_fed and not any(os.path.basename((args[i + 1:i + 2] or [""])[0]) not in NAME_ONLY for i in runs):
+        return False
+    name = os.path.basename(target).casefold()
+    if "-o" not in args and "-or" not in args:
+        for i, a in enumerate(args[:-1]):
+            if a in ("-name", "-iname"):
+                hit = glob_component(args[i + 1].casefold(), name)
+                if hit == (args[i - 1] in ("!", "-not", "\\!")):
+                    return False
+    return True
+
+
+def copy_shows(verb, args, here, target):
+    """True if a recursive copy or archive takes the target along with a folder."""
+    flags = "".join(a[1:] for a in args if a.startswith("-") and not a.startswith("--"))
+    words = [a for a in args if not a.startswith("-")]
+    ex = [a.split("=", 1)[1] for a in args if a.startswith("--exclude=")]
+    ex += [args[i + 1] for i, a in enumerate(args[:-1]) if a in ("--exclude", "-x")]
+    name = os.path.basename(target).casefold()
+    if any(glob_component(os.path.basename(e.rstrip("/")).casefold(), name) for e in ex):
+        return False
+    if verb in ("tar", "gtar", "bsdtar"):
+        mode = flags + (words[0] if words and not args[0].startswith("-") else "")
+        if not set(mode) & set("cru") and not any(a in ("--create", "--append", "--update") for a in args):
+            return False
+    elif verb == "zip":
+        if "r" not in flags:
+            return False
+        words = words[1:]
+    else:  # cp, rsync, scp, ditto, mv: the last word is the destination
+        if verb in ("cp", "gcp", "scp") and not set(flags) & set("rRa") and "--recursive" not in args and "--archive" not in args:
+            return False
+        words = words[:-1]
+    return any(path_relation(w, here, target) for w in words)
+
+
+COPIERS = {"tar", "gtar", "bsdtar", "zip", "cp", "gcp", "scp", "rsync", "ditto", "mv"}
+
+
+def substitutions(command):
+    """[(inner command, its output names files another command reads)] for $(…) and `…`."""
+    out = []
+    for m in SUBST.finditer(command):
+        inner = m.group(1) if m.group(1) is not None else m.group(2)
+        before = re.split(r"[;&|\n(]", command[:m.start()])[-1].split()
+        while before and before[0] in WRAPPERS:
+            before = before[1:]
+        feeds = bool(before) and "=" not in before[0] and os.path.basename(before[0]) not in NAME_ONLY and before[0] != "git"
+        out.append((inner, feeds))
+    return out
+
+
+def bash_shows(command, cwd, target, depth=0, fed=False):
+    """True if a Bash command can show or copy the target without writing its path literally.
+    Text matching: it follows cd, wildcards, simple variables and the usual search commands.
+    It can't follow interpreters or every shell construction."""
+    segments = piped_segments(command)
+    if segments is None:
+        segments = [(s.split(), False) for s in re.split(r"[;&|\n]+", command)]
+    here = cwd or ROOT
+    env = {"HOME": os.path.expanduser("~"), "CLAUDE_PROJECT_DIR": ROOT}
+    for inner, feeds in substitutions(command) if depth < 3 else ():
+        if bash_shows(inner, here, target, depth + 1, feeds):
+            return True
+    fed = fed or bool(WHILE_READ.search(command)) or any(
+        os.path.basename(w) == "xargs" and os.path.basename(next((x for x in ws[i + 1:] if not x.startswith("-")
+                                                                  and x != "{}" and not x.isdigit()), "echo")) not in NAME_ONLY
+        for ws, _ in segments for i, w in enumerate(ws))
+
+    def sub(w):
+        return re.sub(r"\$(?:\{(\w+)\}|(\w+))", lambda m: env.get(m.group(1) or m.group(2), m.group(0)), w)
+
+    for raw, piped in segments:
+        words = []
+        for w in raw:
+            w = re.sub(r"^[({`]+(?=[^,]*$)|^\$\(", "", sub(w)) if not w.startswith("${") else sub(w)
+            w = w.rstrip("`")
+            if w.endswith(")") and "(" not in w:
+                w = w.rstrip(")")
+            if w:
+                words.append(w)
+        while words and (os.path.basename(words[0]) in WRAPPERS or re.match(r"^\w+=", words[0])):
+            m = re.match(r"^(\w+)=(.*)$", words[0], re.S)
+            if m:
+                env[m.group(1)] = m.group(2)
+                if path_relation(m.group(2), here, target) == "file":
+                    return True
+            words = words[1:]
+        if not words:
+            continue
+        verb, args = os.path.basename(words[0]), words[1:]
+        for i, w in enumerate(words[:-1]):
+            if w == "<" and path_relation(words[i + 1], here, target) == "file":
+                return True
+        if verb in ("cd", "pushd"):
+            t = next((a for a in args if a == "-" or not a.startswith("-")), "~")
+            if t != "-" and "$" not in t:
+                here = os.path.normpath(os.path.join(here, os.path.expanduser(t)))
+            continue
+        if verb in ("bash", "sh", "zsh", "eval") and depth < 3:
+            script = " ".join(args) if verb == "eval" else next(
+                (args[i + 1] for i, a in enumerate(args[:-1]) if re.match(r"^-[a-z]*c$", a)), "")
+            if script and bash_shows(script, here, target, depth + 1):
+                return True
+        if verb in ("xargs",):
+            k = next((i for i, a in enumerate(args) if not a.startswith("-") and a != "{}" and not a.isdigit()), None)
+            if k is None:
+                continue
+            verb, args = os.path.basename(args[k]), args[k + 1:]
+            piped = True
+        if verb in GREP_VERBS:
+            if grep_shows(verb, args, here, target, piped, fed):
+                return True
+            continue
+        if verb == "git":
+            if git_shows(args, here, target, fed):
+                return True
+            continue
+        if verb == "find":
+            if find_shows(args, here, target, fed):
+                return True
+            continue
+        if verb in COPIERS and copy_shows(verb, args, here, target):
+            return True
+        if verb in NAME_ONLY and not (fed and verb == "ls"):
+            continue
+        if verb in ("sed", "gsed", "awk", "gawk", "mawk", "jq", "yq"):
+            k = next((i for i, a in enumerate(args) if not a.startswith("-")), None)
+            args = args if k is None or any(a in ("-e", "-f") for a in args) else args[:k] + args[k + 1:]
+        for w in args:
+            for cand in {w, w.split("=", 1)[1] if "=" in w else w}:
+                r = path_relation(cand, here, target) if cand and not cand.startswith("-") else ""
+                if r == "file" or (r == "dir" and fed and verb == "ls") or \
+                        (r == "dir" and verb == "diff" and any(re.match(r"^-[a-zA-Z]*r|^--recursive", a) for a in args)):
+                    return True
+    return False
+
+
+def grep_tool_shows(inp, cwd, target):
+    """True if a Grep tool call would return lines of the target."""
+    if str(inp.get("output_mode") or "files_with_matches") != "content":
+        return False
+    root = str(inp.get("path") or cwd)
+    if path_relation(root, cwd, target) != "dir":
+        return False
+    ext = RG_TYPES.get(str(inp.get("type") or ""))
+    if ext and not target.casefold().endswith(ext):
+        return False
+    globs, cur, depth = [], "", 0
+    for ch in str(inp.get("glob") or ""):  # split on spaces and commas outside braces
+        depth += (ch == "{") - (ch == "}")
+        if ch in " ," and depth <= 0:
+            globs, cur = globs + [cur], ""
+        else:
+            cur += ch
+    return globs_select(globs + [cur], target, os.path.realpath(os.path.join(cwd, os.path.expanduser(root))))
+
+
+def private_violation(tool, inp, who, cwd=None):
+    """(registry row, file name to exclude or "") that this call would break, or None. The name is
+    set when the call only reaches the file through a folder, a wildcard or git."""
+    rows = private_rows(who)
+    if not rows:
+        return None
+    cwd = cwd or ROOT
     blob = json.dumps(inp, ensure_ascii=False)
-    for match, allowed, raw in entries:
-        if who in allowed:
-            continue
-        is_url = "://" in match or not ("/" in match or "." in os.path.basename(match))
-        if is_url:
+    for target, match, raw in rows:
+        if target is None:
             if match in blob:
-                return raw
+                return raw, ""
             continue
-        target = norm_path(match)
-        if tool in ("Read", "Edit", "MultiEdit", "Write", "NotebookEdit"):
-            fp = inp.get("file_path") or inp.get("notebook_path") or ""
-            if fp and norm_path(fp) == target:
-                return raw
-        elif tool in ("Grep", "Glob"):
-            p = inp.get("path") or ""
-            if p and norm_path(p) == target:
-                return raw
+        name = os.path.basename(target)
+        if tool in ("Read", "Edit", "MultiEdit", "Write", "NotebookEdit", "Grep", "Glob"):
+            fp = str(inp.get("path" if tool in ("Grep", "Glob") else "file_path") or inp.get("notebook_path") or "")
+            if fp and (norm_path(fp) == target or path_relation(glob.escape(fp).replace("{", "[{]"), cwd, target) == "file"):
+                return raw, ""
+            if tool == "Grep" and grep_tool_shows(inp, cwd, target):
+                return raw, name
         elif tool == "Bash":
             cmd = str(inp.get("command", ""))
             rel = os.path.relpath(target, os.path.realpath(ROOT))
-            if match in cmd or target in cmd or (not rel.startswith("..") and rel in cmd):
-                return raw
+            names = [match, target] + ([] if rel.startswith("..") else [rel])
+            literal = cmd
+            for n in names:  # naming the file to leave it out of a search isn't reading it
+                literal = re.sub(r"(:!|:\^|:\(exclude\)|--exclude[= ]['\"]?|!)/?" + re.escape(n) + r"(?=['\"\s]|$)", "", literal)
+            if any(n in literal for n in names):
+                return raw, ""
+            if bash_shows(cmd, cwd, target):
+                return raw, name
         elif tool.startswith("mcp__") and match in blob:
-            return raw
+            return raw, ""
     return None
 
 
@@ -1261,17 +1705,22 @@ def waiting_banner():
     return text + "\nAsk the Chief of Staff to go through them."
 
 
-def memory_digest():
+def memory_digest(who="cos"):
     """Short memory context for the main session: map, recent active decisions,
     and what the latest journal says is waiting for the CEO."""
     parts = []
-    m = read_text(os.path.join("memory", "map.md"))
+    hidden = {t.casefold() for t, _, _ in private_rows(who) if t}
+
+    def shown(rel):  # private files stay out of the digest of an agent that can't read them
+        return not hidden or norm_path(rel).casefold() not in hidden
+
+    m = read_text(os.path.join("memory", "map.md")) if shown(os.path.join("memory", "map.md")) else None
     if m:
         parts.append("## memory/map.md\n\n" + (m if len(m) <= MAP_CAP else m[:MAP_CAP] + "\n[…truncated: read memory/map.md]"))
     ddir = os.path.join(ROOT, "memory", "decisions")
     rows = []
     try:
-        names = sorted((n for n in os.listdir(ddir) if n.endswith(".md")), reverse=True)
+        names = sorted((n for n in os.listdir(ddir) if n.endswith(".md") and shown(os.path.join("memory", "decisions", n))), reverse=True)
     except OSError:
         names = []
     for n in names:
@@ -1292,6 +1741,8 @@ def memory_digest():
     except OSError:
         slugs = []
     for slug in slugs:
+        if not shown(os.path.join("memory", "projects", slug, "README.md")):
+            continue
         card = read_text(os.path.join("memory", "projects", slug, "README.md")) or ""
         status = frontmatter(card).get("status", "active")
         if status == "closed":
@@ -1299,7 +1750,8 @@ def memory_digest():
         name = next((l[2:].strip() for l in card.splitlines() if l.startswith("# ")), slug)
         latest = ""
         try:
-            ds = sorted((n for n in os.listdir(os.path.join(pdir, slug, "decisions")) if n.endswith(".md")), reverse=True)
+            ds = sorted((n for n in os.listdir(os.path.join(pdir, slug, "decisions"))
+                         if n.endswith(".md") and shown(os.path.join("memory", "projects", slug, "decisions", n))), reverse=True)
         except OSError:
             ds = []
         if ds:
@@ -1311,7 +1763,7 @@ def memory_digest():
     if prow:
         parts.append("## Projects\n\n" + "\n".join(prow))
     day, waiting = waiting_for_ceo()
-    if waiting:
+    if waiting and shown(os.path.join("memory", "journal", day)):
         parts.append(f"## Waiting for the CEO (memory/journal/{day})\n\n" + "\n".join("- " + i for i in waiting))
     if not parts:
         return ""
@@ -1422,7 +1874,7 @@ def cmd_session_start():
     if sharing:
         lines.append(sharing)
     if not ROLE_ID.match(agent):
-        digest = memory_digest()
+        digest = memory_digest((agent or "cos").lower())
         if digest:
             lines.append(digest)
     if prefixes:

@@ -1,6 +1,6 @@
 # Company memory
 
-Everything the company should remember, as plain files in this repo. Git keeps the history; anyone with access can read it. Agents read it with the digest they get at session start and with search (`grep -ri <word> memory/`).
+Everything the company should remember, as plain files in this repo. Git keeps the history; anyone with access can read it. Agents read it with the digest they get at session start and with search (`grep -ril <word> memory/`).
 
 **Never put here:** passwords, tokens, keys, bank credentials, or personal data the company doesn't need. Point to where a document lives instead of copying it.
 
@@ -71,7 +71,7 @@ Files marked **private**: one row each, readable only by the agents listed (`cos
 | https://contoso.sharepoint.com/sites/legal/Shared%20Documents/nda-x.docx | legal | NDA under negotiation | 2026-11-09 |
 ```
 
-The hooks block anyone else from opening the file (reading, editing, Bash, the Microsoft 365 connector by its address). A broad search can still show a line of it in its results. Changing this file asks the CEO. Mark files, never whole folders or libraries.
+The hooks block anyone else from opening the file (reading, editing, Bash, the Microsoft 365 connector by its address). Searches of a folder that holds it must leave it out. This is a guardrail, not isolation: scripts and interpreters, or a tenant-wide SharePoint search, can still reach its content. Changing this file asks the CEO. Mark files, never whole folders or libraries.
 
 ## authorizations/`YYYY-MM-DD-<name>.md`
 
