@@ -846,6 +846,23 @@ class PrivateFiles(HookCase):
             with self.subTest(c=c):
                 self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "deny")
 
+    def test_substitutions_next_to_apostrophes_denied(self):
+        self.with_history()
+        for o in ("$(grep -rh terms docs)", "`grep -rh terms docs`"):
+            for c in (f"echo {o}", f"bash -c 'echo {o}'", f"# don't\necho {o}\n# don't", f"cat <<EOF\ndon't\n{o}\ndon't\nEOF",
+                      f"ls # don't\necho {o}\nls # don't", f"cat <<-EOF | head\nit's\n{o}\nit's\nEOF",
+                      f"timeout 5 bash -c 'echo {o}'", f"eval 'echo {o}'", f"trap 'echo {o}' EXIT", f"env X=1 sh -c 'echo {o}'",
+                      f"echo 'echo {o}' | bash", f"X='{o}'; eval echo $X", f"find other -exec sh -c 'echo {o}' \\;",
+                      f"echo \"a \"b's\" {o} c's\"", f"echo $'a\\'b' {o} 'c'", f"sed 's/a/{o}/e' other/a.md",
+                      f"echo \"${{X:-\"it's {o} it's\"}}\"", f"git -c alias.z='!echo {o}' z"):
+                with self.subTest(c=c):
+                    self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "deny")
+                    self.assertEqual(self.as_agent("legal", "Bash", {"command": c}), "allow", "a reader")
+        for c in ("# don't\nls\n# won't", "cat <<EOF\ndon't\n$(date)\ndon't\nEOF", "sed -i '' 's/`grep -ri <word> docs\\/`/x/' docs/open.md",
+                  "git commit -m 'docs: use `grep -ril x docs`'"):
+            with self.subTest(c=c):
+                self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "allow")
+
     def test_message_does_not_tell_why_it_is_private(self):
         with open(os.path.join(self.repo, "memory", "private.md"), "a") as f:
             f.write("| docs/legal/b.md | legal | a-telling-reason | 2026-11-09 |\n")
