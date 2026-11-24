@@ -5,3 +5,13 @@ __pycache__/
 
 # v1 batch-test results (local only) never belong in v2
 tests/fixtures/
+
+# Local files of a v1 checkout: config, secrets and databases never get committed
+.juvant/
+*.pem
+*.key
+id_rsa*
+*.p12
+*.pfx
+node_modules/
+*.sqlite
