@@ -4,8 +4,10 @@ import importlib.util
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 spec = importlib.util.spec_from_file_location("build", os.path.join(ROOT, "framework", "dashboard", "build.py"))
@@ -152,6 +154,43 @@ class Dashboard(unittest.TestCase):
     def test_no_external_scripts(self):
         p = self.page()
         self.assertNotIn("<script", p)
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "-c",
+                        "commit.gpgsign=false", *args], check=True, capture_output=True,
+                       env={**os.environ, "GIT_COMMITTER_DATE": "2026-10-03T12:00:00", "GIT_AUTHOR_DATE": "2026-10-03T12:00:00"})
+
+    def test_committed_draft_has_its_commit_date(self):
+        self.write("drafts/offer.md", "x")
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "draft")
+        self.assertIn("drafts/offer.md · 2026-10-03", self.page())
+        clone = tempfile.mkdtemp(prefix="jv2-dash-clone-")
+        self.addCleanup(shutil.rmtree, clone, True)
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "file://" + self.repo, clone], check=True, capture_output=True)
+        self.assertIsNone(build.draft_date(clone, "drafts/offer.md"))
+
+    def test_drafts_over_the_cap_are_counted(self):
+        for i in range(13):
+            self.write(f"drafts/d{i:02}.md", "x")
+        p = self.page()
+        self.assertIn("3 more in drafts/", p)
+        self.assertIn("Waiting for you · 13", p)
+
+    def test_cloud_run_skips_its_own_session_and_names_committed_drafts(self):
+        self.write("state/activity.jsonl", "".join(json.dumps({"ts": "2026-11-09T08:00:00Z", "event": "session_start", "session": s}) + "\n"
+                                                    for s in ("own", "other")))
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": "", "CLAUDE_CODE_SESSION_ID": "own"}):
+            self.assertIn("2 total", self.page())
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": "true", "CLAUDE_CODE_SESSION_ID": "own"}):
+            p = self.page()
+        self.assertIn("1 total", p)
+        self.assertIn("committed drafts only", p)
+
+    def test_times_say_their_zone(self):
+        self.assertEqual(build.short_ts("2026-11-09 08:05"), "9 Nov 08:05 UTC")
+        self.assertRegex(self.page(), r"built \d\d:\d\d \S+ from")
 
     def test_decisions_capped(self):
         for i in range(1, 15):
