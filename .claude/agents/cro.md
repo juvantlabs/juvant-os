@@ -1,1 +1,0 @@
-../../agents/company/cro.md

@@ -1,0 +1,5 @@
+# GitHub accounts whose adopter-fix pull requests the review routine may check out,
+# test, fix up and prepare for release. One login per line. Anyone else gets a
+# summary comment only: their code is never run or pushed to.
+# Changing this file is a maintainer decision (review it like code).
+juvantlabs

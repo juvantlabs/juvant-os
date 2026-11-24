@@ -2,7 +2,7 @@ name: release-on-ok
 
 # Publishes a juvant-os v2 release when a maintainer comments exactly
 # `/release ok` on a "Release proposal: <version>" issue (opened by the
-# adopter-fix review routine; docs/maintainers/adopter-fix-routine.md on v2).
+# adopter-fix review routine; docs/maintainers/adopter-fix-routine.md).
 # Deterministic: it publishes only the version and base sha written in the
 # proposal, only if the commenter is in .github/adopter-fix-trusted on the base
 # branch, and only if the base branch still points at that sha.

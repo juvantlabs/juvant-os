@@ -1,4 +1,0 @@
-{
-  "_comment": "Project-shared MCP server registrations. Empty by default: every adopter wires the servers they use during company-init or after. GitHub is not an MCP server here: access goes through the gh CLI (FEAT-052).",
-  "mcpServers": {}
-}

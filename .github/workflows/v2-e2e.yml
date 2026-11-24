@@ -1,0 +1,29 @@
+name: v2 e2e
+
+# On demand only: runs real Claude sessions and costs a few dollars per run.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model id (empty = default)
+        required: false
+        default: ""
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: End-to-end
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          git config --global user.email e2e@example.invalid
+          git config --global user.name e2e
+          if [ -n "${{ inputs.model }}" ]; then bash tests/e2e/run.sh --model "${{ inputs.model }}"; else bash tests/e2e/run.sh; fi

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "_comment": "Reviewer nudges (FEAT-088). When the Chief of Staff's thread uses a tool or a skill of a role's domain, the limits hook adds one note to the context: the first time in a session, and once more after `repeat_after` calls in that domain. Never blocks, never decides; a broken file only means no nudge. `tools` is matched against the whole tool name, lowercased (some connectors put the topic in the middle: ...__transactions__listTransactions). `skills` is matched against the skill's name. Skipped for subagents and for sessions running as that role. Regexes are Python syntax.",
+  "repeat_after": 8,
+  "domains": {
+    "finance": {
+      "tools": "^mcp__.*(transaction|wallet|invoic|payment|bookkeeping|ledger|cashback|bank|statement|receivable|payable|balance)",
+      "skills": "^(cash-flow-snapshot|invoice-chase|month-end-prep|reconciliation|variance-analysis|financial-statements)$",
+      "note": "you're working with finance data. Use roles/finance.md and the matching finance skill. Showing data is yours to do; a conclusion the CEO or someone else will rely on (a reconciliation, a balance, an amount, a deadline) goes to the finance reviewer (the `finance` agent, called as a subagent: its review is the independent one) before you present it, with the data and not your conclusions. Tell the CEO when you hand it over.",
+      "again": "this session has used finance data many times: it has probably turned from looking things up into analysis. Before you present conclusions, have the `finance` agent check them with fresh context, and tell the CEO."
+    },
+    "legal": {
+      "skills": "^(review-contract|triage-nda|legal-risk-assessment|compliance-check|vendor-check)$",
+      "note": "this is legal work. Use roles/legal.md. A conclusion the CEO will rely on (what a clause means, whether to sign, a risk rating) goes to the legal reviewer (the `legal` agent, called as a subagent: its review is the independent one) before you present it, with the document and not your conclusions. Tell the CEO when you hand it over.",
+      "again": "this session has done a lot of legal work: before you present conclusions, have the `legal` agent check them with fresh context, and tell the CEO."
+    }
+  }
+}

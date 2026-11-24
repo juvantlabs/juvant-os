@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "_comment": "Hard limits (design \u00a77). MCP rules match the tool's own name, the part after the last '__', lowercased, for any server prefix. Order: money deny, outbound deny (drafts exempt), create allow, then ask. A rule's optional \"input\" reads the tool's arguments: keys are compared lowercased with everything but letters and digits removed, by suffix (conflict_behavior, conflictBehavior and @microsoft.graph.conflictBehavior all end in conflictbehavior); \"allow\" must match every such value; \"when_missing\" decides when no such key is given. Regexes are Python syntax.",
+  "mcp": {
+    "draft_allow": "draft",
+    "draft_never": "(^|_)send(_|$)",
+    "private_publish": "^mcp__[A-Za-z0-9_-]*[Aa]rtifacts__(publish_files|publish_version|edit_version)$",
+    "_private_publish": "Full tool names exempt from the outbound rule: claude.ai artifacts are created private to the CEO and these tools can't share them (the dashboard skill uses them). Commenting and sharing stay outbound.",
+    "deny": [
+      {
+        "id": "money",
+        "pattern": "^(transfer|payment|payout)$|(^|_)(pay|refund|wire|bonifico)(_|$)|(create|make|send|initiate|execute|submit|approve|authorize|authorise|confirm|schedule|issue|emit)_(\\w+_)?(payment|payments|transfer|transfers|payout|payouts|refund|refunds|invoice|invoices|charge|charges|bonifico)|(payment|transfer|payout|refund|invoice|charge|bonifico)s?_(create|send|initiate|execute|submit|approve|authorize|confirm|schedule|issue)",
+        "why": "moving money, refunds and invoice issuing happen in the vendor's own UI, by the CEO (hard limit 2); reading payments, transfers and invoices is fine"
+      },
+      {
+        "id": "outbound",
+        "pattern": "(^|_)(send|forward|reply|reply_all|respond|post|publish|share|invite)(_|$)|(create|update|cancel|decline|accept)_event|create_chat|set_vacation|auto_reply|out_of_office|create_filter|create_rule|inbox_rule",
+        "why": "outbound is draft-only: agents draft, the CEO sends (hard limit 1). Create a draft instead"
+      }
+    ],
+    "create": [
+      {
+        "id": "create-upload",
+        "pattern": "(^|_)upload(_|$)",
+        "input": {
+          "key": "conflictbehavior",
+          "allow": "^(fail|rename)$",
+          "when_missing": false
+        },
+        "why": "uploads a new file: on a name clash it fails or picks a new name, so nothing is lost"
+      },
+      {
+        "id": "create-folder",
+        "pattern": "create_folder",
+        "input": {
+          "key": "conflictbehavior",
+          "allow": "^(fail|rename)$",
+          "when_missing": true
+        },
+        "why": "creates a folder; the servers fail or rename on a name clash"
+      },
+      {
+        "id": "create-copy",
+        "pattern": "(^|_)copy(_|$)",
+        "input": {
+          "key": "conflictbehavior",
+          "allow": "^(fail|rename)$",
+          "when_missing": true
+        },
+        "why": "copies to a new item; the servers fail on a name clash at the destination"
+      }
+    ],
+    "_create": "Creating can't lose anything, so it doesn't ask (hard limit 4, three classes, decided 2026-11-11). An upload counts as creating only if it explicitly sets its conflict behaviour to fail or rename: defaults differ by server.",
+    "ask": [
+      {
+        "id": "overwrite",
+        "pattern": "(^|_)(upload|overwrite|replace|copy)(_|$)|update_file|create_folder",
+        "why": "may overwrite an existing document: the CEO confirms (hard limit 4). Uploads, copies and new folders that set their conflict behaviour to fail or rename only create, and don't ask"
+      },
+      {
+        "id": "delete-move",
+        "pattern": "(^|_)(delete|remove|trash|purge|move|rename)(_|$)",
+        "why": "deletes, moves or renames documents or mail: the CEO confirms (hard limit 4)"
+      }
+    ]
+  },
+  "_known_prefixes": "Servers whose tool names the hard limits were checked against. Each one's outbound tools are also denied in the settings template's permission rules, as a second layer; a server with no outbound tools (m365-mail: drafts, moves and deletes only) has nothing to deny there.",
+  "known_prefixes": [
+    "mcp__claude_ai_Microsoft_365__",
+    "mcp__Microsoft_365__",
+    "mcp__claude-artifacts__",
+    "mcp__m365-graph__",
+    "mcp__m365-mail__"
+  ],
+  "bash": {
+    "deny": [
+      {
+        "id": "force-push",
+        "pattern": "\\bgit\\b[^;&|\\n]*\\bpush\\b[^;&|\\n]*(\\s--force(-with-lease|-if-includes)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*\\b|\\s\\+[^\\s]+)",
+        "why": "force push rewrites shared history (hard limit 4)"
+      }
+    ],
+    "ask": [
+      {
+        "id": "reset-hard",
+        "pattern": "\\bgit\\b[^;&|\\n]*\\breset\\b[^;&|\\n]*--hard\\b",
+        "why": "discards local work (hard limit 4)"
+      },
+      {
+        "id": "clean-force",
+        "pattern": "\\bgit\\b[^;&|\\n]*\\bclean\\b[^;&|\\n]*\\s-[a-zA-Z]*f",
+        "why": "deletes untracked files (hard limit 4)"
+      }
+    ],
+    "rm_outside_repo": "ask",
+    "temp_dirs": [
+      "/tmp/",
+      "/private/tmp/",
+      "/var/folders/",
+      "/private/var/folders/"
+    ]
+  },
+  "secrets": [
+    {
+      "id": "github-token",
+      "pattern": "\\bgh[pousr]_[A-Za-z0-9]{36}\\b"
+    },
+    {
+      "id": "github-pat",
+      "pattern": "\\bgithub_pat_[A-Za-z0-9_]{60,}"
+    },
+    {
+      "id": "anthropic-key",
+      "pattern": "\\bsk-ant-[A-Za-z0-9_-]{20,}"
+    },
+    {
+      "id": "openai-key",
+      "pattern": "\\bsk-(proj-)?[A-Za-z0-9_-]{40,}"
+    },
+    {
+      "id": "slack-token",
+      "pattern": "\\bxox[abprs]-[A-Za-z0-9-]{10,}"
+    },
+    {
+      "id": "aws-access-key",
+      "pattern": "\\bAKIA[0-9A-Z]{16}\\b"
+    },
+    {
+      "id": "entra-client-secret",
+      "pattern": "\\b[A-Za-z0-9_.-]{3}8Q~[A-Za-z0-9_.~-]{31,34}"
+    },
+    {
+      "id": "private-key",
+      "pattern": "-----BEGIN ([A-Z]+ )?PRIVATE KEY-----"
+    }
+  ]
+}
