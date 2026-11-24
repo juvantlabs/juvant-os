@@ -835,11 +835,14 @@ class PrivateFiles(HookCase):
         self.with_history()
         for c in ("git diff 2>/dev/null", "git diff 2>&1 | head", "git diff > /tmp/x", "git diff docs/open.md", "git diff .claude",
                   "git diff memory/private.md; sed -n 1,3p docs/open.md; cat memory/private.md",
-                  "git log -p docs/open.md", "git show HEAD docs/open.md", "git show HEAD 2>/dev/null"):
+                  "git log -p docs/open.md", "git show HEAD docs/open.md", "git show HEAD 2>/dev/null",
+                  "git diff -U0 -- .claude/hooks | grep x; sed -i '' 's/`grep -ri <word> docs\\/`/x/' docs/open.md",
+                  "echo 'run $(grep -r x docs)'"):
             with self.subTest(c=c):
                 self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "allow")
         for c in ("grep -r terms 2>/dev/null", "rg terms 2>/dev/null", "git log -p 2>/dev/null", "git show HEAD~1 docs",
-                  "cat docs/legal/*.md 2>/dev/null", "cat < docs/legal/s*.md > /tmp/x", "cat <(cat docs/legal/*.md)"):
+                  "cat docs/legal/*.md 2>/dev/null", "cat < docs/legal/s*.md > /tmp/x", "cat <(cat docs/legal/*.md)",
+                  "echo \"it's `grep -rh terms docs`\"", "echo $(cat 'docs/legal'/*.md)", "echo 'a' `grep -rh terms docs` 'b'"):
             with self.subTest(c=c):
                 self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "deny")
 

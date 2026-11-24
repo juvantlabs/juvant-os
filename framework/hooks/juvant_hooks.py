@@ -897,11 +897,30 @@ def copy_shows(verb, args, here, target):
 COPIERS = {"tar", "gtar", "bsdtar", "zip", "cp", "gcp", "scp", "rsync", "ditto", "mv"}
 
 
+def without_single_quoted(command):
+    """The command with single-quoted text blanked: the shell runs no $(…) or `…` inside it."""
+    out, quote, i = [], "", 0
+    while i < len(command):
+        ch = command[i]
+        if ch == "\\" and quote != "'":
+            out.append(command[i:i + 2])
+            i += 2
+            continue
+        if ch in "'\"" and quote in ("", ch):
+            quote = "" if quote else ch
+        out.append(" " if quote == "'" and ch != "'" else ch)
+        i += 1
+    # An unbalanced quote (an apostrophe in a heredoc): keep everything.
+    return command if quote else "".join(out)
+
+
 def substitutions(command):
     """[(inner command, its output names files another command reads)] for $(…) and `…`."""
     out = []
+    raw, command = command, without_single_quoted(command)
     for m in SUBST.finditer(command):
-        inner = m.group(1) if m.group(1) is not None else m.group(2)
+        k = 1 if m.group(1) is not None else 2
+        inner = raw[m.start(k):m.end(k)]
         before = re.split(r"[;&|\n(]", command[:m.start()])[-1].split()
         while before and before[0] in WRAPPERS:
             before = before[1:]
