@@ -16,10 +16,12 @@ import html
 import json
 import os
 import re
+import subprocess
 
 DEDICATED = ("legal", "finance", "ethics")
 RECENT_DECISIONS = 8
 ACTIVITY_DAYS = 14
+DRAFTS_SHOWN = 10
 DEADLINE_DAYS = 30
 
 
@@ -101,14 +103,23 @@ def company_name(root):
     return re.sub(r"\s+manifesto$", "", h, flags=re.I) or os.path.basename(os.path.abspath(root))
 
 
+def own_cloud_session():
+    """In a cloud run the session building the page has just logged its own start, in a checkout
+    that is thrown away: it isn't company activity. Local sessions stay counted."""
+    if os.environ.get("CLAUDE_CODE_REMOTE", "").lower() == "true":
+        return os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    return ""
+
+
 def activity(root):
+    own = own_cloud_session()
     rows = []
     for line in read(root, "state/activity.jsonl").splitlines():
         try:
             r = json.loads(line)
         except ValueError:
             continue
-        if isinstance(r, dict) and r.get("ts"):
+        if isinstance(r, dict) and r.get("ts") and not (own and r.get("session") == own):
             rows.append(r)
     return rows
 
@@ -150,6 +161,25 @@ def parse_waiting(text):
     return items
 
 
+def git_out(root, *args):
+    try:
+        r = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def draft_date(root, rel):
+    """A committed, unmodified draft has the date of its last commit: in a fresh clone the file's
+    own date is the clone's. None when a shallow clone can't tell."""
+    mtime = dt.date.fromtimestamp(os.path.getmtime(os.path.join(root, rel)))
+    if git_out(root, "ls-files", "--error-unmatch", "--", rel) is None or git_out(root, "status", "--porcelain", "--", rel):
+        return mtime
+    if git_out(root, "rev-parse", "--is-shallow-repository") == "true":
+        return None
+    return parse_date(git_out(root, "log", "-1", "--format=%cs", "--", rel)) or mtime
+
+
 def waiting(root):
     items = []
     days = listdir(root, "memory/journal", r"\d{4}-\d{2}-\d{2}\.md$")
@@ -165,8 +195,8 @@ def waiting(root):
     for n in listdir(root, "drafts", r".*"):
         p = os.path.join(root, "drafts", n)
         if os.path.isfile(p):
-            drafts.append((n, dt.date.fromtimestamp(os.path.getmtime(p))))
-    drafts.sort(key=lambda x: x[1], reverse=True)
+            drafts.append((n, draft_date(root, "drafts/" + n)))
+    drafts.sort(key=lambda x: x[1] or dt.date.min, reverse=True)
     return items, drafts
 
 
@@ -418,7 +448,7 @@ def rel_day(d, today):
 def short_ts(s):
     try:
         t = dt.datetime.fromisoformat(s)
-        return f"{t.day} {t.strftime('%b %H:%M')}"
+        return f"{t.day} {t.strftime('%b %H:%M')} UTC"
     except ValueError:
         return s
 
@@ -480,14 +510,19 @@ def build(root, today, agents_json=None):
     series = per_day(acts, today)
     projs = projects(root)
     name = company_name(root)
-    now = dt.datetime.now()
+    now = dt.datetime.now().astimezone()
 
     # Waiting: one row per item (waiting() already split the journal's list).
     w_items = [f'<li><span class="dot"></span><div><div class="t">{esc(t)}</div><div class="src">{esc(src)}</div></div></li>'
                for t, src in wait_items]
     w_items += [f'<li><span class="dot"></span><div><div class="t">Draft to review: {esc(n)}</div>'
-                f'<div class="src">drafts/{esc(n)} · {d.isoformat()}</div></div></li>' for n, d in drafts[:10]]
-    need = len(w_items)
+                f'<div class="src">drafts/{esc(n)}{" · " + d.isoformat() if d else ""}</div></div></li>' for n, d in drafts[:DRAFTS_SHOWN]]
+    more = len(drafts) - DRAFTS_SHOWN
+    if more > 0:
+        w_items.append(f'<li><span class="dot"></span><div><div class="t">{more} more in drafts/</div></div></li>')
+    need = len(wait_items) + len(drafts)
+    cloud = os.environ.get("CLAUDE_CODE_REMOTE", "").lower() == "true"
+    drafts_meta = "Latest journal and committed drafts only" if cloud else "Latest journal and drafts/"
     waiting_html = f'<ul class="rows wait">{"".join(w_items)}</ul>' if w_items else empty("Nothing is waiting for you.")
 
     def dl_row(d, what, who):
@@ -570,11 +605,11 @@ def build(root, today, agents_json=None):
 <style>{CSS}</style></head>
 <body>
 <header class="top"><div class="wrap"><div><p class="eyebrow">Company dashboard</p><h1>{esc(name)}</h1></div>
-<div class="asof"><strong>{today.strftime("%A %d %B %Y").replace(" 0", " ")}</strong>Read-only · built {esc(now.strftime("%H:%M"))} from the company repo</div></div></header>
+<div class="asof"><strong>{today.strftime("%A %d %B %Y").replace(" 0", " ")}</strong>Read-only · built {esc(now.strftime("%H:%M %Z").strip())} from the company repo</div></div></header>
 <div class="wrap"><div class="tiles">{tiles}</div></div>
 <nav aria-label="Sections"><div class="wrap">{nav}</div></nav>
 <main class="wrap">
-<section id="waiting" class="c7{' attention' if need else ''}"><div class="sh"><h2>Waiting for you · {need}</h2><span class="meta">Latest journal and drafts/</span></div>{waiting_html}</section>
+<section id="waiting" class="c7{' attention' if need else ''}"><div class="sh"><h2>Waiting for you · {need}</h2><span class="meta">{drafts_meta}</span></div>{waiting_html}</section>
 <section id="deadlines" class="c5"><div class="sh"><h2>Deadlines · next {DEADLINE_DAYS} days</h2><span class="meta">memory/deadlines.md</span></div>{dl_html}</section>
 <section id="agents" class="c12"><div class="sh"><h2>Agents</h2><span class="meta">Dedicated roles · last {ACTIVITY_DAYS} days of activity</span></div>
 <div class="agents">{"".join(agent_card(a) for a in dedicated)}</div><p class="others">Other collaborators used: {other_line}</p></section>
