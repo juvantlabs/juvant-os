@@ -433,6 +433,15 @@ def in_claude_dir(path):
 CLAUDE_HOME_SCRATCH = ("jobs", "shell-snapshots", "todos", "tmp", "paste-cache", "file-history", "statsig")
 
 
+def is_claude_home_scratch(rel):
+    """True if this path, relative to ~/.claude, is one of Claude Code's working areas. Under
+    projects/ only a session's tool-results (downloads, long output) is: memory and transcripts aren't."""
+    parts = rel.split(os.sep)
+    if parts[0] in CLAUDE_HOME_SCRATCH:
+        return True
+    return len(parts) >= 4 and parts[0] == "projects" and parts[3] == "tool-results"
+
+
 def protected_claude_path(word, here):
     """True if this word names a path in a .claude that the hard limits protect: this
     repo's, one where juvant-os is installed, or the user's ~/.claude (not its scratch areas)."""
@@ -455,7 +464,7 @@ def protected_claude_path(word, here):
         if in_claude_dir(full):
             return True
         if (full == home or full.startswith(home + os.sep)) and \
-                os.path.relpath(full, home).split(os.sep)[0] not in CLAUDE_HOME_SCRATCH:
+                not is_claude_home_scratch(os.path.relpath(full, home)):
             return True
     return False
 
@@ -463,7 +472,7 @@ def protected_claude_path(word, here):
 def bash_writes_claude_dir(command, cwd=None):
     """True if a Bash command may write under a protected .claude/ outside the sanctioned
     update script. Follows `cd`: a relative write after moving into .claude/ counts."""
-    if ".claude" not in command and not (cwd and protected_claude_path(os.path.join(cwd, "."), "/")):
+    if ".claude" not in command and ".claude" not in (cwd or ""):
         return False
     segments = shell_segments(command)
     if segments is None:
@@ -487,7 +496,7 @@ def bash_writes_claude_dir(command, cwd=None):
                 here = os.path.normpath(os.path.join(here or ROOT, os.path.expanduser(target)))
             continue
         inside = bool(here) and protected_claude_path(os.path.join(here, "."), "/")
-        if not inside and not any(protected_claude_path(w, here) for w in words if ".claude" in w):
+        if not inside and not any(protected_claude_path(w, here) for w in words):
             continue
         if SANCTIONED.match(seg) and not re.search(r"--(from|repo|target)\b", seg):
             continue  # update from a published tag only; a local source could carry anything

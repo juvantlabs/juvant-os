@@ -455,6 +455,34 @@ class ClaudeDirProtection(HookCase):
             with self.subTest(c=c):
                 self.assertEqual(self.decision("Bash", {"command": c}), "allow")
 
+    TOOL_RESULTS = "~/.claude/projects/-Users-x-co/f6877621-972b-4eb1-bcca-901136926468/tool-results"
+
+    def test_session_tool_results_are_scratch(self):
+        t = os.path.expanduser(self.TOOL_RESULTS)
+        real = (f"cd {t}; pdftotext *p2vbrh.pdf /tmp/rx/dl.txt 2>/dev/null; D=/tmp/rx/dl.txt; "
+                "awk '/^Art. 96\\./{p=1} /^Art. 97\\./{p=0} p' $D | head -170; echo =====42\n"
+                'pdftotext *h6us9r.pdf - | grep -iE -B3 -A6 Y901; pdftotext *z5m6kt.pdf /tmp/rx/st.txt; head -40 /tmp/rx/st.txt')
+        for c in (real, f"pdftotext {self.TOOL_RESULTS}/a.pdf -", f"cd {t} && pdftotext a.pdf a.txt"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "allow")
+        for c in ("cp a ~/.claude/projects/-Users-x-co/memory/MEMORY.md", "rm ~/.claude/projects/-Users-x-co/s.jsonl",
+                  "cd ~/.claude/projects/-Users-x-co && rm s.jsonl"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "ask")
+
+    def test_relative_paths_out_of_scratch_still_ask(self):
+        for c in (f"cd {self.TOOL_RESULTS} && cp a ../../../../settings.json",
+                  f"cd {self.TOOL_RESULTS} && cp a ../../memory/MEMORY.md",
+                  "cd ~/.claude/jobs/x/tmp && cp a ../../../settings.json",
+                  "cd ~/.claude/jobs/x/tmp && echo x > ../../../settings.json",
+                  "cd ~/.claude/jobs/x/tmp && cd ../../.. && echo x > settings.json"):
+            with self.subTest(c=c):
+                self.assertEqual(self.decision("Bash", {"command": c}), "ask")
+        ev = {"tool_name": "Bash", "tool_input": {"command": "cp a ../../../settings.json"},
+              "cwd": os.path.expanduser("~/.claude/jobs/x/tmp")}
+        rc, out, _ = self.run_hook("limits", ev)
+        self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision"), "ask")
+
     def test_common_reads_of_claude_files_pass(self):
         for c in ('cat .claude/skills/new-project/project-README.md; ls memory/decisions | tail -3; '
                   'sed -n 1,40p .claude/skills/decision/SKILL.md; grep -n "Projects\\|projects/" memory/map.md | head',
