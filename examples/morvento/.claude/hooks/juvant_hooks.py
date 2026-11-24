@@ -897,8 +897,38 @@ def copy_shows(verb, args, here, target):
 COPIERS = {"tar", "gtar", "bsdtar", "zip", "cp", "gcp", "scp", "rsync", "ditto", "mv"}
 
 
+# Single-quoted text is ignored only in commands made of these verbs: none of them runs its arguments.
+QUOTING_VERBS = {"sed", "gsed", "grep", "egrep", "fgrep", "rg", "echo", "printf", "cat", "head", "tail", "ls", "wc",
+                 "cut", "sort", "uniq", "tr", "diff", "cd", "git"}
+QUOTING_GIT = {"diff", "log", "show", "status", "add", "commit"}
+# Constructions where an apostrophe may not be a quote, or where quotes nest: a comment, a heredoc, $'…'.
+UNSURE_QUOTES = re.compile(r"(^|[\s;&|()`])#|<<|\$'")
+
+
+def quoting_is_plain(command):
+    """True if single-quoted text in this command is surely inert. In doubt, False: it is checked as a command."""
+    if UNSURE_QUOTES.search(command):
+        return False
+    segments = piped_segments(command)
+    if not segments:
+        return False
+    for words, _ in segments:
+        verb, args = words[0], words[1:]
+        if verb not in QUOTING_VERBS:
+            return False
+        if verb == "git" and (not args or args[0] not in QUOTING_GIT):
+            return False
+        if verb in ("sed", "gsed") and any(re.search(r"/[a-zA-Z0-9]*e[a-zA-Z0-9]*\s*(;|\}|$)|(^|[;{}\s/0-9$])e(\s|;|$)", a) for a in args):
+            return False  # GNU sed's e runs a command
+        if verb == "rg" and any(a.startswith("--pre") for a in args):
+            return False
+    return True
+
+
 def without_single_quoted(command):
-    """The command with single-quoted text blanked: the shell runs no $(…) or `…` inside it."""
+    """The command with single-quoted text blanked, if that text is surely inert; else the command as it is."""
+    if "'" not in command or not quoting_is_plain(command):
+        return command
     out, quote, i = [], "", 0
     while i < len(command):
         ch = command[i]
@@ -906,11 +936,12 @@ def without_single_quoted(command):
             out.append(command[i:i + 2])
             i += 2
             continue
+        if quote == '"' and (ch == "`" or command.startswith(("$(", "${"), i)):
+            return command  # quotes nest in there
         if ch in "'\"" and quote in ("", ch):
             quote = "" if quote else ch
         out.append(" " if quote == "'" and ch != "'" else ch)
         i += 1
-    # An unbalanced quote (an apostrophe in a heredoc): keep everything.
     return command if quote else "".join(out)
 
 
@@ -952,6 +983,9 @@ def bash_shows(command, cwd, target, depth=0, fed=False):
     for raw, piped in segments:
         words = []
         for w in drop_redirects(raw):
+            if re.search(r"\s", sub(w)):  # a quoted script or text: not a word to trim
+                words.append(sub(w))
+                continue
             w = re.sub(r"^[({`]+(?=[^,]*$)|^\$\(", "", sub(w)) if not w.startswith("${") else sub(w)
             w = w.rstrip("`")
             if w.endswith(")") and "(" not in w:
