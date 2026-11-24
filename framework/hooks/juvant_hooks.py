@@ -296,6 +296,9 @@ def cmd_limits():
         deny(f"juvant-os private files: this call couldn't be checked ({type(e).__name__}). Write it more simply.")
     if hit:
         name = hit[1]  # the row says why it's private: not for non-readers
+        if name == SED_RUNS:
+            deny(f"juvant-os private file: sed's `e` runs text as a command, which can't be checked against {PRIVATE_REGISTRY}. "
+                 "Run the command on its own, or use sed without `e`.")
         if name:
             deny(f"juvant-os private file: this call could show `{name}`, marked private in {PRIVATE_REGISTRY}, and `{who}` "
                  f"isn't among the readers. Nothing else is blocked: repeat it without that file (Grep: glob "
@@ -682,7 +685,7 @@ def drop_redirects(words):
 def piped_segments(command):
     """[(words, reads a pipe)], or None if the command can't be parsed."""
     try:
-        lex = shlex.shlex(command.replace("\\\n", " ").replace("\n", " ; "), posix=True, punctuation_chars=";&|<>")
+        lex = shlex.shlex(command.replace("\\\n", " ").replace("\n", "\n ; "), posix=True, punctuation_chars=";&|<>")
         lex.whitespace_split = True
         lex.commenters = ""
         out, cur, piped = [], [], False
@@ -960,6 +963,137 @@ def substitutions(command):
     return out
 
 
+SED_CARRIERS = {"sed", "gsed", "timeout", "gtimeout", "find", "parallel", "stdbuf", "ionice", "caffeinate", "busybox"}
+SED_RUNS = "sed runs a command"  # what bash_shows returns for it
+
+
+def sed_scripts(args):
+    """The script text of a sed command line: -e values joined, or the first word that isn't an option."""
+    scripts, first, given, i = [], None, False, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--sandbox":
+            return ""  # sed itself refuses e, r and w
+        if a.startswith("--"):
+            name, eq, val = a.partition("=")
+            if len(name) > 3 and ("--expression".startswith(name) or "--file".startswith(name)):
+                if not eq:
+                    i += 1
+                    val = args[i] if i < len(args) else ""
+                given = True
+                if "--expression".startswith(name):
+                    scripts.append(val)
+        elif a.startswith("-") and len(a) > 1:
+            for k, ch in enumerate(a[1:], 1):
+                if ch in "efl":
+                    val = a[k + 1:]
+                    if not val and ch != "l":
+                        i += 1
+                        val = args[i] if i < len(args) else ""
+                    if ch != "l":
+                        given = True
+                    if ch == "e":
+                        scripts.append(val)
+                    break
+                if ch in "iI":  # GNU: the rest is a suffix; BSD: the next word may be
+                    if k == len(a) - 1 and i + 1 < len(args) and (args[i + 1] == "" or args[i + 1].startswith(".")):
+                        i += 1
+                    break
+        elif first is None:
+            first = a
+        i += 1
+    return "\n".join(scripts) if given else (first or "")
+
+
+def sed_part(text, i, delim, brackets):
+    """(part, index after its closing delimiter), or (None, i) if there is none."""
+    start = i
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if brackets and ch == "[":
+            j = i + 1
+            j += text[j:j + 1] == "^"
+            j += text[j:j + 1] == "]"
+            end = text.find("]", j)
+            if end > 0:
+                i = end + 1
+                continue
+        if ch == delim:
+            return text[start:i], i + 1
+        i += 1
+    return None, start
+
+
+def sed_regex(text, i, delim):
+    """Like sed_part. GNU sed ends a regex at the delimiter even inside [...] (and then refuses it); BSD doesn't."""
+    part, j = sed_part(text, i, delim, False)
+    if part is not None and re.search(r"\[[^\]]*$", re.sub(r"\\.", "", part)):
+        wide, k = sed_part(text, i, delim, True)
+        if wide is not None:
+            return wide, k
+    return part, j
+
+
+def sed_effects(script):
+    """(True if the script runs a command with GNU sed's e, [files it reads with r or R])."""
+    i, n, files = 0, len(script), []
+
+    def eol(k):
+        e = script.find("\n", k)
+        return n if e < 0 else e
+
+    while i < n:
+        ch = script[i]
+        if ch in " \t\r\n;{}!,~+0123456789$":
+            i += 1
+        elif ch == "/" or ch == "\\":
+            k = i + 1 + (ch == "\\")
+            part, k = sed_regex(script, k, "/" if ch == "/" else script[i + 1:i + 2] or "/")
+            if part is None:
+                return False, files
+            while script[k:k + 1] and script[k] in "IM":
+                k += 1
+            i = k
+        elif ch in "sy":
+            delim = script[i + 1:i + 2]
+            if not delim or delim in "\n\\":
+                return False, files
+            part, k = sed_regex(script, i + 2, delim) if ch == "s" else sed_part(script, i + 2, delim, False)
+            if part is None:
+                return False, files
+            part, k = sed_part(script, k, delim, False)
+            if part is None:
+                return False, files
+            i = k
+            while ch == "s" and script[i:i + 1] and script[i] in "gpiImMe0123456789w":
+                if script[i] == "e":
+                    return True, files
+                if script[i] == "w":
+                    i = eol(i)
+                    break
+                i += 1
+        elif ch == "e":
+            return True, files
+        elif ch in "rR":
+            files.append(script[i + 1:eol(i)].strip())
+            i = eol(i)
+        elif ch in "wW#":
+            i = eol(i)
+        elif ch in "aic":
+            i = eol(i + 1)
+            while i < n and script[i - 1] == "\\":
+                i = eol(i + 1)
+        elif ch in ":btT":
+            while i < n and script[i] not in ";\n}":
+                i += 1
+        else:
+            i += 1
+    return False, files
+
+
 def bash_shows(command, cwd, target, depth=0, fed=False):
     """True if a Bash command can show or copy the target without writing its path literally.
     Text matching: it follows cd, wildcards, simple variables and the usual search commands.
@@ -970,8 +1104,9 @@ def bash_shows(command, cwd, target, depth=0, fed=False):
     here = cwd or ROOT
     env = {"HOME": os.path.expanduser("~"), "CLAUDE_PROJECT_DIR": ROOT}
     for inner, feeds in substitutions(command) if depth < 3 else ():
-        if bash_shows(inner, here, target, depth + 1, feeds):
-            return True
+        found = bash_shows(inner, here, target, depth + 1, feeds)
+        if found:
+            return found
     fed = fed or bool(WHILE_READ.search(command)) or any(
         os.path.basename(w) == "xargs" and os.path.basename(next((x for x in ws[i + 1:] if not x.startswith("-")
                                                                   and x != "{}" and not x.isdigit()), "echo")) not in NAME_ONLY
@@ -1015,14 +1150,23 @@ def bash_shows(command, cwd, target, depth=0, fed=False):
         if verb in ("bash", "sh", "zsh", "eval") and depth < 3:
             script = " ".join(args) if verb == "eval" else next(
                 (args[i + 1] for i, a in enumerate(args[:-1]) if re.match(r"^-[a-z]*c$", a)), "")
-            if script and bash_shows(script, here, target, depth + 1):
-                return True
+            found = script and bash_shows(script, here, target, depth + 1)
+            if found:
+                return found
         if verb in ("xargs",):
             k = next((i for i, a in enumerate(args) if not a.startswith("-") and a != "{}" and not a.isdigit()), None)
             if k is None:
                 continue
             verb, args = os.path.basename(args[k]), args[k + 1:]
             piped = True
+        if verb in SED_CARRIERS:
+            k = 0 if verb in ("sed", "gsed") else next(
+                (j + 1 for j, a in enumerate(args) if os.path.basename(a) in ("sed", "gsed")), None)
+            runs, reads = sed_effects(sed_scripts(args[k:])) if k is not None else (False, [])
+            if any(f and path_relation(f, here, target) == "file" for f in reads):
+                return True
+            if runs:
+                return SED_RUNS  # what it runs may come from the input: it can't be checked
         if verb in GREP_VERBS:
             if grep_shows(verb, args, here, target, piped, fed):
                 return True
@@ -1100,8 +1244,9 @@ def private_violation(tool, inp, who, cwd=None):
                 literal = re.sub(r"(:!|:\^|:\(exclude\)|--exclude[= ]['\"]?|!)/?" + re.escape(n) + r"(?=['\"\s]|$)", "", literal)
             if any(n in literal for n in names):
                 return raw, ""
-            if bash_shows(cmd, cwd, target):
-                return raw, name
+            found = bash_shows(cmd, cwd, target)
+            if found:
+                return raw, (SED_RUNS if found == SED_RUNS else name)
         elif tool.startswith("mcp__") and match in blob:
             return raw, ""
     return None

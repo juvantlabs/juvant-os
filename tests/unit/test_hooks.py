@@ -1,5 +1,6 @@
 """Unit tests for framework/hooks/juvant_hooks.py. Run: python3 -m unittest discover -s tests/unit"""
 import importlib.util
+import random
 import json
 import os
 import re
@@ -862,6 +863,47 @@ class PrivateFiles(HookCase):
                   "git commit -m 'docs: use `grep -ril x docs`'"):
             with self.subTest(c=c):
                 self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "allow")
+
+    def test_sed_running_commands_denied(self):
+        for c in ("sed 's/.*/grep -rh terms docs/e' other/a.md", "sed -n 's/a/x/gpe' f", "sed 's|a|x|Ie' f", "sed -e 's/a/b/' -e 's/x/y/e' f",
+                  "sed --expression='s/a/b/e' f", "sed '1e grep -rh terms docs' f", "sed '/x/{e date\n}' f", "sed '$!e' f", "sed 'p;e' f",
+                  "gsed -i 's/a/b/e' f", "sed -i.bak 's/a/b/e' f", "sed -i '' 's/a/b/e' f", "sed 'a text\ne date' f", "sed -ne '1~2e date' f",
+                  "cat f | sed 's/x/y/e'", "X='s/a/b/e'; sed $X f", "bash -c \"sed 's/a/b/e' f\"", "echo $(sed 's/a/b/e' f)",
+                  "timeout 5 sed 's/a/b/e' f", "find other -name a.md -exec sed 's/a/b/e' {} +", "ls other | xargs sed 's/a/b/e'",
+                  "sed 's/a\\/b/c/e' f", "sed '\\,x,e date' f", "sed 'r docs//legal/settlement.md' f"):
+            with self.subTest(c=c):
+                self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "deny")
+                self.assertEqual(self.as_agent("legal", "Bash", {"command": c}), "allow", "a reader")
+        for c in ("sed 's/a/e/' f", "sed 's/e/e/g' e.md", "sed -n '/re/p' e", "sed -e 's/one/else/g' -e '/e/d' f", "sed -E 's/(e+)/[e]/g;s/x/e/' f",
+                  "sed 'a e text' f", "sed '/e/i\\\ne text' f", "sed 's/[/]/e/g' f", "sed 's#/e#/e/#g' f", "sed -i '' 's/a/b/' e.md",
+                  "sed -i 's/a/b/' e.md", "sed ':e;N;$!be;s/\\n/ /g' f", "sed -n '1,/end/p' f", "sed 'y/abc/cde/' f", "sed '# e' f",
+                  "sed -e :a -e '$!N;s/\\n//;ta' f", "sed --sandbox 's/a/b/' f", "sed -n 's/a/b/w e' f", "sed 5q e", "grep -n sed e.md",
+                  "find other -name e -exec sed -n 1p {} +", "sed 's/<[^>]*>//g' d.html | tr -s ' '", "sed '/^---$/,/^---$/d' f"):
+            with self.subTest(c=c):
+                self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "allow")
+
+    def test_sed_check_agrees_with_gnu_sed(self):
+        v = subprocess.run(["sed", "--version"], capture_output=True, text=True)
+        if "GNU sed" not in v.stdout:
+            self.skipTest("needs GNU sed")
+        spec = importlib.util.spec_from_file_location("jh_sed", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        rnd = random.Random(11)
+        tok = ["e echo HIT", "s/.*/echo HIT/e", "s|x|echo HIT|ge", "s/[/]/e/", "s/x/e/", "s/y\\/z/q/", "1", "$", "/x/", "\\,x,", "!", "{", "}",
+               ";", "\n", " ", "p", "N", "a e echo HIT", "i\\\ne echo HIT", "# e echo HIT", "y/abc/cde/", ":e", "be", "te", "G", "h", "1~2", "0,/x/", "I"]
+        ran = 0
+        for _ in range(1500):
+            script = "".join(rnd.choice(tok) for _ in range(rnd.randint(1, 6)))
+            try:
+                p = subprocess.run(["sed", script], input="x\nx\n", capture_output=True, text=True, timeout=3, cwd=self.repo)
+            except subprocess.TimeoutExpired:
+                continue
+            if "HIT" in p.stdout.splitlines():
+                ran += 1
+                self.assertTrue(mod.sed_effects(script)[0], script)
+        self.assertGreater(ran, 50)
+        print(f"gnu-sed-agreement: {ran} scripts ran a command")
 
     def test_message_does_not_tell_why_it_is_private(self):
         with open(os.path.join(self.repo, "memory", "private.md"), "a") as f:
