@@ -24,4 +24,6 @@ Remove its row (again the CEO confirms).
 
 If a task needs a file you can't open, don't look for another way to read it: tell whoever asked which file it is and that it's private, and ask the CEO or one of its readers to pass on what the task needs.
 
-**Limit to know:** a broad search (grep across a folder, a tenant-wide SharePoint search) can still show a line of a private file in its results. What's blocked is opening the file.
+**Searching around it:** a search that prints lines from a folder holding a private file is stopped, and the message says how to leave the file out. Listing file names (`grep -l`) isn't.
+
+**Limit to know:** this is a guardrail, not isolation. The hook reads the text of each call; it can't follow scripts, interpreters or every shell construction, and a tenant-wide SharePoint search can still show a line. Git history keeps earlier versions. What must never be seen by others belongs outside the repo.

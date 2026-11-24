@@ -736,6 +736,104 @@ class PrivateFiles(HookCase):
         self.assertEqual(self.as_agent(None, "Bash", {"command": "sed -i '' 3d memory/private.md"}), "ask")
         self.assertEqual(self.as_agent(None, "Read", {"file_path": "memory/private.md"}), "allow", "the list itself is readable")
 
+    def git(self, *a):
+        subprocess.run(["git", "-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@example.org", *a], check=True, capture_output=True)
+
+    def with_history(self):
+        with open(os.path.join(self.repo, "docs", "open.md"), "w") as f:
+            f.write("open")
+        os.makedirs(os.path.join(self.repo, "other"), exist_ok=True)
+        with open(os.path.join(self.repo, "other", "a.md"), "w") as f:
+            f.write("a")
+        self.git("init", "-q", "-b", "main")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "one")
+        with open(os.path.join(self.repo, "docs", "open.md"), "w") as f:
+            f.write("open two")
+        self.git("commit", "-qam", "two")
+
+    def test_indirect_bash_reads_denied(self):
+        self.with_history()
+        for c in ("cat docs/legal/*.md", "cat docs/*/settlement.md", "cat docs/legal/sett*", "cd docs/legal && cat settlement.md",
+                  "cd docs; cat legal/settlement.md", "(cd docs/legal; head settlement.md)", "cat docs//legal/settlement.md",
+                  "cat docs/legal/../legal/settlement.md", 'cat docs/legal/settle""ment.md', "cat docs/legal/{settlement,x}.md",
+                  "D=docs/legal; cat $D/*", "cat < docs/legal/s*.md", "cat docs/LEGAL/Settlement.md",
+                  "for f in docs/legal/*.md; do cat $f; done", "bash -c 'cd docs/legal && cat settlement.md'",
+                  "grep -rn terms docs", "grep -ri terms .", "grep -r terms", "rg terms", "rg -n terms docs | head",
+                  "cd docs && grep -rn terms .", "git grep terms", "git grep terms -- docs", "git log -p", "git log -p docs",
+                  "git show HEAD~1", "git show HEAD:docs//legal/settlement.md", "cd docs && git show HEAD:./legal/settlement.md",
+                  "find docs -name '*.md' -exec cat {} +", "find docs -type f | xargs cat", "grep -rl terms docs | xargs cat",
+                  "cat $(grep -rl terms docs)", "for f in $(find docs -type f); do cat $f; done",
+                  "x=$(cat docs/legal/*.md)", "echo `grep -rh terms docs`", "ls docs/legal/* | while read f; do cat $f; done", "git archive HEAD",
+                  "tar czf /tmp/d.tgz docs", "cp -r docs /tmp/d", "rsync -a docs/ /tmp/d", "zip -r /tmp/d.zip docs"):
+            with self.subTest(c=c):
+                self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "deny")
+                self.assertEqual(self.as_agent("legal", "Bash", {"command": c}), "allow", "a reader")
+
+    def test_ordinary_commands_stay_allowed(self):
+        self.with_history()
+        for c in ("grep -ril terms docs", "grep -rn x other", "rg x other", "ls -la docs/legal", "ls docs/legal/*",
+                  "find docs -name '*.md'", "find docs -name open.md -exec cat {} +", "grep -rn --exclude=settlement.md terms docs",
+                  "grep -rn --include='*.py' x docs", "grep -rn --exclude-dir=legal x docs", "rg -g '!settlement.md' terms docs",
+                  "rg -g '*.py' x", "git status", "git diff", "git diff HEAD~1", "git show HEAD", "git log --oneline", "git log --stat",
+                  "git show --stat HEAD~1", "git grep -l terms", "git grep terms -- other", "git grep terms -- . ':!docs/legal/settlement.md'",
+                  "git log -p -- other", "git add -A && git commit -m 'docs update'", "cat docs/open.md", "cat docs/*.md",
+                  "cat other/a.md | grep a", "cat other/a.md | rg a", "cp -r other /tmp/o", "tar xzf /tmp/d.tgz -C docs",
+                  "cp /tmp/x.md docs/", "du -sh docs", "echo docs/legal/*", "sed -n 's/.*//p' other/a.md",
+                  "git diff -- other", "python3 -m unittest discover", "cd docs/legal && ls", "it's unbalanced", "n=$(find docs -name '*.md' | wc -l); echo $n",
+                  "echo $(ls docs)", "git commit -m \"$(cat other/a.md)\"", "cat other/$(ls other)"):
+            with self.subTest(c=c):
+                self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "allow")
+
+    def test_git_diff_denied_only_when_it_shows_the_file(self):
+        self.with_history()
+        self.assertEqual(self.as_agent("finance", "Bash", {"command": "git diff"}), "allow")
+        with open(os.path.join(self.repo, "docs", "legal", "settlement.md"), "w") as f:
+            f.write("new terms")
+        self.assertEqual(self.as_agent("finance", "Bash", {"command": "git diff"}), "deny")
+        self.assertEqual(self.as_agent("finance", "Bash", {"command": "git diff --stat"}), "allow")
+        self.assertEqual(self.as_agent("finance", "Bash", {"command": "git diff -- other"}), "allow")
+
+    def test_grep_tool_searches(self):
+        for inp, want in (({"output_mode": "content"}, "deny"), ({"path": "docs", "output_mode": "content"}, "deny"),
+                          ({"path": "docs", "output_mode": "content", "glob": "sett*"}, "deny"),
+                          ({"path": "docs/legal/settlement.md"}, "deny"), ({"path": "docs//legal/settlement.md"}, "deny"),
+                          ({"path": "docs"}, "allow"), ({"path": "docs", "output_mode": "count"}, "allow"),
+                          ({"path": "docs", "output_mode": "content", "glob": "!settlement.md"}, "allow"),
+                          ({"path": "docs", "output_mode": "content", "glob": "*.{py,js}"}, "allow"),
+                          ({"output_mode": "content", "type": "py"}, "allow"), ({"path": "memory", "output_mode": "content"}, "allow")):
+            with self.subTest(inp=inp):
+                self.assertEqual(self.as_agent("finance", "Grep", dict(inp, pattern="x")), want)
+                self.assertEqual(self.as_agent("legal", "Grep", dict(inp, pattern="x")), "allow")
+
+    def test_broad_search_message_names_the_exclusion(self):
+        ev = {"tool_name": "Bash", "tool_input": {"command": "grep -rn x docs"}, "session_id": "s1", "agent_type": "finance"}
+        rc, out, err = self.run_hook("limits", ev)
+        self.assertIn("--exclude=settlement.md", json.dumps(out) + str(err))
+
+    def test_relative_paths_follow_the_event_cwd(self):
+        for cmd, want in (("cat settlement.md", 2), ("grep -rn x .", 2), ("ls", 0)):
+            ev = {"tool_name": "Bash", "tool_input": {"command": cmd}, "session_id": "s1", "agent_type": "finance",
+                  "cwd": os.path.join(self.repo, "docs", "legal")}
+            with self.subTest(cmd=cmd):
+                rc, out, _ = self.run_hook("limits", ev)
+                self.assertEqual(out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny" or rc == 2, want == 2)
+
+    def test_digest_leaves_private_files_out(self):
+        d = os.path.join(self.repo, "memory", "decisions")
+        os.makedirs(d, exist_ok=True)
+        for n, t in (("2026-11-01-a.md", "Salary of X"), ("2026-11-02-b.md", "Open decision")):
+            with open(os.path.join(d, n), "w") as f:
+                f.write(f"---\nstatus: active\ndate: 2026-11-01\n---\n# {t}\n")
+        with open(os.path.join(self.repo, "memory", "private.md"), "a") as f:
+            f.write("| memory/decisions/2026-11-01-a.md | finance | pay | 2026-11-09 |\n")
+        rc, out, _ = self.run_hook("session-start", {"session_id": "d1"})
+        self.assertIn("Open decision", json.dumps(out))
+        self.assertNotIn("Salary of X", json.dumps(out))
+
+    def test_a_call_that_cannot_be_checked_is_denied(self):
+        self.assertEqual(self.as_agent("finance", "Bash", {"command": "cat a\0b"}), "deny")
+
     def test_no_registry_no_rule(self):
         os.remove(os.path.join(self.repo, "memory", "private.md"))
         self.assertEqual(self.as_agent("finance", "Read", {"file_path": "docs/legal/settlement.md"}), "allow")
