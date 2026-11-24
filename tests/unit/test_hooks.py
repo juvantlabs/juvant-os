@@ -892,8 +892,8 @@ class PrivateFiles(HookCase):
         rnd = random.Random(11)
         tok = ["e echo HIT", "s/.*/echo HIT/e", "s|x|echo HIT|ge", "s/[/]/e/", "s/x/e/", "s/y\\/z/q/", "1", "$", "/x/", "\\,x,", "!", "{", "}",
                ";", "\n", " ", "p", "N", "a e echo HIT", "i\\\ne echo HIT", "# e echo HIT", "y/abc/cde/", ":e", "be", "te", "G", "h", "1~2", "0,/x/", "I"]
-        ran = 0
-        for _ in range(1500):
+        ran, missed = 0, []
+        for _ in range(4000):
             script = "".join(rnd.choice(tok) for _ in range(rnd.randint(1, 6)))
             try:
                 p = subprocess.run(["sed", script], input="x\nx\n", capture_output=True, text=True, timeout=3, cwd=self.repo)
@@ -901,7 +901,9 @@ class PrivateFiles(HookCase):
                 continue
             if "HIT" in p.stdout.splitlines():
                 ran += 1
-                self.assertTrue(mod.sed_effects(script)[0], script)
+                if not mod.sed_effects(script)[0]:
+                    missed.append(script)
+        self.assertEqual(missed, [])
         self.assertGreater(ran, 50)
         print(f"gnu-sed-agreement: {ran} scripts ran a command")
 

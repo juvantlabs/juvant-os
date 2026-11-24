@@ -1087,7 +1087,10 @@ def sed_effects(script):
             while i < n and script[i - 1] == "\\":
                 i = eol(i + 1)
         elif ch in ":btT":
-            while i < n and script[i] not in ";\n}":
+            i += 1
+            while i < n and script[i] in " \t":
+                i += 1
+            while i < n and script[i] not in " \t;\n}":  # GNU ends a label at a space
                 i += 1
         else:
             i += 1
