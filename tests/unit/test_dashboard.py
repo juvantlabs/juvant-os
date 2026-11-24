@@ -25,6 +25,20 @@ class Dashboard(unittest.TestCase):
         with open(p, "w", encoding="utf-8") as f:
             f.write(text)
 
+    def test_private_files_stay_off_the_page(self):
+        self.write("memory/decisions/2026-11-01-a.md", "---\nstatus: active\ndate: 2026-11-01\n---\n# Secretplan alpha\n")
+        self.write("memory/decisions/2026-11-02-b.md", "---\nstatus: active\ndate: 2026-11-02\n---\n# Ordinary beta\n")
+        self.write("memory/deadlines.md", "| Date | What | Who |\n|---|---|---|\n| 2030-01-01 | Secretplan gamma | cos |\n")
+        self.write("drafts/secretplan-delta.md", "x")
+        self.write("memory/projects/p/README.md", "---\nstatus: active\n---\n# Secretplan epsilon\n")
+        self.assertIn("secretplan", self.page().lower())
+        self.write("memory/private.md", "| File | Readers | Why | Added |\n|---|---|---|---|\n" + "".join(
+            f"| {p} | legal | x | 2026-11-09 |\n" for p in ("memory/decisions/2026-11-01-a.md", "memory/deadlines.md",
+                                                             "drafts/secretplan-delta.md", "memory/projects/p/README.md")))
+        page = self.page()
+        self.assertNotIn("secretplan", page.lower())
+        self.assertIn("Ordinary beta", page)
+
     def page(self, agents_json=None):
         return build.build(self.repo, TODAY, agents_json)
 

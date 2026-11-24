@@ -295,14 +295,14 @@ def cmd_limits():
         # A check that fails must not let the call through, nor skip the limits below.
         deny(f"juvant-os private files: this call couldn't be checked ({type(e).__name__}). Write it more simply.")
     if hit:
-        row, name = hit
+        name = hit[1]  # the row says why it's private: not for non-readers
         if name:
             deny(f"juvant-os private file: this call could show `{name}`, marked private in {PRIVATE_REGISTRY}, and `{who}` "
-                 f"isn't among the readers ({row}). Nothing else is blocked: repeat it without that file (Grep: glob "
+                 f"isn't among the readers. Nothing else is blocked: repeat it without that file (Grep: glob "
                  f"`!{name}`; grep: `--exclude={name}`; rg: `-g '!{name}'`; git: `-- . ':(exclude)<its path>'`), in a narrower "
                  "folder, or listing file names only (`grep -l`).")
         deny(f"juvant-os private file: this file is marked private in {PRIVATE_REGISTRY} and `{who}` isn't among "
-             f"the readers ({row}). Ask the CEO, or someone listed, to pass on what you need.")
+             f"the readers. Ask the CEO, or someone listed, to pass on what you need.")
     fp_ = str(inp.get("file_path") or "")
     if tool in ("Write", "Edit", "MultiEdit") and fp_ and norm_path(fp_) == norm_path(PRIVATE_REGISTRY):
         ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
@@ -664,6 +664,21 @@ GREP_ARG_LONG = {"--regexp", "--file", "--after-context", "--before-context", "-
 REV = re.compile(r"^[A-Za-z0-9_@][\w./^~@{}-]*$")
 
 
+def drop_redirects(words):
+    """The words without output redirects (`2>/dev/null`, `> file`, `2>&1`): they aren't arguments."""
+    out, i = [], 0
+    while i < len(words):
+        w = words[i]
+        if w and set(w) <= set("<>&|") and ">" in w:
+            if out and out[-1].isdigit():
+                out.pop()
+            i += 2
+            continue
+        out.append(w)
+        i += 1
+    return out
+
+
 def piped_segments(command):
     """[(words, reads a pipe)], or None if the command can't be parsed."""
     try:
@@ -787,7 +802,8 @@ def git_shows(args, here, target, names_fed):
     if sub == "grep" and not any(f.startswith("-e") for f in flags):
         plain = plain[1:]
     if not dash:
-        onpaths = [w for w in plain if path_relation(w, here, target)]
+        onpaths = [w for w in plain if path_relation(w, here, target) or os.path.lexists(os.path.join(here, w))
+                   or re.match(r"^(\.\w|\.\.?/|/)", w)]
         paths, plain = onpaths, [w for w in plain if w not in onpaths]
     for w in paths + magic:
         m = re.match(r"^:(?:!|\^|\(exclude\))(/?)(.*)$", w)
@@ -916,7 +932,7 @@ def bash_shows(command, cwd, target, depth=0, fed=False):
 
     for raw, piped in segments:
         words = []
-        for w in raw:
+        for w in drop_redirects(raw):
             w = re.sub(r"^[({`]+(?=[^,]*$)|^\$\(", "", sub(w)) if not w.startswith("${") else sub(w)
             w = w.rstrip("`")
             if w.endswith(")") and "(" not in w:
@@ -936,6 +952,8 @@ def bash_shows(command, cwd, target, depth=0, fed=False):
         for i, w in enumerate(words[:-1]):
             if w == "<" and path_relation(words[i + 1], here, target) == "file":
                 return True
+            if w == "<" and not words[i + 1].startswith("("):
+                args = [a for j, a in enumerate(words[1:], 1) if j not in (i, i + 1)]
         if verb in ("cd", "pushd"):
             t = next((a for a in args if a == "-" or not a.startswith("-")), "~")
             if t != "-" and "$" not in t:

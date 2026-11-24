@@ -831,6 +831,29 @@ class PrivateFiles(HookCase):
         self.assertIn("Open decision", json.dumps(out))
         self.assertNotIn("Salary of X", json.dumps(out))
 
+    def test_git_paths_and_redirects_are_not_revisions(self):
+        self.with_history()
+        for c in ("git diff 2>/dev/null", "git diff 2>&1 | head", "git diff > /tmp/x", "git diff docs/open.md", "git diff .claude",
+                  "git diff memory/private.md; sed -n 1,3p docs/open.md; cat memory/private.md",
+                  "git log -p docs/open.md", "git show HEAD docs/open.md", "git show HEAD 2>/dev/null"):
+            with self.subTest(c=c):
+                self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "allow")
+        for c in ("grep -r terms 2>/dev/null", "rg terms 2>/dev/null", "git log -p 2>/dev/null", "git show HEAD~1 docs",
+                  "cat docs/legal/*.md 2>/dev/null", "cat < docs/legal/s*.md > /tmp/x", "cat <(cat docs/legal/*.md)"):
+            with self.subTest(c=c):
+                self.assertEqual(self.as_agent("finance", "Bash", {"command": c}), "deny")
+
+    def test_message_does_not_tell_why_it_is_private(self):
+        with open(os.path.join(self.repo, "memory", "private.md"), "a") as f:
+            f.write("| docs/legal/b.md | legal | a-telling-reason | 2026-11-09 |\n")
+        with open(os.path.join(self.repo, "docs", "legal", "b.md"), "w") as f:
+            f.write("x")
+        for c in ("cat docs/legal/b.md", "cd docs/legal && cat b.md"):
+            ev = {"tool_name": "Bash", "tool_input": {"command": c}, "session_id": "s1", "agent_type": "finance"}
+            rc, out, err = self.run_hook("limits", ev)
+            self.assertNotIn("a-telling-reason", json.dumps(out) + err)
+            self.assertIn("private", json.dumps(out) + err)
+
     def test_a_call_that_cannot_be_checked_is_denied(self):
         self.assertEqual(self.as_agent("finance", "Bash", {"command": "cat a\0b"}), "deny")
 

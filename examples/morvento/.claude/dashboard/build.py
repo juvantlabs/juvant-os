@@ -32,7 +32,30 @@ def plain(x):
     return re.sub(r"[*_`#]+", "", str(x or "")).strip()
 
 
+def private_paths(root):
+    """Real paths of the files listed in memory/private.md: they stay off the page."""
+    out = set()
+    try:
+        with open(os.path.join(root, "memory", "private.md"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if line.strip().startswith("|") and len(cells) >= 2 and "://" not in cells[0]:
+            p = os.path.expanduser(cells[0].strip("`").strip())
+            if p:
+                out.add(os.path.realpath(os.path.join(root, p)).casefold())
+    return out
+
+
+def is_private(root, rel):
+    return os.path.realpath(os.path.join(root, rel)).casefold() in private_paths(root)
+
+
 def read(root, rel):
+    if is_private(root, rel):
+        return ""
     try:
         with open(os.path.join(root, rel), encoding="utf-8") as f:
             return f.read()
@@ -42,7 +65,9 @@ def read(root, rel):
 
 def listdir(root, rel, pattern=r".*\.md$"):
     try:
-        return sorted(n for n in os.listdir(os.path.join(root, rel)) if re.match(pattern, n))
+        hidden = private_paths(root)
+        return sorted(n for n in os.listdir(os.path.join(root, rel)) if re.match(pattern, n)
+                      and os.path.realpath(os.path.join(root, rel, n)).casefold() not in hidden)
     except OSError:
         return []
 
