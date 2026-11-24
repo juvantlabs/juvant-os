@@ -69,9 +69,10 @@ bash "$ROOT/setup.sh" --project-repo "$T/plain" --company-dir "$T/plain" --proje
 bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project 'Bad Slug' >/dev/null 2>&1; check "bad slug refused" "[[ \$? == 2 ]]"
 
 echo "== update between two tags"
+# Fake versions (v2.900.x) must never match a real tag: setup.sh records the checkout's own tag.
 F="$T/fw.git"; W="$T/fw"
 mkdir -p "$W"; cp -R "$ROOT/framework" "$W/framework"
-g -C "$W" init -q; g -C "$W" add -A; g -C "$W" commit -qm A; g -C "$W" tag v2.0.0
+g -C "$W" init -q; g -C "$W" add -A; g -C "$W" commit -qm A; g -C "$W" tag v2.900.0
 g clone -q --bare "$W" "$F"
 U="$T/co"; bash "$ROOT/setup.sh" "$U" >/dev/null
 g -C "$U" init -q; g -C "$U" add -A; g -C "$U" commit -qm setup
@@ -94,29 +95,29 @@ a = "post_install() {\n"
 assert a in s; open(p,"w").write(s.replace(a, a + '  echo "update: post-install step only the new copy has"\n', 1))
 PY
 sed -i.bak -e 's#^skills/decision/SKILL.md$#skills/brief/SKILL.md#' "$W/framework/FILES"; rm "$W/framework/FILES.bak"
-g -C "$W" add -A; g -C "$W" commit -qm B; g -C "$W" tag v2.0.1; g -C "$W" push -q "$F" main --tags 2>/dev/null || g -C "$F" fetch -q "$W" 'refs/tags/*:refs/tags/*'
-# Fake GitHub releases API (file://): v2.0.1 is a published release, v2.0.0 is only a tag, v2.0.2 is a draft.
+g -C "$W" add -A; g -C "$W" commit -qm B; g -C "$W" tag v2.900.1; g -C "$W" push -q "$F" main --tags 2>/dev/null || g -C "$F" fetch -q "$W" 'refs/tags/*:refs/tags/*'
+# Fake GitHub releases API (file://): v2.900.1 is a published release, v2.900.0 is only a tag, v2.900.2 is a draft.
 A="$T/api/repos/acme/fw/releases"; mkdir -p "$A/tags"
-echo '{"tag_name": "v2.0.1", "draft": false, "prerelease": false}' > "$A/tags/v2.0.1"
-echo '{"tag_name": "v2.0.2", "draft": true}' > "$A/tags/v2.0.2"
+echo '{"tag_name": "v2.900.1", "draft": false, "prerelease": false}' > "$A/tags/v2.900.1"
+echo '{"tag_name": "v2.900.2", "draft": true}' > "$A/tags/v2.900.2"
 # A newer pre-release and a v1 release: neither is "the latest" for update.
-echo '{"tag_name": "v2.0.3", "draft": false, "prerelease": true}' > "$A/tags/v2.0.3"
+echo '{"tag_name": "v2.900.3", "draft": false, "prerelease": true}' > "$A/tags/v2.900.3"
 echo '{"tag_name": "v1.9.0", "draft": false, "prerelease": false}' > "$A/tags/v1.9.0"
-g -C "$W" tag v2.0.3; g -C "$W" tag v1.9.0; g -C "$F" fetch -q "$W" 'refs/tags/*:refs/tags/*'
+g -C "$W" tag v2.900.3; g -C "$W" tag v1.9.0; g -C "$F" fetch -q "$W" 'refs/tags/*:refs/tags/*'
 export JUVANT_OS_API="file://$T/api" JUVANT_OS_RELEASE_SLUG=acme/fw
-( cd "$U" && bash .claude/skills/update/update.sh v2.0.0 --repo "$F" >/dev/null 2>&1 ); check "a tag without a release is refused" "[[ $? == 1 ]] && ! grep -q '\"version\": \"v2.0.0\"' '$U/.claude/juvant-os.json'"
-( cd "$U" && bash .claude/skills/update/update.sh v2.0.2 --repo "$F" >/dev/null 2>&1 ); check "a draft release is refused" "[[ $? == 1 ]]"
+( cd "$U" && bash .claude/skills/update/update.sh v2.900.0 --repo "$F" >/dev/null 2>&1 ); check "a tag without a release is refused" "[[ $? == 1 ]] && ! grep -q '\"version\": \"v2.900.0\"' '$U/.claude/juvant-os.json'"
+( cd "$U" && bash .claude/skills/update/update.sh v2.900.2 --repo "$F" >/dev/null 2>&1 ); check "a draft release is refused" "[[ $? == 1 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh --from "$W/framework" >/dev/null 2>&1 ); check "--from outside setup is refused" "[[ $? == 2 ]]"
 ( cd "$U" && JUVANT_OS_RELEASE_SLUG=acme/none bash .claude/skills/update/update.sh --repo "$F" 2>&1 | grep -q 'no published v2 release' ); check "no releases: nothing to update" "[[ $? == 0 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh --repo "$F" > "$T/up1.out" 2>&1 ); rc=$?
-check "update with no tag installs the latest stable v2 release" "[[ $rc == 0 ]] && grep -q '\"version\": \"v2.0.1\"' '$U/.claude/juvant-os.json'"
+check "update with no tag installs the latest stable v2 release" "[[ $rc == 0 ]] && grep -q '\"version\": \"v2.900.1\"' '$U/.claude/juvant-os.json'"
 check "post-install steps run in the newly installed copy" "grep -q 'post-install step only the new copy has' '$T/up1.out'"
 check "hook updated" "grep -q 'CONTEXT_CAP = 9400' '$U/.claude/hooks/juvant_hooks.py'"
 check "removed skill removed" "[[ ! -e '$U/.claude/skills/decision/SKILL.md' ]]"
 check "new skill installed" "[[ -f '$U/.claude/skills/brief/SKILL.md' ]]"
-check "version is the tag" "grep -q '\"version\": \"v2.0.1\"' '$U/.claude/juvant-os.json'"
+check "version is the tag" "grep -q '\"version\": \"v2.900.1\"' '$U/.claude/juvant-os.json'"
 changed=$(g -C "$U" status --porcelain | awk '{print $2}' | grep -v -e '^\.claude/hooks/' -e '^\.claude/skills/' -e '^\.claude/juvant-os' || true)
-check "update.sh replaced itself cleanly" "grep -q 'padding line 79' '$U/.claude/skills/update/update.sh' && grep -q '\"version\": \"v2.0.1\"' '$U/.claude/juvant-os.json'"
+check "update.sh replaced itself cleanly" "grep -q 'padding line 79' '$U/.claude/skills/update/update.sh' && grep -q '\"version\": \"v2.900.1\"' '$U/.claude/juvant-os.json'"
 check "only framework paths changed (got: ${changed:-none})" "[[ -z '$changed' ]]"
 check "company CLAUDE.md untouched" "grep -q 'custom company line' '$U/CLAUDE.md' && ! grep -q 'changed template' '$U/CLAUDE.md'"
 check "company settings untouched" "[[ \$(cat '$U/.claude/settings.json') == '{\"mine\":true}' ]]"
@@ -136,12 +137,12 @@ echo '{"known_prefixes": ["mcp__acme-erp__"]}' > "$K/.claude/limits-company.json
 check "update leaves the company's limits file alone" "[[ \$(cat '$K/.claude/limits-company.json') == '{\"known_prefixes\": [\"mcp__acme-erp__\"]}' ]]"
 check "nothing committed" "[[ \$(g -C '$U' log --oneline | wc -l | tr -d ' ') == 2 ]]"
 ( cd "$U" && bash .claude/skills/update/update.sh v9.9.9 --repo "$F" >/dev/null 2>&1 ); check "unknown tag fails" "[[ $? != 0 ]]"
-mkdir -p "$U/.juvant"; ( cd "$U" && bash .claude/skills/update/update.sh v2.0.1 --repo "$F" >/dev/null 2>&1 ); check "update refuses on a v1 instance" "[[ $? == 1 ]]"
+mkdir -p "$U/.juvant"; ( cd "$U" && bash .claude/skills/update/update.sh v2.900.1 --repo "$F" >/dev/null 2>&1 ); check "update refuses on a v1 instance" "[[ $? == 1 ]]"
 
 echo "== setup only from an official release"
 R="$T/rel"; mkdir -p "$R"; cp -R "$ROOT/framework" "$ROOT/setup.sh" "$R/"
-g -C "$R" init -q; g -C "$R" add -A; g -C "$R" commit -qm r0; g -C "$R" tag v2.0.0
-echo "# later" >> "$R/framework/README.md"; g -C "$R" commit -qam r1; g -C "$R" tag v2.0.1
+g -C "$R" init -q; g -C "$R" add -A; g -C "$R" commit -qm r0; g -C "$R" tag v2.900.0
+echo "# later" >> "$R/framework/README.md"; g -C "$R" commit -qam r1; g -C "$R" tag v2.900.1
 echo "# unreleased" >> "$R/framework/README.md"; g -C "$R" commit -qam r2
 g clone -q --bare "$R" "$T/rel.git"
 rs() { # <checkout-ref> <company-dir> [modify]
@@ -149,10 +150,10 @@ rs() { # <checkout-ref> <company-dir> [modify]
   [[ -n "${3:-}" ]] && echo "# local" >> "$w/framework/README.md"
   JUVANT_OS_DEV="" JUVANT_OS_REPO="$T/rel.git" bash "$w/setup.sh" "$T/$2" >/dev/null 2>&1
 }
-rs v2.0.1 rel-ok; check "setup from a published release works" "[[ \$? == 0 && -f '$T/rel-ok/.claude/hooks/juvant_hooks.py' ]]"
+rs v2.900.1 rel-ok; check "setup from a published release works" "[[ \$? == 0 && -f '$T/rel-ok/.claude/hooks/juvant_hooks.py' ]]"
 rs main rel-main; check "setup from main is refused" "[[ \$? == 1 && ! -e '$T/rel-main/CLAUDE.md' ]]"
-rs v2.0.0 rel-tag; check "setup from a tag without a release is refused" "[[ \$? == 1 && ! -e '$T/rel-tag/CLAUDE.md' ]]"
-rs v2.0.1 rel-dirty modify; check "setup with local framework changes is refused" "[[ \$? == 1 && ! -e '$T/rel-dirty/CLAUDE.md' ]]"
+rs v2.900.0 rel-tag; check "setup from a tag without a release is refused" "[[ \$? == 1 && ! -e '$T/rel-tag/CLAUDE.md' ]]"
+rs v2.900.1 rel-dirty modify; check "setup with local framework changes is refused" "[[ \$? == 1 && ! -e '$T/rel-dirty/CLAUDE.md' ]]"
 
 echo "test-setup-update: $PASS passed, $FAIL failed"
 [[ "$FAIL" == 0 ]]
