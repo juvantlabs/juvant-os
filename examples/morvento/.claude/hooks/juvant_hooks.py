@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -34,6 +35,7 @@ ACTIVITY = os.path.join(STATE, "activity.jsonl")
 FINDINGS = os.path.join(STATE, "limits-findings.jsonl")
 CONTEXT_CAP = 9500
 OUTCOME_CAP = 160
+CHECK_SECONDS = 25
 ROLE_ID = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
 SETTINGS = os.path.join(ROOT, ".claude", "settings.json")
 # Every built-in tool cmd_limits() looks at. Claude Code calls the hook only for
@@ -159,7 +161,10 @@ def merge_extra(cfg, extra, path, lists, prefix, check_rules=None):
                     raise ValueError(f"{path}: every rule in '{'.'.join(where)}' needs an id and a pattern (no input conditions)")
                 added.append(r)
                 default = "a company rule (.claude/limits-company.json)" if company else f"a rule of an extension ({path})"
-                r = dict(r, id=prefix + str(r["id"]), why=str(r.get("why") or default))
+                why = str(r.get("why") or default)
+                if not company and r.get("why"):
+                    why = f"an extension's own rule, in its publisher's words: {why}"
+                r = dict(r, id=prefix + str(r["id"]), why=why)
                 (cfg["secrets"] if key == "secrets" else cfg[key][sk]).append(r)
     if check_rules:
         check_rules(added, path)
@@ -173,12 +178,14 @@ EXTENSION_ID = re.compile(r"[a-z][a-z0-9]*(-[a-z0-9]+)*")
 
 
 def pattern_cost(pattern):
-    """How much a pattern can backtrack (the product of its repeats), or a ValueError for what isn't
-    allowed in an extension: a slow pattern could make the gate time out."""
+    """How much a pattern can backtrack, or a ValueError for what an extension may not use: a slow
+    pattern could make the gate time out, and a gate that times out doesn't block. Repeats only on
+    a single character or class, with a maximum; alternatives multiply."""
     try:
         from re import _parser as parser  # 3.11+
     except ImportError:
         import sre_parse as parser
+    single = ("LITERAL", "NOT_LITERAL", "ANY", "IN")
 
     def cost(tree):
         total = 1
@@ -186,19 +193,19 @@ def pattern_cost(pattern):
             name = str(op)
             if name in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"):
                 lo, hi, sub = arg
-                if hi > 200:
-                    raise ValueError("no open-ended * or +: give a maximum, like {0,100}")
-                total *= max(hi, 1) * cost(sub)
+                if hi > 100:
+                    raise ValueError("no open-ended * or +: give a maximum, like {0,40}")
+                if len(sub) != 1 or str(sub[0][0]) not in single:
+                    raise ValueError("a repeat goes on one character or class, not on a group")
+                total *= hi - lo + 1
             elif name == "SUBPATTERN":
                 total *= cost(arg[-1])
             elif name == "BRANCH":
                 total *= sum(cost(x) for x in arg[1])
-            elif name in ("LITERAL", "NOT_LITERAL", "ANY", "IN", "AT", "CATEGORY"):
-                pass
-            else:
+            elif name not in single + ("AT",):
                 raise ValueError("lookarounds and back references aren't allowed")
-            if total > 5000:
-                raise ValueError("the pattern is too expensive")
+            if total > 100:
+                raise ValueError("too many ways to match: simplify it")
         return total
     return cost(parser.parse(pattern))
 
@@ -208,9 +215,9 @@ def check_extension_rules(rules, path):
         raise ValueError(f"{path}: at most 20 rules")
     for r in rules:
         if set(r) - {"id", "pattern", "why"} or not all(isinstance(v, str) for v in r.values()) \
-                or not EXTENSION_ID.fullmatch(r["id"]) or len(r["id"]) > 40 or len(r["pattern"]) > 300 \
-                or len(r.get("why", "")) > 300 or not r.get("why", "").isprintable():
-            raise ValueError(f"{path}: a rule is an id, a pattern and a one-line why")
+                or not EXTENSION_ID.fullmatch(r["id"]) or len(r["id"]) > 40 or len(r["pattern"]) > 200 \
+                or len(r.get("why", "")) > 200 or not r.get("why", "").isprintable():
+            raise ValueError(f"{path}: a rule is an id, a pattern (200 characters) and a one-line why")
         try:
             pattern_cost(r["pattern"])
         except (ValueError, re.error, RecursionError, OverflowError) as e:
@@ -273,12 +280,13 @@ def extension_problems():
             out.append(f"extension {ext}: its removal was interrupted; run `plan remove {ext}` again")
             continue
         changed, dirs = [], set()
+        changed += [f"{rel} (left from an interrupted update)" for rel in entry.get("stale", [])]
         for rel, digest in entry["files"].items():
             dirs.add("/".join(rel.split("/")[:3]))
             p = os.path.join(ROOT, rel)
             try:
                 with open(p, "rb") as f:
-                    same = not os.path.islink(p) and hashlib.sha256(f.read()).hexdigest() == digest
+                    same = not os.path.islink(p) and hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest() == digest
             except OSError:
                 same = False
             if not same:
@@ -298,13 +306,26 @@ def extension_problems():
 
 
 EXTENSION_APPLY = re.compile(r"python3 (?:\./)?\.claude/skills/extensions/extensions\.py apply ([0-9a-f]{64})")
+# The framework's own maintenance commands, alone and as documented: no extension's rule can stop them.
+MAINTENANCE = re.compile(r"python3 (?:\./)?\.claude/skills/extensions/extensions\.py (?:list|check|plan(?: [\w./:-]+)+|apply [0-9a-f]{64})"
+                         r"|bash (?:\./)?\.claude/skills/update/update\.sh(?: [\w.-]+)?")
 
 
 def extension_command(command, cwd):
-    """("ask"|"deny", text) for a command that installs, updates or removes an extension."""
-    if not re.search(r"extensions\.py['\"]?\s+['\"]?apply\b", command):
-        return None
+    """("ask"|"deny", text) for a command that installs, updates or removes an extension. Anything that
+    runs a plan in other words than the documented ones is denied."""
     m = EXTENSION_APPLY.fullmatch(command.strip())
+    if not m:
+        plain = re.sub(r"[\"'\\\\]", "", command)
+        runs = re.search(r"extensions\.py\s+apply\s+\S", plain, re.I)
+        names = any(os.path.exists(os.path.join(STATE, "extensions", x + ".json")) for x in re.findall(r"[0-9a-f]{64}", plain))
+        if not runs and not names:
+            return None
+        segments = shell_segments(command)
+        if segments is not None and all(is_read_only(w) or (w[0] == "git" and len(w) > 1 and w[1] in GIT_READ) for w in segments):
+            return None  # a message or a search that only mentions it
+        if runs and not names and not re.search(r"skills/extensions|(^|[\s;&|/])extensions\.py\s+apply\s+[0-9a-f]{64}", plain, re.I):
+            return None  # some other program's script
     if not m or os.path.realpath(cwd or ROOT) != os.path.realpath(ROOT):
         return "deny", ("run it on its own, from the company folder, exactly as `plan` printed it: "
                         "`python3 .claude/skills/extensions/extensions.py apply <plan-id>`")
@@ -320,21 +341,30 @@ def extension_command(command, cwd):
 
 
 def extension_summary(plan):
+    """What the CEO confirms: everything, the weightiest first, nothing cut."""
     verb = {"add": "INSTALL", "update": "UPDATE", "repair": "RESTORE", "remove": "REMOVE"}[plan["action"]]
-    show = lambda items, n: "; ".join(str(x) for x in items[:n]) + (f"; and {len(items) - n} more" if len(items) > n else "")  # noqa: E731
     t = [f"{verb} extension {plan['id']} {plan['version']} from github.com/{plan['repo']}"
          + (f"/{plan['path']}" if plan["path"] else "") + f", release {plan['tag']} ({plan['commit'][:10]})."]
+    if plan["api"] != "https://api.github.com":
+        t[0] = f"TEST SOURCE {plan['api']}, NOT GITHUB. " + t[0]
     if plan["action"] != "remove":
-        t.append("New permissions: " + (show(plan["adds"], 12) if plan["adds"] else "none") + ".")
+        order = ("exceptions", "service", "mcp", "requires_extensions", "company_paths")
+        new = sorted(plan["adds"], key=lambda x: (order.index(x.split(":")[0]), '"write"' not in x, x))
+        t += ["NEW PERMISSIONS:"] + ["  + " + x for x in new] if new else ["No new permissions."]
         t.append(f"{len(plan['files'])} files.")
-    if plan["limits"]:
-        t.append(f"It adds {len(plan['limits'])} limits.")
     if plan["drops_limits"]:
-        t.append("LIMITS THAT DISAPPEAR: " + show(plan["drops_limits"], 8) + ".")
+        t += ["LIMITS THAT DISAPPEAR:"] + ["  - " + x for x in sorted(plan["drops_limits"], key=lambda x: (".ask " in x, x))]
+    if plan["limits"]:
+        t += ["Limits it has:"] + ["  " + x for x in plan["limits"]]
     if plan["changed"]:
-        t.append("Local changes that will be lost: " + show(plan["changed"], 5) + ".")
-    t.append("Its skills are instructions written outside the company: confirm only if you've read what it does.")
-    return " ".join("".join(c if c.isprintable() else "?" for c in x) for x in t)
+        t += ["Local changes that will be lost:"] + ["  ! " + x for x in plan["changed"]]
+    if plan["config"]:
+        t.append(f"It creates the company settings extensions/{plan['id']}.json.")
+    if plan["action"] == "remove":
+        t.append(f"Company settings (extensions/{plan['id']}.json) and memory stay.")
+    else:
+        t.append("Its skills are instructions written outside the company: confirm only if you've read what it does.")
+    return "\n".join("".join(c if c.isprintable() else "?" for c in x) for x in t)
 
 
 def load_config():
@@ -547,6 +577,9 @@ def cmd_limits():
         deny(f"juvant-os hard limits: config unreadable ({e}). Every checked tool is blocked until it is fixed: "
              f"run `update` for {CONFIG}, or correct .claude/limits-company.json with the CEO.")
 
+    if tool == "Bash" and MAINTENANCE.fullmatch(str(inp.get("command", "")).strip()):
+        for rules in (cfg["secrets"], cfg["bash"]["deny"], cfg["bash"]["ask"]):
+            rules[:] = [r for r in rules if not r["id"].startswith("ext:")]
     for rule in cfg["secrets"]:
         for text in texts_to_scan(tool, inp):
             if text and rule["re"].search(text):
@@ -628,12 +661,12 @@ def cmd_limits():
         for rule in cfg["bash"]["deny"]:
             if rule["re"].search(command):
                 deny(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
-        for rule in cfg["bash"]["ask"]:
-            if rule["re"].search(command):
-                ask(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
         ext = extension_command(command, str(ev.get("cwd") or ROOT))
-        if ext:
+        if ext:  # before any rule that asks: the CEO must see this text, not another
             (deny if ext[0] == "deny" else ask)(f"juvant-os extensions: {ext[1]}")
+        for rule in cfg["bash"]["ask"]:
+            if not rule["id"].startswith("ext:") and rule["re"].search(command):
+                ask(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
         decision, why = shared_repo_check(command, str(ev.get("cwd") or ROOT))
         if decision == "deny":
             deny(f"juvant-os hard limit (shared-repo): {why}. Writing where people outside the company read "
@@ -659,6 +692,9 @@ def cmd_limits():
                 "agents and settings live. The CEO confirms; framework files change through the update skill.")
         if cfg["bash"].get("rm_outside_repo") == "ask" and rm_outside_repo(cfg, command):
             ask("juvant-os hard limit (rm-outside-repo): recursive delete outside the company repo (hard limit 4).")
+        for rule in cfg["bash"]["ask"]:  # an extension's asks come last: they never stand in for a deny or another ask
+            if rule["id"].startswith("ext:") and rule["re"].search(command):
+                ask(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
 
 
 # ── .claude/ protection (the hard limits must not edit themselves) ───────────
@@ -2595,6 +2631,12 @@ if __name__ == "__main__":
     if name not in COMMANDS:
         sys.stderr.write("usage: juvant_hooks.py " + "|".join(COMMANDS) + "\n")
         sys.exit(2)
+    if name == "limits" and hasattr(signal, "setitimer"):
+        # A check that never ends would time out, and a hook that times out doesn't block.
+        def too_long(*_):
+            deny("juvant-os hard limits: the check took too long. Blocked to stay safe: write the call more simply.")
+        signal.signal(signal.SIGALRM, too_long)
+        signal.setitimer(signal.ITIMER_REAL, CHECK_SECONDS)
     try:
         COMMANDS[name]()
         if name == "limits":
