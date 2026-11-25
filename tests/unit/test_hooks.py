@@ -47,6 +47,30 @@ class HookCase(unittest.TestCase):
             return [json.loads(line) for line in f if line.strip()]
 
 
+class NestedAndSlow(HookCase):
+    def test_a_write_inside_another_command_asks(self):
+        for cmd in ('echo "$(touch .claude/x)"', "echo `touch .claude/x`", "cat <(touch .claude/x)", "echo $(touch $(echo .claude/x))",
+                    'git commit -m "$(rm .claude/settings.json)"'):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
+        for cmd in ('echo "$(cat .claude/settings.json)"', "git commit -m 'says `touch .claude/x`'", "ls $(pwd)"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
+
+    def test_a_check_that_never_ends_blocks(self):
+        copy = os.path.join(self.repo, "hooks")
+        shutil.copytree(HOOKS, copy)
+        script = os.path.join(copy, "juvant_hooks.py")
+        with open(script, encoding="utf-8") as f:
+            src = f.read()
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(src.replace("CHECK_SECONDS = 25", "CHECK_SECONDS = 1"))
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "limits-company.json"), "w", encoding="utf-8") as f:
+            json.dump({"bash": {"deny": [{"id": "slow", "pattern": "(a+)+$"}]}}, f)
+        self.assertEqual(self.decision("Bash", {"command": "echo " + "a" * 60 + "b"}, script), "deny")
+
+
 class McpLimits(HookCase):
     def test_outbound_denied_under_both_prefixes(self):
         for prefix in (P_LOCAL, P_CLOUD):
