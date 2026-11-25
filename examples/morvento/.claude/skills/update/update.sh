@@ -131,6 +131,18 @@ while IFS= read -r p; do
   dest_of "$p" >/dev/null || { echo "update: no install location for $p" >&2; exit 1; }
 done <<< "$NEW"
 
+# An installed extension owns its files: a framework skill of the same name stops the update.
+if [[ -f "$TARGET/.claude/extensions/lock.json" ]]; then
+  CLASH="$(NEW="$NEW" python3 -c '
+import json, os, sys
+lock = json.load(open(sys.argv[1], encoding="utf-8"))["extensions"]
+new = {"/".join((".claude/" + p).split("/")[:3]).lower() for p in os.environ["NEW"].split("\n") if p.startswith("skills/")}
+print(" ".join(sorted({f"{e}: {f}" for e, v in lock.items() for f in v["files"] if "/".join(f.split("/")[:3]).lower() in new})))
+' "$TARGET/.claude/extensions/lock.json")" \
+    || { echo "update: .claude/extensions/lock.json can't be read: restore it from git, then update. Nothing changed." >&2; exit 1; }
+  [[ -z "$CLASH" ]] || { echo "update: this release has a skill with the same name as an installed extension's ($CLASH). Nothing changed: remove or update that extension first." >&2; exit 1; }
+fi
+
 OLD_FILES="$TARGET/.claude/juvant-os/FILES"
 removed=0
 if [[ -f "$OLD_FILES" ]]; then
@@ -178,6 +190,10 @@ cp "$FW/FILES" "$OLD_FILES"
 printf '{\n  "version": "%s",\n  "commit": "%s",\n  "country": "%s",\n  "country_pack": "%s",\n  "installed": "%s"\n}\n' \
   "$VERSION" "$COMMIT" "$COUNTRY" "$PACK" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TARGET/.claude/juvant-os.json"
 
+if [[ -f "$TARGET/.claude/extensions/lock.json" && -f "$TARGET/.claude/skills/extensions/extensions.py" ]]; then
+  python3 "$TARGET/.claude/skills/extensions/extensions.py" check \
+    || echo "update: WARNING: couldn't check the installed extensions. Ask the Chief of Staff to." >&2
+fi
 echo "update: juvant-os $VERSION ($COMMIT): $copied framework files installed, $removed removed."
 if [[ -n "$COUNTRY" && "$PACK" == none ]]; then
   echo "update: no framework country pack for '$COUNTRY'. The Chief of Staff can draft one with the CEO (country-pack skill) in country/."

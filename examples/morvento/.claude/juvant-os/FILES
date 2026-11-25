@@ -37,6 +37,8 @@ skills/content-creation/SKILL.md
 skills/country-pack/SKILL.md
 skills/dashboard/SKILL.md
 skills/decision/SKILL.md
+skills/extensions/SKILL.md
+skills/extensions/extensions.py
 skills/financial-statements/SKILL.md
 skills/inbox-manager/SKILL.md
 skills/inbox-manager/reference/digest_format.md
