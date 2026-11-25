@@ -769,17 +769,25 @@ def cmd_apply(args):
                 write_file(config, out[f".claude/extensions/{ext}/config.example.json"])
                 made_config = True
     except BaseException:
-        for rel in set(out) - set(backup):
+        # Put everything back; a step that fails doesn't stop the others, and the lock always goes last.
+        failed = []
+
+        def attempt(what, step, *args):
             try:
-                os.remove(safe_dest(rel))
-            except (OSError, Refused):
-                pass
+                step(*args)
+            except (OSError, Refused) as e:
+                failed.append(f"{what} ({e})")
+
+        for rel in sorted(set(out) - set(backup)):
+            attempt(rel, remove_files, [rel])
         for rel, data in backup.items():
-            write_file(rel, data)
+            attempt(rel, write_file, rel, data)
         if made_config:
-            os.remove(safe_dest(config))
-        prune_dirs(out)
-        write_lock(old_lock)
+            attempt(config, lambda: os.remove(safe_dest(config)))
+        attempt("empty folders", prune_dirs, out)
+        attempt(LOCK_REL, write_lock, old_lock)
+        if failed:
+            print("extensions: NOT fully put back: " + ", ".join(failed) + ". Restore .claude from git.", file=sys.stderr)
         raise
     shutil.rmtree(PLANS, ignore_errors=True)
     print({"add": "Installed", "update": "Updated", "repair": "Restored", "remove": "Removed"}[a] + f" {ext} {plan['version']}.")

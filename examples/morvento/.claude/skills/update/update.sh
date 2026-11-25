@@ -132,6 +132,10 @@ while IFS= read -r p; do
 done <<< "$NEW"
 
 # An installed extension owns its files: a framework skill of the same name stops the update.
+if ! grep -qxF skills/extensions/extensions.py <<< "$NEW" \
+    && { grep -qs '"source"' "$TARGET/.claude/extensions/lock.json" || ls "$TARGET"/.claude/extensions/*/limits.json >/dev/null 2>&1; }; then
+  echo "update: this release doesn't know extensions: the installed ones would stay without their limits. Nothing changed: remove them first." >&2; exit 1
+fi
 if [[ -f "$TARGET/.claude/extensions/lock.json" ]]; then
   CLASH="$(NEW="$NEW" python3 -c '
 import json, os, sys
@@ -140,9 +144,6 @@ new = {"/".join((".claude/" + p).split("/")[:3]).lower() for p in os.environ["NE
 print(" ".join(sorted({f"{e}: {f}" for e, v in lock.items() for f in v["files"] if "/".join(f.split("/")[:3]).lower() in new})))
 ' "$TARGET/.claude/extensions/lock.json")" \
     || { echo "update: .claude/extensions/lock.json can't be read: restore it from git, then update. Nothing changed." >&2; exit 1; }
-  if ! grep -qxF skills/extensions/extensions.py <<< "$NEW" && grep -q '"source"' "$TARGET/.claude/extensions/lock.json"; then
-    echo "update: this release doesn't know extensions: the installed ones would stay without their limits. Nothing changed: remove them first." >&2; exit 1
-  fi
   [[ -z "$CLASH" ]] || { echo "update: this release has a skill with the same name as an installed extension's ($CLASH). Nothing changed: remove or update that extension first." >&2; exit 1; }
 fi
 
