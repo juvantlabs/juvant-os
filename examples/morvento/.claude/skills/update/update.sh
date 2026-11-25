@@ -92,7 +92,7 @@ ok = not r.get("draft") and r.get("tag_name") == sys.argv[1] and not (sys.argv[2
 print(sys.argv[1]) if ok else sys.exit(1)' "$@"
   }
   if [[ -n "$TAG" ]]; then
-    published "$TAG" >/dev/null || { echo "update: $TAG is not a published release of $SLUG: nothing to install" >&2; exit 1; }
+    published "$TAG" >/dev/null || { echo "update: GitHub doesn't confirm that $TAG is a published release of $SLUG (check the tag, or try again if GitHub didn't answer): nothing to install" >&2; exit 1; }
   else
     # Latest v2+ release: newest version tags first, the first published stable release wins.
     # (GitHub's own "latest" can point at a v1 release.)
@@ -140,6 +140,9 @@ new = {"/".join((".claude/" + p).split("/")[:3]).lower() for p in os.environ["NE
 print(" ".join(sorted({f"{e}: {f}" for e, v in lock.items() for f in v["files"] if "/".join(f.split("/")[:3]).lower() in new})))
 ' "$TARGET/.claude/extensions/lock.json")" \
     || { echo "update: .claude/extensions/lock.json can't be read: restore it from git, then update. Nothing changed." >&2; exit 1; }
+  if ! grep -qxF skills/extensions/extensions.py <<< "$NEW" && grep -q '"source"' "$TARGET/.claude/extensions/lock.json"; then
+    echo "update: this release doesn't know extensions: the installed ones would stay without their limits. Nothing changed: remove them first." >&2; exit 1
+  fi
   [[ -z "$CLASH" ]] || { echo "update: this release has a skill with the same name as an installed extension's ($CLASH). Nothing changed: remove or update that extension first." >&2; exit 1; }
 fi
 

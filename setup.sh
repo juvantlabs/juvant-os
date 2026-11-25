@@ -62,7 +62,7 @@ if [[ "${JUVANT_OS_DEV:-}" != 1 ]]; then
 import json, sys
 try: r = json.load(sys.stdin)
 except Exception: sys.exit(1)
-sys.exit(0 if not r.get("draft") and r.get("tag_name") == sys.argv[1] else 1)' "$TAG" || refuse "$TAG is not a published release"
+sys.exit(0 if not r.get("draft") and r.get("tag_name") == sys.argv[1] else 1)' "$TAG" || refuse "GitHub doesn't confirm that $TAG is a published release (if GitHub didn't answer, try again)"
 fi
 TARGET="$1"; shift
 declare -a SUBS=(); COUNTRY=""
