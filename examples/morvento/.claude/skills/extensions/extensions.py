@@ -53,6 +53,8 @@ MANIFEST = {"id": str, "version": str, "framework": str, "license": str, "skills
             "mcp": list, "company_paths": list, "service": (dict, type(None)), "exceptions": list}
 SERVICE_KEYS = {"repository", "release", "runs", "data", "permissions", "sends", "stop"}
 RESERVED_IDS = {"synced", "juvant", "juvant-os", "framework", "company", "ext", "lock", "code", "security", "claude"}
+HOST_SKILLS = {"code-review", "security-review", "update-config", "keybindings-help", "fewer-permission-prompts", "claude-api", "claude-in-chrome",
+               "deep-research", "workflow-authoring", "plugin-authoring", "run-skill-generator", "release-notes", "pr-comments", "add-dir"}
 # Files a host reads as instructions wherever they are.
 INSTRUCTION_FILES = re.compile(r"(claude|agents?|gemini|copilot|cursor|memory)([._-].*)?\.(md|txt|json)", re.I)
 
@@ -397,6 +399,8 @@ def check_manifest(m):
     in_range((0, 0, 0), m["framework"], "extension.json: framework")
     if not re.fullmatch(r"[A-Za-z0-9 ().+-]{1,60}", m["license"]):
         no("extension.json: bad license")
+    if any(f"{m['id']}-{s}" in HOST_SKILLS for s in m["skills"]):
+        no("extension.json: a skill would take the name of one of the host's own")
     if not all(isinstance(s, str) and ID.fullmatch(s) and len(s) <= 40 for s in m["skills"]) or len(set(m["skills"])) != len(m["skills"]):
         no("extension.json: bad skill names")
     for dep, rng in m["requires_extensions"].items():
@@ -581,6 +585,8 @@ def make_plan(action, repo="", path="", tag="", ext=""):
         have = lock["extensions"].get(dep)
         if not have or not in_range(version_tuple(have["version"]), rng, dep):
             no(f"{ext} needs the extension {dep} {rng}")
+    if not entry and os.path.lexists(os.path.join(CLAUDE, "skills", ext)):
+        no(f"'{ext}' is already the name of a skill")
     owned = set(entry["files"]) | set(entry.get("stale", [])) if entry else set()
     for rel in out:
         top = "/".join(rel.split("/")[:3])
@@ -599,6 +605,12 @@ def make_plan(action, repo="", path="", tag="", ext=""):
             "limits": rules, "drops_limits": sorted(set(old) - set(rules)), "framework": m["framework"],
             "previous": sha(canonical(entry).encode()) if entry else "", "changed": local_changes(entry) if entry else [],
             "config": f".claude/extensions/{ext}/config.example.json" in out and not os.path.lexists(os.path.join(ROOT, "extensions", ext + ".json"))}
+    h = hooks()
+    if action != "repair" and len(h.extension_summary(plan)) > 4000:
+        no("it asks for, or changes, more than the CEO can read in one confirmation")
+    total = sum(h.pattern_cost(json.loads(x.split(": ", 1)[1])) for k, e in lock["extensions"].items() if k != ext for x in e.get("limits", []))
+    if total + sum(h.pattern_cost(json.loads(x.split(": ", 1)[1])) for x in rules) > 10_000:
+        no("the installed extensions' limits together would make every check slow")
     return plan, out
 
 

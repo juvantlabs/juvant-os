@@ -187,6 +187,8 @@ def pattern_cost(pattern):
         import sre_parse as parser
     single = ("LITERAL", "NOT_LITERAL", "ANY", "IN")
 
+    width = [0]
+
     def cost(tree):
         total = 1
         for op, arg in tree:
@@ -198,16 +200,22 @@ def pattern_cost(pattern):
                 if len(sub) != 1 or str(sub[0][0]) not in single:
                     raise ValueError("a repeat goes on one character or class, not on a group")
                 total *= hi - lo + 1
+                width[0] += hi
             elif name == "SUBPATTERN":
                 total *= cost(arg[-1])
             elif name == "BRANCH":
                 total *= sum(cost(x) for x in arg[1])
-            elif name not in single + ("AT",):
+            elif name in single:
+                width[0] += 1
+            elif name != "AT":
                 raise ValueError("lookarounds and back references aren't allowed")
             if total > 100:
                 raise ValueError("too many ways to match: simplify it")
         return total
-    return cost(parser.parse(pattern))
+    ways = cost(parser.parse(pattern)) * max(width[0], 1)
+    if ways > 1000:
+        raise ValueError("too long and too many ways to match: simplify it")
+    return ways
 
 
 def check_extension_rules(rules, path):
@@ -215,9 +223,9 @@ def check_extension_rules(rules, path):
         raise ValueError(f"{path}: at most 20 rules")
     for r in rules:
         if set(r) - {"id", "pattern", "why"} or not all(isinstance(v, str) for v in r.values()) \
-                or not EXTENSION_ID.fullmatch(r["id"]) or len(r["id"]) > 40 or len(r["pattern"]) > 200 \
-                or len(r.get("why", "")) > 200 or not r.get("why", "").isprintable():
-            raise ValueError(f"{path}: a rule is an id, a pattern (200 characters) and a one-line why")
+                or not EXTENSION_ID.fullmatch(r["id"]) or len(r["id"]) > 40 or len(r["pattern"]) > 120 \
+                or len(r.get("why", "")) > 120 or not r.get("why", "").isprintable():
+            raise ValueError(f"{path}: a rule is an id, a pattern (120 characters) and a one-line why")
         try:
             pattern_cost(r["pattern"])
         except (ValueError, re.error, RecursionError, OverflowError) as e:
@@ -317,15 +325,14 @@ def extension_command(command, cwd):
     m = EXTENSION_APPLY.fullmatch(command.strip())
     if not m:
         plain = re.sub(r"[\"'\\\\]", "", command)
-        runs = re.search(r"extensions\.py\s+apply\s+\S", plain, re.I)
+        runs = re.search(r"extensions\.py\s+apply\s+[0-9a-f]{64}", plain, re.I)
         names = any(os.path.exists(os.path.join(STATE, "extensions", x + ".json")) for x in re.findall(r"[0-9a-f]{64}", plain))
         if not runs and not names:
             return None
         segments = shell_segments(command)
-        if segments is not None and all(is_read_only(w) or (w[0] == "git" and len(w) > 1 and w[1] in GIT_READ) for w in segments):
+        nested = re.search(r"\$\(|`|[<>]\(", command)  # something else runs inside: the verb says nothing
+        if segments is not None and not nested and all(is_read_only(w) or (w[0] == "git" and len(w) > 1 and w[1] in GIT_READ) for w in segments):
             return None  # a message or a search that only mentions it
-        if runs and not names and not re.search(r"skills/extensions|(^|[\s;&|/])extensions\.py\s+apply\s+[0-9a-f]{64}", plain, re.I):
-            return None  # some other program's script
     if not m or os.path.realpath(cwd or ROOT) != os.path.realpath(ROOT):
         return "deny", ("run it on its own, from the company folder, exactly as `plan` printed it: "
                         "`python3 .claude/skills/extensions/extensions.py apply <plan-id>`")
@@ -347,13 +354,17 @@ def extension_summary(plan):
          + (f"/{plan['path']}" if plan["path"] else "") + f", release {plan['tag']} ({plan['commit'][:10]})."]
     if plan["api"] != "https://api.github.com":
         t[0] = f"TEST SOURCE {plan['api']}, NOT GITHUB. " + t[0]
+    new = []
     if plan["action"] != "remove":
         order = ("exceptions", "service", "mcp", "requires_extensions", "company_paths")
         new = sorted(plan["adds"], key=lambda x: (order.index(x.split(":")[0]), '"write"' not in x, x))
-        t += ["NEW PERMISSIONS:"] + ["  + " + x for x in new] if new else ["No new permissions."]
-        t.append(f"{len(plan['files'])} files.")
+    kinds = [x.split(":")[0] for x in new]
+    counts = [f"{kinds.count(k)} {k}" for k in dict.fromkeys(kinds)]
+    t.append("New permissions: " + (", ".join(counts) or "none") + f". Limits that disappear: {len(plan['drops_limits']) or 'none'}. {len(plan['files'])} files.")
     if plan["drops_limits"]:
         t += ["LIMITS THAT DISAPPEAR:"] + ["  - " + x for x in sorted(plan["drops_limits"], key=lambda x: (".ask " in x, x))]
+    if new:
+        t += ["NEW PERMISSIONS:"] + ["  + " + x for x in new]
     if plan["limits"]:
         t += ["Limits it has:"] + ["  " + x for x in plan["limits"]]
     if plan["changed"]:
@@ -798,6 +809,12 @@ def bash_writes_claude_dir(command, cwd=None):
     segments = shell_segments(command)
     if segments is None:
         return True
+    nested, inner = without_single_quoted(command), re.compile(r"(?:\$|[<>])\(([^()]*)\)|`([^`]*)`")
+    while m := inner.search(nested):  # commands run inside another one, innermost first
+        text = m.group(1) if m.group(1) is not None else m.group(2)
+        if bash_writes_claude_dir(text, cwd):
+            return True
+        nested = nested[:m.start()] + text + nested[m.end():]
     here = cwd or ROOT
     for words in segments:
         seg = " ".join(words)

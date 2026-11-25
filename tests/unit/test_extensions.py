@@ -242,7 +242,7 @@ class Refusals(Case):
         self.refused(package({"skills/hello/x.md": b"\xff\xfe"}), "not plain text")
 
     def test_manifest(self):
-        for kw in ({"id": "Demo"}, {"id": "../x"}, {"id": "synced"}, {"id": "demo--x"}, {"version": "1"}, {"framework": "*"}, {"framework": ""},
+        for kw in ({"id": "Demo"}, {"id": "../x"}, {"id": "synced"}, {"id": "code"}, {"id": "demo--x"}, {"version": "1"}, {"framework": "*"}, {"framework": ""},
                    {"license": "a\nb"}, {"skills": ["../x"]}, {"skills": ["hello", "hello"]}, {"hooks": {}}, {"mcp": [{"role": "x"}]},
                    {"mcp": [{"role": "x", "access": "all", "why": "y"}]}, {"company_paths": [".claude/"]}, {"company_paths": ["memory/"]},
                    {"company_paths": ["memory/authorizations/"]}, {"company_paths": ["memory/../.claude"]}, {"company_paths": ["CLAUDE.md"]},
@@ -274,7 +274,8 @@ class Refusals(Case):
         for pat in ("(a+)+$", "a*", "a{2,}", "(a{1,100}){1,100}", "(?=a)", "(?<=a)b", "(a)\\1", "", "a?", "(", "x|", "a{1,200}b{1,200}"):
             with self.subTest(pat=pat):
                 self.refused(package(limits={"bash": {"deny": [{"id": "a", "pattern": pat}]}}), "limits.json")
-        for pat in ("a{0,1}" * 45 + "b", "(?:a?){200}b", "(a|a){1,90}b", "(?:a{1,2}){1,90}b", "(a|a)" * 30, "a{0,70}a{0,70}b", "(?:[a-z ]?){90}9"):
+        for pat in ("a{0,1}" * 45 + "b", "(?:a?){200}b", "(a|a){1,90}b", "(?:a{1,2}){1,90}b", "(a|a)" * 30, "a{0,70}a{0,70}b", "(?:[a-z ]?){90}9", "a{0,99}" + "a{100}" * 12 + "b",
+                    "(?:a{0,49}|a{0,49})a{100}b", "a{0,99}" + "a{9}" * 12 + "b"):
             with self.subTest(pat=pat):
                 self.refused(package(limits={"secrets": [{"id": "a", "pattern": pat}]}), "limits.json")
 
@@ -559,6 +560,36 @@ class Hooks(Case):
         self.assertEqual(order[:5], sorted(order[:5]))
         self.assertIn("memory/a4", why)
 
+    def test_too_much_to_confirm_is_refused(self):
+        big = [{"limit": str(i), "what": "w" * 200, "why": "y" * 200} for i in range(10)]
+        self.hub.publish("demo-v1.0.0", package(service={k: "x" * 300 for k in SERVICE}, exceptions=big))
+        self.assertRegex(self.add()[1], "more than the CEO can read")
+        self.hub.publish("demo-v1.0.0", package(limits=LIMITS))
+        self.install()
+        self.hub.publish("demo-v1.1.0", package(version="1.1.0", service=SERVICE, exceptions=[{"limit": "1", "what": "w", "why": "y"}]))
+        out = self.plan("update", "demo")[1]
+        self.assertLess(out.index("Limits that disappear: 2"), out.index("LIMITS THAT DISAPPEAR"))
+        self.assertLess(out.index("LIMITS THAT DISAPPEAR"), out.index("NEW PERMISSIONS"))
+
+    def test_the_worst_allowed_limits_stay_quick(self):
+        rules = [{"id": f"r{i}", "pattern": "a{0,18}a{30}[b%d]" % (i % 10)} for i in range(20)]
+        self.hub.publish("demo-v1.0.0", package(limits={"secrets": rules}))
+        pid, out = self.add()
+        self.assertIsNone(pid, out)  # the sum is capped
+        self.hub.publish("demo-v1.0.0", package(limits={"secrets": rules[:10]}))
+        self.install()
+        t = time.time()
+        self.gate("Write", {"file_path": "x.md", "content": "a" * 20000})
+        self.assertLess(time.time() - t, 8)
+
+    def test_a_write_inside_another_command_asks(self):
+        for cmd in ('echo "$(touch .claude/x)"', "echo `touch .claude/x`", "cat <(touch .claude/x)", "echo $(touch $(echo .claude/x))", 'git commit -m "$(rm .claude/settings.json)"'):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.gate("Bash", {"command": cmd})[0], "ask")
+        for cmd in ('echo "$(cat .claude/settings.json)"', "git commit -m 'says `touch .claude/x`'", "ls $(pwd)"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.gate("Bash", {"command": cmd})[0], "allow")
+
     def test_an_extension_cant_block_its_own_removal(self):
         pat = [{"id": "x", "pattern": "extensions\\.py|update\\.sh"}]
         self.hub.publish("demo-v1.0.0", package(limits={"secrets": pat, "bash": {"deny": pat, "ask": pat}}))
@@ -633,11 +664,14 @@ class Hooks(Case):
                 self.assertIn(self.gate("Bash", {"command": bad})[0], ("deny", "ask"))
                 self.assertNotIn("INSTALL extension", self.gate("Bash", {"command": bad})[1])
         for bad in (cmd.replace(".claude", ".cl''aude").replace("extensions.py", "extensions.p''y"), cmd.upper().replace(pid.upper(), pid),
-                    cmd.replace("extensions.py", "ext*.py"), "python3 /tmp/copy.py apply " + pid, f"X={pid}; python3 a.py apply $X"):
+                    cmd.replace("extensions.py", "ext*.py"), "python3 /tmp/copy.py apply " + pid, f"X={pid}; python3 a.py apply $X", f'echo "$({cmd})"', f"echo $({cmd})", f"echo `{cmd}`",
+                    f'git commit -m "$({cmd})"', f"cat <({cmd})", f"ls >({cmd})"):
             with self.subTest(bad=bad):
                 self.assertEqual(self.gate("Bash", {"command": bad})[0], "deny")
         for ok in ('git commit -m "Explain extensions.py apply"', 'grep -rn "extensions.py apply" docs', "python3 tools/load_extensions.py apply prod",
-                   f"cat state/extensions/{pid}.json"):
+                   f"cat state/extensions/{pid}.json",
+                   "git commit -F - <<'EOF'\nrun skills/extensions/extensions.py apply it\nEOF",
+                   "cat > notes.md <<'EOF'\nrun python3 x/extensions.py apply <plan-id>\nEOF"):
             with self.subTest(ok=ok):
                 self.assertEqual(self.gate("Bash", {"command": ok})[0], "allow")
         h = self.hook("limits", {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": self.t})
