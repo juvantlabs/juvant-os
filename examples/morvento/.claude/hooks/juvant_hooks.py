@@ -22,10 +22,16 @@ import os
 import re
 import shlex
 import signal
+import tempfile
 import subprocess
 import sys
 import time
 import urllib.parse
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.path.join(HERE, "limits.json")
@@ -559,7 +565,7 @@ NOT_THE_FOLDER = re.compile(r"(?:(?<![\w$/{}~.\\'\"-])|(?<=https://))[A-Za-z]\w*
 
 def names_claude(text):
     text = NOT_THE_FOLDER.sub(" ", text)
-    return ".claude" in re.sub(r"""\$(?=['"])|[\\\n'"]""", "", text)
+    return ".claude" in re.sub(r"""\$(?=['"])|[\\\n'"]""", "", text).lower()
 
 
 class ShellScan:
@@ -609,13 +615,15 @@ class ShellScan:
         this command has just put in its place: nothing else names .claude, links, copies, moves or sets a variable for it."""
         for seq in self.sequences:
             for words in seq:
-                if words[:3] == LOG_OUTCOME:
-                    continue
-                if any(names_claude(w) for w in words) or ASSIGNMENT.match(words[0]):
-                    return False
                 if any(w in REDIRECTS_OUT and not words[i + 1].endswith((".md", "/dev/null")) for i, w in enumerate(words[:-1])):
                     return False  # notes only: another file may be one Python loads by itself
-                if words[0] in ("cp", "mv", "rm", "touch", "mkdir", "gh") or words[:2] in (["git", "checkout"], ["git", "switch"]):
+                if words[:3] == LOG_OUTCOME:
+                    continue
+                core = without_redirects(words)
+                if any(names_claude(w) for w in words) or any("${" in w for w in words):
+                    return False
+                if core and not (core[0] in ("cat", "echo") or core[:2] in (["git", "add"], ["git", "commit"], ["git", "status"])
+                                 or core[0] == "printf" and not any(w.startswith("-v") for w in core)):
                     return False
         return True
 
@@ -898,7 +906,7 @@ def rm_outside_repo(cfg, command):
     for words in segments:
         while words and (words[0] in ("sudo", "env", "command", "builtin") or ASSIGNMENT.match(words[0])):
             words = words[1:]
-        if not words or os.path.basename(words[0]) != "rm":
+        if not words or os.path.basename(words[0]).lower() != "rm":
             continue
         flags = [w for w in words[1:] if w.startswith("-") and not w.startswith("--")]
         long_flags = [w for w in words[1:] if w.startswith("--")]
@@ -960,18 +968,20 @@ def cmd_limits():
                  "folder, or listing file names only (`grep -l`).")
         deny(f"juvant-os private file: this file is marked private in {PRIVATE_REGISTRY} and `{who}` isn't among "
              f"the readers. Ask the CEO, or someone listed, to pass on what you need.")
-    fp_ = str(inp.get("file_path") or "")
-    if tool in ("Write", "Edit", "MultiEdit") and fp_ and norm_path(fp_) == norm_path(PRIVATE_REGISTRY):
+    fp_ = str(inp.get("file_path") or inp.get("notebook_path") or "")
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit") and fp_ and same_file(fp_, PRIVATE_REGISTRY):
         ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
 
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         target = str(inp.get("file_path") or inp.get("notebook_path") or "")
-        if target and norm_path(target) == norm_path(AUTH_STATE):
+        if target and same_file(target, SESSION_AGENTS):
+            deny("juvant-os: state/session-agents.json is kept by the hooks. Nobody edits it.")
+        if target and same_file(target, AUTH_STATE):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
         if is_authorization_path(target):
             if tool == "NotebookEdit":
                 deny("juvant-os: write long-task authorizations with Write.")
-            if target.endswith(SESSION_SETTINGS_SUFFIX):
+            if target.casefold().endswith(SESSION_SETTINGS_SUFFIX):
                 content = content_after(tool, inp, norm_path(target))
                 why = session_settings_problem(content) if content is not None else "its content can't be worked out"
                 if why:
@@ -1029,15 +1039,17 @@ def cmd_limits():
                  "is outbound: work on a branch, open a draft PR (gh pr create --draft), and the CEO merges.")
         elif decision == "ask":
             ask(f"juvant-os hard limit (shared-repo): {why}.")
-        if AUTH_STATE_REL in command and bash_may_write(command, AUTH_STATE_REL):
+        if AUTH_STATE_REL in command.casefold() and bash_may_write(command, AUTH_STATE_REL):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
+        if "session-agents" in command.casefold() and bash_may_write(command, "session-agents"):
+            deny("juvant-os: state/session-agents.json is kept by the hooks. Nobody edits it.")
         launch = claude_launch_problem(command, str(ev.get("cwd") or ROOT))
         if launch:
             (deny if launch[0] == "deny" else ask)(f"juvant-os: {launch[1]}.")
-        if AUTH_DIR in command and bash_may_write(command, AUTH_DIR) and not is_close_command(command):
+        if AUTH_DIR in command.casefold() and bash_may_write(command, AUTH_DIR) and not is_close_command(command):
             ask(f"juvant-os long task: this command may write in {AUTH_DIR}/. Authorizations are written with Write, "
                 "and the CEO confirms them; close one with `python3 .claude/hooks/juvant_hooks.py close-authorization <file>`.")
-        if PRIVATE_REGISTRY in command and bash_may_write(command, PRIVATE_REGISTRY):
+        if PRIVATE_REGISTRY in command.casefold() and bash_may_write(command, PRIVATE_REGISTRY):
             ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
         why = framework_upstream_publish(command, str(ev.get("cwd") or ROOT))
         if why:
@@ -1073,7 +1085,7 @@ def sed_is_read_only(args):
         if re.match(r"^-[a-zA-Z]*[iIfl]", a) and not a.startswith("--") and not re.match(r"^-[nErsuz]*e", a):
             return False
     script = sed_scripts(args)
-    if "[" in script and ".claude" in script and re.search("[wWe]", script):
+    if "[" in script and ".claude" in script.lower() and re.search("[wWe]", script):
         return False  # seds disagree on where a [...] ends
     runs, _, writes = sed_effects(script)
     return not runs and not writes
@@ -1089,7 +1101,7 @@ def is_read_only(core):
     if verb in READ_ONLY_EXCEPT and any(re.search(READ_ONLY_EXCEPT[verb], a) for a in args):
         return False
     if verb in ("uniq", "xxd"):  # a second file is the output
-        return len([a for a in args if not a.startswith("-") and not a.isdigit()]) < 2
+        return len([a for a in args if (a == "-" or not a.startswith("-")) and not a.isdigit()]) < 2
     if verb in READ_ONLY_VERBS:
         return True
     if verb in ("sed", "gsed"):
@@ -1151,13 +1163,14 @@ def in_claude_dir(path):
     installed in (a project repo next door): its hooks and sharing record too."""
     if not path:
         return False
+    # Upper and lower case are the same folder on many disks: on the others, this only asks more.
     full = os.path.realpath(path if os.path.isabs(path) else os.path.join(ROOT, path))
-    base = os.path.realpath(os.path.join(ROOT, ".claude"))
-    if full == base or full.startswith(base + os.sep):
+    base = os.path.realpath(os.path.join(ROOT, ".claude")).casefold()
+    if (full.casefold() + os.sep).startswith(base + os.sep):
         return True
     d = os.path.dirname(full)
     while d and d != os.path.dirname(d):
-        if os.path.basename(d) == ".claude":
+        if os.path.basename(d).casefold() == ".claude":
             return any(os.path.exists(os.path.join(d, m)) for m in FRAMEWORK_MARKERS)
         d = os.path.dirname(d)
     return False
@@ -1181,32 +1194,40 @@ def is_claude_home_scratch(rel):
 def protected_claude_path(word, here):
     """True if this word names a path in a .claude that the hard limits protect: this
     repo's, one where juvant-os is installed, or the user's ~/.claude (not its scratch areas)."""
+    here = here and re.sub(r"\.claude", ".claude", here, flags=re.I)
+    word = re.sub(r"\.claude", ".claude", word, flags=re.I)
+    # As written; with escapes read as separators (printf 'a\n.claude/x'); as another shell would read it, without quotes.
+    spaced = re.sub(r"\\(?:[abefnrtv]|0?[0-7]{2,3}|x[0-9A-Fa-f]{1,2}|[uU][0-9A-Fa-f]{4,8})", " ", word)
+    spellings = []
+    for w in (word, spaced):
+        spellings += [w, re.sub(r"\.claude", ".claude", re.sub(r"""[\\\n'"]""", "", w), flags=re.I)]
+    return any(protected_spelling(w, here) for w in dict.fromkeys(spellings))
+
+
+def protected_spelling(word, here):
     w = word
-    if re.search(r"""[\\'"]""", w):  # text another shell may read: without its quotes too
-        bare = re.sub(r"""[\\\n'"]""", "", w)
-        if bare != w and protected_claude_path(bare, here):
-            return True
     if w.startswith("-") and ".claude" in w and any(
-            w[k] != "-" and protected_claude_path(w[k:], here) for k in range(1, min(w.index(".claude"), 40) + 1)):
+            w[k] != "-" and protected_spelling(w[k:], here) for k in range(1, min(w.index(".claude"), 40) + 1)):
         return True  # -o.claude/x
     if ".claude" not in w:
         # A relative path counts only when the command is already inside a .claude folder.
         if not here or ".claude" not in here or os.path.isabs(os.path.expanduser(w)) or not w.strip():
             return False
     if "=" in w and not w.startswith(("/", ".", "~")):
-        if protected_claude_path(w.split("=", 1)[1], here):  # --out=.claude/x
+        if protected_spelling(w.rsplit("=", 1)[1], here) or protected_spelling(w.split("=", 1)[1].replace("=", " "), here):  # --out=.claude/x
             return True
     w = re.sub(r"^\d*>>?\|?", "", w)  # 2>.claude/x
     if not w or "$" in w or "`" in w:
         return ".claude" in w  # can't resolve it: assume the worst
     # The path may sit inside a bigger word: python3 -c 'open(".claude/x", "w")'.
     candidates = re.findall(r"~?[\w./@+-]*\.claude(?:/[\w./@+-]*)?", w) or [w]
-    home = os.path.realpath(os.path.expanduser("~/.claude"))
+    home = os.path.realpath(os.path.expanduser("~/.claude")).casefold()
     for c in candidates:
         c = os.path.expanduser(c)
         full = os.path.realpath(c if os.path.isabs(c) else os.path.join(here or ROOT, c))
         if in_claude_dir(full):
             return True
+        full = full.casefold()
         if (full == home or full.startswith(home + os.sep)) and \
                 not is_claude_home_scratch(os.path.relpath(full, home)):
             return True
@@ -1216,7 +1237,7 @@ def protected_claude_path(word, here):
 def bash_writes_claude_dir(command, cwd=None):
     """True if a Bash command may write under a protected .claude/ outside the sanctioned
     update script. Follows `cd`: a relative write after moving into .claude/ counts."""
-    if not names_claude(command) and ".claude" not in (cwd or ""):
+    if not names_claude(command) and ".claude" not in (cwd or "").lower():
         return False
     scan = shell_scan(command)
     if scan is None or scan.unsure:
@@ -1276,7 +1297,7 @@ def sequence_writes_claude_dir(segments, cwd, others_name=False):
         if verb in ("cd", "pushd", "popd"):
             target = next((w for w in core[1:] if w == "-" or not w.startswith("-")), "~" if verb == "cd" else "-")
             if "$" in target or "`" in target:
-                if ".claude" in target:
+                if ".claude" in target.lower():
                     return True  # moving somewhere we can't resolve, towards a .claude
                 moved = [None] + [h for h in heres if h]
             elif target == "-" or target.startswith("+"):
@@ -1295,7 +1316,7 @@ def sequence_writes_claude_dir(segments, cwd, others_name=False):
             else:  # it may fail, be skipped, or happen in another process
                 heres = moved + kept
             continue
-        if verb in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w) for w in core):
+        if verb.lower() in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w, re.I) for w in core):
             return True  # w.claude/x: a sed write, without a space
         inside = any(h and protected_claude_path(os.path.join(h, "."), "/") for h in heres)
 
@@ -1353,8 +1374,21 @@ def private_entries():
     return out
 
 
+UNKNOWN_SESSION = "unrecorded-session"
+
+
+def recorded_agent(session):
+    """The agent the session started as, as recorded at its start; "" without a record."""
+    try:
+        with open(SESSION_AGENTS, encoding="utf-8") as f:
+            return str(json.load(f).get(str(session), "")).lower()
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
 def agent_identity(ev):
-    """Subagent type; else the type the session started as; else cos (main session)."""
+    """Subagent type; else the type the session started as (cos for the CEO's own). A session with no record reads
+    no private file: losing the record must not make anyone the Chief of Staff."""
     a = str(ev.get("agent_type") or "")
     if a:
         return a.lower()
@@ -1363,7 +1397,7 @@ def agent_identity(ev):
             a = str(json.load(f).get(str(ev.get("session_id", "")), ""))
     except (OSError, ValueError, AttributeError):
         a = ""
-    return (a or "cos").lower()
+    return a.lower() or UNKNOWN_SESSION
 
 
 def norm_path(p):
@@ -2030,7 +2064,7 @@ def private_violation(tool, inp, who, cwd=None):
         if target is None:
             if match in blob:
                 return raw, ""
-            continue
+            continue  # an id, not a path: exact
         name = os.path.basename(target)
         if tool in ("Read", "Edit", "MultiEdit", "Write", "NotebookEdit", "Grep", "Glob"):
             fp = str(inp.get("path" if tool in ("Grep", "Glob") else "file_path") or inp.get("notebook_path") or "")
@@ -2044,13 +2078,13 @@ def private_violation(tool, inp, who, cwd=None):
             names = [match, target] + ([] if rel.startswith("..") else [rel])
             literal = cmd
             for n in names:  # naming the file to leave it out of a search isn't reading it
-                literal = re.sub(r"(:!|:\^|:\(exclude\)|--exclude[= ]['\"]?|!)/?" + re.escape(n) + r"(?=['\"\s]|$)", "", literal)
-            if any(n in literal for n in names):
+                literal = re.sub(r"(:!|:\^|:\(exclude\)|--exclude[= ]['\"]?|!)/?" + re.escape(n) + r"(?=['\"\s]|$)", "", literal, flags=re.I)
+            if any(n.casefold() in literal.casefold() for n in names):
                 return raw, ""
             found = bash_shows(cmd, cwd, target)
             if found:
                 return raw, (SED_RUNS if found == SED_RUNS else name)
-        elif tool.startswith("mcp__") and match in blob:
+        elif tool.startswith("mcp__") and match.casefold() in blob.casefold():
             return raw, ""
     return None
 
@@ -2106,11 +2140,11 @@ def bash_may_write(command, needle):
             return True
         if not words.piped:
             named = False
-        named = named or any(needle in w for w in words)
-        if not any(needle in w for w in words):
+        named = named or any(needle in w.casefold() for w in words)
+        if not any(needle in w.casefold() for w in words):
             continue
         for i, w in enumerate(words):
-            if w in REDIRECTS_OUT and i + 1 < len(words) and needle in words[i + 1]:
+            if w in REDIRECTS_OUT and i + 1 < len(words) and needle in words[i + 1].casefold():
                 return True
         core = without_redirects(words)
         while core and ASSIGNMENT.match(core[0]):
@@ -2125,16 +2159,21 @@ def bash_may_write(command, needle):
         if verb == "find" and find_reads(core):
             continue
         if verb == "claude" and all((i > 0 and core[i - 1] == "--settings") or w.startswith("--settings=")
-                                    for i, w in enumerate(core) if needle in w):
+                                    for i, w in enumerate(core) if needle in w.casefold()):
             continue  # a session started with these settings reads the file (claude_launch_problem checks it)
         return True
     return False
 
 
+def same_file(a, b):
+    """True if both name the same file, upper and lower case aside."""
+    return norm_path(a).casefold() == norm_path(b).casefold()
+
+
 def is_authorization_path(p):
     if not p:
         return False
-    full, base = norm_path(p), norm_path(AUTH_DIR)
+    full, base = norm_path(p).casefold(), norm_path(AUTH_DIR).casefold()
     return full.startswith(base + os.sep) and (full.endswith(".md") or full.endswith(SESSION_SETTINGS_SUFFIX))
 
 
@@ -2204,11 +2243,27 @@ def approved_session_settings(path):
     return session_settings_problem(raw) is None
 
 
+LAUNCHERS = {"nohup", "timeout", "gtimeout", "env", "command", "exec", "nice", "caffeinate", "sudo", "setsid", "stdbuf"}
+CLAUDE_COMMANDS = {"mcp", "agents", "config", "doctor", "update", "install", "plugin", "plugins", "auth", "logs", "attach", "stop",
+                   "setup-token", "migrate-installer"}
+RUNNERS = {"sh", "bash", "zsh", "dash", "eval", "xargs", "npx", "bunx", "pnpm", "yarn", "node", "script", "parallel", "su"}
+STARTS_CLAUDE = re.compile(r"(^|[\s/;&|(@'\"`])claude(-code)?(?=[\s'\"`;&|)]|$|@|/cli)(?!\s+(" + "|".join(sorted(CLAUDE_COMMANDS))
+                           + r"|-v|--version|-h|--help)(\s|$|['\"`;&|)]))", re.I)
+
+
 def claude_launch_problem(command, cwd):
     """("deny"|"ask", why) for a `claude` launch that drops the hooks or permissions, or uses
     settings the CEO hasn't approved; None otherwise."""
-    if "claude" not in command:
+    if "claude" not in command.lower():
         return None
+    if STARTS_CLAUDE.search(command):
+        for words in shell_segments(command) or []:
+            core = [w for w in words if not ASSIGNMENT.match(w)]
+            while core and (os.path.basename(core[0]) in LAUNCHERS or core[0] in OPENERS or re.fullmatch(r"-[\w-]+|\d+[smhd]?", core[0])):
+                core.pop(0)
+            if core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS):
+                return "deny", ("this may start a Claude session through another program, where the hard limits can't see who it "
+                                "is. Start it directly: `claude … --agent collaborator`")
     for segments in shell_sequences(command):
         found = claude_launch_problem_in(segments, cwd)
         if found != None:
@@ -2224,7 +2279,15 @@ def claude_launch_problem_in(segments, cwd):
         if words[0] == "cd" and len(words) > 1:
             here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
             continue
-        if os.path.basename(words[0]) != "claude":
+        words = list(words)
+        if words[:1] == ["command"] and words[1:2] in (["-v"], ["-V"]):
+            continue
+        while words and (os.path.basename(words[0]) in LAUNCHERS or ASSIGNMENT.match(words[0]) or words[0] in OPENERS
+                         or re.fullmatch(r"-[\w-]+|\d+[smhd]?", words[0])):
+            first = words.pop(0)
+            if first in ("-u", "-s", "-a", "-k", "-g", "-C", "-n", "--signal", "--kill-after", "--user", "--group") and words:
+                words.pop(0)  # its value
+        if not words or os.path.basename(words[0]).lower() != "claude":
             continue
         flags = {w.split("=", 1)[0] for w in words if w.startswith("--")}
         bad = sorted(flags & CLAUDE_UNSAFE_FLAGS)
@@ -2240,6 +2303,22 @@ def claude_launch_problem_in(segments, cwd):
                 if val.lstrip().startswith("{") or not approved_session_settings(path):
                     return "ask", (f"this starts a session with settings ({val}) that the CEO hasn't approved as a long-task "
                                    f"session-permissions file ({AUTH_DIR}/<name>{SESSION_SETTINGS_SUFFIX}, written and confirmed first)")
+        rest = words[1:]
+        while rest and rest[0] in ("--debug", "--verbose", "-d"):
+            rest = rest[1:]
+        if rest[:1] and rest[0] in CLAUDE_COMMANDS or rest[:1] in (["-v"], ["--version"], ["-h"], ["--help"]):
+            continue
+        if any(w.split("=", 1)[0] in ("-c", "--continue", "-r", "--resume", "--fork-session", "--session-id", "--from-pr") for w in rest):
+            return "deny", ("an agent doesn't resume or fork sessions: a resumed session keeps the identity it had, the Chief of "
+                            "Staff's included. Start a new one with `--agent collaborator`")
+        agents = [rest[i + 1] for i, w in enumerate(rest[:-1]) if w == "--agent"] + [w.split("=", 1)[1] for w in rest if w.startswith("--agent=")]
+        agent = agents[0] if len(agents) == 1 else ""
+        if not re.fullmatch(r"[a-z][a-z0-9:_-]{0,60}", agent) or agent == "cos":
+            return "deny", ("a session an agent starts has its own identity: without one it would read private files as the Chief of "
+                            "Staff. Add `--agent collaborator`, or a dedicated agent (`--agent legal`)")
+        if agent != "collaborator":
+            return "ask", (f"this starts a session as `{agent}`, which reads the private files listed for `{agent}`. The CEO confirms; "
+                           "a generic collaborator is `--agent collaborator`")
     return None
 
 
@@ -2576,7 +2655,7 @@ def shared_repo_check_in(segments, cwd):
     return None, None
 
 
-UPSTREAM_RE = re.compile(r"(github\.com[/:]|^|\s)[\w.-]+/juvant-os(\.git)?/?(\s|$)")
+UPSTREAM_RE = re.compile(r"(github\.com[/:]|^|\s)[\w.-]+/juvant-os(\.git)?/?(\s|$)", re.I)
 
 
 def repo_is_juvant_os(path):
@@ -2621,7 +2700,7 @@ def framework_upstream_publish_in(segments, cwd):
         if not action:
             continue
         named = [w for i, w in enumerate(words) if i and words[i - 1] in ("-R", "--repo")]
-        if any(re.search(r"(^|/)juvant-os$", n) for n in named) or any("/juvant-os/" in w for w in words if "repos/" in w):
+        if any(re.search(r"(^|/)juvant-os$", n, re.I) for n in named) or any("/juvant-os/" in w for w in words if "repos/" in w):
             return f"{action} to the juvant-os repository"
         if not named and repo_is_juvant_os(here):
             return f"{action} from a juvant-os checkout"
@@ -2864,18 +2943,31 @@ def cmd_session_start():
     if ev.get("session_id"):
         try:
             os.makedirs(STATE, exist_ok=True)
+            lock = open(SESSION_AGENTS + ".lock", "a", encoding="utf-8")  # two sessions may start together
+            if fcntl:
+                fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 with open(SESSION_AGENTS, encoding="utf-8") as f:
                     known = json.load(f)
+                known = known if isinstance(known, dict) else {}
             except (OSError, ValueError):
                 known = {}
-            known[str(ev["session_id"])] = agent
-            if len(known) > 500:
-                known = dict(list(known.items())[-500:])
-            with open(SESSION_AGENTS, "w", encoding="utf-8") as f:
-                json.dump(known, f)
-        except OSError:
-            pass
+            sid = str(ev["session_id"])
+            # A session keeps who it started as, whatever a resume says; a new one without an agent is the CEO's.
+            known[sid] = str(known.pop(sid, "")) or agent.lower() or "cos"
+            if len(known) > 5000:
+                known = dict(list(known.items())[-5000:])
+            fd, tmp = tempfile.mkstemp(dir=STATE, prefix=".session-agents.")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(known, f)
+                os.replace(tmp, SESSION_AGENTS)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+                lock.close()
+        except Exception as e:  # noqa: BLE001 — without a record the session reads no private file
+            sys.stderr.write(f"juvant_hooks session-start: the session's agent wasn't recorded ({type(e).__name__})\n")
     if ROLE_ID.match(agent):
         # A dedicated agent running as this session's main agent (claude --agent
         # <id>, or a collaborator session). CLAUDE.md describes the Chief of
@@ -2982,7 +3074,8 @@ def nudge_note(ev):
     """The note for this (allowed) call, or "": first domain call in a session, and once more after repeat_after."""
     tool = str(ev.get("tool_name", ""))
     session = str(ev.get("session_id", ""))
-    if not session or ev.get("agent_type"):
+    sub = str(ev.get("agent_type") or "").lower()
+    if not session or (sub and sub != recorded_agent(session)):
         return ""  # subagents are the reviewers, or have their own brief
     try:
         with open(NUDGES, encoding="utf-8") as f:

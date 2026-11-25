@@ -6,6 +6,7 @@
 # Paths under templates/ are copied by `setup` only, once: after that the
 # company owns them and `update` leaves them alone.
 README.md
+agents/collaborator.md
 agents/ethics.md
 agents/finance.md
 agents/legal.md

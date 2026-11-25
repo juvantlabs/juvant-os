@@ -95,6 +95,23 @@ class NestedAndSlow(HookCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
 
+    def test_upper_and_lower_case_are_the_same_folder(self):
+        for cmd in ("touch .CLAUDE/x", "echo x > .Claude/settings.json", "cd .CLAUDE && touch x", "cd .Claude; touch x", "touch .CLA''UDE/x",
+                    "curl -so.Claude/x URL", "sed -n 'w.Claude/x' README.md", "echo .Claude/y | xargs rm", f"touch {self.repo.upper()}/.claude/x",
+                    "printf 'a\\n.claude/y' | xargs rm", "printf 'a\\t.claude/y' | xargs rm", "printf 'a\\n.Claude/y' | xargs rm",
+                    "echo x >> memory/Private.md", "echo x > memory/Authorizations/a.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
+        self.assertEqual(self.decision("Bash", {"command": "echo x > state/Authorizations.json"}), "deny")
+        for path, want in ((".CLAUDE/settings.json", "ask"), (".Claude/hooks/juvant_hooks.py", "ask"), ("memory/Private.md", "ask"),
+                           ("memory/Authorizations/a.md", "ask"), ("state/Authorizations.json", "deny"), ("docs/Claude.md", "allow")):
+            for tool, inp in (("Write", {"content": "x"}), ("Edit", {"old_string": "a", "new_string": "b"})):
+                with self.subTest(path=path, tool=tool):
+                    self.assertEqual(self.decision(tool, {"file_path": os.path.join(self.repo, path), **inp}), want)
+        for cmd in ("cat .CLAUDE/settings.json", "grep -n x .Claude/hooks/juvant_hooks.py", "cat memory/Private.md", "touch docs/Claude.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
+
     def test_an_unreadable_command_is_checked_the_simple_way(self):
         for p in ("claude --dangerously-skip-permissions", "gh pr merge 1 -R acme/zz"):
             for cmd in (f"{p} <<E\nhi", f"{p}\ncat <<E\nhi\nE ", f"let x=1<<2; {p}", f"echo $[1<<2]; {p}", f"cat <<E$x\nE$x\n{p}\nE"):
@@ -910,6 +927,7 @@ class PrivateFiles(HookCase):
                     "| docs/legal/settlement.md | legal, cos | settlement | 2026-11-09 |\n"
                     "| https://x.sharepoint.com/sites/legal/nda.docx | legal | NDA | 2026-11-09 |\n"
                     "| 01ITEMIDABC123 | finance | salary review | 2026-11-09 |\n")
+        self.run_hook("session-start", {"session_id": "s1"})  # the CEO's own session
 
     def as_agent(self, agent, tool, inp, session="s1"):
         ev = {"tool_name": tool, "tool_input": inp, "session_id": session}
@@ -940,6 +958,31 @@ class PrivateFiles(HookCase):
         self.run_hook("session-start", {"session_id": "bg1", "agent_type": "finance"})
         self.assertEqual(self.as_agent(None, "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}, session="bg1"), "allow")
         self.assertEqual(self.as_agent(None, "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}, session="other"), "deny")
+
+    def test_a_generic_collaborator_isnt_the_chief_of_staff(self):
+        f = {"file_path": "docs/legal/settlement.md"}
+        self.run_hook("session-start", {"session_id": "main"})
+        self.run_hook("session-start", {"session_id": "bg2", "agent_type": "collaborator"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="main"), "allow", "the CEO's session is cos")
+        self.assertEqual(self.as_agent(None, "Read", f, session="bg2"), "deny")
+        self.run_hook("session-start", {"session_id": "bg2", "source": "resume"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="bg2"), "deny", "resumed, it stays who it was")
+        self.run_hook("session-start", {"session_id": "main", "source": "resume", "agent_type": "collaborator"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="main"), "allow", "a resume doesn't change who a session is")
+        self.assertEqual(self.as_agent(None, "Read", f, session="never-recorded"), "deny", "no record: no private files")
+        with open(os.path.join(self.repo, "state", "session-agents.json"), "w") as fh:
+            fh.write("[1]")
+        self.run_hook("session-start", {"session_id": "bg3", "agent_type": "collaborator"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="bg3"), "deny")
+        self.assertEqual(self.as_agent(None, "Read", f, session="main"), "deny", "the record was lost: fails closed")
+        for p in ("state/session-agents.json", "state/Session-Agents.json", "state//session-agents.json"):
+            self.assertEqual(self.as_agent(None, "Write", {"file_path": p, "content": "{}"}), "deny")
+            self.assertEqual(self.as_agent(None, "Bash", {"command": f"echo x > {p}"}), "deny")
+
+    def test_private_names_without_case(self):
+        for cmd in ("cat Docs/Legal/Settlement.md", "python3 -c \"print(open('docs/legal/SETTLEMENT.md').read())\""):
+            self.assertEqual(self.as_agent("finance", "Bash", {"command": cmd}), "deny", cmd)
+        self.assertEqual(self.as_agent("finance", "Read", {"file_path": "Docs/legal/settlement.md"}), "deny")
 
     def test_registry_changes_ask(self):
         self.assertEqual(self.as_agent(None, "Edit", {"file_path": "memory/private.md", "new_string": "x"}), "ask")
@@ -1481,15 +1524,35 @@ class SessionPermissions(HookCase):
 
     def test_launch_only_with_approved_unchanged_settings(self):
         full = self.approve()
-        launch = f'claude --bg --remote-control --name gutenberg --settings {SETTINGS_PATH} "You are a collaborator session"'
+        launch = f'claude --bg --remote-control --name gutenberg --agent collaborator --settings {SETTINGS_PATH} "You are a collaborator session"'
         self.assertEqual(self.call("Bash", {"command": launch}), "allow")
-        self.assertEqual(self.call("Bash", {"command": "claude --bg --name x \"brief\""}), "allow", "no settings: as before")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --name x --agent collaborator \"brief\""}), "allow", "no settings: as before")
         open(os.path.join(self.repo, "state", "x.settings.json"), "w").write(json.dumps(GOOD_SETTINGS))
-        self.assertEqual(self.call("Bash", {"command": "claude --bg --settings state/x.settings.json \"b\""}), "ask")
-        self.assertEqual(self.call("Bash", {"command": "claude --bg --settings '{\"permissions\":{}}' \"b\""}), "ask")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --agent legal --settings state/x.settings.json \"b\""}), "ask")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --agent legal --settings '{\"permissions\":{}}' \"b\""}), "ask")
         with open(full, "a", encoding="utf-8") as f:
             f.write("\n")
         self.assertEqual(self.call("Bash", {"command": launch}), "ask", "changed after approval")
+
+    def test_a_session_started_by_an_agent_has_an_identity(self):
+        for c in ("claude --bg --name x b", "claude -p hi", "claude --resume abc", "claude --bg --agent cos b", "claude --bg --agent= b",
+                  "nohup claude --bg b", "timeout 60 claude -p hi", "X=1 claude --bg b", "echo $(claude -p hi)", "Claude --bg b",
+                  "sh -c 'claude --bg b'", "npx @anthropic-ai/claude-code --bg b", "env -u X claude --bg b", "timeout -s KILL 60 claude -p hi",
+                  "claude -c --agent collaborator -p hi", "claude --resume abc --agent collaborator", "claude -r abc --agent collaborator",
+                  "claude --fork-session --agent collaborator b", "nohup sh -c 'claude --bg --agent collaborator b'",
+                  "timeout 60 npx @anthropic-ai/claude-code --agent collaborator b", "claude --bg --name mcp b",
+                  "claude --agent collaborator --agent cos b", "echo 'claude --bg b' | sh", "python3 -c 'import os; os.system(\"claude -p x\")'"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "deny")
+        for c in ("claude --version", "claude mcp list", "claude agents", "timeout 60 claude --bg --agent collaborator b", "grep claude README.md",
+                  "command -v claude", "claude --debug mcp list", "claude setup-token"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "allow")
+
+    def test_a_role_with_private_files_is_confirmed(self):
+        for c in ("claude --bg --agent legal b", "claude --bg --agent=finance b", "timeout 60 claude --bg --agent legal b"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "ask")
 
     def test_launches_that_drop_hooks_or_permissions_are_denied(self):
         for c in ("claude --dangerously-skip-permissions -p x", "claude --allow-dangerously-skip-permissions --bg x",
@@ -1498,7 +1561,7 @@ class SessionPermissions(HookCase):
                   "claude --setting-sources user --bg x", "cd /tmp && claude --bare x"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "deny")
-        self.assertEqual(self.call("Bash", {"command": "claude --permission-mode auto --bg --name x \"b\""}), "allow")
+        self.assertEqual(self.call("Bash", {"command": "claude --permission-mode auto --bg --agent=collaborator --name x \"b\""}), "allow")
 
 
 class LogOutcome(HookCase):

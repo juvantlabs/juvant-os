@@ -12,7 +12,7 @@ Some files are for some roles only: a settlement, a salary review, an NDA under 
 ## Mark a file private
 
 1. Identify the file exactly: a repo path (`docs/legal/settlement-2026.md`), an absolute path, or the SharePoint/OneDrive address or item id the Microsoft 365 connector uses for it.
-2. Agree the readers with the CEO: agent ids (`legal`, `finance`, `ethics`, a collaborator's session name), and `cos` if the Chief of Staff should read it too. The CEO can always read it.
+2. Agree the readers with the CEO: agent ids (`legal`, `finance`, `ethics`; `collaborator` means every generic collaborator session), and `cos` if the Chief of Staff should read it too. The CEO can always read it.
 3. Add one row to `memory/private.md` (create it with the table header if missing): file, readers, why in a few words, today's date. The write asks the CEO: that confirmation is the decision.
 4. Tell the CEO in one line who can now read it.
 
