@@ -204,6 +204,109 @@ class McpLimits(HookCase):
         self.assertIn("delete-move", rows[1]["reason"])
 
 
+class ResourceTools(HookCase):
+    """Tools with a generic verb: the action is the resource path in their arguments."""
+    W = "mcp__workiq__"
+
+    def check(self, cases):
+        for tool, inp, want in cases:
+            with self.subTest(tool=tool, inp=inp):
+                self.assertEqual(self.decision(tool if tool.startswith("mcp__") else self.W + tool, inp), want)
+
+    def test_actions(self):
+        a = lambda u, **k: ("do_action", dict({"actionUrl": u}, **k))  # noqa: E731
+        deny = ["/me/sendMail", "me/sendMail", "/me/sendMail/", "/ME/SENDMAIL", "/me/microsoft.graph.sendMail", "/me/sendMail()",
+                "/me/sendMail?x=1", "/me/sendMail#x", "/me/send%4Dail", "/me/%73endMail", "/me/%2573endMail", " /me/sendMail",
+                "https://graph.microsoft.com/v1.0/me/sendMail", "/v1.0/me/sendMail", "/me/messages/AAMk1=/send",
+                "/me/messages/AAMk1=/reply", "/me/messages/AAMk1=/replyAll", "/me/messages/AAMk1=/forward",
+                "/me/events/AAMk1=/accept", "/me/events/AAMk1=/tentativelyAccept", "/me/events/AAMk1=/decline",
+                "/me/events/AAMk1=/cancel", "/me/drive/items/01A/invite", "/me/drive/items/01A/createLink", "/$batch",
+                "/me\\sendMail", "/bank/createPayment", "/me/teamwork/sendActivityNotification"]
+        self.check([a(u) + ("deny",) for u in deny])
+        ask = ["/me/drive/items/01A/copy", "/me/messages/AAMk1=/move", "/me/messages/AAMk1=/permanentDelete", "/me/doSomething",
+               "/engage/conversations/1/pin", "", "/me/messages/../x/createReply", "/me/messages/a%2Fb/createReply",
+               "https://graph.microsoft.com/v1.0/me/messages/A1/createReply", "/me/messages/A1/x/createReply"]
+        self.check([a(u) + ("ask",) for u in ask])
+        allow = ["/me/messages/AAMk1=/createReply", "/me/messages/AAMk1=/createReplyAll", "/me/messages/AAMk1=/createForward",
+                 "/users/a@b.example/messages/A1/createReply", "/me/calendar/getSchedule", "/me/findMeetingTimes"]
+        self.check([a(u, jsonBody="{}") + ("allow",) for u in allow])
+
+    def test_argument_shapes_that_dont_say_what_happens_never_pass(self):
+        ok = "/me/messages/A1/createReply"
+        self.check([
+            ("do_action", {}, "ask"), ("do_action", {"jsonBody": "{}"}, "ask"), ("do_action", {"actionUrl": None}, "ask"),
+            ("do_action", {"actionUrl": [ok]}, "ask"), ("do_action", {"arguments": {"actionUrl": ok}}, "ask"),
+            ("do_action", {"actionUrl": ok, "url": ok}, "ask"), ("do_action", {"actionUrl": ok, "url": "/me/sendMail"}, "deny"),
+            ("do_action", {"actionUrl": ok, "entityUrls": ["/me/sendMail"]}, "ask"),
+            ("do_action", {"url": "/me/sendMail"}, "deny"), ("do_action", {"path": "/me/sendMail"}, "deny"),
+            ("create_entity", {}, "ask"), ("update_entity", {}, "ask"), ("call_function", {}, "ask"), ("delete_entity", {}, "ask"),
+        ])
+
+    def test_other_servers_and_spellings(self):
+        for tool in ("mcp__claude_ai_Work_IQ__do_action", "mcp__x__workiq_do_action", "mcp__x__workiq-do_action", "mcp__x__do-action",
+                     "mcp__x__execute_action", "mcp__x__DO_ACTION"):
+            self.check([(tool, {"actionUrl": "/me/sendMail"}, "deny"), (tool, {}, "ask")])
+
+    def test_functions(self):
+        f = lambda u: ("call_function", {"functionUrl": u})  # noqa: E731
+        self.check([f("/me/calendarView?startdatetime=2026-06-01T17:51:49.607Z&enddatetime=2026-06-08T17:51:49.607Z") + ("allow",),
+                    ("call_function", {"parentUrl": "/me/calendarView?startdatetime=x"}, "allow"),
+                    f("/me/messages/delta") + ("allow",), f("/me/mailFolders/inbox/messages/delta()") + ("allow",),
+                    f("/me/drive/root/search(q='x')") + ("ask",), f("/connectors/crm/createDeal") + ("ask",),
+                    f("/me/sendMail") + ("deny",)])
+
+    def test_create(self):
+        c = lambda u: ("create_entity", {"parentUrl": u, "jsonBody": "{}"})  # noqa: E731
+        self.check([c(u) + ("allow",) for u in ("/me/messages", "/me/mailFolders/AAM1/messages", "/me/messages/AAM1=/attachments",
+                                                "/me/todo/lists/L1/tasks")])
+        self.check([c(u) + ("deny",) for u in ("/me/events", "/me/calendar/events", "/me/calendars/C1/events", "/chats", "/chats/19:x/messages",
+                                               "/teams/T1/channels/C1/messages", "/teams/T1/channels/C1/messages/1/replies", "/engage/conversations",
+                                               "/me/drive/items/01A/permissions", "/invitations", "/me/mailFolders/inbox/messageRules",
+                                               "/me/%65vents", "/sites/S1/lists/L1/items/1/comments")])
+        self.check([c(u) + ("ask",) for u in ("/me/drive/root/children", "/me/onlineMeetings", "/subscriptions", "/planner/tasks",
+                                              "/copilot/communications/realtimeActivityFeed/multiActivitySubscriptions")])
+
+    def test_update_and_delete(self):
+        u = lambda p: ("update_entity", {"entityUrl": p, "jsonBody": "{}"})  # noqa: E731
+        self.check([u("/me/messages/AAM1=") + ("allow",), u("/me/mailFolders/F1/messages/M1") + ("allow",)])
+        self.check([u(p) + ("deny",) for p in ("/me/events/E1", "/me/calendars/C1/events/E1", "/chats/1/messages/2", "/me/mailboxSettings",
+                                               "/me/mailFolders/inbox/messageRules/1", "/me/drive/items/1/permissions/2",
+                                               "/engage/conversations/1/messages/2")])
+        self.check([u(p) + ("ask",) for p in ("/me/drive/items/01A", "/me/contacts/1", "/me/messages/M1/x", "/sites/S1/lists/L1/items/1")])
+        self.check([("delete_entity", {"entityUrl": "/me/messages/M1"}, "ask"), ("delete_entity", {"entityUrl": "/me/events/E1"}, "ask")])
+
+    def test_questions_to_another_assistant(self):
+        self.check([("ask", {"question": "x"}, "ask"), ("mcp__claude_ai_Work-IQ__ask", {"question": "x"}, "ask"),
+                    ("mcp__x__ask", {"question": "x", "agentId": "a"}, "ask"), ("mcp__docs__ask", {"question": "x"}, "allow")])
+
+    def test_reading_is_unchanged(self):
+        self.check([("fetch", {"entityUrls": ["/me/messages"]}, "allow"), ("fetch_blob", {"path": "/me/drive/items/1/content"}, "allow"),
+                    ("search_paths", {"query": "send mail"}, "allow"), ("get_schema", {"path": "/me/sendMail", "operationType": "create"}, "allow"),
+                    ("retrieve", {"query": "x"}, "allow"), ("list_agents", {}, "allow"),
+                    ("mcp__x__create_entity_report", {}, "allow"), ("mcp__x__get_action", {}, "allow")])
+
+    def test_company_rules_read_the_path(self):
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "limits-company.json"), "w", encoding="utf-8") as f:
+            json.dump({"mcp": {"deny": [{"id": "no-reply-drafts", "pattern": "create_reply"}]}}, f)
+        self.check([("do_action", {"actionUrl": "/me/messages/A1/createReply"}, "deny"),
+                    ("do_action", {"actionUrl": "/me/messages/A1/createForward"}, "allow")])
+
+    def test_company_cant_loosen_them(self):
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "limits-company.json"), "w", encoding="utf-8") as f:
+            json.dump({"mcp": {"resource_tools": {}}}, f)
+        self.check([("list_agents", {}, "deny")])
+
+    def test_random_paths_around_a_send_never_pass(self):
+        rnd = random.Random(7)
+        for _ in range(120):
+            word = "".join(rnd.choice((c.upper(), c, "%%%02x" % ord(c))) for c in "sendMail")
+            path = rnd.choice(("/", "", "//", "/./", "https://h/")) + "me" + rnd.choice(("/", "//", "%2f", "/./")) + word + rnd.choice(("", "/", "?a=b", "()"))
+            with self.subTest(path=path):
+                self.assertIn(self.decision(self.W + "do_action", {"actionUrl": path}), ("deny", "ask"))
+
+
 class CompanyLimits(HookCase):
     def company(self, data):
         os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
@@ -997,6 +1100,14 @@ class LongTask(HookCase):
         self.approve(self.auth_text(actions="overwrite, delete-move, outbound, money"))
         self.assertEqual(self.call(SEND, {"driveId": "DRIVE1", "parentItemId": "FOLDER1"}), "deny")
         self.assertEqual(self.call("mcp__bank__create_payment", {"driveId": "DRIVE1", "parentItemId": "FOLDER1"}), "deny")
+
+    def test_generic_verbs_are_never_authorized(self):
+        self.approve(self.auth_text(actions="resource-action, resource-delete, delete-move, agent-question",
+                                    scope_driveId=None, scope_parentItemId=None, scope_actionUrl="/me/messages/M1/move"))
+        self.assertEqual(self.call("mcp__workiq__do_action", {"actionUrl": "/me/messages/M1/move"}), "ask")
+        self.approve(self.auth_text(actions="resource-delete, delete-move", scope_driveId=None, scope_parentItemId=None,
+                                    scope_entityUrl="/me/messages/M1"))
+        self.assertEqual(self.call("mcp__workiq__delete_entity", {"entityUrl": "/me/messages/M1"}), "ask")
 
     def test_subagents_only_if_named(self):
         self.approve()

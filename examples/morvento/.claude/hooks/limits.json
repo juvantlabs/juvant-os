@@ -51,6 +51,56 @@
       }
     ],
     "_create": "Creating can't lose anything, so it doesn't ask (hard limit 4, three classes, decided 2026-11-11). An upload counts as creating only if it explicitly sets its conflict behaviour to fail or rename: defaults differ by server.",
+    "resource_tools": {
+      "_comment": "Tools with a generic verb, whose real action is a resource path in their arguments. The path must be one plain relative path in the arguments. Order: deny, then allow, then ask: whatever isn't recognised asks, and a long-task authorization doesn't cover it. Names match the tool's own name whole, with any server's own prefix. `words` are matched against each plain word of the path (lowercased, letters only); `last` against its last word; `allow` against the whole lowercased path without its query.",
+      "path_key": "(url|uri|path|endpoint|resource)s?$",
+      "verbs": [
+        {
+          "id": "resource-action",
+          "tool": "(do|invoke|execute|perform|run)_action",
+          "deny_last": "(send|reply|forward|respond|post|publish|share|invite|accept|decline|tentativelyaccept|cancel|grant|createlink|batch).*",
+          "deny_words": "batch",
+          "allow": "/(me|users/[^/]+)(/mailfolders/[^/]+)*/messages/[^/]+/create(reply|replyall|forward)|/(me|users/[^/]+)/(calendar/getschedule|findmeetingtimes|getmailtips)",
+          "why": "the action is in the arguments: sending, sharing and answering invitations stay with the CEO (hard limit 1); an action that isn't known to be harmless is confirmed by the CEO"
+        },
+        {
+          "id": "resource-function",
+          "tool": "(call|invoke|execute|run)_function",
+          "deny_last": "(send|reply|forward|respond|post|publish|invite|cancel|grant|createlink|batch).*",
+          "deny_words": "batch",
+          "allow": "/(me|users/[^/]+)(/[^/]+)*/(calendarview|delta|remindersview)(\\(\\))?|/sites(/[^/]+)+/delta(\\(\\))?",
+          "why": "the operation is in the arguments: a function that isn't known to only read is confirmed by the CEO"
+        },
+        {
+          "id": "resource-create",
+          "tool": "create_entity",
+          "deny_last": "(send|reply|forward|respond|post|publish|invite).*",
+          "deny_words": "(events?|permissions?|invitations?|replies|posts|comments|messagerules?|chats|channels|conversations|threads|engage|batch)",
+          "allow": "/(me|users/[^/]+)(/mailfolders/[^/]+)?(/childfolders/[^/]+)*/messages(/[^/]+/attachments)?|/me/todo/lists/[^/]+/tasks",
+          "why": "creates something: invitations, posts, sharing and mail rules stay with the CEO (hard limit 1), mail drafts are fine, anything else is confirmed by the CEO"
+        },
+        {
+          "id": "resource-update",
+          "tool": "(update|patch|replace|upsert)_entity",
+          "deny_last": "(send|reply|forward|respond|post|publish|invite).*",
+          "deny_words": "(events?|permissions?|invitations?|replies|posts|comments|messagerules?|chats|channels|conversations|threads|engage|mailboxsettings|batch)",
+          "allow": "/(me|users/[^/]+)(/mailfolders/[^/]+)?(/childfolders/[^/]+)*/messages/[^/]+",
+          "why": "changes something: invitations, posts, sharing and mailbox rules stay with the CEO (hard limit 1), mail drafts are fine, anything else is confirmed by the CEO (hard limit 4)"
+        },
+        {
+          "id": "resource-delete",
+          "tool": "(delete|remove)_entity",
+          "why": "deletes what the arguments name: the CEO confirms (hard limit 4)"
+        }
+      ],
+      "ask_agent": {
+        "id": "agent-question",
+        "tool": "ask",
+        "server": "work_?iq",
+        "when_key": "agentid",
+        "why": "asks another assistant in plain language: what it may do on the CEO's behalf can't be checked, so the CEO confirms"
+      }
+    },
     "ask": [
       {
         "id": "overwrite",
