@@ -16,6 +16,7 @@ company repo); the config sits next to this file. Standard library only.
 """
 import fnmatch
 import glob
+import hashlib
 import json
 import os
 import re
@@ -119,12 +120,20 @@ def merge_company(cfg, path=None):
             extra = json.load(f)
     except (OSError, ValueError) as e:
         raise ValueError(f"{path} is unreadable ({e})")
+    return merge_extra(cfg, extra, path, COMPANY_LISTS, "company:")
+
+
+def merge_extra(cfg, extra, path, lists, prefix, check_rules=None):
+    """Append a company's or an extension's rules to cfg. `lists` is what it may add to."""
+    company = prefix == "company:"
+    who = "the company" if company else "an extension"
     if not isinstance(extra, dict):
         raise ValueError(f"{path}: expected a JSON object")
+    added = []
     for key, val in extra.items():
         if key.startswith("_") or key == "version":
             continue
-        if key == "known_prefixes":
+        if key == "known_prefixes" and (key,) in lists:
             if not isinstance(val, list) or not all(isinstance(x, str) and x.startswith("mcp__") and x.endswith("__") for x in val):
                 raise ValueError(f"{path}: known_prefixes must be a list of 'mcp__<server>__' strings")
             cfg["known_prefixes"] = list(cfg["known_prefixes"]) + [x for x in val if x not in cfg["known_prefixes"]]
@@ -134,29 +143,205 @@ def merge_company(cfg, path=None):
         elif key in ("mcp", "bash") and isinstance(val, dict):
             sub = val
         else:
-            raise ValueError(f"{path}: '{key}' can't be set by the company (only known_prefixes, mcp.deny, mcp.ask, "
-                             "bash.deny, bash.ask, secrets)")
+            raise ValueError(f"{path}: '{key}' can't be set by {who} (only "
+                             + ", ".join(sorted(".".join(x) for x in lists)) + ")")
         for sk, rules in sub.items():
             if sk.startswith("_"):
                 continue
             where = (key,) if key == "secrets" else (key, sk)
-            if where not in COMPANY_LISTS:
-                raise ValueError(f"{path}: '{'.'.join(where)}' can't be set by the company: it can only add "
+            if where not in lists:
+                raise ValueError(f"{path}: '{'.'.join(where)}' can't be set by {who}: it can only add "
                                  "rules that deny or ask, never exemptions")
             if not isinstance(rules, list):
                 raise ValueError(f"{path}: '{'.'.join(where)}' must be a list of rules")
             for r in rules:
                 if not isinstance(r, dict) or not r.get("id") or not r.get("pattern") or "input" in r:
                     raise ValueError(f"{path}: every rule in '{'.'.join(where)}' needs an id and a pattern (no input conditions)")
-                r = dict(r, id="company:" + str(r["id"]), why=str(r.get("why") or "a company rule (.claude/limits-company.json)"))
+                added.append(r)
+                default = "a company rule (.claude/limits-company.json)" if company else f"a rule of an extension ({path})"
+                r = dict(r, id=prefix + str(r["id"]), why=str(r.get("why") or default))
                 (cfg["secrets"] if key == "secrets" else cfg[key][sk]).append(r)
+    if check_rules:
+        check_rules(added, path)
     return cfg
+
+
+# ── extensions (.claude/extensions, skills/extensions) ──────────────────────
+EXTENSIONS = os.path.join(ROOT, ".claude", "extensions")
+EXTENSION_LISTS = COMPANY_LISTS - {("known_prefixes",)}
+EXTENSION_ID = re.compile(r"[a-z][a-z0-9]*(-[a-z0-9]+)*")
+
+
+def pattern_cost(pattern):
+    """How much a pattern can backtrack (the product of its repeats), or a ValueError for what isn't
+    allowed in an extension: a slow pattern could make the gate time out."""
+    try:
+        from re import _parser as parser  # 3.11+
+    except ImportError:
+        import sre_parse as parser
+
+    def cost(tree):
+        total = 1
+        for op, arg in tree:
+            name = str(op)
+            if name in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT"):
+                lo, hi, sub = arg
+                if hi > 200:
+                    raise ValueError("no open-ended * or +: give a maximum, like {0,100}")
+                total *= max(hi, 1) * cost(sub)
+            elif name == "SUBPATTERN":
+                total *= cost(arg[-1])
+            elif name == "BRANCH":
+                total *= sum(cost(x) for x in arg[1])
+            elif name in ("LITERAL", "NOT_LITERAL", "ANY", "IN", "AT", "CATEGORY"):
+                pass
+            else:
+                raise ValueError("lookarounds and back references aren't allowed")
+            if total > 5000:
+                raise ValueError("the pattern is too expensive")
+        return total
+    return cost(parser.parse(pattern))
+
+
+def check_extension_rules(rules, path):
+    if len(rules) > 20:
+        raise ValueError(f"{path}: at most 20 rules")
+    for r in rules:
+        if set(r) - {"id", "pattern", "why"} or not all(isinstance(v, str) for v in r.values()) \
+                or not EXTENSION_ID.fullmatch(r["id"]) or len(r["id"]) > 40 or len(r["pattern"]) > 300 \
+                or len(r.get("why", "")) > 300 or not r.get("why", "").isprintable():
+            raise ValueError(f"{path}: a rule is an id, a pattern and a one-line why")
+        try:
+            pattern_cost(r["pattern"])
+        except (ValueError, re.error, RecursionError, OverflowError) as e:
+            raise ValueError(f"{path}: rule {r['id']}: {e}")
+        if re.search(r["pattern"], ""):
+            raise ValueError(f"{path}: rule {r['id']} matches everything")
+
+
+def extension_lock():
+    """{id: entry} from the lock; {} without extensions. ValueError if it can't be trusted."""
+    path = os.path.join(EXTENSIONS, "lock.json")
+    if not os.path.lexists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            lock = json.load(f)
+        ext = lock["extensions"]
+        ok = lock["version"] == 1 and all(EXTENSION_ID.fullmatch(k) and isinstance(e["files"], dict) for k, e in ext.items())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise ValueError(f".claude/extensions/lock.json is unreadable ({e}): restore it from git")
+    if not ok:
+        raise ValueError(".claude/extensions/lock.json isn't in a known format: restore it from git")
+    return ext
+
+
+def merge_extensions(cfg):
+    """Add the rules of every installed extension. A limits file that should be there and isn't, or can't
+    be read, is an error: the hard limits fail closed, as with the framework's own."""
+    if not os.path.isdir(EXTENSIONS):
+        return cfg
+    lock = extension_lock()
+    found = {d for d in os.listdir(EXTENSIONS) if os.path.lexists(os.path.join(EXTENSIONS, d, "limits.json"))}
+    wanted = {k for k, e in lock.items() if f".claude/extensions/{k}/limits.json" in e["files"] and not e.get("removing")}
+    for ext in sorted(found | wanted):
+        path = f".claude/extensions/{ext}/limits.json"
+        try:
+            with open(os.path.join(EXTENSIONS, ext, "limits.json"), encoding="utf-8") as f:
+                extra = json.load(f)
+            merge_extra(cfg, extra, path, EXTENSION_LISTS, f"ext:{ext}:", check_extension_rules)
+        except (OSError, ValueError, TypeError, AttributeError) as e:
+            if lock.get(ext, {}).get("removing"):
+                continue
+            raise ValueError(f"extension {ext}: its limits can't be read ({e}). The CEO restores it from a terminal in the "
+                             f"company folder: `python3 .claude/skills/extensions/extensions.py plan repair {ext}`, then the "
+                             "command it prints (or restores the file from git)")
+    return cfg
+
+
+def extension_problems():
+    """What differs between the installed extensions and what the CEO approved."""
+    if not os.path.isdir(EXTENSIONS):
+        return []
+    try:
+        lock = extension_lock()
+    except ValueError as e:
+        return [str(e)]
+    out = []
+    for ext, entry in sorted(lock.items()):
+        if entry.get("removing"):
+            out.append(f"extension {ext}: its removal was interrupted; run `plan remove {ext}` again")
+            continue
+        changed, dirs = [], set()
+        for rel, digest in entry["files"].items():
+            dirs.add("/".join(rel.split("/")[:3]))
+            p = os.path.join(ROOT, rel)
+            try:
+                with open(p, "rb") as f:
+                    same = not os.path.islink(p) and hashlib.sha256(f.read()).hexdigest() == digest
+            except OSError:
+                same = False
+            if not same:
+                changed.append(rel)
+        for d in sorted(dirs):
+            for base, subdirs, names in os.walk(os.path.join(ROOT, d)):
+                for n in names + [x for x in subdirs if os.path.islink(os.path.join(base, x))]:
+                    rel = os.path.relpath(os.path.join(base, n), ROOT).replace(os.sep, "/")
+                    if rel not in entry["files"] and n != ".DS_Store":
+                        changed.append(rel + " (not part of it)")
+        if changed:
+            out.append(f"extension {ext} isn't as approved: {', '.join(changed[:8])}" + (" …" if len(changed) > 8 else ""))
+    for d in sorted(os.listdir(EXTENSIONS)):
+        if d not in lock and d not in ("lock.json", ".DS_Store"):
+            out.append(f".claude/extensions/{d} isn't an approved extension")
+    return out
+
+
+EXTENSION_APPLY = re.compile(r"python3 (?:\./)?\.claude/skills/extensions/extensions\.py apply ([0-9a-f]{64})")
+
+
+def extension_command(command, cwd):
+    """("ask"|"deny", text) for a command that installs, updates or removes an extension."""
+    if not re.search(r"extensions\.py['\"]?\s+['\"]?apply\b", command):
+        return None
+    m = EXTENSION_APPLY.fullmatch(command.strip())
+    if not m or os.path.realpath(cwd or ROOT) != os.path.realpath(ROOT):
+        return "deny", ("run it on its own, from the company folder, exactly as `plan` printed it: "
+                        "`python3 .claude/skills/extensions/extensions.py apply <plan-id>`")
+    try:
+        with open(os.path.join(STATE, "extensions", m.group(1) + ".json"), encoding="utf-8") as f:
+            plan = json.load(f)
+        text = json.dumps(plan, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+        if hashlib.sha256(text.encode()).hexdigest() != m.group(1):
+            raise ValueError("changed")
+        return "ask", extension_summary(plan)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return "deny", "there's no such plan, or it was changed: run `plan` again"
+
+
+def extension_summary(plan):
+    verb = {"add": "INSTALL", "update": "UPDATE", "repair": "RESTORE", "remove": "REMOVE"}[plan["action"]]
+    show = lambda items, n: "; ".join(str(x) for x in items[:n]) + (f"; and {len(items) - n} more" if len(items) > n else "")  # noqa: E731
+    t = [f"{verb} extension {plan['id']} {plan['version']} from github.com/{plan['repo']}"
+         + (f"/{plan['path']}" if plan["path"] else "") + f", release {plan['tag']} ({plan['commit'][:10]})."]
+    if plan["action"] != "remove":
+        t.append("New permissions: " + (show(plan["adds"], 12) if plan["adds"] else "none") + ".")
+        t.append(f"{len(plan['files'])} files.")
+    if plan["limits"]:
+        t.append(f"It adds {len(plan['limits'])} limits.")
+    if plan["drops_limits"]:
+        t.append("LIMITS THAT DISAPPEAR: " + show(plan["drops_limits"], 8) + ".")
+    if plan["changed"]:
+        t.append("Local changes that will be lost: " + show(plan["changed"], 5) + ".")
+    t.append("Its skills are instructions written outside the company: confirm only if you've read what it does.")
+    return " ".join("".join(c if c.isprintable() else "?" for c in x) for x in t)
 
 
 def load_config():
     with open(CONFIG, encoding="utf-8") as f:
         cfg = json.load(f)
     merge_company(cfg)
+    merge_extensions(cfg)
     # Compile now: a bad pattern must fail closed, not at match time.
     for rule in (cfg["mcp"]["deny"] + cfg["mcp"].get("create", []) + cfg["mcp"]["ask"]
                  + cfg["bash"]["deny"] + cfg["bash"]["ask"] + cfg["secrets"]):
@@ -446,6 +631,9 @@ def cmd_limits():
         for rule in cfg["bash"]["ask"]:
             if rule["re"].search(command):
                 ask(f"juvant-os hard limit ({rule['id']}): {rule['why']}.")
+        ext = extension_command(command, str(ev.get("cwd") or ROOT))
+        if ext:
+            (deny if ext[0] == "deny" else ask)(f"juvant-os extensions: {ext[1]}")
         decision, why = shared_repo_check(command, str(ev.get("cwd") or ROOT))
         if decision == "deny":
             deny(f"juvant-os hard limit (shared-repo): {why}. Writing where people outside the company read "
@@ -499,6 +687,7 @@ def is_read_only(core):
 GIT_READ = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commit"}
 # Framework scripts that never write under .claude/: the dashboard writes
 # state/dashboard.html (hourly scheduled task), bugfix works in a temp clone.
+EXTENSIONS_SCRIPT = ".claude/skills/extensions/extensions.py"
 OUTSIDE_WRITERS = (".claude/dashboard/build.py", ".claude/skills/bugfix/bugfix.py")
 SANCTIONED = re.compile(r"^(bash|sh)\s+(\./)?\.claude/skills/update/update\.sh(\s|$)")
 
@@ -609,6 +798,9 @@ def bash_writes_claude_dir(command, cwd=None):
             continue
         if verb in ("python3", "python") and len(core) > 1 and core[1].endswith(".claude/hooks/juvant_hooks.py"):
             continue
+        if (verb in ("python3", "python") and len(core) > 2 and core[1].endswith(EXTENSIONS_SCRIPT)
+                and core[2] in ("plan", "list", "check") and not any(protected_claude_path(w, here) for w in core[2:])):
+            continue  # these only read .claude/; `apply` asks on its own (extension_command)
         if (verb in ("python3", "python") and len(core) > 1 and core[1].endswith(OUTSIDE_WRITERS)
                 and not any(protected_claude_path(w, here) for w in core[2:])):
             continue  # framework scripts that write outside .claude/ (they must run unattended)
@@ -2155,6 +2347,9 @@ def cmd_session_start():
         lines.append(f"WARNING: juvant-os hard limits config is unreadable ({e}). Checked tools are blocked. "
                      "Tell the CEO first thing: `update` restores the framework file; a mistake in "
                      ".claude/limits-company.json is fixed there, with the CEO.")
+    for problem in extension_problems():
+        lines.append(f"WARNING, tell the CEO first thing: {problem}. Don't follow that extension's skills until it's "
+                     "cleared (extensions skill: `plan repair`).")
     prefixes = set()
     try:
         with open(FINDINGS, encoding="utf-8") as f:
