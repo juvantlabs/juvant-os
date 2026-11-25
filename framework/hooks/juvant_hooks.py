@@ -548,10 +548,17 @@ INERT_GIT = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commi
 INERT_VERBS = {"cd", "mkdir", "mktemp", "touch", "rm", "cp", "mv", "date", "sleep"}
 RUNS_BY_VARIABLE = re.compile(r"^(GIT_|GH_|LESS|LD_|DYLD_|BASH_|ENV\b|PATH\b|EDITOR|VISUAL|BROWSER|SHELL|NULLCMD|READNULLCMD|\w*PAGER)")
 RUNS_LATER = re.compile(r"(^|/)\.git(/|$)|git/|(^|/)git$|gitconfig|hooksPath|^--(up|rec|ex)|ext::")
+LOG_OUTCOME = ["python3", ".claude/hooks/juvant_hooks.py", "log-outcome"]
 OPENERS = {"time", "!", "if", "then", "else", "elif", "while", "until", "do", "{"}
 
 
+# An attribute (settings.claude_model) or a host name (docs.claude.com), not the folder. The name before the dot
+# must be a plain one: after $x, a slash, a quote or a backslash it may still be a path.
+NOT_THE_FOLDER = re.compile(r"(?:(?<![\w$/{}~.\\'\"-])|(?<=https://))[A-Za-z]\w*\.claude(_\w+|\.(com|ai)(?![\w.-]))(?!\w)")
+
+
 def names_claude(text):
+    text = NOT_THE_FOLDER.sub(" ", text)
     return ".claude" in re.sub(r"""\$(?=['"])|[\\\n'"]""", "", text)
 
 
@@ -585,6 +592,8 @@ class ShellScan:
                 while words and ASSIGNMENT.match(words[0]) and not RUNS_BY_VARIABLE.match(words[0]):
                     words = words[1:]
                 verb = words[0] if words else "true"
+                if words[:3] == LOG_OUTCOME and self.logs_only():
+                    continue
                 if verb == "gh":
                     if words[1:2] not in (["pr"], ["issue"], ["release"]):
                         return False
@@ -592,6 +601,21 @@ class ShellScan:
                     if len(words) < 2 or words[1] not in INERT_GIT:
                         return False
                 elif verb not in INERT_VERBS and not is_read_only(words):
+                    return False
+        return True
+
+    def logs_only(self):
+        """True if the framework's log-outcome, which only appends its argument to a log, can't be running a script that
+        this command has just put in its place: nothing else names .claude, links, copies, moves or sets a variable for it."""
+        for seq in self.sequences:
+            for words in seq:
+                if words[:3] == LOG_OUTCOME:
+                    continue
+                if any(names_claude(w) for w in words) or ASSIGNMENT.match(words[0]):
+                    return False
+                if any(w in REDIRECTS_OUT and not words[i + 1].endswith((".md", "/dev/null")) for i, w in enumerate(words[:-1])):
+                    return False  # notes only: another file may be one Python loads by itself
+                if words[0] in ("cp", "mv", "rm", "touch", "mkdir", "gh") or words[:2] in (["git", "checkout"], ["git", "switch"]):
                     return False
         return True
 
