@@ -114,6 +114,29 @@ class NestedAndSlow(HookCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
 
+    def test_text_that_only_looks_like_the_folder_stays_free(self):
+        log = "python3 .claude/hooks/juvant_hooks.py log-outcome"
+        for cmd in ("python3 - <<'E'\ns.claude_model = settings.claude_model\nE",
+                    "python3 - <<'E'\nprint('see https://docs.claude.com/en')\nE",
+                    f"cat >> notes.md <<'E'\nThe .claude/skills folder\nE\n{log} \"done\"",
+                    f"cat >> notes.md <<'E'\nAbout .claude/x\nE\n{log} \"a\" && {log} --agent b \"c\"; git status --short"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
+
+    def test_text_that_may_be_the_folder_still_asks(self):
+        log = "python3 .claude/hooks/juvant_hooks.py log-outcome x"
+        w = "touch .claude/x"
+        for cmd in ("python3 - <<'E'\nopen('.claude/x', 'w')\nE", "python3 - <<'E'\nopen('a/.claude/x', 'w')\nE",
+                    "python3 - <<'E'\nprint(s.claude_model); open('.claude/x', 'w')\nE", "x=./; touch $x.claude/y",
+                    "python3 - <<'E'\nopen(f'{d}.claude/x', 'w')\nE", "python3 - <<'E'\nopen('a\\n.claude/x'.split()[1], 'w')\nE",
+                    f"cat > s <<'E'\n{w}\nE\n{log}; bash s", f"cat > .claude/hooks/juvant_hooks.py <<'E'\n{w}\nE\n{log}",
+                    f"cat > h <<'E'\n{w}\nE\nmv h .claude/hooks/juvant_hooks.py; {log}",
+                    f"cat > h <<'E'\n{w}\nE\nmv h $P; {log}", f"cat > h <<'E'\n{w}\nE\nPYTHONPATH=. {log}",
+                    f"cat > h <<'E'\n{w}\nE\ncd .claude; {log}", f"cat <<'E' | {log}\n{w}\nE\nsh h",
+                    f"cat > h <<'E'\n{w}\nE\npython3 .claude/hooks/juvant_hooks.py other x"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
+
     def test_a_check_that_never_ends_blocks(self):
         copy = os.path.join(self.repo, "hooks")
         shutil.copytree(HOOKS, copy)
