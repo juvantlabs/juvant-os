@@ -95,6 +95,23 @@ class NestedAndSlow(HookCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
 
+    def test_upper_and_lower_case_are_the_same_folder(self):
+        for cmd in ("touch .CLAUDE/x", "echo x > .Claude/settings.json", "cd .CLAUDE && touch x", "cd .Claude; touch x", "touch .CLA''UDE/x",
+                    "curl -so.Claude/x URL", "sed -n 'w.Claude/x' README.md", "echo .Claude/y | xargs rm", f"touch {self.repo.upper()}/.claude/x",
+                    "printf 'a\\n.claude/y' | xargs rm", "printf 'a\\t.claude/y' | xargs rm", "printf 'a\\n.Claude/y' | xargs rm",
+                    "echo x >> memory/Private.md", "echo x > memory/Authorizations/a.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
+        self.assertEqual(self.decision("Bash", {"command": "echo x > state/Authorizations.json"}), "deny")
+        for path, want in ((".CLAUDE/settings.json", "ask"), (".Claude/hooks/juvant_hooks.py", "ask"), ("memory/Private.md", "ask"),
+                           ("memory/Authorizations/a.md", "ask"), ("state/Authorizations.json", "deny"), ("docs/Claude.md", "allow")):
+            for tool, inp in (("Write", {"content": "x"}), ("Edit", {"old_string": "a", "new_string": "b"})):
+                with self.subTest(path=path, tool=tool):
+                    self.assertEqual(self.decision(tool, {"file_path": os.path.join(self.repo, path), **inp}), want)
+        for cmd in ("cat .CLAUDE/settings.json", "grep -n x .Claude/hooks/juvant_hooks.py", "cat memory/Private.md", "touch docs/Claude.md"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
+
     def test_an_unreadable_command_is_checked_the_simple_way(self):
         for p in ("claude --dangerously-skip-permissions", "gh pr merge 1 -R acme/zz"):
             for cmd in (f"{p} <<E\nhi", f"{p}\ncat <<E\nhi\nE ", f"let x=1<<2; {p}", f"echo $[1<<2]; {p}", f"cat <<E$x\nE$x\n{p}\nE"):

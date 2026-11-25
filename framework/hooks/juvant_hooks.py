@@ -559,7 +559,7 @@ NOT_THE_FOLDER = re.compile(r"(?:(?<![\w$/{}~.\\'\"-])|(?<=https://))[A-Za-z]\w*
 
 def names_claude(text):
     text = NOT_THE_FOLDER.sub(" ", text)
-    return ".claude" in re.sub(r"""\$(?=['"])|[\\\n'"]""", "", text)
+    return ".claude" in re.sub(r"""\$(?=['"])|[\\\n'"]""", "", text).lower()
 
 
 class ShellScan:
@@ -961,12 +961,12 @@ def cmd_limits():
         deny(f"juvant-os private file: this file is marked private in {PRIVATE_REGISTRY} and `{who}` isn't among "
              f"the readers. Ask the CEO, or someone listed, to pass on what you need.")
     fp_ = str(inp.get("file_path") or "")
-    if tool in ("Write", "Edit", "MultiEdit") and fp_ and norm_path(fp_) == norm_path(PRIVATE_REGISTRY):
+    if tool in ("Write", "Edit", "MultiEdit") and fp_ and same_file(fp_, PRIVATE_REGISTRY):
         ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
 
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         target = str(inp.get("file_path") or inp.get("notebook_path") or "")
-        if target and norm_path(target) == norm_path(AUTH_STATE):
+        if target and same_file(target, AUTH_STATE):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
         if is_authorization_path(target):
             if tool == "NotebookEdit":
@@ -1029,15 +1029,15 @@ def cmd_limits():
                  "is outbound: work on a branch, open a draft PR (gh pr create --draft), and the CEO merges.")
         elif decision == "ask":
             ask(f"juvant-os hard limit (shared-repo): {why}.")
-        if AUTH_STATE_REL in command and bash_may_write(command, AUTH_STATE_REL):
+        if AUTH_STATE_REL in command.lower() and bash_may_write(command, AUTH_STATE_REL):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
         launch = claude_launch_problem(command, str(ev.get("cwd") or ROOT))
         if launch:
             (deny if launch[0] == "deny" else ask)(f"juvant-os: {launch[1]}.")
-        if AUTH_DIR in command and bash_may_write(command, AUTH_DIR) and not is_close_command(command):
+        if AUTH_DIR in command.lower() and bash_may_write(command, AUTH_DIR) and not is_close_command(command):
             ask(f"juvant-os long task: this command may write in {AUTH_DIR}/. Authorizations are written with Write, "
                 "and the CEO confirms them; close one with `python3 .claude/hooks/juvant_hooks.py close-authorization <file>`.")
-        if PRIVATE_REGISTRY in command and bash_may_write(command, PRIVATE_REGISTRY):
+        if PRIVATE_REGISTRY in command.lower() and bash_may_write(command, PRIVATE_REGISTRY):
             ask(f"juvant-os: {PRIVATE_REGISTRY} decides who can read private files. The CEO confirms every change.")
         why = framework_upstream_publish(command, str(ev.get("cwd") or ROOT))
         if why:
@@ -1073,7 +1073,7 @@ def sed_is_read_only(args):
         if re.match(r"^-[a-zA-Z]*[iIfl]", a) and not a.startswith("--") and not re.match(r"^-[nErsuz]*e", a):
             return False
     script = sed_scripts(args)
-    if "[" in script and ".claude" in script and re.search("[wWe]", script):
+    if "[" in script and ".claude" in script.lower() and re.search("[wWe]", script):
         return False  # seds disagree on where a [...] ends
     runs, _, writes = sed_effects(script)
     return not runs and not writes
@@ -1151,13 +1151,14 @@ def in_claude_dir(path):
     installed in (a project repo next door): its hooks and sharing record too."""
     if not path:
         return False
+    # Upper and lower case are the same folder on many disks: on the others, this only asks more.
     full = os.path.realpath(path if os.path.isabs(path) else os.path.join(ROOT, path))
-    base = os.path.realpath(os.path.join(ROOT, ".claude"))
-    if full == base or full.startswith(base + os.sep):
+    base = os.path.realpath(os.path.join(ROOT, ".claude")).casefold()
+    if (full.casefold() + os.sep).startswith(base + os.sep):
         return True
     d = os.path.dirname(full)
     while d and d != os.path.dirname(d):
-        if os.path.basename(d) == ".claude":
+        if os.path.basename(d).casefold() == ".claude":
             return any(os.path.exists(os.path.join(d, m)) for m in FRAMEWORK_MARKERS)
         d = os.path.dirname(d)
     return False
@@ -1181,7 +1182,11 @@ def is_claude_home_scratch(rel):
 def protected_claude_path(word, here):
     """True if this word names a path in a .claude that the hard limits protect: this
     repo's, one where juvant-os is installed, or the user's ~/.claude (not its scratch areas)."""
-    w = word
+    w = re.sub(r"\.claude", ".claude", word, flags=re.I)
+    here = here and re.sub(r"\.claude", ".claude", here, flags=re.I)
+    spaced = re.sub(r"\\[abefnrtv]", " ", w)  # printf 'a\n.claude/x' names it too
+    if spaced != w and protected_claude_path(spaced, here):
+        return True
     if re.search(r"""[\\'"]""", w):  # text another shell may read: without its quotes too
         bare = re.sub(r"""[\\\n'"]""", "", w)
         if bare != w and protected_claude_path(bare, here):
@@ -1201,12 +1206,13 @@ def protected_claude_path(word, here):
         return ".claude" in w  # can't resolve it: assume the worst
     # The path may sit inside a bigger word: python3 -c 'open(".claude/x", "w")'.
     candidates = re.findall(r"~?[\w./@+-]*\.claude(?:/[\w./@+-]*)?", w) or [w]
-    home = os.path.realpath(os.path.expanduser("~/.claude"))
+    home = os.path.realpath(os.path.expanduser("~/.claude")).casefold()
     for c in candidates:
         c = os.path.expanduser(c)
         full = os.path.realpath(c if os.path.isabs(c) else os.path.join(here or ROOT, c))
         if in_claude_dir(full):
             return True
+        full = full.casefold()
         if (full == home or full.startswith(home + os.sep)) and \
                 not is_claude_home_scratch(os.path.relpath(full, home)):
             return True
@@ -1216,7 +1222,7 @@ def protected_claude_path(word, here):
 def bash_writes_claude_dir(command, cwd=None):
     """True if a Bash command may write under a protected .claude/ outside the sanctioned
     update script. Follows `cd`: a relative write after moving into .claude/ counts."""
-    if not names_claude(command) and ".claude" not in (cwd or ""):
+    if not names_claude(command) and ".claude" not in (cwd or "").lower():
         return False
     scan = shell_scan(command)
     if scan is None or scan.unsure:
@@ -1276,7 +1282,7 @@ def sequence_writes_claude_dir(segments, cwd, others_name=False):
         if verb in ("cd", "pushd", "popd"):
             target = next((w for w in core[1:] if w == "-" or not w.startswith("-")), "~" if verb == "cd" else "-")
             if "$" in target or "`" in target:
-                if ".claude" in target:
+                if ".claude" in target.lower():
                     return True  # moving somewhere we can't resolve, towards a .claude
                 moved = [None] + [h for h in heres if h]
             elif target == "-" or target.startswith("+"):
@@ -1295,7 +1301,7 @@ def sequence_writes_claude_dir(segments, cwd, others_name=False):
             else:  # it may fail, be skipped, or happen in another process
                 heres = moved + kept
             continue
-        if verb in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w) for w in core):
+        if verb in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w, re.I) for w in core):
             return True  # w.claude/x: a sed write, without a space
         inside = any(h and protected_claude_path(os.path.join(h, "."), "/") for h in heres)
 
@@ -2106,11 +2112,11 @@ def bash_may_write(command, needle):
             return True
         if not words.piped:
             named = False
-        named = named or any(needle in w for w in words)
-        if not any(needle in w for w in words):
+        named = named or any(needle in w.lower() for w in words)
+        if not any(needle in w.lower() for w in words):
             continue
         for i, w in enumerate(words):
-            if w in REDIRECTS_OUT and i + 1 < len(words) and needle in words[i + 1]:
+            if w in REDIRECTS_OUT and i + 1 < len(words) and needle in words[i + 1].lower():
                 return True
         core = without_redirects(words)
         while core and ASSIGNMENT.match(core[0]):
@@ -2125,16 +2131,21 @@ def bash_may_write(command, needle):
         if verb == "find" and find_reads(core):
             continue
         if verb == "claude" and all((i > 0 and core[i - 1] == "--settings") or w.startswith("--settings=")
-                                    for i, w in enumerate(core) if needle in w):
+                                    for i, w in enumerate(core) if needle in w.lower()):
             continue  # a session started with these settings reads the file (claude_launch_problem checks it)
         return True
     return False
 
 
+def same_file(a, b):
+    """True if both name the same file, upper and lower case aside."""
+    return norm_path(a).casefold() == norm_path(b).casefold()
+
+
 def is_authorization_path(p):
     if not p:
         return False
-    full, base = norm_path(p), norm_path(AUTH_DIR)
+    full, base = norm_path(p).casefold(), norm_path(AUTH_DIR).casefold()
     return full.startswith(base + os.sep) and (full.endswith(".md") or full.endswith(SESSION_SETTINGS_SUFFIX))
 
 
