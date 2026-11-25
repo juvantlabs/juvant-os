@@ -16,6 +16,7 @@ and stops unless everything is exactly what was planned. Nothing is committed.
 Standard library only.
 """
 import datetime
+import gzip
 import hashlib
 import importlib.util
 import io
@@ -28,9 +29,11 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
@@ -46,6 +49,7 @@ ID = re.compile(r"[a-z][a-z0-9]*(-[a-z0-9]+)*")
 SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
 PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,80}")
 VERSION = re.compile(r"(\d{1,6})\.(\d{1,6})\.(\d{1,6})(-rc\.\d{1,4})?")
+MAX_ARCHIVE = 100_000_000
 TEXT_EXT = (".md", ".json", ".txt")
 TOP_FILES = {"extension.json", "README.md", "limits.json", "config.example.json", "config.schema.json", "LICENSE", "LICENSE.md", "LICENSE.txt"}
 MAX_TAR, MAX_FILE, MAX_FILES, MAX_TOTAL = 20_000_000, 400_000, 200, 4_000_000
@@ -110,6 +114,13 @@ def read_lock():
         lock = load_json(f.read(), LOCK_REL)
     if not isinstance(lock, dict) or lock.get("version") != 1 or not isinstance(lock.get("extensions"), dict):
         no(f"{LOCK_REL}: not in a format this version knows")
+    for ext, e in lock["extensions"].items():
+        if not (ID.fullmatch(ext) and isinstance(e, dict) and isinstance(e.get("files"), dict)
+                and isinstance(e.get("stale", {}), (dict, list))):
+            no(f"{LOCK_REL}: not in a format this version knows")
+        for rel in [*e["files"], *e.get("stale", [])]:
+            if not hooks().extension_path(ext, rel):
+                no(f"{LOCK_REL}: {ext} lists {rel!r}, which can't be its file: restore the lock from git")
     return lock
 
 
@@ -165,6 +176,11 @@ def version_tuple(text, what="version"):
     if not m:
         no(f"{what}: '{text}' isn't a version like 1.2.3")
     return tuple(int(x) for x in m.groups()[:3])
+
+
+def version_order(text):
+    rc = str(text).partition("-rc.")[2]
+    return version_tuple(text) + (int(rc) if rc else 10**6,)
 
 
 def in_range(version, text, what):
@@ -297,7 +313,11 @@ def fetch(repo, path, commit):
     files, total = {}, 0
     want = [p for p in path.split("/") if p] if path else []
     try:
-        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as z:
+            plain = z.read(MAX_ARCHIVE + 1)
+        if len(plain) > MAX_ARCHIVE:
+            no("the repository is too big to unpack")
+        with tarfile.open(fileobj=io.BytesIO(plain), mode="r:") as tar:
             for m in tar:
                 parts = m.name.split("/")[1:]  # the archive's own top folder
                 if parts[: len(want)] != want or len(parts) == len(want) and m.isdir():
@@ -315,7 +335,7 @@ def fetch(repo, path, commit):
                     no(f"{rel}: twice in the archive")
                 files[rel] = tar.extractfile(m).read()
                 total += m.size
-    except (tarfile.TarError, EOFError, OSError) as e:
+    except (tarfile.TarError, EOFError, OSError, zlib.error) as e:
         no(f"the download can't be read ({e})")
     if not files:
         no(f"nothing at '{path or '/'}' in {repo}")
@@ -334,7 +354,8 @@ def check_text(rel, data):
         if 0xFE00 <= o <= 0xFE0E or (o == 0xFE0F and (prev.isascii() or prev == ch)):
             no(f"{rel}: hidden character U+{o:04X}")
         prev = ch
-        if (o < 32 and ch not in "\n\t") or 0x7F <= o <= 0x9F or o in (0x061C, 0x00AD, 0x180E, 0xFEFF, 0x2028, 0x2029) \
+        if (o < 32 and ch not in "\n\t") or 0x7F <= o <= 0x9F or o in (0x034F, 0x061C, 0x00AD, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFEFF, 0xFFA0) \
+                or 0x180B <= o <= 0x180F or unicodedata.category(ch) in ("Cf", "Co", "Cs", "Zl", "Zp") \
                 or 0x200B <= o <= 0x200F or 0x202A <= o <= 0x202E or 0x2060 <= o <= 0x206F or 0xE0000 <= o <= 0xE0FFF:
             no(f"{rel}: hidden or control character U+{o:04X} (line endings must be plain)")
     return text
@@ -534,7 +555,7 @@ def make_plan(action, repo="", path="", tag="", ext=""):
         if need:
             no(f"{', '.join(sorted(need))} needs {ext}: remove it first")
         plan = {"action": action, "id": ext, "version": entry["version"], "repo": entry["source"]["repo"], "path": entry["source"]["path"],
-                "tag": entry["source"]["tag"], "commit": entry["source"]["commit"], "repo_id": entry["source"]["repo_id"], "api": GITHUB, "files": {}, "permissions": {}, "adds": [],
+                "tag": entry["source"]["tag"], "commit": entry["source"]["commit"], "repo_id": entry["source"]["repo_id"], "api": GITHUB, "from": "", "files": {}, "deletes": sorted({*entry["files"], *entry.get("stale", [])}), "permissions": {}, "adds": [],
                 "limits": [], "drops_limits": limit_ids(ext, entry), "previous": sha(canonical(entry).encode()),
                 "changed": local_changes(entry), "config": False}
         return plan, {}
@@ -571,7 +592,7 @@ def make_plan(action, repo="", path="", tag="", ext=""):
                 no(f"{tag} now points to another commit: the release was changed after you approved it")
             if entry["source"]["tag"] == tag:
                 no(f"{ext} {m['version']} is already installed: nothing to update")
-            if version_tuple(m["version"]) < version_tuple(entry["version"]):
+            if version_order(m["version"]) < version_order(entry["version"]):
                 no(f"{m['version']} is older than the installed {entry['version']}")
             bad = local_changes(entry)
             if bad:
@@ -600,6 +621,7 @@ def make_plan(action, repo="", path="", tag="", ext=""):
     rules = rule_ids(ext, out.get(f".claude/extensions/{ext}/limits.json"))
     old = limit_ids(ext, entry) if entry else []
     plan = {"action": action, "id": ext, "version": m["version"], "repo": repo, "path": path, "tag": tag, "commit": commit, "repo_id": number, "api": API,
+            "from": entry["version"] if entry else "",
             "files": {k: sha(v) for k, v in out.items()}, "permissions": permissions(m),
             "adds": sorted(flat(permissions(m)) - flat(entry["permissions"] if entry else {})),
             "limits": rules, "drops_limits": sorted(set(old) - set(rules)), "framework": m["framework"],
@@ -747,17 +769,25 @@ def cmd_apply(args):
                 write_file(config, out[f".claude/extensions/{ext}/config.example.json"])
                 made_config = True
     except BaseException:
-        for rel in set(out) - set(backup):
+        # Put everything back; a step that fails doesn't stop the others, and the lock always goes last.
+        failed = []
+
+        def attempt(what, step, *args):
             try:
-                os.remove(safe_dest(rel))
-            except (OSError, Refused):
-                pass
+                step(*args)
+            except (OSError, Refused) as e:
+                failed.append(f"{what} ({e})")
+
+        for rel in sorted(set(out) - set(backup)):
+            attempt(rel, remove_files, [rel])
         for rel, data in backup.items():
-            write_file(rel, data)
+            attempt(rel, write_file, rel, data)
         if made_config:
-            os.remove(safe_dest(config))
-        prune_dirs(out)
-        write_lock(old_lock)
+            attempt(config, lambda: os.remove(safe_dest(config)))
+        attempt("empty folders", prune_dirs, out)
+        attempt(LOCK_REL, write_lock, old_lock)
+        if failed:
+            print("extensions: NOT fully put back: " + ", ".join(failed) + ". Restore .claude from git.", file=sys.stderr)
         raise
     shutil.rmtree(PLANS, ignore_errors=True)
     print({"add": "Installed", "update": "Updated", "repair": "Restored", "remove": "Removed"}[a] + f" {ext} {plan['version']}.")

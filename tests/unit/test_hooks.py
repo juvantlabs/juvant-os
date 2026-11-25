@@ -57,6 +57,65 @@ class NestedAndSlow(HookCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
 
+    def test_writes_a_shell_would_see(self):
+        w = "touch .claude/x"
+        for cmd in (f"echo hi # note\n{w}", f"echo a#b; {w}", f'echo "${{x:-" #"}}"; {w}', f"echo $({w}; (true))", f"cat <({w}; (:))",
+                    f"echo $(f() {{ {w}; }}; f)", f"echo $( {w} ')' )", "cd .claude/hooks && echo $(rm limits.json)",
+                    "cd -P .claude/hooks; rm limits.json", "cd 2>&1 .claude && touch x", f'echo "$(case a in a) {w};; esac)"',
+                    f"cat <<E\n$({w})\nE", f"sh <<'E'\n{w}\nE", f"cat <<'E' | sh\n{w}\nE", f"eval \"$(cat <<'E'\n{w}\nE\n)\"",
+                    f"cat > /tmp/s <<'E'\n{w}\nE\nbash /tmp/s", f"echo '{w}' | sh", f"echo '{w}' | # c\n sh", f"echo '{w}' | 2>&1 sh",
+                    "echo .claude/x | xargs rm", "echo x &> .claude/x", "echo x >& .claude/x", "echo x >! .claude/x",
+                    "sed '1e touch .claude/x' README.md", "sed -n '1w .claude/x' README.md", "sed -n 's/a/b/w.claude/x' README.md",
+                    "less '+!touch .claude/x' README.md", "sort --compress-program 'touch .claude/x' a", "rg --pre 'touch .claude/x' a",
+                    "uniq a .claude/x", "git diff --output=.claude/x", "tree -o .claude/x", "GIT_EXTERNAL_DIFF='touch .claude/x' git diff",
+                    f"python3 - <<'E'\ns = ' # '; open('.claude/x', 'w')\nE", "touch .c\\laude/x", "touch .cla''ude/x",
+                    f'echo "$\\\n({w})"', "find .claude -fprint .claude/x",
+                    f"cat <<E$x\nE$x\n{w}\nE", f"cat <<E\\\nF\nEF\n{w}\nE", f"cat <<'a\"b'\na\"b\n{w}\nab", f"cat <<E\r\nE\r\n{w}\nE",
+                    f"cat <<EF\nE\\\nF\n{w}\nEF", f"echo $[1<<E ]\n{w}\nE", f"NULLCMD=sh; <<'E'\n{w}\nE",
+                    f"cat >> .git/config <<'E'\n[diff]\n external = {w}\nE\ngit diff", f"cp /bin/ls ./cat; cat > ./cat <<'E'\n{w}\nE\n./cat",
+                    "sed -n '/[]/]/p;w .claude/x' README.md", "sed -n 'w./.claude/x' README.md", f"echo ${{x:-<({w})}}",
+                    "curl -so.claude/x URL", "sort -o.claude/x README.md", "tar xf a.tar -C.claude", f"echo hi \r# ; {w}",
+                    f"echo '{w}' | {{ sh; }}", f"echo '{w}' | (sh)", f"echo '{w}' | if true; then sh; fi", f"echo '{w}' | nice sh",
+                    f"echo '{w}' | awk '{{system($0)}}'", f"echo '{w}' | tee >(sh)", "printf '+++ .claude/x' | git apply",
+                    f"echo '{w}' | while read x; do sh -c \"$x\"; done", "echo .claude/y | xargs uniq README.md",
+                    "cd .claude; cd /nonexistent; touch x", "cd .claude; cd /tmp & touch x", "cd .claude; cd /tmp | cat; touch x",
+                    "cd .claude; false && cd /tmp; touch x", "cd .claude && cd /tmp && cd - && touch x", "cd .claude; pushd /tmp; popd; touch x",
+                    "echo x >&! .claude/x", "function cat { touch \"$@\"; }; cat .claude/x",
+                    f"(echo '{w}') | sh", f"true && (echo '{w}') | sh", f"{{ echo '{w}'; echo b; }} | sh", f"{{ (echo '{w}'); }} | sh",
+                    f"for i in 1; do (echo '{w}'); done | sh", f"true && {{\n(echo '{w}')\n}} | sh", "cd .claude && cd /nope && ls; (touch x)",
+                    "cd .claude; cd -Z /tmp; touch x", f"cd nope; echo $({w})", f"cd nope; X=\"$({w})\"", f"cd nope; cat <({w})",
+                    f"cd docs & echo $({w})", f"cd nope || echo $({w})", f"cd nope; {w}", f"cd nope; echo `{w}`", f"cat > s <<'E'\n{w}\nE\ngit fetch --upload-pa='sh s;:' .",
+                    f"cat > config <<'E'\n{w}\nE\nmv config ~/.config/git; git diff", "(echo .claude/y) | xargs rm",
+                    "sed 'a\\\nx\\\\\nw .claude/x' README.md", f"cat > config <<'E'\n{w}\nE\nmv config .git; git diff",
+                    f"cat > s <<'E'\n{w}\nE\ngit fetch --upload-pack='sh s;:' .", "touch .cl$'a'ude/x", "cd sub; curl -so../.claude/x URL",
+                    "cd .claude && cd /nonexistent && ls\ntouch x", "cd .claude; cd /nonexistent && true; touch x",
+                    "cd .claude; cd \"$PWD\" && touch x", "cd .claude; cd /tmp && true & touch x", "cd .claude\nif false\nthen\ncd /tmp\nfi\ntouch x",
+                    f"printf '{w}' | xargs -0I cat sh -c cat", f"echo '{w}' | while read l; do sh -c \"$l\" read; done",
+                    "printf .claude/y | python3 -c 'from sys import stdin;from os import remove;remove(stdin.read())'"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
+
+    def test_an_unreadable_command_is_checked_the_simple_way(self):
+        for p in ("claude --dangerously-skip-permissions", "gh pr merge 1 -R acme/zz"):
+            for cmd in (f"{p} <<E\nhi", f"{p}\ncat <<E\nhi\nE ", f"let x=1<<2; {p}", f"echo $[1<<2]; {p}", f"cat <<E$x\nE$x\n{p}\nE"):
+                with self.subTest(cmd=cmd):
+                    self.assertIn(self.decision("Bash", {"command": cmd}), ("ask", "deny"))
+
+    def test_ordinary_commands_stay_free(self):
+        for cmd in ("git commit -m \"$(cat <<'EOF'\nDon't touch .claude/hooks; see `.claude/x` (and $HOME)\nEOF\n)\"",
+                    "git add .claude && git commit -F - <<'EOF'\nUpdate .claude/skills/x text\nEOF", "ls .claude # what's here",
+                    "B=$(mktemp) && cat > \"$B\" <<'EOF'\nAbout .claude/hooks\nEOF\ngh issue list", "n=$(ls .claude/skills | wc -l)",
+                    "git log $(git rev-parse HEAD) -- .claude/agents", "diff <(git show HEAD:.claude/x) .claude/x",
+                    "cat .claude/settings.json | python3 -m json.tool", "sed -n '1,5p' .claude/settings.json", "(cd .claude && ls)",
+                    "cat .claude/x 2>/dev/null", "ls .claude | xargs -n 1 echo", "grep -rn 'a#b' .claude | sort | uniq -c",
+                    "ls .claude/skills | while read -r s; do echo \"$s\"; done", "rg --pretty foo .claude", "printf $'a\\tb' && ls .claude",
+                    "cat .claude/settings.json | python3 -c 'import json,sys; print(json.load(sys.stdin))'", "cd .claude && ls && cd /tmp && touch x",
+                    "cat .claude/x | base64", "for f in docs/*; do echo $f; done | while read f; do python3 x.py $f; done; cat .claude/juvant-os.json",
+                    "for f in a b; do echo $f; done | sort | python3 x.py; ls .claude", "ls .claude | while read -r s; do if [ -d \"$s\" ]; then n=1; continue; fi; done",
+                    "cd .claude\nls\ncd ..\ntouch y"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
+
     def test_a_check_that_never_ends_blocks(self):
         copy = os.path.join(self.repo, "hooks")
         shutil.copytree(HOOKS, copy)

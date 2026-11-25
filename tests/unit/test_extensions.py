@@ -311,6 +311,35 @@ class Refusals(Case):
         self.refused(package(), "needs juvant-os")
 
 
+class Review(Case):
+    def test_invisible_characters(self):
+        for o in (0x061C, 0x034F, 0x115F, 0x1160, 0x17B4, 0x180B, 0x180F, 0x2800, 0x3164, 0xFFA0, 0xFFF9, 0x1D173, 0x1BCA0, 0xE000):
+            with self.subTest(o=hex(o)):
+                self.hub.publish("demo-v1.0.0", package(files={"README.md": "# Demo\na" + chr(o) + "b\n"}))
+                self.assertIsNone(self.add()[0])
+                self.hub.releases.clear()
+
+    def test_near_total_patterns(self):
+        for pat in (".", "[^q]", "\\S"):
+            self.hub.publish("demo-v1.0.0", package(limits={"mcp": {"deny": [{"id": "a", "pattern": pat}]}}))
+            self.assertIsNone(self.add()[0], pat)
+            self.hub.releases.clear()
+
+    def test_a_candidate_isnt_an_update_of_its_release(self):
+        self.hub.publish("demo-v1.0.0", package())
+        self.install()
+        self.hub.publish("demo-v1.0.0-rc.1", package(version="1.0.0-rc.1"), prerelease=True)
+        pid, out = self.plan("update", "demo", "--tag", "demo-v1.0.0-rc.1")
+        self.assertEqual((pid, "older" in out), (None, True), out)
+        self.hub.publish("demo-v1.1.0", package(version="1.1.0"))
+        self.assertIn("UPDATE extension demo 1.0.0 -> 1.1.0", self.plan("update", "demo")[1])
+
+    def test_a_huge_archive(self):
+        self.hub.publish("demo-v1.0.0", package(files={"big.txt": b"0" * 110_000_000}))
+        pid, out = self.add()
+        self.assertEqual((pid, "too big" in out), (None, True), out[-200:])
+
+
 class Lifecycle(Case):
     def test_add_list_remove_leaves_nothing_but_company_files(self):
         before = self.tree()
@@ -362,7 +391,7 @@ class Lifecycle(Case):
             self.assertIn(want, out)
         d, why = self.gate("Bash", {"command": f"python3 .claude/skills/extensions/extensions.py apply {pid}"})
         self.assertEqual(d, "ask")
-        for want in ("UPDATE extension demo 1.1.0", "calendar", "LIMITS THAT DISAPPEAR"):
+        for want in ("UPDATE extension demo 1.0.0 -> 1.1.0", "calendar", "LIMITS THAT DISAPPEAR"):
             self.assertIn(want, why)
         self.assertEqual(self.ext("apply", pid)[0], 0)
         self.assertTrue(os.path.exists(self.p(".claude/skills/demo-hello/new.md")))
@@ -680,6 +709,58 @@ class Hooks(Case):
             self.assertEqual(self.gate("Bash", {"command": f"python3 .claude/skills/extensions/extensions.py {ok}"})[0], "allow")
         self.assertEqual(self.gate("Bash", {"command": "python3 .claude/skills/extensions/extensions.py list > .claude/x"})[0], "ask")
 
+    def test_apply_hidden_in_another_command(self):
+        self.hub.publish("demo-v1.0.0", package())
+        pid, _ = self.add()
+        cmd = f"python3 .claude/skills/extensions/extensions.py apply {pid}"
+        for bad in (f"echo hi # note\n{cmd}", f"echo a#b; {cmd}", f"cat <<'E' | sh\n{cmd}\nE", f"sed '1e {cmd}' README.md", f"less '+!{cmd}' a",
+                    f"echo '{cmd}' | sh", f"eval \"$(cat <<'E'\n{cmd}\nE\n)\"", f"sort --compress-program '{cmd}' a", f"cat <<E$x\nE$x\n{cmd}\nE"):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(self.gate("Bash", {"command": bad})[0], "allow")
+                self.assertNotIn("INSTALL", self.gate("Bash", {"command": bad})[1])
+
+    def test_an_ask_holds_on_tools_that_create(self):
+        self.hub.publish("demo-v1.0.0", package(limits={"mcp": {"ask": [{"id": "up", "pattern": "upload_file"}]}}))
+        self.install()
+        self.assertEqual(self.gate("mcp__x__upload_file", {"conflictBehavior": "fail"})[0], "ask")
+
+    def test_an_ask_never_replaces_the_frameworks(self):
+        self.hub.publish("demo-v1.0.0", package(limits={"mcp": {"ask": [{"id": "files", "pattern": "_file"}]}}))
+        self.install()
+        d, why = self.gate("mcp__x__delete_file", {"driveId": "D1"})
+        self.assertEqual((d, "(delete-move)" in why), ("ask", True), why)
+
+    def test_a_failed_install_puts_the_lock_back(self):
+        self.hub.publish("demo-v1.0.0", package())
+        self.install()
+        before = self.read(".claude/extensions/lock.json")
+        self.hub.publish("demo-v1.1.0", package(version="1.1.0", files={"skills/hello/SKILL.md": SKILL + "\nMore.\n"}))
+        pid, _ = self.plan("update", "demo")
+        src = self.read(".claude/skills/extensions/extensions.py")
+        # The second file can't be written, and neither can one of those put back.
+        broken = src.replace("def write_file(rel, data):\n", "N = [0]\n\n\ndef write_file(rel, data):\n    N[0] += 1\n"
+                             "    if N[0] in (3, 4):\n        raise OSError('full')\n")
+        self.assertNotEqual(src, broken)
+        self.write(".claude/skills/extensions/extensions.py", broken)
+        rc, out = self.ext("apply", pid)
+        self.assertEqual((rc != 0, "NOT fully put back" in out), (True, True), out)
+        self.assertEqual(self.read(".claude/extensions/lock.json"), before)
+
+    def test_a_lock_cant_point_outside(self):
+        self.hub.publish("demo-v1.0.0", package())
+        self.install()
+        lock = json.loads(self.read(".claude/extensions/lock.json"))
+        for rel in (".claude/hooks/juvant_hooks.py", ".claude/skills/demo-x/../../hooks/limits.json", ".claude/extensions/other/a.md", "a\x00b"):
+            for key in ("files", "stale"):
+                bad = json.loads(json.dumps(lock))
+                e = bad["extensions"]["demo"]
+                e[key] = dict(e["files"], **{rel: "x"}) if key == "files" else [rel]
+                self.write(".claude/extensions/lock.json", json.dumps(bad))
+                with self.subTest(rel=rel, key=key):
+                    self.assertIsNone(self.plan("remove", "demo")[0])
+                    self.assertEqual(self.gate("Bash", {"command": "ls"})[0], "deny")
+                    self.assertIn("lock.json", self.start())
+
     def test_without_extensions_nothing_changes(self):
         self.assertNotIn("xtension", self.start())
         src = os.path.join(FW, "hooks", "juvant_hooks.py")
@@ -693,6 +774,19 @@ class FrameworkUpdate(Case):
     def update(self, fw):
         return subprocess.run(["bash", self.p(".claude/skills/update/update.sh"), "--from", fw, "--target", self.co], capture_output=True, text=True,
                               env=dict(os.environ, JUVANT_OS_SETUP="1"))
+
+    def test_a_release_without_extensions_is_refused(self):
+        self.hub.publish("demo-v1.0.0", package(limits=LIMITS))
+        self.install()
+        old = os.path.join(self.t, "old")
+        shutil.copytree(FW, old)
+        with open(os.path.join(old, "FILES"), encoding="utf-8") as f:
+            keep = [x for x in f if "skills/extensions/" not in x]
+        with open(os.path.join(old, "FILES"), "w", encoding="utf-8") as f:
+            f.writelines(keep)
+        r = self.update(old)
+        self.assertEqual((r.returncode, "doesn't know extensions" in r.stderr), (1, True), r.stderr)
+        self.assertEqual(self.gate("mcp__x__make_foo")[0], "deny")
 
     def test_update_leaves_extensions_and_reports_incompatible(self):
         self.hub.publish("demo-v1.0.0", package({"config.example.json": "{}", "config.schema.json": "{}"}, framework=">=2.1.0 <2.1.1", limits=LIMITS))

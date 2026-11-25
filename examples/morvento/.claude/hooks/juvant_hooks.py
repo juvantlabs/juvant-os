@@ -230,8 +230,14 @@ def check_extension_rules(rules, path):
             pattern_cost(r["pattern"])
         except (ValueError, re.error, RecursionError, OverflowError) as e:
             raise ValueError(f"{path}: rule {r['id']}: {e}")
-        if re.search(r["pattern"], ""):
+        if re.search(r["pattern"], "") or all(re.search(r["pattern"], x) for x in ("ls -la", "get_me", "Hello 42", "#/x")):
             raise ValueError(f"{path}: rule {r['id']} matches everything")
+
+
+def extension_path(ext, rel):
+    """True if a file of this extension may be there."""
+    return (bool(re.fullmatch(r"[A-Za-z0-9._/-]+", rel)) and not any(p in ("", ".", "..") for p in rel.split("/"))
+            and (rel.startswith(f".claude/extensions/{ext}/") or bool(re.match(rf"\.claude/skills/{re.escape(ext)}-[^/]+/", rel))))
 
 
 def extension_lock():
@@ -243,8 +249,9 @@ def extension_lock():
         with open(path, encoding="utf-8") as f:
             lock = json.load(f)
         ext = lock["extensions"]
-        ok = lock["version"] == 1 and all(EXTENSION_ID.fullmatch(k) and isinstance(e["files"], dict) for k, e in ext.items())
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        ok = lock["version"] == 1 and all(EXTENSION_ID.fullmatch(k) and isinstance(e["files"], dict)
+                                          and all(extension_path(k, f) for f in [*e["files"], *e.get("stale", [])]) for k, e in ext.items())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError) as e:
         raise ValueError(f".claude/extensions/lock.json is unreadable ({e}): restore it from git")
     if not ok:
         raise ValueError(".claude/extensions/lock.json isn't in a known format: restore it from git")
@@ -329,9 +336,9 @@ def extension_command(command, cwd):
         names = any(os.path.exists(os.path.join(STATE, "extensions", x + ".json")) for x in re.findall(r"[0-9a-f]{64}", plain))
         if not runs and not names:
             return None
-        segments = shell_segments(command)
+        scan, segments = shell_scan(command), shell_segments(command)
         nested = re.search(r"\$\(|`|[<>]\(", command)  # something else runs inside: the verb says nothing
-        if segments is not None and not nested and all(is_read_only(w) or (w[0] == "git" and len(w) > 1 and w[1] in GIT_READ) for w in segments):
+        if scan and not scan.unsure and scan.inert() and not nested and all(is_read_only(w) or (w[0] == "git" and git_reads(w)) for w in segments):
             return None  # a message or a search that only mentions it
     if not m or os.path.realpath(cwd or ROOT) != os.path.realpath(ROOT):
         return "deny", ("run it on its own, from the company folder, exactly as `plan` printed it: "
@@ -350,7 +357,8 @@ def extension_command(command, cwd):
 def extension_summary(plan):
     """What the CEO confirms: everything, the weightiest first, nothing cut."""
     verb = {"add": "INSTALL", "update": "UPDATE", "repair": "RESTORE", "remove": "REMOVE"}[plan["action"]]
-    t = [f"{verb} extension {plan['id']} {plan['version']} from github.com/{plan['repo']}"
+    was = f"{plan['from']} -> " if plan["action"] == "update" else ""
+    t = [f"{verb} extension {plan['id']} {was}{plan['version']} from github.com/{plan['repo']}"
          + (f"/{plan['path']}" if plan["path"] else "") + f", release {plan['tag']} ({plan['commit'][:10]})."]
     if plan["api"] != "https://api.github.com":
         t[0] = f"TEST SOURCE {plan['api']}, NOT GITHUB. " + t[0]
@@ -360,7 +368,7 @@ def extension_summary(plan):
         new = sorted(plan["adds"], key=lambda x: (order.index(x.split(":")[0]), '"write"' not in x, x))
     kinds = [x.split(":")[0] for x in new]
     counts = [f"{kinds.count(k)} {k}" for k in dict.fromkeys(kinds)]
-    t.append("New permissions: " + (", ".join(counts) or "none") + f". Limits that disappear: {len(plan['drops_limits']) or 'none'}. {len(plan['files'])} files.")
+    t.append("New permissions: " + (", ".join(counts) or "none") + f". Limits that disappear: {len(plan['drops_limits']) or 'none'}. {len(plan['files'] or plan.get('deletes', []))} files.")
     if plan["drops_limits"]:
         t += ["LIMITS THAT DISAPPEAR:"] + ["  - " + x for x in sorted(plan["drops_limits"], key=lambda x: (".ask " in x, x))]
     if new:
@@ -500,6 +508,9 @@ def mcp_decision(cfg, tool, inp=None):
         return decision, rule
     for rule in m.get("create", []):  # creating can't lose anything (hard limit 4, three classes)
         if rule["re"].search(name) and (rule.get("input") is None or input_matches(rule["input"], inp)):
+            for own in m["ask"]:  # unless an installed extension wants it asked
+                if own["id"].startswith("ext:") and own["re"].search(name):
+                    return "ask", own
             return None, rule
     for rule in m["ask"]:
         if rule["re"].search(name):
@@ -521,26 +532,336 @@ def texts_to_scan(tool, inp):
     return []
 
 
-def shell_segments(command):
-    """Split a command into simple commands (lists of words) on ; & | and newlines
-    outside quotes, keeping redirection operators as words. None if it can't be
-    parsed (unbalanced quotes): callers treat that as unsafe."""
+class Segment(list):
+    """The words of a simple command. piped: its input is another command's output."""
+    piped = False
+    group = False  # …and that one was in parentheses
+    then = ""  # the operator after it
+
+
+ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*(\[[^\]]*\])?\+?=")
+# Commands that never run what they read: a heredoc is only text when every command around it is one of these.
+INERT_GIT = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commit", "push", "tag", "branch", "switch",
+             "checkout", "fetch", "rev-parse"}
+
+
+INERT_VERBS = {"cd", "mkdir", "mktemp", "touch", "rm", "cp", "mv", "date", "sleep"}
+RUNS_BY_VARIABLE = re.compile(r"^(GIT_|GH_|LESS|LD_|DYLD_|BASH_|ENV\b|PATH\b|EDITOR|VISUAL|BROWSER|SHELL|NULLCMD|READNULLCMD|\w*PAGER)")
+RUNS_LATER = re.compile(r"(^|/)\.git(/|$)|git/|(^|/)git$|gitconfig|hooksPath|^--(up|rec|ex)|ext::")
+OPENERS = {"time", "!", "if", "then", "else", "elif", "while", "until", "do", "{"}
+
+
+def names_claude(text):
+    return ".claude" in re.sub(r"""\$(?=['"])|[\\\n'"]""", "", text)
+
+
+class ShellScan:
+    """Reads a command as a shell does: quotes, comments, heredocs, and the commands inside others
+    ($(…), `…`, <(…), (…)). `sequences` holds one list of Segments for the command itself and one
+    for each inner command, which starts with the `cd`s that came before it. `unsure` is set when
+    the reading may differ from the shell's: callers then assume the worst. ValueError: unbalanced."""
+
+    def __init__(self, text, comments=True):
+        self.text, self.n, self.comments = text, len(text), comments
+        self.sequences, self.bodies, self.waiting = [], [], 0
+        self.unsure = bool(re.search(r"[$<>(]\\\n", text))  # an operator split over two lines
+        self.commands(0, None, [])
+        for body, cds in self.bodies:
+            if not self.inert():
+                if names_claude(body):
+                    self.unsure = True  # whatever reads it may not be a shell
+                try:
+                    inner = ShellScan(body, comments=False)
+                except ValueError:
+                    continue  # not shell; the command that reads it is checked by its own words
+                self.sequences += [cds + seq for seq in inner.sequences]
+
+    def inert(self):
+        for seq in self.sequences:
+            for words in seq:
+                if any(RUNS_LATER.search(w) for w in words if w != "git"):
+                    return False
+                words = without_redirects(words) or ["true"]
+                while words and ASSIGNMENT.match(words[0]) and not RUNS_BY_VARIABLE.match(words[0]):
+                    words = words[1:]
+                verb = words[0] if words else "true"
+                if verb == "gh":
+                    if words[1:2] not in (["pr"], ["issue"], ["release"]):
+                        return False
+                elif verb == "git":
+                    if len(words) < 2 or words[1] not in INERT_GIT:
+                        return False
+                elif verb not in INERT_VERBS and not is_read_only(words):
+                    return False
+        return True
+
+    def commands(self, i, end, cds):
+        """Reads commands from i to the closing `end`; returns the index after it."""
+        text, n = self.text, self.n
+        mine = []
+        self.sequences.append(mine)
+        seg, word, pending, group = Segment(), None, [], False
+        cds = list(cds)
+        mine.extend(cds)
+
+        def end_word():
+            nonlocal word
+            if word is not None:
+                seg.append("".join(word))
+                word = None
+
+        def end_segment(piped=False, then=";"):
+            nonlocal seg, group
+            end_word()
+            if seg:
+                seg.then = then
+                mine.append(seg)
+                core = without_redirects(seg)
+                while core and ASSIGNMENT.match(core[0]):
+                    core.pop(0)
+                if core and core[0] in ("cd", "pushd"):
+                    move = Segment(seg)  # for inner commands: it may have failed by then
+                    cds.append(move)
+                while core and core[0] in OPENERS | {"builtin", "command"}:
+                    core.pop(0)
+                if core and core[0] in ("function", "hash", "alias"):
+                    self.unsure = True  # a reading command may be something else now
+                if "case" in seg and end == ")":
+                    self.unsure = True  # its patterns close parentheses nobody opened
+            piped = piped or (not seg and seg.piped)  # the command may come after a newline or a comment
+            was = seg
+            seg = Segment()
+            seg.piped, seg.group = piped, piped and (group or (not was and was.group))
+            group = False
+
+        while i < n:
+            ch = text[i]
+            if ch == "\\":
+                if text.startswith("\\\n", i):
+                    i += 2
+                    continue
+                word = (word or []) + [text[i + 1:i + 2]]
+                i += 2
+            elif ch == "'" or text.startswith("$'", i):
+                word = [] if word is None else word
+                ansi = ch == "$"
+                k = i + 1 + ansi
+                while k < n and text[k] != "'":
+                    k += 2 if ansi and text[k] == "\\" else 1
+                if k >= n:
+                    raise ValueError("unbalanced quote")
+                part = text[i + 1 + ansi:k]
+                if ansi:
+                    part = part.replace("\\n", "\n").replace("\\t", "\t")
+                    self.unsure = self.unsure or "\\" in part
+                word.append(part)
+                i = k + 1
+            elif ch == '"' or text.startswith('$"', i):
+                word = [] if word is None else word
+                i = self.double(i + (2 if ch == "$" else 1), word, cds)
+            elif text.startswith(("$(", "${"), i) or ch == "`":
+                word = [] if word is None else word
+                i = self.expansion(i, word, cds)
+            elif text.startswith(("<(", ">("), i):
+                word = [] if word is None else word
+                self.unsure = self.unsure or ch == ">"  # what it's fed, it may run
+                i = self.inner(i, 2, word, cds)
+            elif ch == "(":
+                if (seg.piped and not seg) or any(w not in OPENERS for w in seg) or (word is not None and word[-1:] != ["="] and "".join(word) not in OPENERS):
+                    self.unsure = True  # a function, or a pattern
+                end_word()
+                i = self.inner(i, 1, None, cds)
+                group = True
+            elif ch == ")":
+                end_segment()
+                i += 1
+                if end == ")":
+                    if pending:
+                        self.unsure = True
+                    return i
+            elif ch == "#" and word is None and self.comments:
+                k = text.find("\n", i)
+                i = n if k < 0 else k
+            elif ch == "\n":
+                end_segment()
+                i += 1
+                for delim, strip, quoted in pending:
+                    i = self.heredoc(i, delim, strip, quoted, cds)
+                self.waiting -= len(pending)
+                pending = []
+            elif ch in " \t":
+                end_word()
+                i += 1
+            elif ch in ";&|<>":
+                m = re.compile(r"<<<|<<-?|&>>[|!]?|&>[|!]?|>&[|!]|>>[|!]?|>[|!]|>&|<&|<>|<|>|\|&|\|\||\||&&|&|;+&?").match(text, i)
+                op = m.group(0)
+                i = m.end()
+                if op in ("<<", "<<-"):
+                    end_word()
+                    while i < n and text[i] in " \t":
+                        i += 1
+                    m = re.compile(r"""(['"]?)([A-Za-z_][A-Za-z0-9_-]*)\1(?=[ \t\n;&|<>)])""").match(text, i)
+                    if not m:
+                        raise ValueError("heredoc delimiter")
+                    i = m.end()
+                    pending.append((m.group(2), op == "<<-", bool(m.group(1))))
+                    self.unsure = self.unsure or "((" in text or "$[" in text  # arithmetic has << too
+                    self.waiting += 1
+                elif "<" in op or ">" in op:
+                    if word is not None and not "".join(word).isdigit():
+                        end_word()
+                    word = None  # a file descriptor: 2>
+                    seg.append(op)
+                else:
+                    end_segment(op in ("|", "|&"), op)
+            else:
+                word = [] if word is None else word
+                word.append(ch)
+                i += 1
+        if end is not None:
+            raise ValueError("unbalanced parenthesis")
+        if pending:
+            raise ValueError("heredoc without a body")
+        end_segment()
+        return i
+
+    def inner(self, i, skip, word, cds):
+        j = self.commands(i + skip, ")", cds)
+        if self.waiting and "\n" in self.text[i:j]:
+            self.unsure = True  # a heredoc opened outside may have its text in here
+        if word is not None:
+            word.append(self.text[i:j])
+        return j
+
+    def backtick(self, i, word, cds):
+        k = i + 1
+        while k < self.n and self.text[k] != "`":
+            k += 2 if self.text[k] == "\\" else 1
+        if k >= self.n:
+            raise ValueError("unbalanced backtick")
+        raw = self.text[i + 1:k]
+        if '\\"' in raw:
+            self.unsure = True  # a quote or not, depending on what surrounds it
+        inner = ShellScan(re.sub(r"\\([\\`$])", r"\1", raw), self.comments)
+        self.unsure = self.unsure or inner.unsure
+        self.sequences += [cds + seq for seq in inner.sequences]
+        if word is not None:
+            word.append(self.text[i:k + 1])
+        return k + 1
+
+    def expansion(self, i, word, cds):
+        """$(…), ${…} or `…` at i."""
+        if self.text[i] == "`":
+            return self.backtick(i, word, cds)
+        if self.text.startswith("$(", i):
+            return self.inner(i, 2, word, cds)
+        k = i + 2  # ${…}: no comments or operators in here, but quotes and expansions
+        while k < self.n and self.text[k] != "}":
+            if self.text[k] == "\\":
+                k += 2
+            elif self.text[k] == "'":
+                self.unsure = True  # a quote or not, depending on what surrounds it
+                k += 1
+            elif self.text[k] == '"':
+                k = self.double(k + 1, [], cds)
+            elif self.text.startswith(("<(", ">("), k):
+                self.unsure = True
+                k += 1
+            elif self.text.startswith(("$(", "${"), k) or self.text[k] == "`":
+                k = self.expansion(k, [], cds)
+            else:
+                k += 1
+        if k >= self.n:
+            raise ValueError("unbalanced brace")
+        if word is not None:
+            word.append(self.text[i:k + 1])
+        return k + 1
+
+    def double(self, i, word, cds):
+        while i < self.n and self.text[i] != '"':
+            if self.text[i] == "\\":
+                nxt = self.text[i + 1:i + 2]
+                if nxt != "\n":
+                    word.append(nxt if nxt in '"\\$`' else "\\" + nxt)
+                i += 2
+            elif self.text.startswith(("$(", "${"), i) or self.text[i] == "`":
+                i = self.expansion(i, word, cds)
+            else:
+                word.append(self.text[i])
+                i += 1
+        if i >= self.n:
+            raise ValueError("unbalanced quote")
+        return i + 1
+
+    def heredoc(self, i, delim, strip, quoted, cds):
+        start = i
+        while i < self.n:
+            k = self.text.find("\n", i)
+            k = self.n if k < 0 else k
+            line = self.text[i:k]
+            if (line.lstrip("\t") if strip else line) == delim:
+                body = self.text[start:i]
+                if not quoted:
+                    self.unsure = self.unsure or "\\\n" in body  # lines joined: the end may be elsewhere
+                    j = 0
+                    part = ShellScan.__new__(ShellScan)
+                    part.text, part.n, part.comments = body, len(body), True
+                    part.sequences, part.bodies, part.unsure, part.waiting = [], [], False, 0
+                    while j < len(body):
+                        if body[j] == "\\":
+                            j += 2
+                        elif body.startswith(("$(", "${"), j) or body[j] == "`":
+                            j = part.expansion(j, [], cds)
+                        else:
+                            j += 1
+                    self.sequences += part.sequences
+                    self.bodies += part.bodies
+                    self.unsure = self.unsure or part.unsure
+                self.bodies.append((body, list(cds)))
+                return min(k + 1, self.n)
+            i = k + 1
+        raise ValueError("heredoc without an end")
+
+
+def shell_scan(command):
+    """ShellScan of a command, or None if it can't be read."""
+    try:
+        return ShellScan(command)
+    except ValueError:
+        return None
+
+
+def plain_segments(command):
+    """A simpler reading: quotes and operators only. [] if it can't be read."""
     try:
         lex = shlex.shlex(command.replace("\n", " ; "), posix=True, punctuation_chars=";&|<>")
         lex.whitespace_split = True
-        segments, cur = [], []
+        segments, cur = [], Segment()
         for tok in lex:
             if tok and set(tok) <= set(";&|"):
                 if cur:
                     segments.append(cur)
-                cur = []
+                cur = Segment()
             else:
                 cur.append(tok)
-        if cur:
-            segments.append(cur)
-        return segments
+        return segments + ([cur] if cur else [])
     except ValueError:
-        return None
+        return []
+
+
+def shell_sequences(command):
+    """The command's own list of simple commands, one list for each command inside it, and the simpler
+    reading: a check that finds a problem in any of them counts. [] if it can't be read."""
+    scan, plain = shell_scan(command), plain_segments(command)
+    return (scan.sequences if scan else []) + ([plain] if plain else [])
+
+
+def shell_segments(command):
+    """All the simple commands (lists of words), inner ones included. None if it can't be read."""
+    return [words for seq in shell_sequences(command) for words in seq] or None
+
+
+REDIRECTS_OUT = {a + b for a in (">", ">>", "&>", "&>>") for b in ("", "|", "!")} | {">&", ">&|", ">&!", "<>"}
 
 
 def rm_outside_repo(cfg, command):
@@ -551,7 +872,7 @@ def rm_outside_repo(cfg, command):
     if segments is None:
         segments = [s.split() for s in re.split(r"[;&|\n]+", command)]
     for words in segments:
-        while words and (words[0] in ("sudo", "env", "command", "builtin") or "=" in words[0]):
+        while words and (words[0] in ("sudo", "env", "command", "builtin") or ASSIGNMENT.match(words[0])):
             words = words[1:]
         if not words or os.path.basename(words[0]) != "rm":
             continue
@@ -712,25 +1033,84 @@ def cmd_limits():
 READ_ONLY_VERBS = {"cat", "less", "more", "head", "tail", "ls", "grep", "egrep", "fgrep", "rg", "wc", "diff", "cmp",
                    "file", "stat", "sha256sum", "shasum", "md5", "md5sum", "cut", "tr", "uniq", "nl", "column", "tree",
                    "du", "basename", "dirname", "realpath", "readlink", "jq", "yq", "od", "xxd", "hexdump", "strings",
-                   "bat", "echo", "printf", "test", "[", "true", "pwd", "which", "type"}
-# sed, awk and sort read unless told to write: in-place or output flags, or write/exec commands in a script.
-SED_WRITES = re.compile(r"(^|[;{}\s/])[wWe]\s+\S")
+                   "bat", "base64", "comm", "paste", "rev", "fold", "tac", "expand", "iconv", "echo", "printf", "test", "[", "true", "pwd", "which", "type"}
+# Options that make a read-only command write a file or run another one.
+READ_ONLY_EXCEPT = {"less": r"^\+|^-[a-zA-Z]*[oO]|^--(log|LOG)|^-[a-zA-Z]*[kt]|^--(lesskey|tag)", "more": r"^\+", "rg": r"^--(pre(=|$)|hostname-bin)",
+                    "tree": r"^-[a-zA-Z]*o", "yq": r"^-[a-zA-Z]*[is]|^--(in|spl)", "bat": r"^--pag", "base64": r"^-[a-zA-Z]*o|^--o", "iconv": r"^-[a-zA-Z]*o|^--o", "file": r"^-[a-zA-Z]*C|^--comp",
+                    "sort": r"^-[a-zA-Z]*o|^--(o|comp)"}
+SED_LONG = {"--quiet", "--silent", "--regexp-extended", "--null-data", "--separate", "--unbuffered", "--posix", "--sandbox"}
+
+
+def sed_is_read_only(args):
+    """True if a sed command surely writes no file and runs nothing. In doubt, False."""
+    for a in args:
+        if a.startswith("--") and len(a) > 2 and a not in SED_LONG and not a.startswith("--expression="):
+            return False
+        if re.match(r"^-[a-zA-Z]*[iIfl]", a) and not a.startswith("--") and not re.match(r"^-[nErsuz]*e", a):
+            return False
+    script = sed_scripts(args)
+    if "[" in script and ".claude" in script and re.search("[wWe]", script):
+        return False  # seds disagree on where a [...] ends
+    runs, _, writes = sed_effects(script)
+    return not runs and not writes
 
 
 def is_read_only(core):
     """True if this simple command (verb first) only reads. Redirects are checked separately."""
     if not core:
         return True
+    if "/" in core[0] and not core[0].startswith(("/bin/", "/usr/bin/", "/usr/local/bin/", "/opt/homebrew/bin/")):
+        return False  # a file that only has the name of a reader
     verb, args = os.path.basename(core[0]), core[1:]
+    if verb in READ_ONLY_EXCEPT and any(re.search(READ_ONLY_EXCEPT[verb], a) for a in args):
+        return False
+    if verb in ("uniq", "xxd"):  # a second file is the output
+        return len([a for a in args if not a.startswith("-") and not a.isdigit()]) < 2
     if verb in READ_ONLY_VERBS:
         return True
     if verb in ("sed", "gsed"):
-        return not any(re.match(r"^-[a-zA-Z]*i", a) or a.startswith("--in-place") or SED_WRITES.search(a) for a in args)
+        return sed_is_read_only(args)
     if verb in ("awk", "gawk", "mawk"):
-        return not any((">" in a or "system" in a or "|" in a) for a in args)
-    if verb == "sort":
-        return not any(a == "-o" or a.startswith(("-o", "--output")) for a in args)
-    return False
+        return not any(">" in a or "system" in a or "|" in a or "@" in a or re.match(r"^-[a-zA-Z]*[filE]|^--", a) for a in args)
+    return verb == "sort"
+
+
+XARGS_READERS = {"echo", "cat", "grep", "ls", "wc", "head", "tail", "basename", "dirname", "stat", "file", "shasum", "du"}
+
+
+def runs_its_input(core):
+    """False if this command surely neither runs what it reads from a pipe nor uses it to write."""
+    if core[0] == "while":
+        return "read" not in core
+    if is_read_only(core) or core[0] in ("read", "pbcopy"):
+        return False
+    verb, args = os.path.basename(core[0]), core[1:]
+    if verb == "tee":
+        return False  # where it writes is checked by its own words
+    if verb in ("python3", "python"):
+        return not (args[:2] == ["-m", "json.tool"] or args[:1] == ["-c"] and len(args) > 1 and not re.search(
+            r"system|exec|eval|input|open|write|__|from|import(?!\s+(json|sys|re|collections)(\s*,\s*(json|sys|re|collections))*\s*(;|\n|$))", args[1]))
+    if verb in ("bash", "sh", "zsh"):
+        return args != ["-n"]
+    if verb == "xargs":
+        k = 0
+        while k < len(args) and args[k].startswith("-"):
+            if args[k] not in ("-n", "-I", "-L", "-P", "-0", "-r", "-t") and not re.match(r"^-([nLP]\d+|I\{\})$", args[k]):
+                return True
+            k += 2 if args[k] in ("-n", "-I", "-L", "-P") else 1
+        return k < len(args) and args[k] not in XARGS_READERS
+    return True
+
+
+def git_reads(core):
+    return len(core) > 1 and core[1] in GIT_READ and not any(a.startswith("--outp") for a in core)
+
+
+def find_reads(core):
+    return not any(w in ("-delete", "-exec", "-execdir", "-ok", "-okdir") or w.startswith("-f") and w[2:3] in ("p", "l")
+                   for w in core)
+
+
 GIT_READ = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commit"}
 # Framework scripts that never write under .claude/: the dashboard writes
 # state/dashboard.html (hourly scheduled task), bugfix works in a temp clone.
@@ -778,12 +1158,20 @@ def protected_claude_path(word, here):
     """True if this word names a path in a .claude that the hard limits protect: this
     repo's, one where juvant-os is installed, or the user's ~/.claude (not its scratch areas)."""
     w = word
+    if re.search(r"""[\\'"]""", w):  # text another shell may read: without its quotes too
+        bare = re.sub(r"""[\\\n'"]""", "", w)
+        if bare != w and protected_claude_path(bare, here):
+            return True
+    if w.startswith("-") and ".claude" in w and any(
+            w[k] != "-" and protected_claude_path(w[k:], here) for k in range(1, min(w.index(".claude"), 40) + 1)):
+        return True  # -o.claude/x
     if ".claude" not in w:
         # A relative path counts only when the command is already inside a .claude folder.
         if not here or ".claude" not in here or os.path.isabs(os.path.expanduser(w)) or not w.strip():
             return False
     if "=" in w and not w.startswith(("/", ".", "~")):
-        w = w.split("=", 1)[1]  # --out=.claude/x
+        if protected_claude_path(w.split("=", 1)[1], here):  # --out=.claude/x
+            return True
     w = re.sub(r"^\d*>>?\|?", "", w)  # 2>.claude/x
     if not w or "$" in w or "`" in w:
         return ".claude" in w  # can't resolve it: assume the worst
@@ -804,58 +1192,117 @@ def protected_claude_path(word, here):
 def bash_writes_claude_dir(command, cwd=None):
     """True if a Bash command may write under a protected .claude/ outside the sanctioned
     update script. Follows `cd`: a relative write after moving into .claude/ counts."""
-    if ".claude" not in command and ".claude" not in (cwd or ""):
+    if not names_claude(command) and ".claude" not in (cwd or ""):
         return False
-    segments = shell_segments(command)
-    if segments is None:
+    scan = shell_scan(command)
+    if scan is None or scan.unsure:
         return True
-    nested, inner = without_single_quoted(command), re.compile(r"(?:\$|[<>])\(([^()]*)\)|`([^`]*)`")
-    while m := inner.search(nested):  # commands run inside another one, innermost first
-        text = m.group(1) if m.group(1) is not None else m.group(2)
-        if bash_writes_claude_dir(text, cwd):
-            return True
-        nested = nested[:m.start()] + text + nested[m.end():]
-    here = cwd or ROOT
-    for words in segments:
+    naming = [any(names_claude(w) for words in seq for w in words) for seq in scan.sequences]
+    return any(sequence_writes_claude_dir(seq, cwd, any(naming[:k] + naming[k + 1:])) for k, seq in enumerate(scan.sequences))
+
+
+def without_redirects(words):
+    out, skip = [], False
+    for w in words:
+        if not skip and w and set(w) <= set("<>&|!") and set(w) & set("<>"):
+            skip = True
+        elif skip:
+            skip = False
+        else:
+            out.append(w)
+    return out
+
+
+CONTROL = OPENERS | {"for", "case", "function", "select", "done", "fi", "esac", "}"}
+
+
+def sequence_writes_claude_dir(segments, cwd, others_name=False):
+    heres, named, loop = [cwd or ROOT], False, False
+    visited, held, before = list(heres), [], ";"
+    straight = not any(w and w[0] in CONTROL for w in segments)
+    for k, words in enumerate(segments):
         seg = " ".join(words)
-        core = list(words)
-        while core and "=" in core[0] and not core[0].startswith(("-", "/", ".")):
-            core = core[1:]
-        if not core:
-            continue
-        verb = os.path.basename(core[0])
-        if verb in ("cd", "pushd"):
-            target = core[1] if len(core) > 1 else "~"
-            if "$" in target or "`" in target or target == "-":
+        core = without_redirects(words)
+        if before != "&&":  # a cd that "&&" relied on may not have happened
+            heres += [h for h in held if h not in heres]
+            held = []
+        previous, before = before, words.then
+        prefix = 0
+        while prefix < len(core) and ASSIGNMENT.match(core[prefix]):
+            prefix += 1
+        assigned, core = core[:prefix], core[prefix:]
+        if not words.piped:
+            named = bool(words) and words[0] in ("}", "done", "fi", "esac") and (  # what was in there may have named it
+                others_name or any(names_claude(w) for x in segments[:k] for w in x)
+                or any(h and protected_claude_path(os.path.join(h, "."), "/") for h in heres))
+        named = named or words.group
+        if core and words.piped and named and runs_its_input(core):
+            return True
+        if core and words.piped and named and core[0] == "while":
+            loop = True
+        if loop and core:
+            body = list(core)
+            while body and (body[0] in OPENERS or ASSIGNMENT.match(body[0])):
+                body = body[1:]
+            if body and body[0] not in ("done", "read", "fi", "continue", "break", "for") and not (
+                    body[0] == "git" and git_reads(body)) and runs_its_input(body):
+                return True
+            loop = body[:1] != ["done"]
+        verb = os.path.basename(core[0]) if core else ""
+        if verb in ("cd", "pushd", "popd"):
+            target = next((w for w in core[1:] if w == "-" or not w.startswith("-")), "~" if verb == "cd" else "-")
+            if "$" in target or "`" in target:
                 if ".claude" in target:
                     return True  # moving somewhere we can't resolve, towards a .claude
-                here = None
+                moved = [None] + [h for h in heres if h]
+            elif target == "-" or target.startswith("+"):
+                moved = list(visited)
             else:
-                here = os.path.normpath(os.path.join(here or ROOT, os.path.expanduser(target)))
+                moved = [os.path.normpath(os.path.join(h or ROOT, os.path.expanduser(target))) for h in heres]
+            visited += [m for m in moved if m not in visited]
+            kept = [h for h in heres if h not in moved]
+            plain_cd = len(core) == len(words) and [w for w in core[1:] if w not in ("-P", "-L", "--")] == [target]
+            sure = (plain_cd and straight and not words.piped and words.then in (";", "&&") and previous == ";"
+                    and all(m and os.access(m, os.X_OK) and os.path.isdir(m) for m in moved))
+            if sure and words.then == ";":
+                heres = moved
+            elif words.then == "&&" and plain_cd and not words.piped:
+                heres, held = moved, held + kept
+            else:  # it may fail, be skipped, or happen in another process
+                heres = moved + kept
             continue
-        inside = bool(here) and protected_claude_path(os.path.join(here, "."), "/")
-        if not inside and not any(protected_claude_path(w, here) for w in words):
+        if verb in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w) for w in core):
+            return True  # w.claude/x: a sed write, without a space
+        inside = any(h and protected_claude_path(os.path.join(h, "."), "/") for h in heres)
+
+        def protected(w):
+            return any(protected_claude_path(w, h) for h in heres)
+
+        if not inside and not any(protected(w) for w in words):
+            continue
+        named = True
+        for i, w in enumerate(words[:-1]):
+            if w in REDIRECTS_OUT and protected(words[i + 1]):
+                return True
+        if not core:
             continue
         if SANCTIONED.match(seg) and not re.search(r"--(from|repo|target)\b", seg):
             continue  # update from a published tag only; a local source could carry anything
-        for i, w in enumerate(words[:-1]):
-            if w in (">", ">>", ">|") and protected_claude_path(words[i + 1], here):
-                return True
-        if any(re.match(r"^\d*>>?", w) and protected_claude_path(w, here) for w in words):
-            return True
+        if any(protected(w) for w in assigned):
+            return True  # X='… .claude …' command: a variable can make a command run it
         if is_read_only(core):
             continue
-        if verb == "git" and len(core) > 1 and core[1] in GIT_READ:
+        if verb == "git" and git_reads(core):
             continue
-        if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in core):
+        if verb == "find" and find_reads(core):
             continue
         if verb in ("python3", "python") and len(core) > 1 and core[1].endswith(".claude/hooks/juvant_hooks.py"):
             continue
         if (verb in ("python3", "python") and len(core) > 2 and core[1].endswith(EXTENSIONS_SCRIPT)
-                and core[2] in ("plan", "list", "check") and not any(protected_claude_path(w, here) for w in core[2:])):
+                and core[2] in ("plan", "list", "check") and not any(protected(w) for w in core[2:])):
             continue  # these only read .claude/; `apply` asks on its own (extension_command)
         if (verb in ("python3", "python") and len(core) > 1 and core[1].endswith(OUTSIDE_WRITERS)
-                and not any(protected_claude_path(w, here) for w in core[2:])):
+                and not any(protected(w) for w in core[2:])):
             continue  # framework scripts that write outside .claude/ (they must run unattended)
         return True
     return False
@@ -1364,8 +1811,9 @@ def sed_regex(text, i, delim):
 
 
 def sed_effects(script):
-    """(True if the script runs a command with GNU sed's e, [files it reads with r or R])."""
-    i, n, files = 0, len(script), []
+    """(True if the script runs a command with GNU sed's e, [files it reads with r or R], True if it writes a file or
+    can't be read)."""
+    i, n, files, writes = 0, len(script), [], False
 
     def eol(k):
         e = script.find("\n", k)
@@ -1379,38 +1827,40 @@ def sed_effects(script):
             k = i + 1 + (ch == "\\")
             part, k = sed_regex(script, k, "/" if ch == "/" else script[i + 1:i + 2] or "/")
             if part is None:
-                return False, files
+                return False, files, True
             while script[k:k + 1] and script[k] in "IM":
                 k += 1
             i = k
         elif ch in "sy":
             delim = script[i + 1:i + 2]
             if not delim or delim in "\n\\":
-                return False, files
+                return False, files, True
             part, k = sed_regex(script, i + 2, delim) if ch == "s" else sed_part(script, i + 2, delim, False)
             if part is None:
-                return False, files
+                return False, files, True
             part, k = sed_part(script, k, delim, False)
             if part is None:
-                return False, files
+                return False, files, True
             i = k
             while ch == "s" and script[i:i + 1] and script[i] in "gpiImMe0123456789w":
                 if script[i] == "e":
-                    return True, files
+                    return True, files, writes
                 if script[i] == "w":
+                    writes = True
                     i = eol(i)
                     break
                 i += 1
         elif ch == "e":
-            return True, files
+            return True, files, writes
         elif ch in "rR":
             files.append(script[i + 1:eol(i)].strip())
             i = eol(i)
         elif ch in "wW#":
+            writes = writes or ch != "#"
             i = eol(i)
         elif ch in "aic":
             i = eol(i + 1)
-            while i < n and script[i - 1] == "\\":
+            while i < n and (i - len(script[:i].rstrip("\\"))) % 2:
                 i = eol(i + 1)
         elif ch in ":btT":
             i += 1
@@ -1420,7 +1870,7 @@ def sed_effects(script):
                 i += 1
         else:
             i += 1
-    return False, files
+    return False, files, writes
 
 
 def bash_shows(command, cwd, target, depth=0, fed=False):
@@ -1491,7 +1941,7 @@ def bash_shows(command, cwd, target, depth=0, fed=False):
         if verb in SED_CARRIERS:
             k = 0 if verb in ("sed", "gsed") else next(
                 (j + 1 for j, a in enumerate(args) if os.path.basename(a) in ("sed", "gsed")), None)
-            runs, reads = sed_effects(sed_scripts(args[k:])) if k is not None else (False, [])
+            runs, reads, _ = sed_effects(sed_scripts(args[k:])) if k is not None else (False, [], False)
             if any(f and path_relation(f, here, target) == "file" for f in reads):
                 return True
             if runs:
@@ -1599,12 +2049,13 @@ def is_close_command(command):
     command substitution makes it an ordinary command."""
     if "`" in command or "$(" in command or "${" in command:
         return False
-    segments = shell_segments(command)
-    if not segments:
+    scan = shell_scan(command)
+    if scan is None or scan.unsure or len(scan.sequences) != 1:
         return False
+    segments = scan.sequences[0] + plain_segments(command)
     closes = 0
     for words in segments:
-        if any(w in (">", ">>", ">|", "<", "<<", "<<<") or re.match(r"^\d*[<>]", w) for w in words):
+        if any(w in REDIRECTS_OUT or re.match(r"^\d*[<>]", w) for w in words):
             return False
         if words[0] == "cd" and len(words) <= 2:
             continue
@@ -1620,28 +2071,34 @@ def bash_may_write(command, needle):
     """True if some part of a Bash command that names `needle` may write to it: a redirect
     into it, or a command other than a known read (cat, grep, git diff…). A read piped into
     something else (cat x | python3 -m json.tool) is a read. Unparseable: assume it writes."""
-    segments = shell_segments(command)
-    if segments is None:
+    scan = shell_scan(command)
+    if scan is None or scan.unsure:
         return True
+    segments = shell_segments(command) or []
+    named = False
     for words in segments:
+        core = without_redirects(words)
+        if core and words.piped and named and runs_its_input(core):
+            return True
+        if not words.piped:
+            named = False
+        named = named or any(needle in w for w in words)
         if not any(needle in w for w in words):
             continue
         for i, w in enumerate(words):
-            if w in (">", ">>", ">|") and i + 1 < len(words) and needle in words[i + 1]:
+            if w in REDIRECTS_OUT and i + 1 < len(words) and needle in words[i + 1]:
                 return True
-            if re.match(r"^\d*>>?\|?\S", w) and needle in w:
-                return True
-        core = list(words)
-        while core and "=" in core[0] and not core[0].startswith(("-", "/", ".")):
+        core = without_redirects(words)
+        while core and ASSIGNMENT.match(core[0]):
             core = core[1:]
         if not core:
             continue
         verb = os.path.basename(core[0])
         if is_read_only(core):
             continue
-        if verb == "git" and len(core) > 1 and core[1] in GIT_READ:
+        if verb == "git" and git_reads(core):
             continue
-        if verb == "find" and not any(w in ("-delete", "-exec", "-execdir", "-ok") for w in core):
+        if verb == "find" and find_reads(core):
             continue
         if verb == "claude" and all((i > 0 and core[i - 1] == "--settings") or w.startswith("--settings=")
                                     for i, w in enumerate(core) if needle in w):
@@ -1728,9 +2185,14 @@ def claude_launch_problem(command, cwd):
     settings the CEO hasn't approved; None otherwise."""
     if "claude" not in command:
         return None
-    segments = shell_segments(command)
-    if segments is None:
-        return None
+    for segments in shell_sequences(command):
+        found = claude_launch_problem_in(segments, cwd)
+        if found != None:
+            return found
+    return None
+
+
+def claude_launch_problem_in(segments, cwd):
     here = cwd or ROOT
     for words in segments:
         if not words:
@@ -2039,9 +2501,14 @@ def shared_repo_check(command, cwd):
     `cd`, `git -C` / `--git-dir` / `--work-tree`, or a `gh -R` that matches that checkout."""
     if "git" not in command and "gh" not in command:
         return None, None
-    segments = shell_segments(command)
-    if segments is None:
-        return None, None
+    for segments in shell_sequences(command):
+        found = shared_repo_check_in(segments, cwd)
+        if found != (None, None):
+            return found
+    return (None, None)
+
+
+def shared_repo_check_in(segments, cwd):
     here = cwd or ROOT
     for words in segments:
         if not words:
@@ -2102,9 +2569,14 @@ def framework_upstream_publish(command, cwd):
     fork, security report); else None. Follows `cd` inside the command."""
     if "gh" not in command and "git" not in command:
         return None
-    segments = shell_segments(command)
-    if segments is None:
-        return None
+    for segments in shell_sequences(command):
+        found = framework_upstream_publish_in(segments, cwd)
+        if found != None:
+            return found
+    return None
+
+
+def framework_upstream_publish_in(segments, cwd):
     here = cwd
     for words in segments:
         if not words:
