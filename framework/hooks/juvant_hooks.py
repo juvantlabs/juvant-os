@@ -312,7 +312,7 @@ INERT_GIT = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commi
 
 INERT_VERBS = {"cd", "mkdir", "mktemp", "touch", "rm", "cp", "mv", "date", "sleep"}
 RUNS_BY_VARIABLE = re.compile(r"^(GIT_|GH_|LESS|LD_|DYLD_|BASH_|ENV\b|PATH\b|EDITOR|VISUAL|BROWSER|SHELL|NULLCMD|READNULLCMD|\w*PAGER)")
-RUNS_LATER = re.compile(r"(^|/)\.git(/|$)|git/|gitconfig|hooksPath|--(upload|receive)-pack|--exec|ext::")
+RUNS_LATER = re.compile(r"(^|/)\.git(/|$)|git/|(^|/)git$|gitconfig|hooksPath|^--(up|rec|ex)|ext::")
 OPENERS = {"time", "!", "if", "then", "else", "elif", "while", "until", "do", "{"}
 
 
@@ -344,7 +344,7 @@ class ShellScan:
     def inert(self):
         for seq in self.sequences:
             for words in seq:
-                if any(RUNS_LATER.search(w) for w in words):
+                if any(RUNS_LATER.search(w) for w in words if w != "git"):
                     return False
                 words = without_redirects(words) or ["true"]
                 while words and ASSIGNMENT.match(words[0]) and not RUNS_BY_VARIABLE.match(words[0]):
@@ -385,7 +385,8 @@ class ShellScan:
                 while core and ASSIGNMENT.match(core[0]):
                     core.pop(0)
                 if core and core[0] in ("cd", "pushd"):
-                    cds.append(seg)
+                    move = Segment(seg)  # for inner commands: it may have failed by then
+                    cds.append(move)
                 while core and core[0] in OPENERS | {"builtin", "command"}:
                     core.pop(0)
                 if core and core[0] in ("function", "hash", "alias"):
@@ -970,7 +971,7 @@ CONTROL = OPENERS | {"for", "case", "function", "select", "done", "fi", "esac", 
 
 
 def sequence_writes_claude_dir(segments, cwd):
-    heres, named, ever, loop = [cwd or ROOT], False, False, False
+    heres, named, loop = [cwd or ROOT], False, False
     visited, held, before = list(heres), [], ";"
     straight = not any(w and w[0] in CONTROL for w in segments)
     for words in segments:
@@ -985,7 +986,7 @@ def sequence_writes_claude_dir(segments, cwd):
             prefix += 1
         assigned, core = core[:prefix], core[prefix:]
         if not words.piped:
-            named = ever and bool(words) and words[0] in ("}", "done", "fi", "esac")
+            named = bool(words) and words[0] in ("}", "done", "fi", "esac")  # what was in there may have named it
         named = named or words.group
         if core and words.piped and named and runs_its_input(core):
             return True
@@ -1012,11 +1013,12 @@ def sequence_writes_claude_dir(segments, cwd):
                 moved = [os.path.normpath(os.path.join(h or ROOT, os.path.expanduser(target))) for h in heres]
             visited += [m for m in moved if m not in visited]
             kept = [h for h in heres if h and h not in moved and protected_claude_path(os.path.join(h, "."), "/")]
-            sure = (straight and not words.piped and words.then in (";", "&&") and previous == ";"
+            plain_cd = len(core) == len(words) and [w for w in core[1:] if w not in ("-P", "-L", "--")] == [target]
+            sure = (plain_cd and straight and not words.piped and words.then in (";", "&&") and previous == ";"
                     and all(m and os.access(m, os.X_OK) and os.path.isdir(m) for m in moved))
             if sure and words.then == ";":
                 heres = moved
-            elif words.then == "&&" and not words.piped:
+            elif words.then == "&&" and plain_cd and not words.piped:
                 heres, held = moved, held + kept
             else:  # it may fail, be skipped, or happen in another process
                 heres = moved + kept
@@ -1030,7 +1032,7 @@ def sequence_writes_claude_dir(segments, cwd):
 
         if not inside and not any(protected(w) for w in words):
             continue
-        named = ever = True
+        named = True
         for i, w in enumerate(words[:-1]):
             if w in REDIRECTS_OUT and protected(words[i + 1]):
                 return True
