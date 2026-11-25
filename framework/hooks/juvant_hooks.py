@@ -23,6 +23,7 @@ import shlex
 import subprocess
 import sys
 import time
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG = os.path.join(HERE, "limits.json")
@@ -166,6 +167,13 @@ def load_config():
             cond["key_norm"] = re.sub(r"[^a-z0-9]", "", str(cond["key"]).lower())
             if not cond["key_norm"]:
                 raise ValueError(f"rule {rule['id']}: empty input key")
+    rt = cfg["mcp"]["resource_tools"]
+    rt["path_key_re"] = re.compile(rt["path_key"])
+    for verb in rt["verbs"] + [rt["ask_agent"]]:
+        for key in ("tool", "server", "deny_last", "deny_words", "allow"):
+            if key in verb:
+                # A server may put its own name before the tool's.
+                verb[key + "_re"] = re.compile(r"(\w+_)?(" + verb[key] + ")" if key == "tool" and verb is not rt["ask_agent"] else verb[key])
     cfg["mcp"]["draft_allow_re"] = re.compile(cfg["mcp"]["draft_allow"])
     cfg["mcp"]["draft_never_re"] = re.compile(cfg["mcp"]["draft_never"])
     cfg["mcp"]["private_publish_re"] = re.compile(cfg["mcp"].get("private_publish", "(?!)"))
@@ -181,6 +189,75 @@ def input_matches(cond, inp):
     return all(isinstance(v, str) and cond["allow_re"].fullmatch(v.strip().lower()) for v in vals)
 
 
+PLAIN_PATH = re.compile(r"/?[A-Za-z0-9_.@=:,!$+()'-]+(/[A-Za-z0-9_.@=:,!$+()'-]+)*/?")
+
+
+def resource_path(cfg, inp):
+    """(paths, plain): the resource paths in a generic tool's arguments, without their query. `plain` is False when it can't be trusted to say what the call does: none or several,
+    not text, encoded, absolute, or with parts that a server could read differently."""
+    key_re = cfg["mcp"]["resource_tools"]["path_key_re"]
+    vals = [v for k, v in (inp or {}).items() if key_re.search(re.sub(r"[^a-z0-9]", "", str(k).lower()))]
+    texts = [v for v in vals if isinstance(v, str)]
+    plain = len(vals) == 1 and len(texts) == 1
+    out = []
+    for text in texts:
+        raw = text.strip()
+        path = re.split(r"[?#]", raw, maxsplit=1)[0]
+        if raw != text or "#" in raw or not PLAIN_PATH.fullmatch(path) or any(p in (".", "..") for p in path.split("/")):
+            plain = False
+        path = urllib.parse.unquote(urllib.parse.unquote(path))
+        path = re.sub(r"^[a-z]+://[^/]*", "", path, flags=re.I).replace("\\", "/")
+        path = re.sub(r"^/?(v1\.0|beta)(?=/)", "", path, flags=re.I)
+        out.append("/" + path.strip("/ \t\r\n"))
+    return out, plain
+
+
+def path_words(path):
+    """The path's parts as comparable words: namespace and call brackets off, letters only.
+    Parts with digits or long ones are identifiers, not words."""
+    words = []
+    parts = [p for p in path.split("/") if p]
+    for i, part in enumerate(parts):
+        word = re.sub(r"\(.*\)?$", "", part.strip()).rsplit(".", 1)[-1]
+        is_id = len(word) > 40 or bool(re.search(r"\d", word))
+        words.append("" if is_id and i < len(parts) - 1 else re.sub(r"[^a-z]", "", word))
+    return words
+
+
+def resource_decision(cfg, tool, inp):
+    """(decision, rule) for a tool with a generic verb, judged on the path in its arguments;
+    (None, None) if the tool isn't one or the path is known to be harmless."""
+    rt = cfg["mcp"]["resource_tools"]
+    prefix, _, name = tool.lower().rpartition("__")
+    name = name.replace("-", "_")
+    agent = rt["ask_agent"]
+    if agent["tool_re"].fullmatch(name):
+        keys = {re.sub(r"[^a-z0-9]", "", str(k).lower()) for k in (inp or {})}
+        if agent["server_re"].search(prefix.replace("-", "_")) or agent["when_key"] in keys:
+            return "ask", dict(agent, unattended=False)
+    for verb in rt["verbs"]:
+        if not verb["tool_re"].fullmatch(name):
+            continue
+        rule = dict(verb, unattended=False)
+        paths, plain = resource_path(cfg, inp)
+        for path in paths:
+            words = path_words(path.lower())
+            last = words[-1] if words else ""
+            if verb.get("deny_last_re") and verb["deny_last_re"].fullmatch(last):
+                return "deny", rule
+            if verb.get("deny_words_re") and any(verb["deny_words_re"].fullmatch(w) for w in words if w):
+                return "deny", rule
+            # What the path names is judged by the same rules as a tool's own name.
+            for part in re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", path).lower().split("/"):
+                for r in cfg["mcp"]["deny"]:
+                    if r["id"] != "outbound" and r["re"].search(part):
+                        return "deny", r
+        if plain and verb.get("allow_re") and verb["allow_re"].fullmatch(paths[0].lower()):
+            return None, None
+        return "ask", rule
+    return None, None
+
+
 def mcp_decision(cfg, tool, inp=None):
     """(decision, rule) for an mcp__ tool; decision in {None, 'deny', 'ask'}."""
     name = tool.rsplit("__", 1)[-1].lower()
@@ -192,6 +269,9 @@ def mcp_decision(cfg, tool, inp=None):
             continue
         if rule["re"].search(name):
             return "deny", rule
+    decision, rule = resource_decision(cfg, tool, inp)
+    if decision:
+        return decision, rule
     for rule in m.get("create", []):  # creating can't lose anything (hard limit 4, three classes)
         if rule["re"].search(name) and (rule.get("input") is None or input_matches(rule["input"], inp)):
             return None, rule
@@ -344,7 +424,8 @@ def cmd_limits():
                 append_jsonl(FINDINGS, {"ts": now(), "kind": "unlisted-prefix", "prefix": prefix,
                                         "tool": tool, "decision": decision, "rule": rule["id"]})
             if decision == "ask":
-                auth = use_authorization(rule, tool, inp, ev)
+                # A generic verb can't be covered by a long-task authorization: its scope can't say what it does.
+                auth = use_authorization(rule, tool, inp, ev) if rule.get("unattended", True) else None
                 if auth and auth[0] == "allow":
                     return  # inside a long-task authorization the CEO approved for this session
                 if auth and auth[0] == "past":
