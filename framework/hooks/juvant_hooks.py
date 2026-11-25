@@ -22,6 +22,7 @@ import os
 import re
 import shlex
 import signal
+import tempfile
 import subprocess
 import sys
 import time
@@ -622,7 +623,7 @@ class ShellScan:
                 if any(names_claude(w) for w in words) or any("${" in w for w in words):
                     return False
                 if core and not (core[0] in ("cat", "echo") or core[:2] in (["git", "add"], ["git", "commit"], ["git", "status"])
-                                 or core[0] == "printf" and "-v" not in core):
+                                 or core[0] == "printf" and not any(w.startswith("-v") for w in core)):
                     return False
         return True
 
@@ -1040,7 +1041,7 @@ def cmd_limits():
             ask(f"juvant-os hard limit (shared-repo): {why}.")
         if AUTH_STATE_REL in command.casefold() and bash_may_write(command, AUTH_STATE_REL):
             deny("juvant-os: state/authorizations.json is kept by the hooks. Nobody edits it.")
-        if "state/session-agents.json" in command.casefold() and bash_may_write(command, "state/session-agents.json"):
+        if "session-agents" in command.casefold() and bash_may_write(command, "session-agents"):
             deny("juvant-os: state/session-agents.json is kept by the hooks. Nobody edits it.")
         launch = claude_launch_problem(command, str(ev.get("cwd") or ROOT))
         if launch:
@@ -1315,7 +1316,7 @@ def sequence_writes_claude_dir(segments, cwd, others_name=False):
             else:  # it may fail, be skipped, or happen in another process
                 heres = moved + kept
             continue
-        if verb in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w, re.I) for w in core):
+        if verb.lower() in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w, re.I) for w in core):
             return True  # w.claude/x: a sed write, without a space
         inside = any(h and protected_claude_path(os.path.join(h, "."), "/") for h in heres)
 
@@ -1373,8 +1374,21 @@ def private_entries():
     return out
 
 
+UNKNOWN_SESSION = "unrecorded-session"
+
+
+def recorded_agent(session):
+    """The agent the session started as, as recorded at its start; "" without a record."""
+    try:
+        with open(SESSION_AGENTS, encoding="utf-8") as f:
+            return str(json.load(f).get(str(session), "")).lower()
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
 def agent_identity(ev):
-    """Subagent type; else the type the session started as; else cos (main session)."""
+    """Subagent type; else the type the session started as (cos for the CEO's own). A session with no record reads
+    no private file: losing the record must not make anyone the Chief of Staff."""
     a = str(ev.get("agent_type") or "")
     if a:
         return a.lower()
@@ -1383,7 +1397,7 @@ def agent_identity(ev):
             a = str(json.load(f).get(str(ev.get("session_id", "")), ""))
     except (OSError, ValueError, AttributeError):
         a = ""
-    return (a or "cos").lower()
+    return a.lower() or UNKNOWN_SESSION
 
 
 def norm_path(p):
@@ -2230,7 +2244,10 @@ def approved_session_settings(path):
 
 
 LAUNCHERS = {"nohup", "timeout", "gtimeout", "env", "command", "exec", "nice", "caffeinate", "sudo", "setsid", "stdbuf"}
-CLAUDE_COMMANDS = {"mcp", "agents", "config", "doctor", "update", "install", "plugin", "auth", "logs", "attach", "stop"}
+CLAUDE_COMMANDS = {"mcp", "agents", "config", "doctor", "update", "install", "plugin", "plugins", "auth", "logs", "attach", "stop",
+                   "setup-token", "migrate-installer"}
+RUNNERS = {"sh", "bash", "zsh", "dash", "eval", "xargs", "npx", "bunx", "pnpm", "yarn", "node", "script", "parallel", "su"}
+STARTS_CLAUDE = re.compile(r"(^|[\s/;&|(@])claude(-code)?(\s|$|@|/cli)")
 
 
 def claude_launch_problem(command, cwd):
@@ -2254,9 +2271,18 @@ def claude_launch_problem_in(segments, cwd):
             here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
             continue
         words = list(words)
+        if words and os.path.basename(words[0]) in RUNNERS and any(STARTS_CLAUDE.search(w) for w in words[1:]):
+            if not any("--agent" in w for w in words):
+                return "deny", ("a session an agent starts has its own identity: without one it would read private files as the Chief of "
+                                "Staff. Start it with `claude … --agent collaborator`, directly")
+            return "ask", "this starts a Claude session in a way the hard limits can't read: the CEO confirms"
+        if words[:1] == ["command"] and words[1:2] in (["-v"], ["-V"]):
+            continue
         while words and (os.path.basename(words[0]) in LAUNCHERS or ASSIGNMENT.match(words[0]) or words[0] in OPENERS
-                         or re.fullmatch(r"-\w+|\d+[smhd]?", words[0])):
-            words.pop(0)  # nohup claude …, timeout 60 claude …
+                         or re.fullmatch(r"-[\w-]+|\d+[smhd]?", words[0])):
+            first = words.pop(0)
+            if first in ("-u", "-s", "-a", "-k", "-g", "-C", "-n", "--signal", "--kill-after", "--user", "--group") and words:
+                words.pop(0)  # its value
         if not words or os.path.basename(words[0]).lower() != "claude":
             continue
         flags = {w.split("=", 1)[0] for w in words if w.startswith("--")}
@@ -2273,13 +2299,17 @@ def claude_launch_problem_in(segments, cwd):
                 if val.lstrip().startswith("{") or not approved_session_settings(path):
                     return "ask", (f"this starts a session with settings ({val}) that the CEO hasn't approved as a long-task "
                                    f"session-permissions file ({AUTH_DIR}/<name>{SESSION_SETTINGS_SUFFIX}, written and confirmed first)")
-        if len(words) > 1 and (words[1] in CLAUDE_COMMANDS or words[1] in ("-v", "--version", "-h", "--help")):
+        first = next((w for w in words[1:] if not w.startswith("-")), "")
+        if first in CLAUDE_COMMANDS or any(w in ("-v", "--version", "-h", "--help") for w in words[1:]):
             continue
         agent = next((words[i + 1] for i, w in enumerate(words[:-1]) if w == "--agent"), "") or next(
             (w.split("=", 1)[1] for w in words if w.startswith("--agent=")), "")
-        if not ROLE_ID.match(agent) or agent == "cos":
+        if not re.fullmatch(r"[a-z][a-z0-9:_-]{0,60}", agent) or agent == "cos":
             return "deny", ("a session an agent starts has its own identity: without one it would read private files as the Chief of "
                             "Staff. Add `--agent collaborator`, or a dedicated agent (`--agent legal`)")
+        if agent != "collaborator":
+            return "ask", (f"this starts a session as `{agent}`, which reads the private files listed for `{agent}`. The CEO confirms; "
+                           "a generic collaborator is `--agent collaborator`")
     return None
 
 
@@ -2910,19 +2940,21 @@ def cmd_session_start():
             try:
                 with open(SESSION_AGENTS, encoding="utf-8") as f:
                     known = json.load(f)
+                known = known if isinstance(known, dict) else {}
             except (OSError, ValueError):
                 known = {}
             sid = str(ev["session_id"])
-            known[sid] = agent or str(known.pop(sid, ""))  # resumed: it stays who it was
+            # A session keeps who it started as, whatever a resume says; a new one without an agent is the CEO's.
+            known[sid] = str(known.pop(sid, "")) or agent.lower() or "cos"
             if len(known) > 5000:
                 known = dict(list(known.items())[-5000:])
-            tmp = f"{SESSION_AGENTS}.{os.getpid()}.tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
+            fd, tmp = tempfile.mkstemp(dir=STATE, prefix=".session-agents.")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(known, f)
             os.replace(tmp, SESSION_AGENTS)
             lock.close()
-        except OSError:
-            pass
+        except Exception as e:  # noqa: BLE001 — without a record the session reads no private file
+            sys.stderr.write(f"juvant_hooks session-start: the session's agent wasn't recorded ({type(e).__name__})\n")
     if ROLE_ID.match(agent):
         # A dedicated agent running as this session's main agent (claude --agent
         # <id>, or a collaborator session). CLAUDE.md describes the Chief of
@@ -3029,7 +3061,8 @@ def nudge_note(ev):
     """The note for this (allowed) call, or "": first domain call in a session, and once more after repeat_after."""
     tool = str(ev.get("tool_name", ""))
     session = str(ev.get("session_id", ""))
-    if not session or ev.get("agent_type"):
+    sub = str(ev.get("agent_type") or "").lower()
+    if not session or (sub and sub != recorded_agent(session)):
         return ""  # subagents are the reviewers, or have their own brief
     try:
         with open(NUDGES, encoding="utf-8") as f:

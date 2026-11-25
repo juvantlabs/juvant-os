@@ -927,6 +927,7 @@ class PrivateFiles(HookCase):
                     "| docs/legal/settlement.md | legal, cos | settlement | 2026-11-09 |\n"
                     "| https://x.sharepoint.com/sites/legal/nda.docx | legal | NDA | 2026-11-09 |\n"
                     "| 01ITEMIDABC123 | finance | salary review | 2026-11-09 |\n")
+        self.run_hook("session-start", {"session_id": "s1"})  # the CEO's own session
 
     def as_agent(self, agent, tool, inp, session="s1"):
         ev = {"tool_name": tool, "tool_input": inp, "session_id": session}
@@ -966,7 +967,15 @@ class PrivateFiles(HookCase):
         self.assertEqual(self.as_agent(None, "Read", f, session="bg2"), "deny")
         self.run_hook("session-start", {"session_id": "bg2", "source": "resume"})
         self.assertEqual(self.as_agent(None, "Read", f, session="bg2"), "deny", "resumed, it stays who it was")
-        for p in ("state/session-agents.json", "state/Session-Agents.json"):
+        self.run_hook("session-start", {"session_id": "main", "source": "resume", "agent_type": "collaborator"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="main"), "allow", "a resume doesn't change who a session is")
+        self.assertEqual(self.as_agent(None, "Read", f, session="never-recorded"), "deny", "no record: no private files")
+        with open(os.path.join(self.repo, "state", "session-agents.json"), "w") as fh:
+            fh.write("[1]")
+        self.run_hook("session-start", {"session_id": "bg3", "agent_type": "collaborator"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="bg3"), "deny")
+        self.assertEqual(self.as_agent(None, "Read", f, session="main"), "deny", "the record was lost: fails closed")
+        for p in ("state/session-agents.json", "state/Session-Agents.json", "state//session-agents.json"):
             self.assertEqual(self.as_agent(None, "Write", {"file_path": p, "content": "{}"}), "deny")
             self.assertEqual(self.as_agent(None, "Bash", {"command": f"echo x > {p}"}), "deny")
 
@@ -1527,12 +1536,19 @@ class SessionPermissions(HookCase):
 
     def test_a_session_started_by_an_agent_has_an_identity(self):
         for c in ("claude --bg --name x b", "claude -p hi", "claude --resume abc", "claude --bg --agent cos b", "claude --bg --agent= b",
-                  "nohup claude --bg b", "timeout 60 claude -p hi", "X=1 claude --bg b", "echo $(claude -p hi)", "Claude --bg b"):
+                  "nohup claude --bg b", "timeout 60 claude -p hi", "X=1 claude --bg b", "echo $(claude -p hi)", "Claude --bg b",
+                  "sh -c 'claude --bg b'", "npx @anthropic-ai/claude-code --bg b", "env -u X claude --bg b", "timeout -s KILL 60 claude -p hi"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "deny")
-        for c in ("claude --version", "claude mcp list", "claude agents", "timeout 60 claude --bg --agent collaborator b", "grep claude README.md"):
+        for c in ("claude --version", "claude mcp list", "claude agents", "timeout 60 claude --bg --agent collaborator b", "grep claude README.md",
+                  "command -v claude", "claude --debug mcp list", "claude setup-token"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "allow")
+
+    def test_a_role_with_private_files_is_confirmed(self):
+        for c in ("claude --bg --agent legal b", "claude --bg --agent=finance b", "sh -c 'claude --bg --agent collaborator b'"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "ask")
 
     def test_launches_that_drop_hooks_or_permissions_are_denied(self):
         for c in ("claude --dangerously-skip-permissions -p x", "claude --allow-dangerously-skip-permissions --bg x",
@@ -1541,7 +1557,7 @@ class SessionPermissions(HookCase):
                   "claude --setting-sources user --bg x", "cd /tmp && claude --bare x"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "deny")
-        self.assertEqual(self.call("Bash", {"command": "claude --permission-mode auto --bg --agent=legal --name x \"b\""}), "allow")
+        self.assertEqual(self.call("Bash", {"command": "claude --permission-mode auto --bg --agent=collaborator --name x \"b\""}), "allow")
 
 
 class LogOutcome(HookCase):
