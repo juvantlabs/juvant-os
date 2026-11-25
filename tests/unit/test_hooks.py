@@ -134,7 +134,7 @@ class NestedAndSlow(HookCase):
                     f"cat > s <<'E'\n{w}\nE\n{log}; bash s", f"cat > .claude/hooks/juvant_hooks.py <<'E'\n{w}\nE\n{log}",
                     f"cat > h <<'E'\n{w}\nE\nmv h .claude/hooks/juvant_hooks.py; {log}",
                     f"cat > h <<'E'\n{w}\nE\nmv h $P; {log}", f"cat > h <<'E'\n{w}\nE\nPYTHONPATH=. {log}",
-                    f"cat > h <<'E'\n{w}\nE\ncd .claude; {log}", f"cat <<'E' | {log}\n{w}\nE\nsh h",
+                    f"cat > h <<'E'\n{w}\nE\ncd .claude; {log}", f"cat > usercustomize.py <<'E'\n{w}\nE\n{log}", f"cat > s <<'E'\n{w}\nE\n{log}", f"cat <<'E' | {log}\n{w}\nE\nsh h",
                     f"cat > h <<'E'\n{w}\nE\npython3 .claude/hooks/juvant_hooks.py other x"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")

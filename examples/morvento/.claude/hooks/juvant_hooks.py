@@ -613,6 +613,8 @@ class ShellScan:
                     continue
                 if any(names_claude(w) for w in words) or ASSIGNMENT.match(words[0]):
                     return False
+                if any(w in REDIRECTS_OUT and not words[i + 1].endswith((".md", "/dev/null")) for i, w in enumerate(words[:-1])):
+                    return False  # notes only: another file may be one Python loads by itself
                 if words[0] in ("cp", "mv", "rm", "touch", "mkdir", "gh") or words[:2] in (["git", "checkout"], ["git", "switch"]):
                     return False
         return True
