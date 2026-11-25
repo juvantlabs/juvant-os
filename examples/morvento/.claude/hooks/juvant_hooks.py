@@ -300,6 +300,7 @@ def texts_to_scan(tool, inp):
 class Segment(list):
     """The words of a simple command. piped: its input is another command's output."""
     piped = False
+    group = False  # …and that one was in parentheses
     then = ""  # the operator after it
 
 
@@ -311,11 +312,12 @@ INERT_GIT = {"diff", "log", "show", "status", "ls-files", "blame", "add", "commi
 
 INERT_VERBS = {"cd", "mkdir", "mktemp", "touch", "rm", "cp", "mv", "date", "sleep"}
 RUNS_BY_VARIABLE = re.compile(r"^(GIT_|GH_|LESS|LD_|DYLD_|BASH_|ENV\b|PATH\b|EDITOR|VISUAL|BROWSER|SHELL|NULLCMD|READNULLCMD|\w*PAGER)")
+RUNS_LATER = re.compile(r"(^|/)\.git(/|$)|git/|gitconfig|hooksPath|--(upload|receive)-pack|--exec|ext::")
 OPENERS = {"time", "!", "if", "then", "else", "elif", "while", "until", "do", "{"}
 
 
 def names_claude(text):
-    return ".claude" in re.sub(r"[\\\n'\"]", "", text)
+    return ".claude" in re.sub(r"""\$(?=['"])|[\\\n'"]""", "", text)
 
 
 class ShellScan:
@@ -327,7 +329,7 @@ class ShellScan:
     def __init__(self, text, comments=True):
         self.text, self.n, self.comments = text, len(text), comments
         self.sequences, self.bodies, self.waiting = [], [], 0
-        self.unsure = bool(re.search(r"[$<>]\\\n", text))  # an operator split over two lines
+        self.unsure = bool(re.search(r"[$<>(]\\\n", text))  # an operator split over two lines
         self.commands(0, None, [])
         for body, cds in self.bodies:
             if not self.inert():
@@ -342,7 +344,7 @@ class ShellScan:
     def inert(self):
         for seq in self.sequences:
             for words in seq:
-                if any(".git/" in w or "gitconfig" in w or "hooksPath" in w for w in words):
+                if any(RUNS_LATER.search(w) for w in words):
                     return False
                 words = without_redirects(words) or ["true"]
                 while words and ASSIGNMENT.match(words[0]) and not RUNS_BY_VARIABLE.match(words[0]):
@@ -363,7 +365,7 @@ class ShellScan:
         text, n = self.text, self.n
         mine = []
         self.sequences.append(mine)
-        seg, word, pending = Segment(), None, []
+        seg, word, pending, group = Segment(), None, [], False
         cds = list(cds)
         mine.extend(cds)
 
@@ -374,7 +376,7 @@ class ShellScan:
                 word = None
 
         def end_segment(piped=False, then=";"):
-            nonlocal seg
+            nonlocal seg, group
             end_word()
             if seg:
                 seg.then = then
@@ -384,13 +386,17 @@ class ShellScan:
                     core.pop(0)
                 if core and core[0] in ("cd", "pushd"):
                     cds.append(seg)
+                while core and core[0] in OPENERS | {"builtin", "command"}:
+                    core.pop(0)
                 if core and core[0] in ("function", "hash", "alias"):
                     self.unsure = True  # a reading command may be something else now
                 if "case" in seg and end == ")":
                     self.unsure = True  # its patterns close parentheses nobody opened
             piped = piped or (not seg and seg.piped)  # the command may come after a newline or a comment
+            was = seg
             seg = Segment()
-            seg.piped = piped
+            seg.piped, seg.group = piped, piped and (group or (not was and was.group))
+            group = False
 
         while i < n:
             ch = text[i]
@@ -429,6 +435,7 @@ class ShellScan:
                     self.unsure = True  # a function, or a pattern
                 end_word()
                 i = self.inner(i, 1, None, cds)
+                group = True
             elif ch == ")":
                 end_segment()
                 i += 1
@@ -781,10 +788,10 @@ def cmd_limits():
 READ_ONLY_VERBS = {"cat", "less", "more", "head", "tail", "ls", "grep", "egrep", "fgrep", "rg", "wc", "diff", "cmp",
                    "file", "stat", "sha256sum", "shasum", "md5", "md5sum", "cut", "tr", "uniq", "nl", "column", "tree",
                    "du", "basename", "dirname", "realpath", "readlink", "jq", "yq", "od", "xxd", "hexdump", "strings",
-                   "bat", "echo", "printf", "test", "[", "true", "pwd", "which", "type"}
+                   "bat", "base64", "comm", "paste", "rev", "fold", "tac", "expand", "iconv", "echo", "printf", "test", "[", "true", "pwd", "which", "type"}
 # Options that make a read-only command write a file or run another one.
 READ_ONLY_EXCEPT = {"less": r"^\+|^-[a-zA-Z]*[oO]|^--(log|LOG)|^-[a-zA-Z]*[kt]|^--(lesskey|tag)", "more": r"^\+", "rg": r"^--(pre(=|$)|hostname-bin)",
-                    "tree": r"^-[a-zA-Z]*o", "yq": r"^-[a-zA-Z]*[is]|^--(in|spl)", "bat": r"^--pag", "file": r"^-[a-zA-Z]*C|^--comp",
+                    "tree": r"^-[a-zA-Z]*o", "yq": r"^-[a-zA-Z]*[is]|^--(in|spl)", "bat": r"^--pag", "base64": r"^-[a-zA-Z]*o|^--o", "iconv": r"^-[a-zA-Z]*o|^--o", "file": r"^-[a-zA-Z]*C|^--comp",
                     "sort": r"^-[a-zA-Z]*o|^--(o|comp)"}
 SED_LONG = {"--quiet", "--silent", "--regexp-extended", "--null-data", "--separate", "--unbuffered", "--posix", "--sandbox"}
 
@@ -823,7 +830,7 @@ def is_read_only(core):
     return verb == "sort"
 
 
-XARGS_READERS = {"echo", "cat", "grep", "ls", "wc", "head", "tail", "basename", "dirname", "stat", "file", "shasum"}
+XARGS_READERS = {"echo", "cat", "grep", "ls", "wc", "head", "tail", "basename", "dirname", "stat", "file", "shasum", "du"}
 
 
 def runs_its_input(core):
@@ -837,13 +844,15 @@ def runs_its_input(core):
         return False  # where it writes is checked by its own words
     if verb in ("python3", "python"):
         return not (args[:2] == ["-m", "json.tool"] or args[:1] == ["-c"] and len(args) > 1 and not re.search(
-            r"system|subprocess|exec|eval|popen|input|import os|, *os\b|shutil|pathlib|open\(|write\(|__", args[1]))
+            r"system|exec|eval|input|open|write|__|from|import(?!\s+(json|sys|re|collections)(\s*,\s*(json|sys|re|collections))*\s*(;|\n|$))", args[1]))
     if verb in ("bash", "sh", "zsh"):
         return args != ["-n"]
     if verb == "xargs":
         k = 0
         while k < len(args) and args[k].startswith("-"):
-            k += 2 if args[k] in ("-n", "-I", "-L", "-P", "-s", "-J", "-R", "-d", "-a", "-E") else 1
+            if args[k] not in ("-n", "-I", "-L", "-P", "-0", "-r", "-t") and not re.match(r"^-([nLP]\d+|I\{\})$", args[k]):
+                return True
+            k += 2 if args[k] in ("-n", "-I", "-L", "-P") else 1
         return k < len(args) and args[k] not in XARGS_READERS
     return True
 
@@ -907,7 +916,8 @@ def protected_claude_path(word, here):
         bare = re.sub(r"""[\\\n'"]""", "", w)
         if bare != w and protected_claude_path(bare, here):
             return True
-    if w.startswith("-") and ".claude" in w and protected_claude_path(w[w.index(".claude"):], here):
+    if w.startswith("-") and ".claude" in w and any(
+            w[k] != "-" and protected_claude_path(w[k:], here) for k in range(1, min(w.index(".claude"), 40) + 1)):
         return True  # -o.claude/x
     if ".claude" not in w:
         # A relative path counts only when the command is already inside a .claude folder.
@@ -956,27 +966,37 @@ def without_redirects(words):
     return out
 
 
+CONTROL = OPENERS | {"for", "case", "function", "select", "done", "fi", "esac", "}"}
+
+
 def sequence_writes_claude_dir(segments, cwd):
-    heres, named, loop = [cwd or ROOT], False, False
-    visited = list(heres)
+    heres, named, ever, loop = [cwd or ROOT], False, False, False
+    visited, held, before = list(heres), [], ";"
+    straight = not any(w and w[0] in CONTROL for w in segments)
     for words in segments:
         seg = " ".join(words)
         core = without_redirects(words)
+        if before != "&&":  # a cd that "&&" relied on may not have happened
+            heres += [h for h in held if h not in heres]
+            held = []
+        previous, before = before, words.then
         prefix = 0
         while prefix < len(core) and ASSIGNMENT.match(core[prefix]):
             prefix += 1
         assigned, core = core[:prefix], core[prefix:]
         if not words.piped:
-            named = False
+            named = ever and bool(words) and words[0] in ("}", "done", "fi", "esac")
+        named = named or words.group
         if core and words.piped and named and runs_its_input(core):
             return True
         if core and words.piped and named and core[0] == "while":
             loop = True
         if loop and core:
             body = list(core)
-            while body and body[0] in OPENERS:
+            while body and (body[0] in OPENERS or ASSIGNMENT.match(body[0])):
                 body = body[1:]
-            if body[:1] != ["done"] and body and "read" not in body and runs_its_input(body):
+            if body and body[0] not in ("done", "read", "fi", "continue", "break", "for") and not (
+                    body[0] == "git" and git_reads(body)) and runs_its_input(body):
                 return True
             loop = body[:1] != ["done"]
         verb = os.path.basename(core[0]) if core else ""
@@ -985,16 +1005,21 @@ def sequence_writes_claude_dir(segments, cwd):
             if "$" in target or "`" in target:
                 if ".claude" in target:
                     return True  # moving somewhere we can't resolve, towards a .claude
-                moved = [None]
+                moved = [None] + [h for h in heres if h]
             elif target == "-" or target.startswith("+"):
                 moved = list(visited)
             else:
                 moved = [os.path.normpath(os.path.join(h or ROOT, os.path.expanduser(target))) for h in heres]
             visited += [m for m in moved if m not in visited]
-            if words.then == "&&" and not words.piped:
+            kept = [h for h in heres if h and h not in moved and protected_claude_path(os.path.join(h, "."), "/")]
+            sure = (straight and not words.piped and words.then in (";", "&&") and previous == ";"
+                    and all(m and os.access(m, os.X_OK) and os.path.isdir(m) for m in moved))
+            if sure and words.then == ";":
                 heres = moved
-            else:  # it may fail, be skipped, or happen in another process: only a move into a .claude is kept in mind too
-                heres = moved + [h for h in heres if h and h not in moved and protected_claude_path(os.path.join(h, "."), "/")]
+            elif words.then == "&&" and not words.piped:
+                heres, held = moved, held + kept
+            else:  # it may fail, be skipped, or happen in another process
+                heres = moved + kept
             continue
         if verb in ("sed", "gsed") and not is_read_only(core) and any(re.search(r"[wW][\w./~-]*\.claude", w) for w in core):
             return True  # w.claude/x: a sed write, without a space
@@ -1005,7 +1030,7 @@ def sequence_writes_claude_dir(segments, cwd):
 
         if not inside and not any(protected(w) for w in words):
             continue
-        named = True
+        named = ever = True
         for i, w in enumerate(words[:-1]):
             if w in REDIRECTS_OUT and protected(words[i + 1]):
                 return True
@@ -1582,7 +1607,7 @@ def sed_effects(script):
             i = eol(i)
         elif ch in "aic":
             i = eol(i + 1)
-            while i < n and script[i - 1] == "\\":
+            while i < n and (i - len(script[:i].rstrip("\\"))) % 2:
                 i = eol(i + 1)
         elif ch in ":btT":
             i += 1

@@ -80,7 +80,14 @@ class NestedAndSlow(HookCase):
                     f"echo '{w}' | while read x; do sh -c \"$x\"; done", "echo .claude/y | xargs uniq README.md",
                     "cd .claude; cd /nonexistent; touch x", "cd .claude; cd /tmp & touch x", "cd .claude; cd /tmp | cat; touch x",
                     "cd .claude; false && cd /tmp; touch x", "cd .claude && cd /tmp && cd - && touch x", "cd .claude; pushd /tmp; popd; touch x",
-                    "echo x >&! .claude/x", "function cat { touch \"$@\"; }; cat .claude/x"):
+                    "echo x >&! .claude/x", "function cat { touch \"$@\"; }; cat .claude/x",
+                    f"(echo '{w}') | sh", f"true && (echo '{w}') | sh", f"{{ echo '{w}'; echo b; }} | sh", "(echo .claude/y) | xargs rm",
+                    "sed 'a\\\nx\\\\\nw .claude/x' README.md", f"cat > config <<'E'\n{w}\nE\nmv config .git; git diff",
+                    f"cat > s <<'E'\n{w}\nE\ngit fetch --upload-pack='sh s;:' .", "touch .cl$'a'ude/x", "cd sub; curl -so../.claude/x URL",
+                    "cd .claude && cd /nonexistent && ls\ntouch x", "cd .claude; cd /nonexistent && true; touch x",
+                    "cd .claude; cd \"$PWD\" && touch x", "cd .claude; cd /tmp && true & touch x", "cd .claude\nif false\nthen\ncd /tmp\nfi\ntouch x",
+                    f"printf '{w}' | xargs -0I cat sh -c cat", f"echo '{w}' | while read l; do sh -c \"$l\" read; done",
+                    "printf .claude/y | python3 -c 'from sys import stdin;from os import remove;remove(stdin.read())'"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
 
@@ -98,7 +105,9 @@ class NestedAndSlow(HookCase):
                     "cat .claude/settings.json | python3 -m json.tool", "sed -n '1,5p' .claude/settings.json", "(cd .claude && ls)",
                     "cat .claude/x 2>/dev/null", "ls .claude | xargs -n 1 echo", "grep -rn 'a#b' .claude | sort | uniq -c",
                     "ls .claude/skills | while read -r s; do echo \"$s\"; done", "rg --pretty foo .claude", "printf $'a\\tb' && ls .claude",
-                    "cat .claude/settings.json | python3 -c 'import json,sys; print(json.load(sys.stdin))'", "cd .claude && ls && cd /tmp && touch x"):
+                    "cat .claude/settings.json | python3 -c 'import json,sys; print(json.load(sys.stdin))'", "cd .claude && ls && cd /tmp && touch x",
+                    "cat .claude/x | base64", "ls .claude | while read -r s; do if [ -d \"$s\" ]; then n=1; continue; fi; done",
+                    "cd .claude\nls\ncd ..\ntouch y"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
 
