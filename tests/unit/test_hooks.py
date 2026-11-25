@@ -958,6 +958,23 @@ class PrivateFiles(HookCase):
         self.assertEqual(self.as_agent(None, "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}, session="bg1"), "allow")
         self.assertEqual(self.as_agent(None, "mcp__m365-graph__download_file", {"item_id": "01ITEMIDABC123"}, session="other"), "deny")
 
+    def test_a_generic_collaborator_isnt_the_chief_of_staff(self):
+        f = {"file_path": "docs/legal/settlement.md"}
+        self.run_hook("session-start", {"session_id": "main"})
+        self.run_hook("session-start", {"session_id": "bg2", "agent_type": "collaborator"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="main"), "allow", "the CEO's session is cos")
+        self.assertEqual(self.as_agent(None, "Read", f, session="bg2"), "deny")
+        self.run_hook("session-start", {"session_id": "bg2", "source": "resume"})
+        self.assertEqual(self.as_agent(None, "Read", f, session="bg2"), "deny", "resumed, it stays who it was")
+        for p in ("state/session-agents.json", "state/Session-Agents.json"):
+            self.assertEqual(self.as_agent(None, "Write", {"file_path": p, "content": "{}"}), "deny")
+            self.assertEqual(self.as_agent(None, "Bash", {"command": f"echo x > {p}"}), "deny")
+
+    def test_private_names_without_case(self):
+        for cmd in ("cat Docs/Legal/Settlement.md", "python3 -c \"print(open('docs/legal/SETTLEMENT.md').read())\""):
+            self.assertEqual(self.as_agent("finance", "Bash", {"command": cmd}), "deny", cmd)
+        self.assertEqual(self.as_agent("finance", "Read", {"file_path": "Docs/legal/settlement.md"}), "deny")
+
     def test_registry_changes_ask(self):
         self.assertEqual(self.as_agent(None, "Edit", {"file_path": "memory/private.md", "new_string": "x"}), "ask")
         self.assertEqual(self.as_agent(None, "Bash", {"command": "sed -i '' 3d memory/private.md"}), "ask")
@@ -1498,15 +1515,24 @@ class SessionPermissions(HookCase):
 
     def test_launch_only_with_approved_unchanged_settings(self):
         full = self.approve()
-        launch = f'claude --bg --remote-control --name gutenberg --settings {SETTINGS_PATH} "You are a collaborator session"'
+        launch = f'claude --bg --remote-control --name gutenberg --agent collaborator --settings {SETTINGS_PATH} "You are a collaborator session"'
         self.assertEqual(self.call("Bash", {"command": launch}), "allow")
-        self.assertEqual(self.call("Bash", {"command": "claude --bg --name x \"brief\""}), "allow", "no settings: as before")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --name x --agent collaborator \"brief\""}), "allow", "no settings: as before")
         open(os.path.join(self.repo, "state", "x.settings.json"), "w").write(json.dumps(GOOD_SETTINGS))
-        self.assertEqual(self.call("Bash", {"command": "claude --bg --settings state/x.settings.json \"b\""}), "ask")
-        self.assertEqual(self.call("Bash", {"command": "claude --bg --settings '{\"permissions\":{}}' \"b\""}), "ask")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --agent legal --settings state/x.settings.json \"b\""}), "ask")
+        self.assertEqual(self.call("Bash", {"command": "claude --bg --agent legal --settings '{\"permissions\":{}}' \"b\""}), "ask")
         with open(full, "a", encoding="utf-8") as f:
             f.write("\n")
         self.assertEqual(self.call("Bash", {"command": launch}), "ask", "changed after approval")
+
+    def test_a_session_started_by_an_agent_has_an_identity(self):
+        for c in ("claude --bg --name x b", "claude -p hi", "claude --resume abc", "claude --bg --agent cos b", "claude --bg --agent= b",
+                  "nohup claude --bg b", "timeout 60 claude -p hi", "X=1 claude --bg b", "echo $(claude -p hi)", "Claude --bg b"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "deny")
+        for c in ("claude --version", "claude mcp list", "claude agents", "timeout 60 claude --bg --agent collaborator b", "grep claude README.md"):
+            with self.subTest(c=c):
+                self.assertEqual(self.call("Bash", {"command": c}), "allow")
 
     def test_launches_that_drop_hooks_or_permissions_are_denied(self):
         for c in ("claude --dangerously-skip-permissions -p x", "claude --allow-dangerously-skip-permissions --bg x",
@@ -1515,7 +1541,7 @@ class SessionPermissions(HookCase):
                   "claude --setting-sources user --bg x", "cd /tmp && claude --bare x"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "deny")
-        self.assertEqual(self.call("Bash", {"command": "claude --permission-mode auto --bg --name x \"b\""}), "allow")
+        self.assertEqual(self.call("Bash", {"command": "claude --permission-mode auto --bg --agent=legal --name x \"b\""}), "allow")
 
 
 class LogOutcome(HookCase):

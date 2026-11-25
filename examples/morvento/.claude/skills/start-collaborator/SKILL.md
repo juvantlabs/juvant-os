@@ -8,7 +8,7 @@ description: "Start a collaborator in its own background session, which the CEO 
 A collaborator session is a full Claude Code session in the background, in this repo, with the same hard limits. The CEO reaches it from the agent view (`←` on an empty prompt, then `Enter` on its name) and talks to it; `←` brings them back to you.
 
 1. **Name it** so the CEO recognises it in the list: a short topic in lowercase with hyphens, e.g. `social-campaign`, `frontend-project-x`, `legal-ferrolino`. Run `ListAgents`: check that the name is free, and note your own session name from its first line ("This session is <name>"). The collaborator reports to that name.
-2. **Pick the agent.** For legal, finance or ethics work the CEO wants to discuss, run the dedicated agent as the session's main agent (`--agent legal`). For everything else, no `--agent`.
+2. **Pick the agent.** For legal, finance or ethics work the CEO wants to discuss, run the dedicated agent as the session's main agent (`--agent legal`). For everything else, `--agent collaborator`. Always give one, and never `cos`: the hooks decide by it which private files the session can read, and deny a start without it.
 3. **Write the brief** to `state/briefs/<name>.md`:
 
 ```
@@ -37,7 +37,7 @@ When the deliverable is saved, and again after any change the CEO asks for here,
 ```
 
 4. **Start it** (one Bash command):
-   `claude --bg --remote-control --name <name> [--agent <id>] "You are a collaborator session named <name>, not the Chief of Staff. Read state/briefs/<name>.md and do the work it describes."`
+   `claude --bg --remote-control --name <name> --agent <id> "You are a collaborator session named <name>, not the Chief of Staff. Read state/briefs/<name>.md and do the work it describes."`
    `--remote-control` makes the session reachable from the Claude app and claude.ai/code too, under the same name.
    For a long task with session permissions (`long-task` skill), add `--settings memory/authorizations/<file>.settings.json`: only a file the CEO approved is accepted.
    If it fails with `Workspace not trusted`, tell the CEO to run `claude` once in this repo and accept the trust prompt, then retry.
