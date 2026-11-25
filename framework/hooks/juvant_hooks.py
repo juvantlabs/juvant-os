@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -33,6 +34,7 @@ ACTIVITY = os.path.join(STATE, "activity.jsonl")
 FINDINGS = os.path.join(STATE, "limits-findings.jsonl")
 CONTEXT_CAP = 9500
 OUTCOME_CAP = 160
+CHECK_SECONDS = 25
 ROLE_ID = re.compile(r"^[a-z][a-z0-9-]{0,40}$")
 SETTINGS = os.path.join(ROOT, ".claude", "settings.json")
 # Every built-in tool cmd_limits() looks at. Claude Code calls the hook only for
@@ -573,6 +575,12 @@ def bash_writes_claude_dir(command, cwd=None):
     segments = shell_segments(command)
     if segments is None:
         return True
+    nested, inner = without_single_quoted(command), re.compile(r"(?:\$|[<>])\(([^()]*)\)|`([^`]*)`")
+    while m := inner.search(nested):  # commands run inside another one, innermost first
+        text = m.group(1) if m.group(1) is not None else m.group(2)
+        if bash_writes_claude_dir(text, cwd):
+            return True
+        nested = nested[:m.start()] + text + nested[m.end():]
     here = cwd or ROOT
     for words in segments:
         seg = " ".join(words)
@@ -2400,6 +2408,12 @@ if __name__ == "__main__":
     if name not in COMMANDS:
         sys.stderr.write("usage: juvant_hooks.py " + "|".join(COMMANDS) + "\n")
         sys.exit(2)
+    if name == "limits" and hasattr(signal, "setitimer"):
+        # A check that never ends would time out, and a hook that times out doesn't block.
+        def too_long(*_):
+            deny("juvant-os hard limits: the check took too long. Blocked to stay safe: write the call more simply.")
+        signal.signal(signal.SIGALRM, too_long)
+        signal.setitimer(signal.ITIMER_REAL, CHECK_SECONDS)
     try:
         COMMANDS[name]()
         if name == "limits":
