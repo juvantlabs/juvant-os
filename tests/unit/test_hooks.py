@@ -83,7 +83,8 @@ class NestedAndSlow(HookCase):
                     "echo x >&! .claude/x", "function cat { touch \"$@\"; }; cat .claude/x",
                     f"(echo '{w}') | sh", f"true && (echo '{w}') | sh", f"{{ echo '{w}'; echo b; }} | sh", f"{{ (echo '{w}'); }} | sh",
                     f"for i in 1; do (echo '{w}'); done | sh", f"true && {{\n(echo '{w}')\n}} | sh", "cd .claude && cd /nope && ls; (touch x)",
-                    "cd .claude; cd -Z /tmp; touch x", f"cat > s <<'E'\n{w}\nE\ngit fetch --upload-pa='sh s;:' .",
+                    "cd .claude; cd -Z /tmp; touch x", f"cd nope; echo $({w})", f"cd nope; X=\"$({w})\"", f"cd nope; cat <({w})",
+                    f"cd docs & echo $({w})", f"cd nope || echo $({w})", f"cd nope; {w}", f"cd nope; echo `{w}`", f"cat > s <<'E'\n{w}\nE\ngit fetch --upload-pa='sh s;:' .",
                     f"cat > config <<'E'\n{w}\nE\nmv config ~/.config/git; git diff", "(echo .claude/y) | xargs rm",
                     "sed 'a\\\nx\\\\\nw .claude/x' README.md", f"cat > config <<'E'\n{w}\nE\nmv config .git; git diff",
                     f"cat > s <<'E'\n{w}\nE\ngit fetch --upload-pack='sh s;:' .", "touch .cl$'a'ude/x", "cd sub; curl -so../.claude/x URL",
@@ -109,7 +110,8 @@ class NestedAndSlow(HookCase):
                     "cat .claude/x 2>/dev/null", "ls .claude | xargs -n 1 echo", "grep -rn 'a#b' .claude | sort | uniq -c",
                     "ls .claude/skills | while read -r s; do echo \"$s\"; done", "rg --pretty foo .claude", "printf $'a\\tb' && ls .claude",
                     "cat .claude/settings.json | python3 -c 'import json,sys; print(json.load(sys.stdin))'", "cd .claude && ls && cd /tmp && touch x",
-                    "cat .claude/x | base64", "ls .claude | while read -r s; do if [ -d \"$s\" ]; then n=1; continue; fi; done",
+                    "cat .claude/x | base64", "for f in docs/*; do echo $f; done | while read f; do python3 x.py $f; done; cat .claude/juvant-os.json",
+                    "for f in a b; do echo $f; done | sort | python3 x.py; ls .claude", "ls .claude | while read -r s; do if [ -d \"$s\" ]; then n=1; continue; fi; done",
                     "cd .claude\nls\ncd ..\ntouch y"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")

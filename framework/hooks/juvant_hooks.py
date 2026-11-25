@@ -506,11 +506,11 @@ def mcp_decision(cfg, tool, inp=None):
     decision, rule = resource_decision(cfg, tool, inp)
     if decision:
         return decision, rule
-    for rule in m["ask"]:
-        if rule["id"].startswith(("ext:", "company:")) and rule["re"].search(name):
-            return "ask", rule
     for rule in m.get("create", []):  # creating can't lose anything (hard limit 4, three classes)
         if rule["re"].search(name) and (rule.get("input") is None or input_matches(rule["input"], inp)):
+            for own in m["ask"]:  # unless an installed extension wants it asked
+                if own["id"].startswith("ext:") and own["re"].search(name):
+                    return "ask", own
             return None, rule
     for rule in m["ask"]:
         if rule["re"].search(name):
@@ -1197,7 +1197,8 @@ def bash_writes_claude_dir(command, cwd=None):
     scan = shell_scan(command)
     if scan is None or scan.unsure:
         return True
-    return any(sequence_writes_claude_dir(seq, cwd) for seq in scan.sequences)
+    naming = [any(names_claude(w) for words in seq for w in words) for seq in scan.sequences]
+    return any(sequence_writes_claude_dir(seq, cwd, any(naming[:k] + naming[k + 1:])) for k, seq in enumerate(scan.sequences))
 
 
 def without_redirects(words):
@@ -1215,11 +1216,11 @@ def without_redirects(words):
 CONTROL = OPENERS | {"for", "case", "function", "select", "done", "fi", "esac", "}"}
 
 
-def sequence_writes_claude_dir(segments, cwd):
+def sequence_writes_claude_dir(segments, cwd, others_name=False):
     heres, named, loop = [cwd or ROOT], False, False
     visited, held, before = list(heres), [], ";"
     straight = not any(w and w[0] in CONTROL for w in segments)
-    for words in segments:
+    for k, words in enumerate(segments):
         seg = " ".join(words)
         core = without_redirects(words)
         if before != "&&":  # a cd that "&&" relied on may not have happened
@@ -1231,7 +1232,9 @@ def sequence_writes_claude_dir(segments, cwd):
             prefix += 1
         assigned, core = core[:prefix], core[prefix:]
         if not words.piped:
-            named = bool(words) and words[0] in ("}", "done", "fi", "esac")  # what was in there may have named it
+            named = bool(words) and words[0] in ("}", "done", "fi", "esac") and (  # what was in there may have named it
+                others_name or any(names_claude(w) for x in segments[:k] for w in x)
+                or any(h and protected_claude_path(os.path.join(h, "."), "/") for h in heres))
         named = named or words.group
         if core and words.piped and named and runs_its_input(core):
             return True
@@ -1257,7 +1260,7 @@ def sequence_writes_claude_dir(segments, cwd):
             else:
                 moved = [os.path.normpath(os.path.join(h or ROOT, os.path.expanduser(target))) for h in heres]
             visited += [m for m in moved if m not in visited]
-            kept = [h for h in heres if h and h not in moved and protected_claude_path(os.path.join(h, "."), "/")]
+            kept = [h for h in heres if h not in moved]
             plain_cd = len(core) == len(words) and [w for w in core[1:] if w not in ("-P", "-L", "--")] == [target]
             sure = (plain_cd and straight and not words.piped and words.then in (";", "&&") and previous == ";"
                     and all(m and os.access(m, os.X_OK) and os.path.isdir(m) for m in moved))

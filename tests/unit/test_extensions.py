@@ -724,6 +724,28 @@ class Hooks(Case):
         self.install()
         self.assertEqual(self.gate("mcp__x__upload_file", {"conflictBehavior": "fail"})[0], "ask")
 
+    def test_an_ask_never_replaces_the_frameworks(self):
+        self.hub.publish("demo-v1.0.0", package(limits={"mcp": {"ask": [{"id": "files", "pattern": "_file"}]}}))
+        self.install()
+        d, why = self.gate("mcp__x__delete_file", {"driveId": "D1"})
+        self.assertEqual((d, "(delete-move)" in why), ("ask", True), why)
+
+    def test_a_failed_install_puts_the_lock_back(self):
+        self.hub.publish("demo-v1.0.0", package())
+        self.install()
+        before = self.read(".claude/extensions/lock.json")
+        self.hub.publish("demo-v1.1.0", package(version="1.1.0", files={"skills/hello/SKILL.md": SKILL + "\nMore.\n"}))
+        pid, _ = self.plan("update", "demo")
+        src = self.read(".claude/skills/extensions/extensions.py")
+        # The second file can't be written, and neither can one of those put back.
+        broken = src.replace("def write_file(rel, data):\n", "N = [0]\n\n\ndef write_file(rel, data):\n    N[0] += 1\n"
+                             "    if N[0] in (3, 4):\n        raise OSError('full')\n")
+        self.assertNotEqual(src, broken)
+        self.write(".claude/skills/extensions/extensions.py", broken)
+        rc, out = self.ext("apply", pid)
+        self.assertEqual((rc != 0, "NOT fully put back" in out), (True, True), out)
+        self.assertEqual(self.read(".claude/extensions/lock.json"), before)
+
     def test_a_lock_cant_point_outside(self):
         self.hub.publish("demo-v1.0.0", package())
         self.install()
