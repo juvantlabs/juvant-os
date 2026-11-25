@@ -57,6 +57,32 @@ class NestedAndSlow(HookCase):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
 
+    def test_writes_a_shell_would_see(self):
+        w = "touch .claude/x"
+        for cmd in (f"echo hi # note\n{w}", f"echo a#b; {w}", f'echo "${{x:-" #"}}"; {w}', f"echo $({w}; (true))", f"cat <({w}; (:))",
+                    f"echo $(f() {{ {w}; }}; f)", f"echo $( {w} ')' )", "cd .claude/hooks && echo $(rm limits.json)",
+                    "cd -P .claude/hooks; rm limits.json", "cd 2>&1 .claude && touch x", f'echo "$(case a in a) {w};; esac)"',
+                    f"cat <<E\n$({w})\nE", f"sh <<'E'\n{w}\nE", f"cat <<'E' | sh\n{w}\nE", f"eval \"$(cat <<'E'\n{w}\nE\n)\"",
+                    f"cat > /tmp/s <<'E'\n{w}\nE\nbash /tmp/s", f"echo '{w}' | sh", f"echo '{w}' | # c\n sh", f"echo '{w}' | 2>&1 sh",
+                    "echo .claude/x | xargs rm", "echo x &> .claude/x", "echo x >& .claude/x", "echo x >! .claude/x",
+                    "sed '1e touch .claude/x' README.md", "sed -n '1w .claude/x' README.md", "sed -n 's/a/b/w.claude/x' README.md",
+                    "less '+!touch .claude/x' README.md", "sort --compress-program 'touch .claude/x' a", "rg --pre 'touch .claude/x' a",
+                    "uniq a .claude/x", "git diff --output=.claude/x", "tree -o .claude/x", "GIT_EXTERNAL_DIFF='touch .claude/x' git diff",
+                    f"python3 - <<'E'\ns = ' # '; open('.claude/x', 'w')\nE", "touch .c\\laude/x", "touch .cla''ude/x",
+                    f'echo "$\\\n({w})"', "find .claude -fprint .claude/x"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "ask")
+
+    def test_ordinary_commands_stay_free(self):
+        for cmd in ("git commit -m \"$(cat <<'EOF'\nDon't touch .claude/hooks; see `.claude/x` (and $HOME)\nEOF\n)\"",
+                    "git add .claude && git commit -F - <<'EOF'\nUpdate .claude/skills/x text\nEOF", "ls .claude # what's here",
+                    "B=$(mktemp) && cat > \"$B\" <<'EOF'\nAbout .claude/hooks\nEOF\ngh issue list", "n=$(ls .claude/skills | wc -l)",
+                    "git log $(git rev-parse HEAD) -- .claude/agents", "diff <(git show HEAD:.claude/x) .claude/x",
+                    "cat .claude/settings.json | python3 -m json.tool", "sed -n '1,5p' .claude/settings.json", "(cd .claude && ls)",
+                    "cat .claude/x 2>/dev/null", "ls .claude | xargs -n 1 echo", "grep -rn 'a#b' .claude | sort | uniq -c"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.decision("Bash", {"command": cmd}), "allow")
+
     def test_a_check_that_never_ends_blocks(self):
         copy = os.path.join(self.repo, "hooks")
         shutil.copytree(HOOKS, copy)

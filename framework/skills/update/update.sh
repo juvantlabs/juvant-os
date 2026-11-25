@@ -92,7 +92,7 @@ ok = not r.get("draft") and r.get("tag_name") == sys.argv[1] and not (sys.argv[2
 print(sys.argv[1]) if ok else sys.exit(1)' "$@"
   }
   if [[ -n "$TAG" ]]; then
-    published "$TAG" >/dev/null || { echo "update: $TAG is not a published release of $SLUG: nothing to install" >&2; exit 1; }
+    published "$TAG" >/dev/null || { echo "update: GitHub doesn't confirm that $TAG is a published release of $SLUG (check the tag, or try again if GitHub didn't answer): nothing to install" >&2; exit 1; }
   else
     # Latest v2+ release: newest version tags first, the first published stable release wins.
     # (GitHub's own "latest" can point at a v1 release.)
