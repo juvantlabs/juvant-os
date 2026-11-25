@@ -2247,7 +2247,8 @@ LAUNCHERS = {"nohup", "timeout", "gtimeout", "env", "command", "exec", "nice", "
 CLAUDE_COMMANDS = {"mcp", "agents", "config", "doctor", "update", "install", "plugin", "plugins", "auth", "logs", "attach", "stop",
                    "setup-token", "migrate-installer"}
 RUNNERS = {"sh", "bash", "zsh", "dash", "eval", "xargs", "npx", "bunx", "pnpm", "yarn", "node", "script", "parallel", "su"}
-STARTS_CLAUDE = re.compile(r"(^|[\s/;&|(@])claude(-code)?(\s|$|@|/cli)")
+STARTS_CLAUDE = re.compile(r"(^|[\s/;&|(@'\"`])claude(-code)?(?=[\s'\"`;&|)]|$|@|/cli)(?!\s+(" + "|".join(sorted(CLAUDE_COMMANDS))
+                           + r"|-v|--version|-h|--help)(\s|$|['\"`;&|)]))", re.I)
 
 
 def claude_launch_problem(command, cwd):
@@ -2255,6 +2256,14 @@ def claude_launch_problem(command, cwd):
     settings the CEO hasn't approved; None otherwise."""
     if "claude" not in command.lower():
         return None
+    if STARTS_CLAUDE.search(command):
+        for words in shell_segments(command) or []:
+            core = [w for w in words if not ASSIGNMENT.match(w)]
+            while core and (os.path.basename(core[0]) in LAUNCHERS or core[0] in OPENERS or re.fullmatch(r"-[\w-]+|\d+[smhd]?", core[0])):
+                core.pop(0)
+            if core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS):
+                return "deny", ("this may start a Claude session through another program, where the hard limits can't see who it "
+                                "is. Start it directly: `claude … --agent collaborator`")
     for segments in shell_sequences(command):
         found = claude_launch_problem_in(segments, cwd)
         if found != None:
@@ -2271,11 +2280,6 @@ def claude_launch_problem_in(segments, cwd):
             here = os.path.normpath(os.path.join(here, os.path.expanduser(words[1])))
             continue
         words = list(words)
-        if words and os.path.basename(words[0]) in RUNNERS and any(STARTS_CLAUDE.search(w) for w in words[1:]):
-            if not any("--agent" in w for w in words):
-                return "deny", ("a session an agent starts has its own identity: without one it would read private files as the Chief of "
-                                "Staff. Start it with `claude … --agent collaborator`, directly")
-            return "ask", "this starts a Claude session in a way the hard limits can't read: the CEO confirms"
         if words[:1] == ["command"] and words[1:2] in (["-v"], ["-V"]):
             continue
         while words and (os.path.basename(words[0]) in LAUNCHERS or ASSIGNMENT.match(words[0]) or words[0] in OPENERS
@@ -2299,11 +2303,16 @@ def claude_launch_problem_in(segments, cwd):
                 if val.lstrip().startswith("{") or not approved_session_settings(path):
                     return "ask", (f"this starts a session with settings ({val}) that the CEO hasn't approved as a long-task "
                                    f"session-permissions file ({AUTH_DIR}/<name>{SESSION_SETTINGS_SUFFIX}, written and confirmed first)")
-        first = next((w for w in words[1:] if not w.startswith("-")), "")
-        if first in CLAUDE_COMMANDS or any(w in ("-v", "--version", "-h", "--help") for w in words[1:]):
+        rest = words[1:]
+        while rest and rest[0] in ("--debug", "--verbose", "-d"):
+            rest = rest[1:]
+        if rest[:1] and rest[0] in CLAUDE_COMMANDS or rest[:1] in (["-v"], ["--version"], ["-h"], ["--help"]):
             continue
-        agent = next((words[i + 1] for i, w in enumerate(words[:-1]) if w == "--agent"), "") or next(
-            (w.split("=", 1)[1] for w in words if w.startswith("--agent=")), "")
+        if any(w.split("=", 1)[0] in ("-c", "--continue", "-r", "--resume", "--fork-session", "--session-id", "--from-pr") for w in rest):
+            return "deny", ("an agent doesn't resume or fork sessions: a resumed session keeps the identity it had, the Chief of "
+                            "Staff's included. Start a new one with `--agent collaborator`")
+        agents = [rest[i + 1] for i, w in enumerate(rest[:-1]) if w == "--agent"] + [w.split("=", 1)[1] for w in rest if w.startswith("--agent=")]
+        agent = agents[0] if len(agents) == 1 else ""
         if not re.fullmatch(r"[a-z][a-z0-9:_-]{0,60}", agent) or agent == "cos":
             return "deny", ("a session an agent starts has its own identity: without one it would read private files as the Chief of "
                             "Staff. Add `--agent collaborator`, or a dedicated agent (`--agent legal`)")
@@ -2949,10 +2958,14 @@ def cmd_session_start():
             if len(known) > 5000:
                 known = dict(list(known.items())[-5000:])
             fd, tmp = tempfile.mkstemp(dir=STATE, prefix=".session-agents.")
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(known, f)
-            os.replace(tmp, SESSION_AGENTS)
-            lock.close()
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(known, f)
+                os.replace(tmp, SESSION_AGENTS)
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+                lock.close()
         except Exception as e:  # noqa: BLE001 — without a record the session reads no private file
             sys.stderr.write(f"juvant_hooks session-start: the session's agent wasn't recorded ({type(e).__name__})\n")
     if ROLE_ID.match(agent):

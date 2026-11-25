@@ -1537,7 +1537,11 @@ class SessionPermissions(HookCase):
     def test_a_session_started_by_an_agent_has_an_identity(self):
         for c in ("claude --bg --name x b", "claude -p hi", "claude --resume abc", "claude --bg --agent cos b", "claude --bg --agent= b",
                   "nohup claude --bg b", "timeout 60 claude -p hi", "X=1 claude --bg b", "echo $(claude -p hi)", "Claude --bg b",
-                  "sh -c 'claude --bg b'", "npx @anthropic-ai/claude-code --bg b", "env -u X claude --bg b", "timeout -s KILL 60 claude -p hi"):
+                  "sh -c 'claude --bg b'", "npx @anthropic-ai/claude-code --bg b", "env -u X claude --bg b", "timeout -s KILL 60 claude -p hi",
+                  "claude -c --agent collaborator -p hi", "claude --resume abc --agent collaborator", "claude -r abc --agent collaborator",
+                  "claude --fork-session --agent collaborator b", "nohup sh -c 'claude --bg --agent collaborator b'",
+                  "timeout 60 npx @anthropic-ai/claude-code --agent collaborator b", "claude --bg --name mcp b",
+                  "claude --agent collaborator --agent cos b", "echo 'claude --bg b' | sh", "python3 -c 'import os; os.system(\"claude -p x\")'"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "deny")
         for c in ("claude --version", "claude mcp list", "claude agents", "timeout 60 claude --bg --agent collaborator b", "grep claude README.md",
@@ -1546,7 +1550,7 @@ class SessionPermissions(HookCase):
                 self.assertEqual(self.call("Bash", {"command": c}), "allow")
 
     def test_a_role_with_private_files_is_confirmed(self):
-        for c in ("claude --bg --agent legal b", "claude --bg --agent=finance b", "sh -c 'claude --bg --agent collaborator b'"):
+        for c in ("claude --bg --agent legal b", "claude --bg --agent=finance b", "timeout 60 claude --bg --agent legal b"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "ask")
 
