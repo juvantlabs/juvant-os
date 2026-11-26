@@ -12,7 +12,7 @@ memory you can read in git, and hard limits that hold.
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-blueviolet)](https://docs.anthropic.com/en/docs/claude-code)
 
-[**Quick start**](#-quick-start) · [**How it works**](#%EF%B8%8F-how-it-works) · [**Hard limits**](#%EF%B8%8F-hard-limits) · [**Skills**](#-skills) · [**Try Morvento**](#-try-it-on-morvento) · [**Coming from v1**](#%EF%B8%8F-coming-from-v1)
+[**Quick start**](#-quick-start) · [**How it works**](#%EF%B8%8F-how-it-works) · [**Hard limits**](#%EF%B8%8F-hard-limits) · [**Skills**](#-skills) · [**Extensions**](#-extensions) · [**Try Morvento**](#-try-it-on-morvento) · [**Coming from v1**](#%EF%B8%8F-coming-from-v1)
 
 </div>
 
@@ -95,7 +95,7 @@ A company can **add** its own rules in `.claude/limits-company.json`, never remo
 
 ## 🧰 Skills
 
-31 skills ship with the framework. The Chief of Staff and the advisors load them when a task matches.
+32 skills ship with the framework. The Chief of Staff and the advisors load them when a task matches.
 
 | | Area | Skills |
 |:-:|---|---|
@@ -106,13 +106,27 @@ A company can **add** its own rules in `.claude/limits-company.json`, never remo
 | 🧠 | **Memory** | `decision` · `knowledge` · `new-project` · `wrap-up` |
 | 🤝 | **Working with agents** | `start-collaborator` · `long-task` |
 | 🔐 | **Control** | `private-file` · `project-repo` · `dashboard` |
-| 🔄 | **Framework** | `update` · `bugfix` · `country-pack` |
+| 🔄 | **Framework** | `update` · `extensions` · `bugfix` · `country-pack` |
 
 Many legal, finance, marketing and small-business skills are adapted from [anthropics/knowledge-work-plugins](https://github.com/anthropics/knowledge-work-plugins) (Apache 2.0) for juvant-os: company context, draft-only outbound, local practice. Details in [`framework/skills/THIRD_PARTY.md`](framework/skills/THIRD_PARTY.md).
 
 ### 🌍 Country packs
 
 Skills are country-neutral. A country pack adds the local legal, fiscal, marketing and format rules: 🇮🇹 **Italy** ships today (`--country it`: e-invoicing, F24, GDPR practice, formats). For another country, the `country-pack` skill drafts one with you in the first session.
+
+---
+
+## 🧩 Extensions
+
+Need more than the framework ships? An **extension** adds skills, and possibly stricter limits, to your company. It is developed and released outside juvant-os, in [**juvantlabs/juvant-os-extensions**](https://github.com/juvantlabs/juvant-os-extensions) for the official ones.
+
+Ask the Chief of Staff, for example *"install the `hello` extension from juvantlabs/juvant-os-extensions"*. It reads the extension, tells you what it does and **which new permissions it asks for**, and installs it only after you confirm. Updating, restoring and removing work the same way.
+
+- 📄 **Text only.** Skills and limits, never scripts, hooks or settings.
+- 🔒 **Only stricter.** An extension can add rules that deny or ask; it can never loosen a hard limit.
+- 📌 **Pinned.** Only published GitHub releases install, pinned to their commit, and checked again at every session start.
+
+How to use, write and release one: [juvant-os-extensions](https://github.com/juvantlabs/juvant-os-extensions#readme). Needs juvant-os v2.1.0 or later.
 
 ---
 
