@@ -120,6 +120,10 @@ Skills are country-neutral. A country pack adds the local legal, fiscal, marketi
 
 Need more than the framework ships? An **extension** adds skills, and possibly stricter limits, to your company. It is developed and released outside juvant-os, in [**juvantlabs/juvant-os-extensions**](https://github.com/juvantlabs/juvant-os-extensions) for the official ones.
 
+An extension is one or more skills plus what a skill alone can't say: a version and the juvant-os versions it fits, the connectors and company folders it needs, any companion service, its own limits and its default settings. The CEO sees all of it before confirming.
+
+Why not just more skills? A skill in juvant-os reaches every company at its next update, and a skill copied by hand into one company is looked after by no one. An extension reaches only the companies that choose it, with its own releases, and juvant-os still tracks, checks and updates it. **What every company needs goes into juvant-os; what only some need becomes an extension.** The full comparison is in [Why extensions](https://github.com/juvantlabs/juvant-os-extensions#why-extensions-and-not-just-more-skills).
+
 Ask the Chief of Staff, for example *"install the `hello` extension from juvantlabs/juvant-os-extensions"*. It reads the extension, tells you what it does and **which new permissions it asks for**, and installs it only after you confirm. Updating, restoring and removing work the same way.
 
 - 📄 **Text only.** Skills and limits, never scripts, hooks or settings.
