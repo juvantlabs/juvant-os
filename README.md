@@ -141,7 +141,7 @@ How to use, write and release one: [juvant-os-extensions](https://github.com/juv
 **1. Install from an official release** (juvant-os installs from nothing else):
 
 ```bash
-git clone --branch v2.1.2 https://github.com/juvantlabs/juvant-os.git /tmp/juvant-os
+git clone --branch v2.1.3 https://github.com/juvantlabs/juvant-os.git /tmp/juvant-os
 bash /tmp/juvant-os/setup.sh ~/Projects/acme --company "Acme" --language English
 ```
 
