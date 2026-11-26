@@ -57,6 +57,25 @@ def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def make_dirs(d):
+    """Create d. Under state/ in a project repository (one with .claude/juvant-os-project.json), state/ also gets a
+    .gitignore that ignores everything: the hooks' local logs and caches must never reach the project's commits, and
+    a project repository may be public. The company repo keeps state/ tracked, so it gets none."""
+    os.makedirs(d, exist_ok=True)
+    if os.path.commonpath([os.path.abspath(d), STATE]) != STATE:
+        return
+    if not os.path.isfile(os.path.join(ROOT, ".claude", "juvant-os-project.json")):
+        return
+    gi = os.path.join(STATE, ".gitignore")
+    if os.path.exists(gi):
+        return
+    try:
+        with open(gi, "w", encoding="utf-8") as f:
+            f.write("# Local juvant-os hook state: never committed in a project repository.\n*\n")
+    except OSError:
+        pass
+
+
 def read_event():
     raw = sys.stdin.read()
     try:
@@ -69,7 +88,7 @@ def read_event():
 def append_jsonl(path, row):
     """Best effort: logging never blocks a tool call or a session."""
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        make_dirs(os.path.dirname(path))
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except OSError:
@@ -2392,7 +2411,7 @@ def load_auth_state():
 
 
 def save_auth_state(d):
-    os.makedirs(os.path.dirname(AUTH_STATE), exist_ok=True)
+    make_dirs(os.path.dirname(AUTH_STATE))
     tmp = AUTH_STATE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, indent=1)
@@ -2974,7 +2993,7 @@ def github_sharing_note():
     except Exception:  # noqa: BLE001 — a warning only, never in the way
         note = ""
     try:
-        os.makedirs(STATE, exist_ok=True)
+        make_dirs(STATE)
         with open(cache, "w", encoding="utf-8") as f:
             json.dump({"checked": time.time(), "note": note}, f)
     except OSError:
@@ -2989,7 +3008,7 @@ def cmd_session_start():
     agent = str(ev.get("agent_type", ""))
     if ev.get("session_id"):
         try:
-            os.makedirs(STATE, exist_ok=True)
+            make_dirs(STATE)
             lock = open(SESSION_AGENTS + ".lock", "a", encoding="utf-8")  # two sessions may start together
             if fcntl:
                 fcntl.flock(lock, fcntl.LOCK_EX)
@@ -3166,7 +3185,7 @@ def nudge_note(ev):
     if len(st) > 200:
         st = dict(list(st.items())[-200:])
     try:
-        os.makedirs(STATE, exist_ok=True)
+        make_dirs(STATE)
         with open(NUDGE_STATE, "w", encoding="utf-8") as f:
             json.dump(st, f)
     except OSError:
