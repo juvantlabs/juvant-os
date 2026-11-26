@@ -2563,6 +2563,16 @@ def shared_with(root=None):
         return ""
 
 
+def company_owned(root=None):
+    """True if the company says the shared repository at root is its own (its product, open source): then the CEO can
+    merge from a session, with a confirmation."""
+    try:
+        with open(os.path.join(root or ROOT, ".claude", "juvant-os-project.json"), encoding="utf-8") as f:
+            return json.load(f).get("company_owned") is True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def current_branch(root=None):
     try:
         out = subprocess.run(["git", "-C", root or ROOT, "symbolic-ref", "--short", "-q", "HEAD"],
@@ -2679,9 +2689,15 @@ def shared_repo_check_in(segments, cwd):
             who = shared_with(root) if root else ""
             if not who:
                 continue
+            ours = company_owned(root)
             if words[2] == "merge":
+                if ours:
+                    return "ask", (f"merging a pull request in the company's own repository, read by {who}. The CEO "
+                                   "confirms: what is merged is published")
                 return "deny", f"merging a pull request in a repository shared with {who}"
             if "--draft" not in words and "-d" not in words:
+                if ours:
+                    return "ask", f"opening a pull request for review in the company's own repository, read by {who}. The CEO confirms"
                 return "deny", f"opening a non-draft pull request in a repository shared with {who}"
     return None, None
 

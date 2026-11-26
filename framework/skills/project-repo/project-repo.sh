@@ -2,8 +2,9 @@
 # .claude/skills/project-repo/project-repo.sh — give a project's repository the
 # company's hard limits, and record who outside the company reads it.
 #
-#   project-repo.sh install <repo> --project <slug> [--shared-with "<who>"]
-#   project-repo.sh sharing <repo> "<who>"      mark the repo as read outside the company
+#   project-repo.sh install <repo> --project <slug> [--shared-with "<who>" [--ours]]
+#   project-repo.sh sharing <repo> "<who>" [--ours]   mark the repo as read outside the company
+#                                                     (--ours: it is the company's own, e.g. its open-source product)
 #   project-repo.sh sharing <repo> none          mark it internal again
 #   project-repo.sh status  <repo>
 #
@@ -27,10 +28,10 @@ repo="$(cd "$repo" && pwd)"
 shift 2
 
 # Record and CLAUDE.md notice, written with Python for safe quoting.
-write_record() { # <slug> <shared>
-  python3 - "$repo" "$COMPANY" "$1" "$2" <<'PY'
+write_record() { # <slug> <shared> <ours: 1 or "">
+  python3 - "$repo" "$COMPANY" "$1" "$2" "${3:-}" <<'PY'
 import json, os, re, sys
-repo, company, slug, shared = sys.argv[1:5]
+repo, company, slug, shared, ours = sys.argv[1:6]
 p = os.path.join(repo, ".claude", "juvant-os-project.json")
 rec = {}
 if os.path.exists(p):
@@ -40,6 +41,9 @@ if slug:
     rec["project"] = slug
 rec["company_repo"] = company
 rec["shared_with"] = "" if shared.lower() == "none" else shared.strip()
+rec.pop("company_owned", None)
+if ours and rec["shared_with"]:
+    rec["company_owned"] = True
 with open(p, "w", encoding="utf-8") as f:
     json.dump(rec, f, indent=2, ensure_ascii=False)
     f.write("\n")
@@ -50,7 +54,9 @@ text = re.sub(re.escape(start) + r".*?" + re.escape(end) + r"\n?", "", text, fla
 if rec["shared_with"]:
     notice = (f"{start}\n- **This repository is shared with {rec['shared_with']}.** Everything written here is read by them: "
               "write as for an external reader, never copy the company's memory, internal notes or opinions about partners here. "
-              f"Work on a branch and open a draft PR; the CEO merges. The hooks enforce it.\n{end}\n")
+              + ("It is the company's own repository: work on a branch and open a PR; the CEO confirms every merge, and pushes "
+                 "to the default branch are blocked. The hooks enforce it." if rec.get("company_owned") else
+                 "Work on a branch and open a draft PR; the CEO merges. The hooks enforce it.") + f"\n{end}\n")
     text = text.replace("- **The manifesto here is a copy.**", notice + "- **The manifesto here is a copy.**", 1)
 with open(c, "w", encoding="utf-8") as f:
     f.write(text)
@@ -60,12 +66,14 @@ PY
 
 case "$cmd" in
   install)
-    slug=""; shared=""
+    slug=""; shared=""; ours=""
     while [[ $# -gt 0 ]]; do
+      if [[ "$1" == --ours ]]; then ours=1; shift; continue; fi
       [[ $# -ge 2 ]] || die "$1 needs a value"
       case "$1" in --project) slug="$2" ;; --shared-with) shared="$2" ;; *) die "unknown option $1" ;; esac
       shift 2
     done
+    [[ -z "$ours" || -n "$shared" ]] || die "--ours goes with --shared-with: an internal repository needs no exception"
     [[ "$slug" =~ ^[a-z0-9][a-z0-9-]{0,60}$ ]] || die "give --project <slug> (lowercase, hyphens)"
     [[ -d "$repo/.""juvant" ]] && die "$repo is a juvant-os v1 repo"
     for f in .claude/juvant-os.json .claude/juvant-os-project.json .claude/settings.json .claude/CLAUDE.md; do
@@ -90,18 +98,24 @@ This repository belongs to project \`$slug\`. The company's rules apply here:
 - **Hard limits** are the same as in the company repo and enforced by the same hooks: outbound is draft-only, no payments or invoice issuing, no secrets in files or commands, destructive changes ask the CEO.
 - **The manifesto here is a copy.** The Chief of Staff refreshes it from the company repo when it changes.
 EOF
-    state="$(write_record "$slug" "${shared:-none}")"
+    state="$(write_record "$slug" "${shared:-none}" "$ours")"
     [[ -d "$COMPANY/memory/projects/$slug" ]] || echo "project-repo: note: memory/projects/$slug doesn't exist yet in the company repo (new-project skill)."
     echo "project-repo: $repo set up for project '$slug' ($state). Nothing is committed."
     ;;
   sharing)
     who="${1:-}"; [[ -n "$who" ]] || die "sharing needs \"<who>\" or none"
+    ours=""; [[ "${2:-}" == --ours ]] && ours=1
+    [[ -z "${2:-}" || -n "$ours" ]] || die "unknown option ${2}"
     [[ -f "$repo/.claude/juvant-os-project.json" ]] || die "$repo has no juvant-os project setup; run install first"
-    state="$(write_record "" "$who")"
+    state="$(write_record "" "$who" "$ours")"
     if [[ "$state" == internal ]]; then
       echo "project-repo: $repo is now internal: the shared-repo rules no longer apply."
     else
-      echo "project-repo: $repo is now shared with $state: pushes to the default branch and PR merges are blocked."
+      if [[ -n "$ours" ]]; then
+        echo "project-repo: $repo is the company's own, shared with $state: PR merges ask the CEO, pushes to the default branch are blocked."
+      else
+        echo "project-repo: $repo is now shared with $state: pushes to the default branch and PR merges are blocked."
+      fi
     fi
     ;;
   status)

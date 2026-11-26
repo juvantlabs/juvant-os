@@ -774,6 +774,20 @@ class SharedRepo(HookCase):
                 self.assertEqual(self.bash(c), "allow")
         self.assertEqual(self.bash("git push origin HEAD:main"), "deny")
 
+    def test_the_companys_own_repository_asks(self):
+        with open(os.path.join(self.repo, ".claude", "juvant-os-project.json"), "w") as f:
+            json.dump({"project": "oss", "company_repo": "/x", "shared_with": "everyone (public repository)", "company_owned": True}, f)
+        for c in ("gh pr merge 12 --squash", "gh pr merge 12 --merge --delete-branch", "gh pr create --title x --body y"):
+            with self.subTest(c=c):
+                self.assertEqual(self.bash(c), "ask")
+        for c in ("git push", "git push origin main", "git push origin HEAD:main", "git push --all"):
+            with self.subTest(c=c):
+                self.assertEqual(self.bash(c), "deny")
+        self.assertEqual(self.bash("gh pr create --draft --title x --body y"), "allow")
+        with open(os.path.join(self.repo, ".claude", "juvant-os-project.json"), "w") as f:
+            json.dump({"project": "oss", "company_repo": "/x", "shared_with": "a client", "company_owned": "yes"}, f)
+        self.assertEqual(self.bash("gh pr merge 12"), "deny", "only true counts")
+
     def test_not_shared_no_rule(self):
         os.remove(os.path.join(self.repo, ".claude", "juvant-os-project.json"))
         self.assertEqual(self.bash("git push origin main"), "allow")

@@ -71,6 +71,17 @@ if [[ -n "$POST" ]]; then
   exit 0
 fi
 
+# GitHub API, with the token of the environment if there is one (CI runners share a small anonymous quota).
+# The token goes only to api.github.com, read from stdin so it never shows in the process list.
+github_api() {
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [[ -n "$token" && "$1" == https://api.github.com/* ]]; then
+    curl -fsSL --retry 2 -H @- "$1" <<< "Authorization: Bearer $token" || curl -fsSL --retry 2 "$1"  # a stale token: anonymously
+  else
+    curl -fsSL --retry 2 "$1"
+  fi
+}
+
 TMP=""
 # shellcheck disable=SC2329  # called by the EXIT trap
 cleanup() { [[ -n "$TMP" ]] && rm -rf "$TMP"; return 0; }
@@ -84,7 +95,7 @@ else
   [[ -n "$SLUG" ]] || { echo "update: $REPO_URL is not a GitHub repository: releases can't be checked" >&2; exit 2; }
   API="${JUVANT_OS_API:-https://api.github.com}/repos/$SLUG/releases"
   published() { # <tag> [stable]: prints the tag if it is a published release (stable: not a pre-release)
-    curl -fsSL "$API/tags/$1" 2>/dev/null | python3 -c '
+    github_api "$API/tags/$1" 2>/dev/null | python3 -c '
 import json, sys
 try: r = json.load(sys.stdin)
 except Exception: sys.exit(1)
