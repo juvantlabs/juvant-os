@@ -67,6 +67,21 @@ check "shared again without --ours: no longer ours" "! grep -q company_owned '$P
 bash "$PRS" sharing "$PRJ" "x" --nope >/dev/null 2>&1; check "unknown sharing option refused" "[[ \$? != 0 ]]"
 bash "$PRS" sharing "$PRJ" none >/dev/null
 check "sharing off: record empty, notice gone" "grep -q '\"shared_with\": \"\"' '$PRJ/.claude/juvant-os-project.json' && ! grep -q 'This repository is shared with' '$PRJ/.claude/CLAUDE.md'"
+check "no local path in the record" "! grep -q company_repo '$PRJ/.claude/juvant-os-project.json' && ! grep -qF '$T' '$PRJ/.claude/juvant-os-project.json'"
+PUB="$T/helix-oss"; mkdir -p "$PUB"
+bash "$PRS" install "$PUB" --project helix --shared-with "everyone (public repository)" --ours --minimal >/dev/null; rc=$?
+check "minimal install exits 0" "[[ $rc == 0 ]]"
+# shellcheck disable=SC2034  # read inside check()'s eval
+pubfiles=$(cd "$PUB/.claude" && find . -type f | sort | tr '\n' ' ')
+check "minimal: only the hard-limit files" "[[ \"\$pubfiles\" == './CLAUDE.md ./hooks/juvant_hooks.py ./hooks/limits.json ./juvant-os-project.json ./juvant-os.json ./settings.json ' ]]"
+check "minimal: no manifesto copy or import" "[[ ! -e '$PUB/.claude/company-manifesto.md' ]] && ! grep -q 'manifesto' '$PUB/.claude/CLAUDE.md'"
+check "minimal: public notice written" "grep -q 'This repository is shared with everyone (public repository)' '$PUB/.claude/CLAUDE.md' && grep -q 'the CEO confirms every merge' '$PUB/.claude/CLAUDE.md'"
+bash "$PRS" sharing "$PUB" "everyone (public repository)" --ours >/dev/null
+check "minimal: notice kept when sharing is rewritten" "[[ \$(grep -c 'This repository is shared with' '$PUB/.claude/CLAUDE.md') == 1 ]]"
+check "minimal: no local path in the record" "! grep -q company_repo '$PUB/.claude/juvant-os-project.json'"
+printf '{"project": "helix", "company_repo": "/home/someone/acme", "shared_with": ""}\n' > "$PUB/.claude/juvant-os-project.json"
+bash "$PRS" sharing "$PUB" "everyone (public repository)" --ours >/dev/null
+check "an old record loses its local path" "! grep -q company_repo '$PUB/.claude/juvant-os-project.json'"
 bash "$PRS" sharing "$T/plain" "x" >/dev/null 2>&1; check "sharing on a repo without setup refused" "[[ \$? != 0 ]]"
 bash "$PRS" install "$C" --project x >/dev/null 2>&1; check "install into the company repo itself refused" "[[ \$? != 0 ]]"
 bash "$ROOT/setup.sh" --project-repo "$PRJ" --company-dir "$C" --project helix >/dev/null 2>&1; check "second project setup refused" "[[ \$? == 1 ]]"

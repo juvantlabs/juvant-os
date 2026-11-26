@@ -13,6 +13,7 @@ All commands run from the company repo:
 |---|---|
 | "Link `<repo>` to project `<slug>`" | `bash .claude/skills/project-repo/project-repo.sh install <repo> --project <slug>` |
 | …and people outside the company read it | add `--shared-with "<who, in the CEO's words>"` |
+| …and it is a **public** repository | add `--minimal`: only the hard-limit hooks, the settings and a project notice go in; no skills, agents, dashboard, country pack or manifesto copy, which would publish how the company works inside |
 | "`<repo>` is now shared with `<who>`" / "they now read it too" | `bash .claude/skills/project-repo/project-repo.sh sharing <repo> "<who>"` |
 | "`<repo>` is ours", for the company's own public repositories (its open-source product, its site) | `bash .claude/skills/project-repo/project-repo.sh sharing <repo> "<who>" --ours` |
 | "`<repo>` is internal again" | `bash .claude/skills/project-repo/project-repo.sh sharing <repo> none` |
