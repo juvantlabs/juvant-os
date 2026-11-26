@@ -1543,13 +1543,15 @@ class SessionPermissions(HookCase):
                   "timeout 60 npx @anthropic-ai/claude-code --agent collaborator b", "claude --bg --name mcp b",
                   "claude --agent collaborator --agent cos b", "echo 'claude --bg b' | sh", "python3 -c 'import os; os.system(\"claude -p x\")'",
                   "git commit -m 'Claude' && python3 - <<'E'\nimport os; os.system('claude -p x')\nE",
-                  "echo Claude; python3 < run.py", "echo Claude; xargs -a list sh"):
+                  "echo Claude; python3 < run.py", "echo Claude; xargs -a list sh", "echo 'claude -p x' | bash -s",
+                  "git commit -m Claude && bash <<'E'\nclaude -p x\nE", "bash -c 'claude -p x'", "eval 'claude -p x'"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "deny")
         for c in ("claude --version", "claude mcp list", "claude agents", "timeout 60 claude --bg --agent collaborator b", "grep claude README.md",
                   "command -v claude", "claude --debug mcp list", "claude setup-token",
                   "git commit -q -m \"Fix x\n\nCo-Authored-By: Claude <a@b>\" && python3 scripts/check.py",
-                  "printf 'Claude helped' > notes.md; python3 scripts/report.py notes.md"):
+                  "printf 'Claude helped' > notes.md; python3 scripts/report.py notes.md",
+                  "git commit -m \"Fix\n\nCo-Authored-By: Claude <a@b>\" && bash tests/run.sh"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "allow")
 
