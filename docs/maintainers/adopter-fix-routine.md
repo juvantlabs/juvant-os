@@ -29,6 +29,7 @@ List them: `gh api 'repos/juvantlabs/juvant-os/pulls?state=open&per_page=100' --
    - Is the example in sync (`bash tests/sync-example.sh`)?
    - Is the text generic: no company, people, clients or data?
 3. Run `bash tests/run.sh`.
+   If the PR changes `framework/hooks/`, follow `docs/maintainers/hook-changes.md` too; the replay needs the maintainer's machine, so say in the verdict that it is still to do.
 4. If it needs changes you can make, make them as new commits (never rewrite history). For a branch of this repository, push them to it: `git push origin pr-<n>:<head ref>`. For a fork, or if the push is refused, don't push: put the changes in the comment as a patch.
 5. Comment with marker `reviewed`:
    - what you changed and why;

@@ -542,6 +542,7 @@ class Segment(list):
     """The words of a simple command. piped: its input is another command's output."""
     piped = False
     group = False  # …and that one was in parentheses
+    heredoc = ""  # the heredoc text it reads
     then = ""  # the operator after it
 
 
@@ -576,7 +577,7 @@ class ShellScan:
 
     def __init__(self, text, comments=True):
         self.text, self.n, self.comments = text, len(text), comments
-        self.sequences, self.bodies, self.waiting = [], [], 0
+        self.sequences, self.bodies, self.waiting, self.from_bodies = [], [], 0, []
         self.unsure = bool(re.search(r"[$<>(]\\\n", text))  # an operator split over two lines
         self.commands(0, None, [])
         for body, cds in self.bodies:
@@ -587,7 +588,13 @@ class ShellScan:
                     inner = ShellScan(body, comments=False)
                 except ValueError:
                     continue  # not shell; the command that reads it is checked by its own words
-                self.sequences += [cds + seq for seq in inner.sequences]
+                body_seqs = [cds + seq for seq in inner.sequences]
+                self.from_bodies += [id(x) for x in body_seqs]
+                self.sequences += body_seqs
+
+    def commands_run(self):
+        """The sequences of commands the shell runs: not the text of heredocs read as if it were commands."""
+        return [x for x in self.sequences if id(x) not in self.from_bodies]
 
     def inert(self):
         for seq in self.sequences:
@@ -717,8 +724,10 @@ class ShellScan:
             elif ch == "\n":
                 end_segment()
                 i += 1
-                for delim, strip, quoted in pending:
+                for delim, strip, quoted, reader in pending:
+                    start = i
                     i = self.heredoc(i, delim, strip, quoted, cds)
+                    reader.heredoc = (reader.heredoc or "") + self.text[start:i]
                 self.waiting -= len(pending)
                 pending = []
             elif ch in " \t":
@@ -736,7 +745,7 @@ class ShellScan:
                     if not m:
                         raise ValueError("heredoc delimiter")
                     i = m.end()
-                    pending.append((m.group(2), op == "<<-", bool(m.group(1))))
+                    pending.append((m.group(2), op == "<<-", bool(m.group(1)), seg))
                     self.unsure = self.unsure or "((" in text or "$[" in text  # arithmetic has << too
                     self.waiting += 1
                 elif "<" in op or ">" in op:
@@ -838,7 +847,7 @@ class ShellScan:
                     j = 0
                     part = ShellScan.__new__(ShellScan)
                     part.text, part.n, part.comments = body, len(body), True
-                    part.sequences, part.bodies, part.unsure, part.waiting = [], [], False, 0
+                    part.sequences, part.bodies, part.unsure, part.waiting, part.from_bodies = [], [], False, 0, []
                     while j < len(body):
                         if body[j] == "\\":
                             j += 2
@@ -2251,20 +2260,42 @@ STARTS_CLAUDE = re.compile(r"(^|[\s/;&|(@'\"`])claude(-code)?(?=[\s'\"`;&|)]|$|@
                            + r"|-v|--version|-h|--help)(\s|$|['\"`;&|)]))", re.I)
 
 
+# The claude command as a program writes it: lower case, then an option, quoted text or the end; or alone between quotes,
+# as code passes it (['claude', '-p']). Prose ("Claude Code", "another Claude session") isn't one.
+LAUNCH_TEXT = re.compile(r"(^|[\s;&|(`'\"]|(?<![\w.])/(?:[\w.-]+/)*|@[\w.-]+/)claude(-code)?(?=\s+(-{1,2}[A-Za-z]|['\"])|[ \t]*($|[;&|`]))"
+                         r"|(?<=['\"])claude(-code)?(?=['\"])", re.M)
+
+
+def launch_text_in(segments):
+    """True if a launch is written somewhere in these commands: in a word (not `claude` alone as an argument, as in
+    `grep claude`) or in a heredoc."""
+    for words in segments:
+        if LAUNCH_TEXT.search(getattr(words, "heredoc", "") or ""):
+            return True
+        if any(w != "claude" and LAUNCH_TEXT.search(w) for w in words[1:]):
+            return True
+    return False
+
+
 def claude_launch_problem(command, cwd):
     """("deny"|"ask", why) for a `claude` launch that drops the hooks or permissions, or uses
     settings the CEO hasn't approved; None otherwise."""
     if "claude" not in command.lower():
         return None
     if STARTS_CLAUDE.search(command):
-        for words in shell_segments(command) or []:
-            core = [w for w in words if not ASSIGNMENT.match(w)]
-            while core and (os.path.basename(core[0]) in LAUNCHERS or core[0] in OPENERS or re.fullmatch(r"-[\w-]+|\d+[smhd]?", core[0])):
-                core.pop(0)
-            if core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS):
-                return "deny", ("this may start a Claude session through another program, where the hard limits can't see who it "
-                                "is. Start it directly: `claude … --agent collaborator`")
-    for segments in shell_sequences(command):
+        scan = shell_scan(command)
+        sequences = scan.commands_run() if scan else [plain_segments(command)]
+        segments = [w for seq in sequences for w in seq]
+        if launch_text_in(segments):
+            for words in segments:
+                core = [w for w in words if not ASSIGNMENT.match(w)]
+                while core and (os.path.basename(core[0]) in LAUNCHERS or core[0] in OPENERS or re.fullmatch(r"-[\w-]+|\d+[smhd]?", core[0])):
+                    core.pop(0)
+                if core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS):
+                    return "deny", ("this may start a Claude session through another program, where the hard limits can't see who it "
+                                    "is. Start it directly: `claude … --agent collaborator`")
+    scan = shell_scan(command)
+    for segments in (scan.commands_run() if scan else [plain_segments(command)]):  # heredoc text isn't run
         found = claude_launch_problem_in(segments, cwd)
         if found != None:
             return found

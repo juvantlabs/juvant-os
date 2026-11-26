@@ -1541,11 +1541,22 @@ class SessionPermissions(HookCase):
                   "claude -c --agent collaborator -p hi", "claude --resume abc --agent collaborator", "claude -r abc --agent collaborator",
                   "claude --fork-session --agent collaborator b", "nohup sh -c 'claude --bg --agent collaborator b'",
                   "timeout 60 npx @anthropic-ai/claude-code --agent collaborator b", "claude --bg --name mcp b",
-                  "claude --agent collaborator --agent cos b", "echo 'claude --bg b' | sh", "python3 -c 'import os; os.system(\"claude -p x\")'"):
+                  "claude --agent collaborator --agent cos b", "echo 'claude --bg b' | sh", "python3 -c 'import os; os.system(\"claude -p x\")'",
+                  "git commit -m 'Claude' && python3 - <<'E'\nimport os; os.system('claude -p x')\nE",
+                  "echo 'claude -p x' > run.sh; sh < run.sh", "echo 'claude -p x' > list; xargs -a list sh -c", "echo 'claude -p x' | bash -s",
+                  "git commit -m Claude && bash <<'E'\nclaude -p x\nE", "bash -c 'claude -p x'", "eval 'claude -p x'",
+                  "python3 -c \"import subprocess; subprocess.run(['claude','-p','x'])\"", "node -e \"spawn('claude',['-p'])\"",
+                  "cat <<'E' | sh\nclaude -p x\nE", "(echo 'claude -p x') | sh", "{ echo 'claude -p x'; } | sh",
+                  "cat > l.sh <<'E'\nclaude -p x\nE\nbash l.sh", "echo 'claude -p x' > l.sh; sh l.sh"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "deny")
         for c in ("claude --version", "claude mcp list", "claude agents", "timeout 60 claude --bg --agent collaborator b", "grep claude README.md",
-                  "command -v claude", "claude --debug mcp list", "claude setup-token"):
+                  "command -v claude", "claude --debug mcp list", "claude setup-token",
+                  "git commit -q -m \"Fix x\n\nCo-Authored-By: Claude <a@b>\" && python3 scripts/check.py",
+                  "printf 'Claude helped' > notes.md; python3 scripts/report.py notes.md",
+                  "git commit -m \"Fix\n\nCo-Authored-By: Claude <a@b>\" && bash tests/run.sh",
+                  "grep -rl claude docs | xargs wc -l", "rg -c claude logs | python3 count.py",
+                  "git commit -m \"x\n\nCo-Authored-By: Claude <a@b>\" && xargs -a files.txt wc -l"):
             with self.subTest(c=c):
                 self.assertEqual(self.call("Bash", {"command": c}), "allow")
 
