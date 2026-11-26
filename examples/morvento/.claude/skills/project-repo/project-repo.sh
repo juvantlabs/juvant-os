@@ -2,7 +2,10 @@
 # .claude/skills/project-repo/project-repo.sh — give a project's repository the
 # company's hard limits, and record who outside the company reads it.
 #
-#   project-repo.sh install <repo> --project <slug> [--shared-with "<who>" [--ours]]
+#   project-repo.sh install <repo> --project <slug> [--shared-with "<who>" [--ours]] [--minimal]
+#                                                     (--minimal: for a public repository, only the hard-limit
+#                                                     hooks, the settings and a project notice: no skills,
+#                                                     agents, dashboard, country pack or manifesto copy)
 #   project-repo.sh sharing <repo> "<who>" [--ours]   mark the repo as read outside the company
 #                                                     (--ours: it is the company's own, e.g. its open-source product)
 #   project-repo.sh sharing <repo> none          mark it internal again
@@ -11,7 +14,8 @@
 # Runs from the company repo's own .claude/ (the installed framework is the
 # source: no juvant-os clone needed). install copies the framework files, the
 # company's settings, a copy of the manifesto, a project .claude/CLAUDE.md and
-# .claude/juvant-os-project.json. In a shared repo the hooks block pushing to the
+# .claude/juvant-os-project.json (--minimal: only the hooks, the settings and
+# the notice). In a shared repo the hooks block pushing to the
 # default branch and merging PRs, and allow only draft PRs. Nothing is committed.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -21,7 +25,7 @@ die() { echo "project-repo: $*" >&2; exit 1; }
   || die "run me from a juvant-os v2 company repo (.claude/skills/project-repo/); $COMPANY isn't one"
 
 cmd="${1:-}"; repo="${2:-}"
-[[ -n "$cmd" && -n "$repo" ]] || { sed -n '2,15p' "$0" >&2; exit 2; }
+[[ -n "$cmd" && -n "$repo" ]] || { sed -n '2,19p' "$0" >&2; exit 2; }
 [[ -d "$repo" ]] || die "$repo doesn't exist"
 repo="$(cd "$repo" && pwd)"
 [[ "$repo" != "$COMPANY" ]] || die "that's the company repo itself"
@@ -39,7 +43,8 @@ if os.path.exists(p):
         rec = json.load(f)
 if slug:
     rec["project"] = slug
-rec["company_repo"] = company
+# The record is committed in the project repo, which may be public: no local paths in it.
+rec.pop("company_repo", None)
 rec["shared_with"] = "" if shared.lower() == "none" else shared.strip()
 rec.pop("company_owned", None)
 if ours and rec["shared_with"]:
@@ -57,7 +62,11 @@ if rec["shared_with"]:
               + ("It is the company's own repository: work on a branch and open a PR; the CEO confirms every merge, and pushes "
                  "to the default branch are blocked. The hooks enforce it." if rec.get("company_owned") else
                  "Work on a branch and open a draft PR; the CEO merges. The hooks enforce it.") + f"\n{end}\n")
-    text = text.replace("- **The manifesto here is a copy.**", notice + "- **The manifesto here is a copy.**", 1)
+    anchor = "- **The manifesto here is a copy.**"
+    if anchor in text:
+        text = text.replace(anchor, notice + anchor, 1)
+    else:  # a minimal CLAUDE.md has no manifesto line: the notice goes at the end
+        text = text.rstrip("\n") + "\n" + notice
 with open(c, "w", encoding="utf-8") as f:
     f.write(text)
 print(rec["shared_with"] or "internal")
@@ -66,9 +75,10 @@ PY
 
 case "$cmd" in
   install)
-    slug=""; shared=""; ours=""
+    slug=""; shared=""; ours=""; minimal=""
     while [[ $# -gt 0 ]]; do
       if [[ "$1" == --ours ]]; then ours=1; shift; continue; fi
+      if [[ "$1" == --minimal ]]; then minimal=1; shift; continue; fi
       [[ $# -ge 2 ]] || die "$1 needs a value"
       case "$1" in --project) slug="$2" ;; --shared-with) shared="$2" ;; *) die "unknown option $1" ;; esac
       shift 2
@@ -80,14 +90,27 @@ case "$cmd" in
       [[ -e "$repo/$f" ]] && die "$repo/$f already exists. Move it away or merge by hand; I never overwrite."
     done
     mkdir -p "$repo/.claude"
-    for d in agents hooks skills dashboard juvant-os country; do
-      [[ -d "$COMPANY/.claude/$d" ]] && cp -R "$COMPANY/.claude/$d" "$repo/.claude/"
-    done
     cp "$COMPANY/.claude/juvant-os.json" "$repo/.claude/juvant-os.json"
     cp "$COMPANY/.claude/settings.json" "$repo/.claude/settings.json"
-    cp "$COMPANY/manifesto.md" "$repo/.claude/company-manifesto.md"
     company_name="$(sed -n 's/^# \(.*\) manifesto$/\1/p' "$COMPANY/manifesto.md" | head -1)"
-    cat > "$repo/.claude/CLAUDE.md" <<EOF
+    if [[ -n "$minimal" ]]; then
+      # Public repository: the hard limits only. The hook runs on these two files alone and fails closed without them.
+      mkdir -p "$repo/.claude/hooks"
+      cp "$COMPANY/.claude/hooks/juvant_hooks.py" "$COMPANY/.claude/hooks/limits.json" "$repo/.claude/hooks/"
+      cat > "$repo/.claude/CLAUDE.md" <<EOF
+# Project $slug of ${company_name:-the company}
+
+This repository belongs to project \`$slug\`. The company's rules apply here.
+
+- **Memory** for this project lives in the company repo, in \`memory/projects/$slug/\` (card, decisions, knowledge, journal), not here. If the company repo is checked out next to this one, read the card before starting and propose decisions and facts for it; otherwise list them at the end of the session for the Chief of Staff to record.
+- **Hard limits** are the same as in the company repo and enforced by the same hooks: outbound is draft-only, no payments or invoice issuing, no secrets in files or commands, destructive changes ask the CEO.
+EOF
+    else
+      for d in agents hooks skills dashboard juvant-os country; do
+        [[ -d "$COMPANY/.claude/$d" ]] && cp -R "$COMPANY/.claude/$d" "$repo/.claude/"
+      done
+      cp "$COMPANY/manifesto.md" "$repo/.claude/company-manifesto.md"
+      cat > "$repo/.claude/CLAUDE.md" <<EOF
 # Project $slug of ${company_name:-the company}
 
 This repository belongs to project \`$slug\`. The company's rules apply here:
@@ -98,6 +121,7 @@ This repository belongs to project \`$slug\`. The company's rules apply here:
 - **Hard limits** are the same as in the company repo and enforced by the same hooks: outbound is draft-only, no payments or invoice issuing, no secrets in files or commands, destructive changes ask the CEO.
 - **The manifesto here is a copy.** The Chief of Staff refreshes it from the company repo when it changes.
 EOF
+    fi
     state="$(write_record "$slug" "${shared:-none}" "$ours")"
     [[ -d "$COMPANY/memory/projects/$slug" ]] || echo "project-repo: note: memory/projects/$slug doesn't exist yet in the company repo (new-project skill)."
     echo "project-repo: $repo set up for project '$slug' ($state). Nothing is committed."
