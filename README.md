@@ -123,7 +123,7 @@ Skills are country-neutral. A country pack adds the local legal, fiscal, marketi
 **1. Install from an official release** (juvant-os installs from nothing else):
 
 ```bash
-git clone --branch v2.1.0 https://github.com/juvantlabs/juvant-os.git /tmp/juvant-os
+git clone --branch v2.1.1 https://github.com/juvantlabs/juvant-os.git /tmp/juvant-os
 bash /tmp/juvant-os/setup.sh ~/Projects/acme --company "Acme" --language English
 ```
 
