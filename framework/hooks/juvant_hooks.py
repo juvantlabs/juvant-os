@@ -2260,22 +2260,21 @@ STARTS_CLAUDE = re.compile(r"(^|[\s/;&|(@'\"`])claude(-code)?(?=[\s'\"`;&|)]|$|@
                            + r"|-v|--version|-h|--help)(\s|$|['\"`;&|)]))", re.I)
 
 
-# The claude command as a program writes it: lower case, then an option, quoted text or the end. Prose ("Claude Code",
-# "another Claude session") isn't one.
-LAUNCH_TEXT = re.compile(r"(^|[\s;&|(`'\"]|(?<![\w.])/(?:[\w.-]+/)*|@[\w.-]+/)claude(-code)?(?=\s+(-{1,2}[A-Za-z]|['\"])|[ \t]*($|[;&|`]))", re.M)
+# The claude command as a program writes it: lower case, then an option, quoted text or the end; or alone between quotes,
+# as code passes it (['claude', '-p']). Prose ("Claude Code", "another Claude session") isn't one.
+LAUNCH_TEXT = re.compile(r"(^|[\s;&|(`'\"]|(?<![\w.])/(?:[\w.-]+/)*|@[\w.-]+/)claude(-code)?(?=\s+(-{1,2}[A-Za-z]|['\"])|[ \t]*($|[;&|`]))"
+                         r"|(?<=['\"])claude(-code)?(?=['\"])", re.M)
 
 
-def runner_fed_claude(words, core, upstream):
-    """True if this runner, or this interpreter, may be handed a claude command: its own words name it, the commands piped
-    into it do, or it reads text from elsewhere (a redirect, a heredoc, a file of commands). A mention elsewhere in the
-    command, such as a commit message, doesn't count."""
-    if os.path.basename(core[0]) in ("xargs", "parallel", "su", "script") and not upstream:
-        return True  # they build commands from what they read: here not from a pipe, so from anywhere
-    if getattr(words, "heredoc", "") and LAUNCH_TEXT.search(words.heredoc):
-        return True  # its heredoc names it
-    if any(w in ("<", "<>") for w in words):
-        return True  # a file: it may hold the mention
-    return any(LAUNCH_TEXT.search(w) for x in upstream + [words] for w in x)
+def launch_text_in(segments):
+    """True if a launch is written somewhere in these commands: in a word (not `claude` alone as an argument, as in
+    `grep claude`) or in a heredoc."""
+    for words in segments:
+        if LAUNCH_TEXT.search(getattr(words, "heredoc", "") or ""):
+            return True
+        if any(w != "claude" and LAUNCH_TEXT.search(w) for w in words[1:]):
+            return True
+    return False
 
 
 def claude_launch_problem(command, cwd):
@@ -2286,18 +2285,15 @@ def claude_launch_problem(command, cwd):
     if STARTS_CLAUDE.search(command):
         scan = shell_scan(command)
         sequences = scan.commands_run() if scan else [plain_segments(command)]
-        for seq in sequences:
-            upstream = []
-            for words in seq:
-                upstream = upstream if getattr(words, "piped", False) else []
+        segments = [w for seq in sequences for w in seq]
+        if launch_text_in(segments):
+            for words in segments:
                 core = [w for w in words if not ASSIGNMENT.match(w)]
                 while core and (os.path.basename(core[0]) in LAUNCHERS or core[0] in OPENERS or re.fullmatch(r"-[\w-]+|\d+[smhd]?", core[0])):
                     core.pop(0)
-                runs = core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS)
-                if runs and runner_fed_claude(words, core, upstream):
+                if core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS):
                     return "deny", ("this may start a Claude session through another program, where the hard limits can't see who it "
                                     "is. Start it directly: `claude … --agent collaborator`")
-                upstream = upstream + [words]
     scan = shell_scan(command)
     for segments in (scan.commands_run() if scan else [plain_segments(command)]):  # heredoc text isn't run
         found = claude_launch_problem_in(segments, cwd)
