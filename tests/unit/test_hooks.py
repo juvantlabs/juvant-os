@@ -600,6 +600,25 @@ class ContextAndActivity(HookCase):
         self.assertLessEqual(len(rows[2]["outcome"]), 160)
         self.assertNotIn("\n", rows[2]["outcome"])
 
+    def test_state_is_ignored_in_a_project_repo(self):
+        # A project repository (possibly public) must never commit the hooks' local state.
+        os.makedirs(os.path.join(self.repo, ".claude"), exist_ok=True)
+        with open(os.path.join(self.repo, ".claude", "juvant-os-project.json"), "w", encoding="utf-8") as f:
+            json.dump({"project": "p", "shared_with": "everyone"}, f)
+        self.run_hook("stop", {"session_id": "s1", "last_assistant_message": "Done."})
+        self.assertTrue(self.state("activity.jsonl"))
+        with open(os.path.join(self.repo, "state", ".gitignore"), encoding="utf-8") as f:
+            self.assertIn("*", f.read().split())
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        out = subprocess.run(["git", "-C", self.repo, "status", "--porcelain", "--untracked-files=all"],
+                             capture_output=True, text=True, check=True).stdout
+        self.assertNotIn("state/", out)
+
+    def test_state_stays_tracked_in_the_company_repo(self):
+        self.run_hook("stop", {"session_id": "s1", "last_assistant_message": "Done."})
+        self.assertTrue(self.state("activity.jsonl"))
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "state", ".gitignore")))
+
     def test_helper_subagents_log_no_outcome(self):
         self.run_hook("subagent-stop", {"session_id": "s", "agent_id": "a1", "last_assistant_message": "sì, l'ho vista e approvata"})
         self.run_hook("subagent-stop", {"session_id": "s", "agent_id": "a2", "agent_type": "legal",
