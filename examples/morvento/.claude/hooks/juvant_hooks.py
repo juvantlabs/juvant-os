@@ -2251,6 +2251,16 @@ STARTS_CLAUDE = re.compile(r"(^|[\s/;&|(@'\"`])claude(-code)?(?=[\s'\"`;&|)]|$|@
                            + r"|-v|--version|-h|--help)(\s|$|['\"`;&|)]))", re.I)
 
 
+def runner_fed_claude(words, core):
+    """True if this runner, or this interpreter, may be handed a claude command: its own words name it, or it reads text that
+    isn't in its words (a pipe, a redirect or heredoc, stdin). A mention elsewhere in the command (a commit message) doesn't count."""
+    if os.path.basename(core[0]) in RUNNERS:
+        return True  # a shell, xargs and the like: any mention in the command may reach them
+    if getattr(words, "piped", False) or "-" in core[1:] or any(w.startswith("<") or w.endswith("<") for w in words):
+        return True
+    return bool(STARTS_CLAUDE.search(" ".join(words)))
+
+
 def claude_launch_problem(command, cwd):
     """("deny"|"ask", why) for a `claude` launch that drops the hooks or permissions, or uses
     settings the CEO hasn't approved; None otherwise."""
@@ -2261,7 +2271,7 @@ def claude_launch_problem(command, cwd):
             core = [w for w in words if not ASSIGNMENT.match(w)]
             while core and (os.path.basename(core[0]) in LAUNCHERS or core[0] in OPENERS or re.fullmatch(r"-[\w-]+|\d+[smhd]?", core[0])):
                 core.pop(0)
-            if core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS):
+            if core and (os.path.basename(core[0]) in RUNNERS or os.path.basename(core[0]) in INTERPRETERS) and runner_fed_claude(words, core):
                 return "deny", ("this may start a Claude session through another program, where the hard limits can't see who it "
                                 "is. Start it directly: `claude … --agent collaborator`")
     for segments in shell_sequences(command):
