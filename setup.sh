@@ -46,6 +46,17 @@ fi
 
 [[ $# -ge 1 && "$1" != -* ]] || { sed -n '2,22p' "$0" >&2; exit 2; }
 
+# GitHub API, with the token of the environment if there is one (CI runners share a small anonymous quota).
+# The token goes only to api.github.com, read from stdin so it never shows in the process list.
+github_api() {
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [[ -n "$token" && "$1" == https://api.github.com/* ]]; then
+    curl -fsSL --retry 2 -H @- "$1" <<< "Authorization: Bearer $token" || curl -fsSL --retry 2 "$1"  # a stale token: anonymously
+  else
+    curl -fsSL --retry 2 "$1"
+  fi
+}
+
 # Only an official release installs: HEAD must be exactly a release tag of the
 # upstream repo (same commit), the framework unmodified, and the release published
 # on GitHub. JUVANT_OS_DEV=1 skips this for the framework's own tests.
@@ -58,7 +69,7 @@ if [[ "${JUVANT_OS_DEV:-}" != 1 ]]; then
   UP_SHA="$(git ls-remote --tags "$REPO_URL" "refs/tags/$TAG" "refs/tags/$TAG^{}" 2>/dev/null | awk '{print $1}' | tail -1)"
   [[ -n "$UP_SHA" && "$UP_SHA" == "$HEAD_SHA" ]] || refuse "$TAG here is not the same commit as $TAG upstream"
   SLUG="${JUVANT_OS_RELEASE_SLUG:-$(sed -nE 's#^(https://|git@)github\.com[/:]([^/]+/[^/]+)$#\2#p' <<< "${REPO_URL%.git}")}"
-  curl -fsSL "${JUVANT_OS_API:-https://api.github.com}/repos/$SLUG/releases/tags/$TAG" 2>/dev/null | python3 -c '
+  github_api "${JUVANT_OS_API:-https://api.github.com}/repos/$SLUG/releases/tags/$TAG" 2>/dev/null | python3 -c '
 import json, sys
 try: r = json.load(sys.stdin)
 except Exception: sys.exit(1)

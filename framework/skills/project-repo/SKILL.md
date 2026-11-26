@@ -14,6 +14,7 @@ All commands run from the company repo:
 | "Link `<repo>` to project `<slug>`" | `bash .claude/skills/project-repo/project-repo.sh install <repo> --project <slug>` |
 | …and people outside the company read it | add `--shared-with "<who, in the CEO's words>"` |
 | "`<repo>` is now shared with `<who>`" / "they now read it too" | `bash .claude/skills/project-repo/project-repo.sh sharing <repo> "<who>"` |
+| "`<repo>` is ours", for the company's own public repositories (its open-source product, its site) | `bash .claude/skills/project-repo/project-repo.sh sharing <repo> "<who>" --ours` |
 | "`<repo>` is internal again" | `bash .claude/skills/project-repo/project-repo.sh sharing <repo> none` |
 | "How is `<repo>` set up?" | `bash .claude/skills/project-repo/project-repo.sh status <repo>` |
 
@@ -25,4 +26,4 @@ After each change:
 2. Tell the CEO what changed in one line, and that the change in the repository is not committed: commit it there on a branch with a draft PR if the repository is shared.
 3. If `install` stops because the repository already has `.claude/settings.json` or `.claude/CLAUDE.md`, show the CEO what's there and propose a merge by hand.
 
-**What "shared" changes** in that repository: pushing to the default branch, merging pull requests and opening non-draft pull requests are blocked; sessions there are told who reads it and never copy the company's memory into it. "Shared with" is the CEO's statement of who reads it, not a list of accounts: the session-start check warns when GitHub shows outside collaborators on a repository that isn't marked shared.
+**What "shared" changes** in that repository: pushing to the default branch, merging pull requests and opening non-draft pull requests are blocked. In a repository marked **ours**, merging and opening a pull request for review ask the CEO instead, and the push to the default branch stays blocked: use `--ours` only for repositories the company owns and publishes itself, never for a client's or a partner's; sessions there are told who reads it and never copy the company's memory into it. "Shared with" is the CEO's statement of who reads it, not a list of accounts: the session-start check warns when GitHub shows outside collaborators on a repository that isn't marked shared.

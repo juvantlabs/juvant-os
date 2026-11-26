@@ -60,6 +60,11 @@ bash "$PRS" sharing "$PRJ" "the auditors" >/dev/null
 check "sharing on: record and notice" "grep -q '\"shared_with\": \"the auditors\"' '$PRJ/.claude/juvant-os-project.json' && grep -q 'shared with the auditors' '$PRJ/.claude/CLAUDE.md'"
 bash "$PRS" sharing "$PRJ" "the auditors and the bank" >/dev/null
 check "sharing changed: one notice only" "[[ \$(grep -c 'This repository is shared with' '$PRJ/.claude/CLAUDE.md') == 1 ]] && grep -q 'the auditors and the bank' '$PRJ/.claude/CLAUDE.md'"
+bash "$PRS" sharing "$PRJ" "everyone (public repository)" --ours >/dev/null
+check "ours: recorded, notice says the CEO confirms merges" "grep -q '\"company_owned\": true' '$PRJ/.claude/juvant-os-project.json' && grep -q 'the CEO confirms every merge' '$PRJ/.claude/CLAUDE.md'"
+bash "$PRS" sharing "$PRJ" "the auditors" >/dev/null
+check "shared again without --ours: no longer ours" "! grep -q company_owned '$PRJ/.claude/juvant-os-project.json'"
+bash "$PRS" sharing "$PRJ" "x" --nope >/dev/null 2>&1; check "unknown sharing option refused" "[[ \$? != 0 ]]"
 bash "$PRS" sharing "$PRJ" none >/dev/null
 check "sharing off: record empty, notice gone" "grep -q '\"shared_with\": \"\"' '$PRJ/.claude/juvant-os-project.json' && ! grep -q 'This repository is shared with' '$PRJ/.claude/CLAUDE.md'"
 bash "$PRS" sharing "$T/plain" "x" >/dev/null 2>&1; check "sharing on a repo without setup refused" "[[ \$? != 0 ]]"
